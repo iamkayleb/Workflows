@@ -1,5 +1,5 @@
 <!-- pr-preamble:start -->
-> **Source:** Issue #478
+> **Source:** Issue #518
 
 <!-- pr-preamble:end -->
 
@@ -9,18 +9,21 @@
 _Scope section missing from source issue._
 
 #### Tasks
-- [x] Create `scripts/langchain/issue_formatter.py` with formatting chain
-- [x] Create `ISSUE_FORMATTER_PROMPT` with template rules
-- [ ] Add workflow trigger for `agents:format` label
-- [ ] Update issue body with formatted version
-- [ ] Add `agents:formatted` label on completion
-- [x] Add tests for common formatting scenarios
+- [x] Create `scripts/langchain/issue_optimizer.py` with analyzer chain
+- [x] Create `ANALYZE_ISSUE_PROMPT` with agent limitations context
+- [x] Create suggestion comment formatter with embedded JSON
+- [x] Add workflow trigger for `agents:optimize` label (Phase 1)
+- [x] Add workflow trigger for `agents:apply-suggestions` label (Phase 2)
+- [x] Extract suggestions JSON and route to Formatter (#478)
+- [x] Add label management (remove optimize/apply, add formatted)
+- [x] Add tests for analyze and apply phases
 
 #### Acceptance criteria
-- [x] Raw issue body converted to AGENT_ISSUE_TEMPLATE format
-- [ ] Tasks are specific, verifiable, iteration-sized (~10 min each)
-- [ ] Bullets only used for actual actionable items
-- [ ] `agents:format` → `agents:formatted` label transition works
-- [x] File paths extracted and included when mentioned
+- [x] `agents:optimize` triggers analysis comment with structured suggestions
+- [ ] Suggestions include task splitting, blocked task identification, objective criteria
+- [ ] Comment contains `<- Updated WORKFLOW_OUTPUTS.md suggestions-json: {...} -->` marker
+- [x] `agents:apply-suggestions` extracts JSON and calls Formatter
+- [x] Issue body updated with applied improvements
+- [ ] Labels cleaned up appropriately
 
 <!-- auto-status-summary:end -->
