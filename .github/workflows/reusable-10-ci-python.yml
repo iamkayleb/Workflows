@@ -340,7 +340,7 @@ jobs:
 
       # Inlined from .github/actions/python-ci-setup for external repo compatibility
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
 
@@ -620,7 +620,7 @@ jobs:
 
       # Inlined from .github/actions/python-ci-setup for external repo compatibility
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
 
@@ -908,7 +908,7 @@ jobs:
 
       # Inlined from .github/actions/python-ci-setup for external repo compatibility
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ steps.mypy-pin.outputs.python-version || inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
 
@@ -1239,7 +1239,7 @@ jobs:
 
       # Inlined from .github/actions/python-ci-setup for external repo compatibility
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
