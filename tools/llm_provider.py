@@ -191,7 +191,8 @@ class GitHubModelsProvider(LLMProvider):
         # BS Detection Rule 2: Very short analysis text = likely data loss
         if quality_context.analysis_text_length < 200:
             warnings.append(
-                f"Analysis text suspiciously short ({quality_context.analysis_text_length} chars) - "
+                f"Analysis text suspiciously short "
+                f"({quality_context.analysis_text_length} chars) - "
                 "possible data loss in pipeline"
             )
             # Short text means limited evidence - cap confidence
@@ -241,7 +242,7 @@ class GitHubModelsProvider(LLMProvider):
         self,
         session_output: str,
         tasks: list[str],
-        context: str | None = None,
+        _context: str | None = None,
     ) -> str:
         task_list = "\n".join(f"- [ ] {task}" for task in tasks)
 
@@ -277,12 +278,13 @@ Respond in JSON format:
     "reasoning": "Brief explanation of your analysis with specific evidence cited"
 }}
 
-Only include tasks in completed/in_progress/blocked if you have evidence. Be conservative - if unsure, don't mark as completed."""
+Only include tasks in completed/in_progress/blocked if you have evidence.
+Be conservative - if unsure, don't mark as completed."""
 
     def _parse_response(
         self,
         content: str,
-        tasks: list[str],
+        _tasks: list[str],
         quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         """Parse LLM response into CompletionAnalysis with BS detection."""
@@ -422,7 +424,7 @@ class RegexFallbackProvider(LLMProvider):
         self,
         session_output: str,
         tasks: list[str],
-        context: str | None = None,
+        _context: str | None = None,
     ) -> CompletionAnalysis:
 
         output_lower = session_output.lower()
