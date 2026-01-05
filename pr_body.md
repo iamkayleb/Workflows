@@ -6,34 +6,46 @@
 <!-- auto-status-summary:start -->
 ## Automated Status Summary
 #### Scope
-_Scope section missing from source issue._
+Related to master tracking issue #484 (LangChain Issue Intake Enhancement).
+
+The `capability_check.py` module is P0 priority as it's designed to prevent wasted agent iterations by pre-validating task compatibility before engaging the keepalive pipeline.
 
 <!-- Updated WORKFLOW_OUTPUTS.md context:start -->
 ## Context for Agent
 
+### Design Decisions & Constraints
+- The `capability_check.py` module is P0 priority as it's designed to prevent wasted agent iterations by pre-validating task compatibility before engaging the keepalive pipeline.
+
 ### Related Issues/PRs
-- [#5](https://github.com/stranske/Workflows/issues/5)
-- [#483](https://github.com/stranske/Workflows/issues/483)
+- [#484](https://github.com/stranske/Workflows/issues/484)
+- [#540](https://github.com/stranske/Workflows/issues/540)
 
 ### References
-- https://github.com/stranske/Workflows/blob/main/docs/plans/langchain-issue-intake-proposal.md
-- https://github.com/stranske/Workflows/compare/main...codex/issue-483?expand=1
-
-### Blockers & Dependencies
-- After PR merges, capture what worked/didn't for future issue formatting improvements.
+- https://github.com/stranske/Workflows/compare/main...codex/issue-540?expand=1
 <!-- Updated WORKFLOW_OUTPUTS.md context:end -->
 
 #### Tasks
-- [x] Design data collection schema for post-merge metrics
-- [x] Track iteration count, completion rate, human interventions
-- [x] Build corpus of successful issue patterns
-- [ ] Create feedback loop to improve formatting prompts
-- [ ] Add visualization/reporting for patterns
+- [x] Create `tests/scripts/test_capability_check.py` with tests for:
+- [x] `classify_capabilities()` main function
+- [x] `_normalize_result()` JSON normalization
+- [x] `_parse_tasks_from_text()` markdown parsing
+- [x] Fallback behavior when LLM unavailable
+- [x] CLI argument handling in `main()`
+- [x] Improve `issue_optimizer.py` coverage (target: 70%):
+- [x] Test LLM chain invocation paths
+- [x] Test suggestion extraction and formatting
+- [x] Test edge cases for empty/malformed inputs
+- [ ] Improve `semantic_matcher.py` coverage (target: 70%):
+- [x] Test embedding generation paths
+- [ ] Test fallback when no embedding client available
+- [ ] Improve `task_decomposer.py` coverage (target: 70%):
+- [x] Test LLM decomposition paths
+- [x] Test normalization edge cases
 
 #### Acceptance criteria
-- [x] Post-merge metrics captured automatically
-- [x] Successful patterns identified
-- [ ] Formatting prompts improve over time
-- [ ] Dashboard or report available for review
+- [ ] All langchain modules have corresponding test files
+- [ ] Overall langchain module coverage reaches 70%+
+- [ ] No module below 50% coverage
+- [x] Tests run successfully in CI
 
 <!-- auto-status-summary:end -->

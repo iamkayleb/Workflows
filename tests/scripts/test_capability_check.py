@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from io import StringIO
 from typing import Any
 from unittest import mock
@@ -222,8 +224,16 @@ class TestParseTasksFromText:
         text = "- task1\n- task2\n- task3"
         assert _parse_tasks_from_text(text) == ["task1", "task2", "task3"]
 
+    def test_parses_indented_bullets(self) -> None:
+        text = "  - task1\n\t* task2\n    + task3"
+        assert _parse_tasks_from_text(text) == ["task1", "task2", "task3"]
+
     def test_parses_checkbox_list(self) -> None:
         text = "- [ ] task1\n- [x] task2"
+        assert _parse_tasks_from_text(text) == ["task1", "task2"]
+
+    def test_parses_checked_uppercase_box(self) -> None:
+        text = "- [X] task1\n- [ ] task2"
         assert _parse_tasks_from_text(text) == ["task1", "task2"]
 
     def test_parses_mixed_bullets(self) -> None:
@@ -245,6 +255,22 @@ class TestParseTasksFromText:
 
 class TestClassifyCapabilities:
     """Tests for classify_capabilities."""
+
+    def _install_fake_langchain(
+        self, monkeypatch: pytest.MonkeyPatch, mock_chain: mock.MagicMock
+    ) -> None:
+        mock_template = mock.MagicMock()
+        mock_template.__or__ = mock.MagicMock(return_value=mock_chain)
+
+        class FakeChatPromptTemplate:
+            @staticmethod
+            def from_template(_: str) -> Any:
+                return mock_template
+
+        fake_prompts = types.SimpleNamespace(ChatPromptTemplate=FakeChatPromptTemplate)
+        fake_core = types.SimpleNamespace(prompts=fake_prompts)
+        monkeypatch.setitem(sys.modules, "langchain_core", fake_core)
+        monkeypatch.setitem(sys.modules, "langchain_core.prompts", fake_prompts)
 
     def test_returns_fallback_when_no_llm_client(self) -> None:
         with mock.patch("scripts.langchain.capability_check._get_llm_client", return_value=None):
@@ -274,6 +300,74 @@ class TestClassifyCapabilities:
                 assert result.recommendation == "REVIEW_NEEDED"
                 assert result.provider_used == "github-models"
                 assert "langchain-core not installed" in result.human_actions_needed
+
+    def test_invokes_chain_with_prompt_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_client = mock.MagicMock()
+        mock_chain = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.content = json.dumps(
+            {
+                "actionable_tasks": ["task1"],
+                "partial_tasks": [],
+                "blocked_tasks": [],
+                "recommendation": "proceed",
+                "human_actions_needed": ["  review  "],
+            }
+        )
+        mock_chain.invoke.return_value = mock_response
+
+        self._install_fake_langchain(monkeypatch, mock_chain)
+
+        with mock.patch(
+            "scripts.langchain.capability_check._get_llm_client",
+            return_value=(mock_client, "github-models"),
+        ):
+            result = classify_capabilities(["task1"], "criteria")
+
+        mock_chain.invoke.assert_called_once_with(_prepare_prompt_values(["task1"], "criteria"))
+        assert result.recommendation == "PROCEED"
+        assert result.human_actions_needed == ["review"]
+        assert result.provider_used == "github-models"
+
+    def test_returns_fallback_when_response_missing_json(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_client = mock.MagicMock()
+        mock_chain = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.content = "No JSON here"
+        mock_chain.invoke.return_value = mock_response
+        self._install_fake_langchain(monkeypatch, mock_chain)
+
+        with mock.patch(
+            "scripts.langchain.capability_check._get_llm_client",
+            return_value=(mock_client, "github-models"),
+        ):
+            result = classify_capabilities(["task1"], "criteria")
+
+        assert result.recommendation == "REVIEW_NEEDED"
+        assert "LLM response missing JSON payload" in result.human_actions_needed
+        assert result.provider_used == "github-models"
+
+    def test_returns_fallback_when_response_json_invalid(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_client = mock.MagicMock()
+        mock_chain = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.content = '{"invalid": }'
+        mock_chain.invoke.return_value = mock_response
+        self._install_fake_langchain(monkeypatch, mock_chain)
+
+        with mock.patch(
+            "scripts.langchain.capability_check._get_llm_client",
+            return_value=(mock_client, "github-models"),
+        ):
+            result = classify_capabilities(["task1"], "criteria")
+
+        assert result.recommendation == "REVIEW_NEEDED"
+        assert "LLM response JSON parse failed" in result.human_actions_needed
+        assert result.provider_used == "github-models"
 
 
 # The following tests require langchain_core to be installed
@@ -319,7 +413,7 @@ class TestClassifyCapabilitiesWithLangchain:
     def test_returns_fallback_when_json_parse_fails(self) -> None:
         mock_client = mock.MagicMock()
         mock_response = mock.MagicMock()
-        mock_response.content = '{"invalid json'
+        mock_response.content = '{"invalid": }'
 
         mock_chain = mock.MagicMock()
         mock_chain.invoke.return_value = mock_response
@@ -425,6 +519,66 @@ class TestMain:
                 output = json.loads(captured.getvalue())
                 assert output["actionable_tasks"] == ["task1"]
                 assert output["recommendation"] == "PROCEED"
+
+    def test_reads_tasks_and_acceptance_files(self, tmp_path: Any) -> None:
+        tasks_file = tmp_path / "tasks.md"
+        acceptance_file = tmp_path / "acceptance.md"
+        tasks_file.write_text("- task one\n- [ ] task two\n", encoding="utf-8")
+        acceptance_file.write_text("criteria here", encoding="utf-8")
+        with mock.patch(
+            "scripts.langchain.capability_check.classify_capabilities"
+        ) as mock_classify:
+            mock_classify.return_value = CapabilityCheckResult(
+                actionable_tasks=[],
+                partial_tasks=[],
+                blocked_tasks=[],
+                recommendation="REVIEW_NEEDED",
+                human_actions_needed=[],
+                provider_used=None,
+            )
+            with mock.patch(
+                "sys.argv",
+                [
+                    "prog",
+                    "--tasks-file",
+                    str(tasks_file),
+                    "--acceptance-file",
+                    str(acceptance_file),
+                ],
+            ):
+                exit_code = main()
+            assert exit_code == 0
+            mock_classify.assert_called_once_with(["task one", "task two"], "criteria here")
+
+    def test_tasks_file_used_when_tasks_json_not_list(self, tmp_path: Any) -> None:
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text("- task from file\n", encoding="utf-8")
+        with mock.patch(
+            "scripts.langchain.capability_check.classify_capabilities"
+        ) as mock_classify:
+            mock_classify.return_value = CapabilityCheckResult(
+                actionable_tasks=[],
+                partial_tasks=[],
+                blocked_tasks=[],
+                recommendation="REVIEW_NEEDED",
+                human_actions_needed=[],
+                provider_used=None,
+            )
+            with mock.patch(
+                "sys.argv",
+                [
+                    "prog",
+                    "--tasks-json",
+                    "{}",
+                    "--tasks-file",
+                    str(tasks_file),
+                    "--acceptance",
+                    "criteria",
+                ],
+            ):
+                exit_code = main()
+            assert exit_code == 0
+            mock_classify.assert_called_once_with(["task from file"], "criteria")
 
 
 class TestPromptContent:
