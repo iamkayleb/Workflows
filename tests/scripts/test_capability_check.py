@@ -248,6 +248,22 @@ class TestParseTasksFromText:
 class TestClassifyCapabilities:
     """Tests for classify_capabilities."""
 
+    def _install_fake_langchain(
+        self, monkeypatch: pytest.MonkeyPatch, mock_chain: mock.MagicMock
+    ) -> None:
+        mock_template = mock.MagicMock()
+        mock_template.__or__ = mock.MagicMock(return_value=mock_chain)
+
+        class FakeChatPromptTemplate:
+            @staticmethod
+            def from_template(_: str) -> Any:
+                return mock_template
+
+        fake_prompts = types.SimpleNamespace(ChatPromptTemplate=FakeChatPromptTemplate)
+        fake_core = types.SimpleNamespace(prompts=fake_prompts)
+        monkeypatch.setitem(sys.modules, "langchain_core", fake_core)
+        monkeypatch.setitem(sys.modules, "langchain_core.prompts", fake_prompts)
+
     def test_returns_fallback_when_no_llm_client(self) -> None:
         with mock.patch("scripts.langchain.capability_check._get_llm_client", return_value=None):
             result = classify_capabilities(["task1"], "criteria")
@@ -292,18 +308,7 @@ class TestClassifyCapabilities:
         )
         mock_chain.invoke.return_value = mock_response
 
-        mock_template = mock.MagicMock()
-        mock_template.__or__ = mock.MagicMock(return_value=mock_chain)
-
-        class FakeChatPromptTemplate:
-            @staticmethod
-            def from_template(_: str) -> Any:
-                return mock_template
-
-        fake_prompts = types.SimpleNamespace(ChatPromptTemplate=FakeChatPromptTemplate)
-        fake_core = types.SimpleNamespace(prompts=fake_prompts)
-        monkeypatch.setitem(sys.modules, "langchain_core", fake_core)
-        monkeypatch.setitem(sys.modules, "langchain_core.prompts", fake_prompts)
+        self._install_fake_langchain(monkeypatch, mock_chain)
 
         with mock.patch(
             "scripts.langchain.capability_check._get_llm_client",
@@ -314,6 +319,46 @@ class TestClassifyCapabilities:
         mock_chain.invoke.assert_called_once_with(_prepare_prompt_values(["task1"], "criteria"))
         assert result.recommendation == "PROCEED"
         assert result.human_actions_needed == ["review"]
+        assert result.provider_used == "github-models"
+
+    def test_returns_fallback_when_response_missing_json(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_client = mock.MagicMock()
+        mock_chain = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.content = "No JSON here"
+        mock_chain.invoke.return_value = mock_response
+        self._install_fake_langchain(monkeypatch, mock_chain)
+
+        with mock.patch(
+            "scripts.langchain.capability_check._get_llm_client",
+            return_value=(mock_client, "github-models"),
+        ):
+            result = classify_capabilities(["task1"], "criteria")
+
+        assert result.recommendation == "REVIEW_NEEDED"
+        assert "LLM response missing JSON payload" in result.human_actions_needed
+        assert result.provider_used == "github-models"
+
+    def test_returns_fallback_when_response_json_invalid(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_client = mock.MagicMock()
+        mock_chain = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.content = '{"invalid": }'
+        mock_chain.invoke.return_value = mock_response
+        self._install_fake_langchain(monkeypatch, mock_chain)
+
+        with mock.patch(
+            "scripts.langchain.capability_check._get_llm_client",
+            return_value=(mock_client, "github-models"),
+        ):
+            result = classify_capabilities(["task1"], "criteria")
+
+        assert result.recommendation == "REVIEW_NEEDED"
+        assert "LLM response JSON parse failed" in result.human_actions_needed
         assert result.provider_used == "github-models"
 
 
