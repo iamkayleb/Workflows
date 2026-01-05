@@ -138,6 +138,7 @@ return after a break:
 4. **Practice finding the agents guardrails** by visiting the
   [Health 45 Agents Guard history](https://github.com/stranske/Trend_Model_Project/actions/workflows/agents-guard.yml)
 * [`maint-dependabot-auto-label.yml`](../../.github/workflows/maint-dependabot-auto-label.yml) - Auto-labels Dependabot PRs with agents:allow-change
+* [`maint-dependabot-auto-lock.yml`](../../.github/workflows/maint-dependabot-auto-lock.yml) - Regenerates requirements.lock on dependabot PRs
    and reading a recent run summary. It confirms how the label and review gates
    manifest in CI when protected files change.
 5. **Walk through a dry-run change**: open this document, the Workflow Catalog,
@@ -178,6 +179,7 @@ explain why a particular status appears in the Checks tab.
 | **Agents 70 Orchestrator** (`agents-70-orchestrator.yml`) | Cron every 20 minutes, manual dispatch | ⚪ Automation backbone (not a PR status) | Workflow run in **Actions → Agents 70 Orchestrator** (no Checks tab status) | Actions tab → workflow → **Run workflow** (tune `dry_run` / `params_json`) |
 | **Health 45 Agents Guard** (`agents-guard.yml`) | Every pull request (`pull_request`); label changes via `pull_request_target` (labels starting with `agent:`) | ✅ Required status (fails only when protected workflow policies are violated) | **Health 45 Agents Guard / Enforce agents workflow protections** in PR **Checks → Required** | Checks tab → **Health 45 Agents Guard** → **Re-run** after updating labels/reviews |
 * [`maint-dependabot-auto-label.yml`](../../.github/workflows/maint-dependabot-auto-label.yml) - Auto-labels Dependabot PRs with agents:allow-change
+* [`maint-dependabot-auto-lock.yml`](../../.github/workflows/maint-dependabot-auto-lock.yml) - Regenerates requirements.lock on dependabot PRs
 
 
 > ℹ️ **Merge-gating recap.**
