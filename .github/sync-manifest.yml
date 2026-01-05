@@ -180,6 +180,9 @@ scripts:
   - source: scripts/langchain/prompts/format_issue.md
     description: "Prompt template for LLM-based issue formatting"
 
+  - source: tools/llm_provider.py
+    description: "LLM provider configuration - GitHub Models and OpenAI client setup"
+
   - source: .github/scripts/agents-guard.js
     description: "Guards against unauthorized agent workflow file changes"
 
