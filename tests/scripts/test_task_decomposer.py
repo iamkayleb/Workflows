@@ -257,6 +257,14 @@ def test_load_prompt_fallback() -> None:
     assert "Decompose into smaller" in prompt
 
 
+def test_load_prompt_existing_file(monkeypatch, tmp_path) -> None:
+    """_load_prompt reads content from prompt file when present."""
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("Use this prompt.", encoding="utf-8")
+    monkeypatch.setattr(task_decomposer, "PROMPT_PATH", prompt_path)
+    assert task_decomposer._load_prompt() == "Use this prompt."
+
+
 def test_load_prompt_missing_file(monkeypatch, tmp_path) -> None:
     """_load_prompt falls back when prompt file is missing."""
     missing_path = tmp_path / "missing.md"
@@ -521,6 +529,12 @@ def test_parse_subtasks_blank_bullet(monkeypatch) -> None:
     monkeypatch.setattr(task_decomposer, "LIST_ITEM_REGEX", regex)
     tasks = task_decomposer._parse_subtasks("-")
     assert tasks == []
+
+
+def test_parse_subtasks_blank_bullet_default_regex() -> None:
+    """_parse_subtasks keeps blank bullets when default regex doesn't match."""
+    tasks = task_decomposer._parse_subtasks("- ")
+    assert tasks == ["-"]
 
 
 def test_normalize_subtasks_skips_empty_entries() -> None:
