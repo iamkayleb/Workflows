@@ -224,8 +224,16 @@ class TestParseTasksFromText:
         text = "- task1\n- task2\n- task3"
         assert _parse_tasks_from_text(text) == ["task1", "task2", "task3"]
 
+    def test_parses_indented_bullets(self) -> None:
+        text = "  - task1\n\t* task2\n    + task3"
+        assert _parse_tasks_from_text(text) == ["task1", "task2", "task3"]
+
     def test_parses_checkbox_list(self) -> None:
         text = "- [ ] task1\n- [x] task2"
+        assert _parse_tasks_from_text(text) == ["task1", "task2"]
+
+    def test_parses_checked_uppercase_box(self) -> None:
+        text = "- [X] task1\n- [ ] task2"
         assert _parse_tasks_from_text(text) == ["task1", "task2"]
 
     def test_parses_mixed_bullets(self) -> None:
