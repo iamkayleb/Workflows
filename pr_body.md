@@ -1,5 +1,5 @@
 <!-- pr-preamble:start -->
-> **Source:** Issue #480
+> **Source:** Issue #481
 
 <!-- pr-preamble:end -->
 
@@ -9,18 +9,26 @@
 _Scope section missing from source issue._
 
 #### Tasks
-- [x] Create task decomposition chain with `TASK_DECOMPOSITION_PROMPT`
-- [x] Integrate with Formatter (#478) or Capability Check (#477)
-- [x] Each sub-task must be:
-- [x] - Completable in one iteration
-- [x] - Have clear verification condition
-- [x] - Not depend on un-merged work from other sub-tasks
-- [x] Add tests for decomposition scenarios
+### Issue Deduplication
+- [x] Create embedding generation for issue descriptions using OpenAI/GitHub Models
+- [x] Build FAISS vector store from existing open issues
+- [x] Implement similarity search with configurable threshold
+- [ ] Post advisory comment linking similar issues
+### Label Matching
+- [ ] Build vector store from repo labels (cache since labels rarely change)
+- [ ] Replace `findMatchingLabel()` Levenshtein logic with semantic search
+- [ ] Add fallback to Levenshtein for edge cases (very short labels)
+### Shared Infrastructure
+- [x] Create `scripts/langchain/semantic_matcher.py` for shared embeddings logic
+- [x] Add tests for both issue and label semantic similarity
+- [ ] Deprecate/remove Levenshtein-based matching where applicable
 
 #### Acceptance criteria
-- [x] Large tasks identified and flagged for decomposition
-- [x] Sub-tasks are independently verifiable
-- [x] Original task context preserved
-- [x] Decomposed tasks integrated into formatted issue
+- [ ] New issues compared against existing open issues using embeddings
+- [x] High semantic similarity triggers warning comment for issues
+- [ ] Label matching catches synonyms (defect→bug, improvement→enhancement)
+- [ ] Related issues linked for context
+- [ ] Does not block issue creation (advisory only)
+- [ ] Catches "same idea, different phrasing" that Levenshtein misses
 
 <!-- auto-status-summary:end -->
