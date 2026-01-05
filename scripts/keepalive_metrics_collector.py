@@ -129,6 +129,7 @@ def validate_record(record: dict[str, Any]) -> None:
         return
     _validate_post_merge(record)
 
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
