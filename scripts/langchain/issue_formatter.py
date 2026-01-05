@@ -297,7 +297,7 @@ def format_issue_body(issue_body: str, *, use_llm: bool = True) -> dict[str, Any
             try:
                 from langchain_core.prompts import ChatPromptTemplate
             except ImportError:
-                client_info = None
+                pass
             else:
                 prompt = _load_prompt()
                 template = ChatPromptTemplate.from_template(prompt)

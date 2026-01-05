@@ -1088,7 +1088,7 @@ async function evaluateKeepaliveLoop({ github, context, core, payload: overrideP
 
   let action = 'wait';
   let reason = 'pending';
-  const verificationStatus = normalise(state?.verification?.status);
+  const verificationStatus = normalise(state?.verification?.status)?.toLowerCase();
   const verificationDone = ['done', 'verified', 'complete'].includes(verificationStatus);
   const needsVerification = allComplete && !verificationDone;
 
