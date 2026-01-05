@@ -265,6 +265,15 @@ def test_load_prompt_missing_file(monkeypatch, tmp_path) -> None:
     assert prompt == task_decomposer.TASK_DECOMPOSITION_PROMPT
 
 
+def test_load_prompt_missing_file_falls_back(monkeypatch, tmp_path) -> None:
+    """_load_prompt returns default prompt when file is absent."""
+    missing_path = tmp_path / "absent.md"
+    monkeypatch.setattr(task_decomposer, "PROMPT_PATH", missing_path)
+    assert not missing_path.exists()
+    prompt = task_decomposer._load_prompt()
+    assert prompt == task_decomposer.TASK_DECOMPOSITION_PROMPT
+
+
 def _install_fake_langchain_openai(monkeypatch):
     fake_module = types.ModuleType("langchain_openai")
 
@@ -315,6 +324,22 @@ def test_get_llm_client_with_github_token(monkeypatch) -> None:
     assert client.kwargs["api_key"] == "token"
 
 
+def test_get_llm_client_github_token_defaults(monkeypatch) -> None:
+    """_get_llm_client passes model and base_url for GitHub Models."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    client_info = task_decomposer._get_llm_client()
+    assert client_info is not None
+    client, provider = client_info
+    assert provider == "github-models"
+    assert isinstance(client, FakeChatOpenAI)
+    from tools import llm_provider
+
+    assert client.kwargs["model"] == llm_provider.DEFAULT_MODEL
+    assert client.kwargs["base_url"] == llm_provider.GITHUB_MODELS_BASE_URL
+
+
 def test_get_llm_client_with_openai_token(monkeypatch) -> None:
     """_get_llm_client uses OpenAI when only OPENAI_API_KEY is set."""
     FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
@@ -355,6 +380,40 @@ def test_decompose_task_llm_path(monkeypatch) -> None:
     assert result["used_llm"] is True
     assert result["provider_used"] == "github-models"
     assert any("add tests" in task.lower() for task in result["sub_tasks"])
+
+
+def test_decompose_task_llm_prompt_used(monkeypatch, tmp_path) -> None:
+    """decompose_task uses prompt file content for LLM requests."""
+    _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("Prompt for {large_task}", encoding="utf-8")
+    monkeypatch.setattr(task_decomposer, "PROMPT_PATH", prompt_path)
+
+    fake_prompts = types.ModuleType("langchain_core.prompts")
+    captured = {}
+
+    class FakeChain:
+        def invoke(self, values):
+            return types.SimpleNamespace(content="- Add tests")
+
+    class FakeChatPromptTemplate:
+        @classmethod
+        def from_template(cls, template):
+            captured["template"] = template
+            return cls()
+
+        def __or__(self, client):
+            return FakeChain()
+
+    fake_prompts.ChatPromptTemplate = FakeChatPromptTemplate
+    monkeypatch.setitem(sys.modules, "langchain_core.prompts", fake_prompts)
+
+    result = task_decomposer.decompose_task("large task", use_llm=True)
+    assert result["used_llm"] is True
+    assert captured["template"] == "Prompt for {large_task}"
 
 
 def test_decompose_task_llm_import_error(monkeypatch) -> None:
@@ -456,6 +515,14 @@ def test_parse_subtasks_empty_list_item(monkeypatch) -> None:
     assert tasks == []
 
 
+def test_parse_subtasks_blank_bullet(monkeypatch) -> None:
+    """_parse_subtasks skips bullets with empty content."""
+    regex = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s*(.*)$")
+    monkeypatch.setattr(task_decomposer, "LIST_ITEM_REGEX", regex)
+    tasks = task_decomposer._parse_subtasks("-")
+    assert tasks == []
+
+
 def test_normalize_subtasks_skips_empty_entries() -> None:
     """_normalize_subtasks skips empty sub-task entries."""
     result = task_decomposer._normalize_subtasks([" ", "update docs"])
@@ -478,6 +545,13 @@ def test_normalize_subtasks_empty_after_strip(monkeypatch) -> None:
     assert result == []
 
 
+def test_normalize_subtasks_skips_empty_part(monkeypatch) -> None:
+    """_normalize_subtasks skips empty parts from splitter."""
+    monkeypatch.setattr(task_decomposer, "_split_task_parts", lambda _: [""])
+    result = task_decomposer._normalize_subtasks(["after merge, deploy"])
+    assert result == []
+
+
 def test_main_module_invocation(monkeypatch) -> None:
     """__main__ execution runs the CLI entrypoint."""
     monkeypatch.setenv("PYTHONHASHSEED", "0")
@@ -487,3 +561,4 @@ def test_main_module_invocation(monkeypatch) -> None:
         runpy.run_path(task_decomposer.__file__, run_name="__main__")
     output = captured.getvalue()
     assert output.startswith("-")
+
