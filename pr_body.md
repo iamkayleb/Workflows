@@ -31,9 +31,9 @@ The `capability_check.py` module is P0 priority as it's designed to prevent wast
 - [x] `_parse_tasks_from_text()` markdown parsing
 - [x] Fallback behavior when LLM unavailable
 - [x] CLI argument handling in `main()`
-- [ ] Improve `issue_optimizer.py` coverage (target: 70%):
-- [ ] Test LLM chain invocation paths
-- [ ] Test suggestion extraction and formatting
+- [x] Improve `issue_optimizer.py` coverage (target: 70%):
+- [x] Test LLM chain invocation paths
+- [x] Test suggestion extraction and formatting
 - [x] Test edge cases for empty/malformed inputs
 - [ ] Improve `semantic_matcher.py` coverage (target: 70%):
 - [x] Test embedding generation paths
