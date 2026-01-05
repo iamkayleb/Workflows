@@ -282,6 +282,13 @@ def test_load_prompt_missing_file_falls_back(monkeypatch, tmp_path) -> None:
     assert prompt == task_decomposer.TASK_DECOMPOSITION_PROMPT
 
 
+def test_load_prompt_default_template(monkeypatch, tmp_path) -> None:
+    """_load_prompt uses default template when prompt file is absent."""
+    missing_path = tmp_path / "nope.md"
+    monkeypatch.setattr(task_decomposer, "PROMPT_PATH", missing_path)
+    assert task_decomposer._load_prompt() == task_decomposer.TASK_DECOMPOSITION_PROMPT
+
+
 def _install_fake_langchain_openai(monkeypatch):
     fake_module = types.ModuleType("langchain_openai")
 
@@ -359,6 +366,19 @@ def test_get_llm_client_with_openai_token(monkeypatch) -> None:
     assert provider == "openai"
     assert isinstance(client, FakeChatOpenAI)
     assert client.kwargs["api_key"] == "openai-token"
+    assert client.kwargs["temperature"] == 0.1
+
+
+def test_get_llm_client_prefers_github_token(monkeypatch) -> None:
+    """_get_llm_client prefers GitHub Models when both tokens exist."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-token")
+    client_info = task_decomposer._get_llm_client()
+    assert client_info is not None
+    client, provider = client_info
+    assert provider == "github-models"
+    assert isinstance(client, FakeChatOpenAI)
 
 
 def test_decompose_task_llm_path(monkeypatch) -> None:
@@ -422,6 +442,35 @@ def test_decompose_task_llm_prompt_used(monkeypatch, tmp_path) -> None:
     result = task_decomposer.decompose_task("large task", use_llm=True)
     assert result["used_llm"] is True
     assert captured["template"] == "Prompt for {large_task}"
+
+
+def test_decompose_task_llm_response_without_content(monkeypatch) -> None:
+    """decompose_task handles LLM responses without a content attribute."""
+    _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    fake_prompts = types.ModuleType("langchain_core.prompts")
+
+    class FakeChain:
+        def invoke(self, values):
+            return "- Update docs\n- Add tests"
+
+    class FakeChatPromptTemplate:
+        @classmethod
+        def from_template(cls, template):
+            return cls()
+
+        def __or__(self, client):
+            return FakeChain()
+
+    fake_prompts.ChatPromptTemplate = FakeChatPromptTemplate
+    monkeypatch.setitem(sys.modules, "langchain_core.prompts", fake_prompts)
+
+    result = task_decomposer.decompose_task("large task", use_llm=True)
+    assert result["used_llm"] is True
+    assert result["provider_used"] == "github-models"
+    assert any("update docs" in task.lower() for task in result["sub_tasks"])
 
 
 def test_decompose_task_llm_import_error(monkeypatch) -> None:
@@ -537,6 +586,14 @@ def test_parse_subtasks_blank_bullet_default_regex() -> None:
     assert tasks == ["-"]
 
 
+def test_parse_subtasks_empty_item_match(monkeypatch) -> None:
+    """_parse_subtasks skips empty items when regex matches."""
+    regex = re.compile(r"^\s*-\s*(.*)$")
+    monkeypatch.setattr(task_decomposer, "LIST_ITEM_REGEX", regex)
+    tasks = task_decomposer._parse_subtasks("-")
+    assert tasks == []
+
+
 def test_normalize_subtasks_skips_empty_entries() -> None:
     """_normalize_subtasks skips empty sub-task entries."""
     result = task_decomposer._normalize_subtasks([" ", "update docs"])
@@ -564,6 +621,20 @@ def test_normalize_subtasks_skips_empty_part(monkeypatch) -> None:
     monkeypatch.setattr(task_decomposer, "_split_task_parts", lambda _: [""])
     result = task_decomposer._normalize_subtasks(["after merge, deploy"])
     assert result == []
+
+
+def test_normalize_subtasks_skips_empty_cleaned(monkeypatch) -> None:
+    """_normalize_subtasks skips parts that strip to empty strings."""
+    def fake_strip(value: str) -> str:
+        if value == "keep":
+            return value
+        return ""
+
+    monkeypatch.setattr(task_decomposer, "_strip_dependency_clause", fake_strip)
+    monkeypatch.setattr(task_decomposer, "_split_task_parts", lambda _: ["", "keep"])
+    result = task_decomposer._normalize_subtasks(["keep"])
+    assert len(result) == 1
+    assert "keep" in result[0].lower()
 
 
 def test_main_module_invocation(monkeypatch) -> None:

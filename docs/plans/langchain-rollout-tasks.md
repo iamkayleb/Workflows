@@ -16,7 +16,7 @@ This document tracks the tasks required to roll out the LangChain issue intake e
 
 - [x] Core `issue_formatter.py` implemented (#478)
 - [x] Fallback formatting works without LLM
-- [ ] Basic test coverage verified
+- [x] Basic test coverage verified
 - [ ] Add `issue_formatter.py` to sync-manifest.yml
 
 ### Workflows Tasks
@@ -64,7 +64,7 @@ Add to `.github/sync-manifest.yml`:
 
 ### Prerequisites
 
-- [ ] #540 - Test coverage improved to 70%+
+- [x] #540 - Test coverage improved to 70%+
 - [ ] `agents:format` workflow implemented (#545)
 - [ ] Phase 1 validated on 1-2 consumer repos
 
