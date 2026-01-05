@@ -1,0 +1,91 @@
+name: Fix Integration Tests Formatting
+
+# Manual workflow to fix formatting issues in the Integration-Tests repository
+# This is triggered manually when Integration CI fails due to format issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_message:
+        description: 'Commit message for the fix'
+        required: false
+        default: 'fix: Auto-format files to meet lint standards'
+
+permissions:
+  contents: read
+
+jobs:
+  fix-formatting:
+    name: Apply formatting fixes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Integration-Tests repo
+        uses: actions/checkout@v6
+        with:
+          repository: stranske/Workflows-Integration-Tests
+          ref: main
+          token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS }}
+          path: integration-tests
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install formatting tools
+        run: |
+          python3 -m pip install black ruff
+
+      - name: Apply formatting fixes
+        run: |
+          cd integration-tests
+          echo "Running black on Python files..."
+          black scripts/ tests/ src/ || true
+          
+          echo "Running ruff fixes..."
+          ruff check --fix scripts/ tests/ src/ || true
+
+      - name: Check for changes
+        id: changes
+        run: |
+          cd integration-tests
+          if git diff --quiet; then
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "✅ No formatting changes needed"
+          else
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            echo "📝 Formatting changes detected:"
+            git --no-pager diff --stat
+          fi
+
+      - name: Commit and push changes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          cd integration-tests
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          git add -A
+          git commit -m "${{ inputs.commit_message }}" \
+            -m "" \
+            -m "Applied by: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          
+          git push
+
+      - name: Summary
+        run: |
+          cd integration-tests
+          {
+            echo "## Integration Tests Formatting Fix"
+            echo ""
+            if [ "${{ steps.changes.outputs.has_changes }}" = "true" ]; then
+              echo "✅ Formatting fixes applied and pushed"
+              echo ""
+              echo "### Changes Made"
+              echo "\`\`\`"
+              git --no-pager log -1 --stat
+              echo "\`\`\`"
+            else
+              echo "✅ No formatting changes were needed"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
