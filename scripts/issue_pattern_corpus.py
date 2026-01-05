@@ -8,7 +8,7 @@ import json
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -304,7 +304,7 @@ def build_corpus(
 
     patterns.sort(key=lambda item: item["count"], reverse=True)
     return {
-        "generated_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+        "generated_at": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "criteria": {
             "min_completion_rate": criteria.min_completion_rate,
             "max_human_interventions": criteria.max_human_interventions,
