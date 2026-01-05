@@ -319,7 +319,7 @@ class TestClassifyCapabilitiesWithLangchain:
     def test_returns_fallback_when_json_parse_fails(self) -> None:
         mock_client = mock.MagicMock()
         mock_response = mock.MagicMock()
-        mock_response.content = '{"invalid json'
+        mock_response.content = '{"invalid": }'
 
         mock_chain = mock.MagicMock()
         mock_chain.invoke.return_value = mock_response
@@ -425,6 +425,66 @@ class TestMain:
                 output = json.loads(captured.getvalue())
                 assert output["actionable_tasks"] == ["task1"]
                 assert output["recommendation"] == "PROCEED"
+
+    def test_reads_tasks_and_acceptance_files(self, tmp_path: Any) -> None:
+        tasks_file = tmp_path / "tasks.md"
+        acceptance_file = tmp_path / "acceptance.md"
+        tasks_file.write_text("- task one\n- [ ] task two\n", encoding="utf-8")
+        acceptance_file.write_text("criteria here", encoding="utf-8")
+        with mock.patch(
+            "scripts.langchain.capability_check.classify_capabilities"
+        ) as mock_classify:
+            mock_classify.return_value = CapabilityCheckResult(
+                actionable_tasks=[],
+                partial_tasks=[],
+                blocked_tasks=[],
+                recommendation="REVIEW_NEEDED",
+                human_actions_needed=[],
+                provider_used=None,
+            )
+            with mock.patch(
+                "sys.argv",
+                [
+                    "prog",
+                    "--tasks-file",
+                    str(tasks_file),
+                    "--acceptance-file",
+                    str(acceptance_file),
+                ],
+            ):
+                exit_code = main()
+            assert exit_code == 0
+            mock_classify.assert_called_once_with(["task one", "task two"], "criteria here")
+
+    def test_tasks_file_used_when_tasks_json_not_list(self, tmp_path: Any) -> None:
+        tasks_file = tmp_path / "tasks.md"
+        tasks_file.write_text("- task from file\n", encoding="utf-8")
+        with mock.patch(
+            "scripts.langchain.capability_check.classify_capabilities"
+        ) as mock_classify:
+            mock_classify.return_value = CapabilityCheckResult(
+                actionable_tasks=[],
+                partial_tasks=[],
+                blocked_tasks=[],
+                recommendation="REVIEW_NEEDED",
+                human_actions_needed=[],
+                provider_used=None,
+            )
+            with mock.patch(
+                "sys.argv",
+                [
+                    "prog",
+                    "--tasks-json",
+                    "{}",
+                    "--tasks-file",
+                    str(tasks_file),
+                    "--acceptance",
+                    "criteria",
+                ],
+            ):
+                exit_code = main()
+            assert exit_code == 0
+            mock_classify.assert_called_once_with(["task from file"], "criteria")
 
 
 class TestPromptContent:
