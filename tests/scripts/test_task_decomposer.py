@@ -625,6 +625,7 @@ def test_normalize_subtasks_skips_empty_part(monkeypatch) -> None:
 
 def test_normalize_subtasks_skips_empty_cleaned(monkeypatch) -> None:
     """_normalize_subtasks skips parts that strip to empty strings."""
+
     def fake_strip(value: str) -> str:
         if value == "keep":
             return value
