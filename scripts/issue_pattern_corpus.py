@@ -174,9 +174,7 @@ def _section_has_content(section_key: str, lines: list[str]) -> bool:
     if not text:
         return False
     placeholder = SUCCESS_PLACEHOLDERS.get(section_key)
-    if placeholder and text.strip() == placeholder:
-        return False
-    return True
+    return not (placeholder and text.strip() == placeholder)
 
 
 def _count_checklist_items(lines: list[str]) -> int:
