@@ -45,13 +45,12 @@ Or run the fix script:
 
 ## To Apply This Fix
 
-### Option 1: Using the patch file
+### Option 1: Using the automated workflow (Recommended)
+After merging this PR:
 ```bash
-cd /path/to/Workflows-Integration-Tests
-git apply 0001-fix-Auto-format-files-to-meet-lint-standards.patch
-git add scripts/validate_dependency_test_setup.py
-git commit -m "fix: Auto-format files to meet lint standards"
-git push origin main
+# Go to: https://github.com/stranske/Workflows/actions/workflows/maint-70-fix-integration-formatting.yml
+# Click "Run workflow"
+# The workflow will automatically apply and push the fixes
 ```
 
 ### Option 2: Using the fix script
@@ -64,7 +63,17 @@ git commit -m "fix: Auto-format files to meet lint standards"
 git push origin main
 ```
 
-### Option 3: Manual fix
+### Option 3: Using the patch file (may need manual adjustment)
+```bash
+cd /path/to/Workflows-Integration-Tests
+git apply /path/to/workflows/0001-fix-Auto-format-files-to-meet-lint-standards.patch
+# If patch fails, use Option 2 or 4 instead
+git add scripts/validate_dependency_test_setup.py
+git commit -m "fix: Auto-format files to meet lint standards"
+git push origin main
+```
+
+### Option 4: Manual fix
 ```bash
 cd /path/to/Workflows-Integration-Tests
 python3 -m pip install black
