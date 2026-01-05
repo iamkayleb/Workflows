@@ -12,6 +12,8 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
+const childProcess = require('child_process');
 
 // ========== Utility Functions ==========
 
@@ -77,6 +79,185 @@ function extractBlock(body, marker) {
     return '';
   }
   return body.slice(startIndex + start.length, endIndex).trim();
+}
+
+function extractContextSectionWithPython(issueBody, comments, core) {
+  const bodyText = String(issueBody || '').trim();
+  if (!bodyText) {
+    return '';
+  }
+
+  try {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workflows-context-'));
+    const issuePath = path.join(tmpDir, 'issue.md');
+    fs.writeFileSync(issuePath, bodyText, 'utf8');
+
+    const commentsPath = path.join(tmpDir, 'comments.json');
+    fs.writeFileSync(commentsPath, JSON.stringify(Array.isArray(comments) ? comments : [], null, 2), 'utf8');
+
+    const output = childProcess.execFileSync(
+      'python3',
+      ['scripts/langchain/context_extractor.py', '--input-file', issuePath, '--comments-file', commentsPath],
+      { encoding: 'utf8' },
+    );
+    return String(output || '').trim();
+  } catch (error) {
+    if (core && typeof core.warning === 'function') {
+      core.warning(`Context extraction failed (python): ${error.message}`);
+    }
+    return '';
+  }
+}
+
+function linkifyIssueRefs(text, { owner, repo } = {}) {
+  const repoOwner = normalise(owner);
+  const repoName = normalise(repo);
+  if (!repoOwner || !repoName) {
+    return String(text || '');
+  }
+  const slug = `${repoOwner}/${repoName}`;
+  const lines = String(text || '').split(/\r?\n/);
+  const linked = lines.map((line) => {
+    if (!line || line.includes('](')) {
+      return line;
+    }
+    let updated = line.replace(
+      /\b([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)#(\d+)\b/g,
+      (_match, ownerRef, repoRef, number) => {
+        const url = `https://github.com/${ownerRef}/${repoRef}/issues/${number}`;
+        return `[${ownerRef}/${repoRef}#${number}](${url})`;
+      }
+    );
+    updated = updated.replace(
+      /(^|[^A-Za-z0-9_])#(\d+)\b/g,
+      (_match, prefix, number) => {
+        const url = `https://github.com/${slug}/issues/${number}`;
+        return `${prefix}[#${number}](${url})`;
+      }
+    );
+    return updated;
+  });
+  return linked.join('\n');
+}
+
+function extractIssueRefsFromText(text) {
+  const refs = [];
+  const seen = new Set();
+  if (!text) {
+    return refs;
+  }
+  const pushRef = (ref) => {
+    const key = String(ref || '').toLowerCase();
+    if (!key || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    refs.push(ref);
+  };
+  const raw = String(text);
+  const urlRegex = /https?:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(issues|pull)\/(\d+)/g;
+  for (const match of raw.matchAll(urlRegex)) {
+    pushRef(`${match[1]}/${match[2]}#${match[4]}`);
+  }
+  const crossRepoRegex = /\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#\d+\b/g;
+  for (const match of raw.matchAll(crossRepoRegex)) {
+    pushRef(match[0]);
+  }
+  const localRegex = /(^|[^A-Za-z0-9_])(#\d+)\b/g;
+  for (const match of raw.matchAll(localRegex)) {
+    pushRef(match[2]);
+  }
+  return refs;
+}
+
+function augmentContextWithRelatedIssues(contextSection, issueBody) {
+  const refs = extractIssueRefsFromText(issueBody);
+  if (refs.length === 0) {
+    return contextSection;
+  }
+
+  const contextText = String(contextSection || '').trim();
+  if (!contextText) {
+    return [
+      '## Context for Agent',
+      '',
+      '### Related Issues/PRs',
+      ...refs.map((ref) => `- ${ref}`),
+    ].join('\n').trim();
+  }
+
+  const lines = contextText.split(/\r?\n/);
+  const headerRegex = /^\s*###\s+Related Issues\/PRs\s*$/i;
+  let headerIndex = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (headerRegex.test(lines[i])) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  if (headerIndex === -1) {
+    return [
+      contextText,
+      '',
+      '### Related Issues/PRs',
+      ...refs.map((ref) => `- ${ref}`),
+    ].join('\n').trim();
+  }
+
+  let endIndex = lines.length;
+  for (let i = headerIndex + 1; i < lines.length; i += 1) {
+    if (/^\s*#{2,3}\s+/.test(lines[i])) {
+      endIndex = i;
+      break;
+    }
+  }
+
+  const existingBlock = lines.slice(headerIndex + 1, endIndex).join('\n');
+  const existingRefs = new Set(
+    extractIssueRefsFromText(existingBlock).map((ref) => ref.toLowerCase())
+  );
+  const missing = refs.filter((ref) => !existingRefs.has(ref.toLowerCase()));
+  if (missing.length === 0) {
+    return contextSection;
+  }
+
+  const beforeLines = lines.slice(0, endIndex);
+  while (beforeLines.length > 0 && beforeLines[beforeLines.length - 1].trim() === '') {
+    beforeLines.pop();
+  }
+  const afterLines = lines.slice(endIndex);
+  const updatedLines = beforeLines.concat(missing.map((ref) => `- ${ref}`));
+  if (afterLines.length > 0) {
+    updatedLines.push('');
+    updatedLines.push(...afterLines);
+  }
+  return updatedLines.join('\n');
+}
+
+function buildContextBlock(contextText, { owner, repo } = {}) {
+  const trimmed = String(contextText || '').trim();
+  if (!trimmed) {
+    return '';
+  }
+  const cleaned = trimmed
+    .replace(/<!--\s*context:start\s*-->/gi, '')
+    .replace(/<!--\s*context:end\s*-->/gi, '')
+    .replace(/<!--\s*Updated WORKFLOW_OUTPUTS\.md context:start\s*-->/gi, '')
+    .replace(/<!--\s*Updated WORKFLOW_OUTPUTS\.md context:end\s*-->/gi, '')
+    .trim();
+  if (!cleaned) {
+    return '';
+  }
+  const linked = linkifyIssueRefs(cleaned, { owner, repo }).trim();
+  if (!linked) {
+    return '';
+  }
+  return [
+    '<!-- Updated WORKFLOW_OUTPUTS.md context:start -->',
+    linked,
+    '<!-- Updated WORKFLOW_OUTPUTS.md context:end -->',
+  ].join('\n');
 }
 
 function parseCheckboxStates(block) {
@@ -392,12 +573,13 @@ function buildPreamble(sections) {
   return lines.join('\n');
 }
 
-function buildStatusBlock({scope, tasks, acceptance, headSha, workflowRuns, requiredChecks, existingBody, connectorStates, core, agentType}) {
+function buildStatusBlock({scope, contextSection, tasks, acceptance, headSha, workflowRuns, requiredChecks, existingBody, connectorStates, core, agentType, owner, repo}) {
   const statusLines = ['<!-- auto-status-summary:start -->', '## Automated Status Summary'];
   const isCliAgent = Boolean(agentType && String(agentType).trim());
 
   const existingBlock = extractBlock(existingBody || '', 'auto-status-summary');
   const existingStates = parseCheckboxStates(existingBlock);
+  const contextBlock = buildContextBlock(contextSection, { owner, repo });
   
   // Merge existing PR body states with connector bot comment states
   // Connector states take precedence (they represent actual completion signals from agents)
@@ -421,6 +603,11 @@ function buildStatusBlock({scope, tasks, acceptance, headSha, workflowRuns, requ
   let scopeFormatted = scope ? scope.trim() : '_Scope section missing from source issue._';
   statusLines.push(scopeFormatted);
   statusLines.push('');
+
+  if (contextBlock) {
+    statusLines.push(contextBlock);
+    statusLines.push('');
+  }
 
   statusLines.push('#### Tasks');
   let tasksFormatted = tasks ? ensureChecklist(tasks) : fallbackChecklist('Tasks section missing from source issue.');
@@ -721,6 +908,29 @@ async function run({github, context, core, inputs}) {
     parsedSections.acceptance
     || extractWithAliases(issueBody, ['Acceptance criteria', 'Success criteria', 'Definition of done'])
     || '';
+  let contextSection = extractSection(issueBody, 'Context for Agent')
+    || extractBlock(pr.body || '', 'context')
+    || '';
+  if (!String(contextSection || '').trim()) {
+    let issueComments = [];
+    try {
+      issueComments = await github.paginate(github.rest.issues.listComments, {
+        owner,
+        repo,
+        issue_number: issueNumber,
+        per_page: 100,
+      });
+    } catch (error) {
+      core.warning(`Failed to fetch issue comments for context extraction: ${error.message}`);
+    }
+    const commentBodies = Array.isArray(issueComments)
+      ? issueComments
+        .map((comment) => String(comment?.body || '').trim())
+        .filter(Boolean)
+      : [];
+    contextSection = extractContextSectionWithPython(issueBody, commentBodies, core);
+  }
+  contextSection = augmentContextWithRelatedIssues(contextSection, issueBody);
 
   const preamble = buildPreamble({summary, testing, ci, issueNumber});
 
@@ -748,6 +958,7 @@ async function run({github, context, core, inputs}) {
 
   const statusBlock = buildStatusBlock({
     scope,
+    contextSection,
     tasks,
     acceptance,
     headSha: prInfo.headSha,
@@ -757,6 +968,8 @@ async function run({github, context, core, inputs}) {
     connectorStates,
     core,
     agentType,
+    owner,
+    repo,
   });
 
   // Strip PR template content that GitHub may have prepended when the PR was created
@@ -790,11 +1003,15 @@ module.exports = {
   extractSection,
   ensureChecklist,
   extractBlock,
+  extractContextSectionWithPython,
+  extractIssueRefsFromText,
+  augmentContextWithRelatedIssues,
   parseCheckboxStates,
   mergeCheckboxStates,
   fetchConnectorCheckboxStates,
   stripPrTemplateContent,
   upsertBlock,
+  buildContextBlock,
   buildPreamble,
   buildStatusBlock,
   withRetries,

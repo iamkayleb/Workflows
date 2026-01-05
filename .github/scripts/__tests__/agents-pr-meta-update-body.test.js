@@ -12,7 +12,42 @@ const {
   buildStatusBlock,
   resolveAgentType,
   stripPrTemplateContent,
+  augmentContextWithRelatedIssues,
+  extractIssueRefsFromText,
+  extractContextSectionWithPython,
 } = require('../agents_pr_meta_update_body.js');
+
+test('extractContextSectionWithPython returns trimmed stdout from python', () => {
+  const childProcess = require('node:child_process');
+  const original = childProcess.execFileSync;
+  childProcess.execFileSync = () => '  ## Context for Agent\n- extracted\n';
+
+  try {
+    const result = extractContextSectionWithPython('Issue body', ['Comment body'], null);
+    assert.strictEqual(result, '## Context for Agent\n- extracted');
+  } finally {
+    childProcess.execFileSync = original;
+  }
+});
+
+test('extractContextSectionWithPython returns empty string on failure', () => {
+  const childProcess = require('node:child_process');
+  const original = childProcess.execFileSync;
+  childProcess.execFileSync = () => {
+    throw new Error('python missing');
+  };
+
+  const core = {
+    warning: () => {},
+  };
+
+  try {
+    const result = extractContextSectionWithPython('Issue body', [], core);
+    assert.strictEqual(result, '');
+  } finally {
+    childProcess.execFileSync = original;
+  }
+});
 
 test('parseCheckboxStates extracts checked items from a checkbox list', () => {
   const block = `
@@ -485,9 +520,134 @@ test('buildStatusBlock includes workflow details for non-CLI agents', () => {
     connectorStates: new Map(),
     core: null,
     agentType: '',
+    owner: 'octo',
+    repo: 'demo',
   });
 
   assert.ok(output.includes('**Head SHA:** abc123'));
   assert.ok(output.includes('**Required:** gate: ✅ success'));
   assert.ok(output.includes('| Workflow / Job |'));
+});
+
+test('buildStatusBlock inserts context between scope and tasks', () => {
+  const result = buildStatusBlock({
+    scope: 'Scope text',
+    contextSection: '## Context for Agent\n- Related #123',
+    tasks: '- [ ] Task one',
+    acceptance: '- [ ] Done',
+    headSha: 'abc123',
+    workflowRuns: new Map(),
+    requiredChecks: [],
+    existingBody: '',
+    connectorStates: new Map(),
+    core: null,
+    agentType: 'codex',
+    owner: 'octo',
+    repo: 'demo',
+  });
+
+  const scopeIndex = result.indexOf('#### Scope');
+  const contextIndex = result.indexOf('<!-- Updated WORKFLOW_OUTPUTS.md context:start -->');
+  const tasksIndex = result.indexOf('#### Tasks');
+
+  assert.ok(scopeIndex !== -1, 'scope header missing');
+  assert.ok(contextIndex !== -1, 'context markers missing');
+  assert.ok(tasksIndex !== -1, 'tasks header missing');
+  assert.ok(scopeIndex < contextIndex, 'context should appear after scope');
+  assert.ok(contextIndex < tasksIndex, 'context should appear before tasks');
+  assert.ok(result.includes('## Context for Agent'));
+});
+
+test('buildStatusBlock omits context markers when empty', () => {
+  const result = buildStatusBlock({
+    scope: 'Scope text',
+    contextSection: '',
+    tasks: '- [ ] Task one',
+    acceptance: '- [ ] Done',
+    headSha: 'abc123',
+    workflowRuns: new Map(),
+    requiredChecks: [],
+    existingBody: '',
+    connectorStates: new Map(),
+    core: null,
+    agentType: 'codex',
+    owner: 'octo',
+    repo: 'demo',
+  });
+
+  assert.ok(!result.includes('<!-- Updated WORKFLOW_OUTPUTS.md context:start -->'));
+  assert.ok(!result.includes('<!-- Updated WORKFLOW_OUTPUTS.md context:end -->'));
+});
+
+test('buildStatusBlock linkifies related issue references in context', () => {
+  const result = buildStatusBlock({
+    scope: 'Scope text',
+    contextSection: '## Context for Agent\n### Related Issues/PRs\n- #123\n- octo/demo#456',
+    tasks: '- [ ] Task one',
+    acceptance: '- [ ] Done',
+    headSha: 'abc123',
+    workflowRuns: new Map(),
+    requiredChecks: [],
+    existingBody: '',
+    connectorStates: new Map(),
+    core: null,
+    agentType: 'codex',
+    owner: 'octo',
+    repo: 'demo',
+  });
+
+  assert.ok(result.includes('[#123](https://github.com/octo/demo/issues/123)'));
+  assert.ok(result.includes('[octo/demo#456](https://github.com/octo/demo/issues/456)'));
+});
+
+test('extractIssueRefsFromText normalizes GitHub issue and pull URLs', () => {
+  const refs = extractIssueRefsFromText(
+    'See https://github.com/octo/demo/issues/12 and https://github.com/octo/demo/pull/34.'
+  );
+
+  assert.deepStrictEqual(refs, ['octo/demo#12', 'octo/demo#34']);
+});
+
+test('augmentContextWithRelatedIssues appends related refs when missing section', () => {
+  const contextSection = '## Context for Agent\n### Design Decisions\n- Keep behavior stable.';
+  const issueBody = 'Related to #123 and octo/demo#456 for background.';
+
+  const augmented = augmentContextWithRelatedIssues(contextSection, issueBody);
+  const result = buildStatusBlock({
+    scope: 'Scope text',
+    contextSection: augmented,
+    tasks: '- [ ] Task one',
+    acceptance: '- [ ] Done',
+    headSha: 'abc123',
+    workflowRuns: new Map(),
+    requiredChecks: [],
+    existingBody: '',
+    connectorStates: new Map(),
+    core: null,
+    agentType: 'codex',
+    owner: 'octo',
+    repo: 'demo',
+  });
+
+  assert.ok(result.includes('### Related Issues/PRs'));
+  assert.ok(result.includes('[#123](https://github.com/octo/demo/issues/123)'));
+  assert.ok(result.includes('[octo/demo#456](https://github.com/octo/demo/issues/456)'));
+});
+
+test('augmentContextWithRelatedIssues adds missing refs to existing section', () => {
+  const contextSection = [
+    '## Context for Agent',
+    '### Related Issues/PRs',
+    '- #123',
+    '### References',
+    '- https://example.com',
+  ].join('\n');
+  const issueBody = 'Follow-up in #124 and octo/demo#456.';
+
+  const augmented = augmentContextWithRelatedIssues(contextSection, issueBody);
+
+  assert.ok(augmented.includes('- #123'));
+  assert.ok(augmented.includes('- #124'));
+  assert.ok(augmented.includes('- octo/demo#456'));
+  assert.strictEqual(augmented.match(/### Related Issues\/PRs/g).length, 1);
 });
