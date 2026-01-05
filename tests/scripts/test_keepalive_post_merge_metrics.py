@@ -4,7 +4,9 @@ from pathlib import Path
 from scripts import keepalive_post_merge_metrics as post_merge
 
 
-def _sample_keepalive(pr_number: int, iteration: int, timestamp: str, total: int, complete: int) -> dict:
+def _sample_keepalive(
+    pr_number: int, iteration: int, timestamp: str, total: int, complete: int
+) -> dict:
     return {
         "pr_number": pr_number,
         "iteration": iteration,

@@ -178,9 +178,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--human-interventions", default="0", help="Human intervention count (integer)"
     )
-    parser.add_argument(
-        "--timestamp", help="Record timestamp (ISO 8601, defaults to now)"
-    )
+    parser.add_argument("--timestamp", help="Record timestamp (ISO 8601, defaults to now)")
     parser.add_argument("--iteration-count", help="Override iteration count")
     parser.add_argument("--tasks-total", help="Override tasks total")
     parser.add_argument("--tasks-complete", help="Override tasks complete")
