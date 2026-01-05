@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import sys
+
 from scripts.langchain import issue_formatter
 
 
@@ -85,3 +88,38 @@ def test_load_prompt_appends_feedback(tmp_path, monkeypatch) -> None:
 
     assert "Base prompt." in prompt
     assert "Feedback notes." in prompt
+
+
+def test_format_issue_body_falls_back_without_llm_tokens() -> None:
+    raw = "Just a note without tokens."
+    result = issue_formatter.format_issue_body(raw, use_llm=True)
+
+    assert result["used_llm"] is False
+    assert result["provider_used"] is None
+    assert "## Tasks" in result["formatted_body"]
+
+
+def test_build_label_transition_matches_expected_labels() -> None:
+    assert issue_formatter.build_label_transition() == {
+        "add": ["agents:formatted"],
+        "remove": ["agents:format"],
+    }
+
+
+def test_main_emits_json_with_labels(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["issue_formatter.py", "--input-text", "Raw issue", "--json", "--no-llm"],
+    )
+
+    issue_formatter.main()
+    captured = capsys.readouterr().out.strip()
+
+    payload = json.loads(captured)
+    assert payload["labels"] == {
+        "add": ["agents:formatted"],
+        "remove": ["agents:format"],
+    }
+    assert payload["used_llm"] is False
+    assert "## Acceptance Criteria" in payload["formatted_body"]
