@@ -10,12 +10,13 @@ on:
         required: true
         type: number
       phase:
-        description: "Phase to run (analyze or apply)"
+        description: "Phase to run (analyze, apply, or format)"
         required: true
         type: choice
         options:
           - analyze
           - apply
+          - format
 
 jobs:
   optimize_issue:
@@ -47,6 +48,12 @@ jobs:
           elif [[ "$LABEL_NAME" == "agents:apply-suggestions" ]]; then
             {
               echo "phase=apply"
+              echo "issue_number=${{ github.event.issue.number }}"
+              echo "should_run=true"
+            } >> "$GITHUB_OUTPUT"
+          elif [[ "$LABEL_NAME" == "agents:format" ]]; then
+            {
+              echo "phase=format"
               echo "issue_number=${{ github.event.issue.number }}"
               echo "should_run=true"
             } >> "$GITHUB_OUTPUT"
@@ -236,6 +243,42 @@ jobs:
 
           echo "Issue body updated with applied suggestions"
 
+      - name: Phase 3 - Format Issue
+        if: steps.check.outputs.should_run == 'true' && steps.check.outputs.phase == 'format'
+        id: format
+        env:
+          ISSUE_NUMBER: ${{ steps.check.outputs.issue_number }}
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "Formatting issue #${ISSUE_NUMBER} into AGENT_ISSUE_TEMPLATE structure"
+
+          # Format the issue using issue_formatter.py
+          python scripts/langchain/issue_formatter.py \
+            --input-file /tmp/issue_body.md \
+            --json > /tmp/format_result.json
+
+          # Extract formatted body
+          python -c "
+          import json
+          with open('/tmp/format_result.json') as f:
+              result = json.load(f)
+          formatted = result.get('formatted_body', '')
+          if not formatted:
+              print('ERROR: No formatted body returned')
+              import sys
+              sys.exit(1)
+          with open('/tmp/formatted_body.md', 'w') as f:
+              f.write(formatted)
+          print('Issue formatted successfully')
+          " || exit 1
+
+          # Update issue body with formatted version
+          gh issue edit "${ISSUE_NUMBER}" --body-file /tmp/formatted_body.md
+
+          echo "Issue body updated with formatted structure"
+
       - name: Manage labels
         if: steps.check.outputs.should_run == 'true'
         env:
@@ -249,4 +292,9 @@ jobs:
             gh issue edit "${ISSUE_NUMBER}" --remove-label "agents:apply-suggestions"
             gh issue edit "${ISSUE_NUMBER}" --add-label "agents:formatted"
             echo "Labels updated: removed optimize/apply-suggestions, added formatted"
+          elif [[ "$PHASE" == "format" ]]; then
+            # Remove format trigger label and add formatted result label
+            gh issue edit "${ISSUE_NUMBER}" --remove-label "agents:format"
+            gh issue edit "${ISSUE_NUMBER}" --add-label "agents:formatted"
+            echo "Labels updated: removed format, added formatted"
           fi

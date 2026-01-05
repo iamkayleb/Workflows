@@ -1,6 +1,28 @@
 from __future__ import annotations
 
+import json
+import sys
+import types
+from unittest import mock
+
+import pytest
+
 from scripts.langchain import issue_formatter
+
+
+def _install_fake_langchain(monkeypatch: pytest.MonkeyPatch, mock_chain: mock.MagicMock) -> None:
+    mock_template = mock.MagicMock()
+    mock_template.__or__ = mock.MagicMock(return_value=mock_chain)
+
+    class FakeChatPromptTemplate:
+        @staticmethod
+        def from_template(_: str):
+            return mock_template
+
+    fake_prompts = types.SimpleNamespace(ChatPromptTemplate=FakeChatPromptTemplate)
+    fake_core = types.SimpleNamespace(prompts=fake_prompts)
+    monkeypatch.setitem(sys.modules, "langchain_core", fake_core)
+    monkeypatch.setitem(sys.modules, "langchain_core.prompts", fake_prompts)
 
 
 def _extract_section(body: str, heading: str) -> str:
@@ -72,6 +94,16 @@ def test_format_issue_fallback_uses_placeholders() -> None:
     assert acceptance == "- [ ] _Not provided._"
 
 
+def test_format_issue_fallback_preserves_raw_issue() -> None:
+    raw = "Raw issue text\n\n- bullet"
+    result = issue_formatter.format_issue_body(raw, use_llm=False)
+    formatted = result["formatted_body"]
+
+    assert "<details>" in formatted
+    assert "<summary>Original Issue</summary>" in formatted
+    assert raw in formatted
+
+
 def test_load_prompt_appends_feedback(tmp_path, monkeypatch) -> None:
     prompt_path = tmp_path / "format_issue.md"
     feedback_path = tmp_path / "format_issue_feedback.md"
@@ -85,3 +117,58 @@ def test_load_prompt_appends_feedback(tmp_path, monkeypatch) -> None:
 
     assert "Base prompt." in prompt
     assert "Feedback notes." in prompt
+
+
+def test_format_issue_body_falls_back_without_llm_tokens() -> None:
+    raw = "Just a note without tokens."
+    result = issue_formatter.format_issue_body(raw, use_llm=True)
+
+    assert result["used_llm"] is False
+    assert result["provider_used"] is None
+    assert "## Tasks" in result["formatted_body"]
+
+
+def test_format_issue_body_llm_path_includes_raw_issue(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    mock_response = mock.MagicMock()
+    mock_response.content = "## Tasks\n- [ ] Do it\n\n## Acceptance Criteria\n- [ ] Done"
+    mock_chain.invoke.return_value = mock_response
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_formatter._get_llm_client",
+        return_value=(mock_client, "github-models"),
+    ):
+        result = issue_formatter.format_issue_body("Raw issue text", use_llm=True)
+
+    assert result["used_llm"] is True
+    assert "<summary>Original Issue</summary>" in result["formatted_body"]
+    assert "Raw issue text" in result["formatted_body"]
+
+
+def test_build_label_transition_matches_expected_labels() -> None:
+    assert issue_formatter.build_label_transition() == {
+        "add": ["agents:formatted"],
+        "remove": ["agents:format"],
+    }
+
+
+def test_main_emits_json_with_labels(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["issue_formatter.py", "--input-text", "Raw issue", "--json", "--no-llm"],
+    )
+
+    issue_formatter.main()
+    captured = capsys.readouterr().out.strip()
+
+    payload = json.loads(captured)
+    assert payload["labels"] == {
+        "add": ["agents:formatted"],
+        "remove": ["agents:format"],
+    }
+    assert payload["used_llm"] is False
+    assert "## Acceptance Criteria" in payload["formatted_body"]
