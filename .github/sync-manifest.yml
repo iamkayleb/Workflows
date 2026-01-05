@@ -173,6 +173,13 @@ scripts:
   - source: .github/scripts/failure_comment_formatter.js
     description: "Formats failure comments for PR status updates"
 
+  # LangChain issue formatting (Phase 1 rollout - see docs/plans/langchain-rollout-tasks.md)
+  - source: scripts/langchain/issue_formatter.py
+    description: "Issue formatter - converts raw text to AGENT_ISSUE_TEMPLATE format"
+
+  - source: scripts/langchain/prompts/format_issue.md
+    description: "Prompt template for LLM-based issue formatting"
+
   - source: .github/scripts/agents-guard.js
     description: "Guards against unauthorized agent workflow file changes"
 
