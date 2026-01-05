@@ -561,4 +561,3 @@ def test_main_module_invocation(monkeypatch) -> None:
         runpy.run_path(task_decomposer.__file__, run_name="__main__")
     output = captured.getvalue()
     assert output.startswith("-")
-
