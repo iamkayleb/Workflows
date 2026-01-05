@@ -1,5 +1,5 @@
 <!-- pr-preamble:start -->
-> **Source:** Issue #518
+> **Source:** Issue #480
 
 <!-- pr-preamble:end -->
 
@@ -9,21 +9,18 @@
 _Scope section missing from source issue._
 
 #### Tasks
-- [x] Create `scripts/langchain/issue_optimizer.py` with analyzer chain
-- [x] Create `ANALYZE_ISSUE_PROMPT` with agent limitations context
-- [x] Create suggestion comment formatter with embedded JSON
-- [x] Add workflow trigger for `agents:optimize` label (Phase 1)
-- [x] Add workflow trigger for `agents:apply-suggestions` label (Phase 2)
-- [x] Extract suggestions JSON and route to Formatter (#478)
-- [x] Add label management (remove optimize/apply, add formatted)
-- [x] Add tests for analyze and apply phases
+- [x] Create task decomposition chain with `TASK_DECOMPOSITION_PROMPT`
+- [x] Integrate with Formatter (#478) or Capability Check (#477)
+- [x] Each sub-task must be:
+- [x] - Completable in one iteration
+- [x] - Have clear verification condition
+- [x] - Not depend on un-merged work from other sub-tasks
+- [x] Add tests for decomposition scenarios
 
 #### Acceptance criteria
-- [x] `agents:optimize` triggers analysis comment with structured suggestions
-- [ ] Suggestions include task splitting, blocked task identification, objective criteria
-- [ ] Comment contains `<- Updated WORKFLOW_OUTPUTS.md suggestions-json: {...} -->` marker
-- [x] `agents:apply-suggestions` extracts JSON and calls Formatter
-- [x] Issue body updated with applied improvements
-- [ ] Labels cleaned up appropriately
+- [x] Large tasks identified and flagged for decomposition
+- [x] Sub-tasks are independently verifiable
+- [x] Original task context preserved
+- [x] Decomposed tasks integrated into formatted issue
 
 <!-- auto-status-summary:end -->
