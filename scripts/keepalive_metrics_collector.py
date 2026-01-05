@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-REQUIRED_FIELDS = (
+KEEPALIVE_REQUIRED_FIELDS = (
     "pr_number",
     "iteration",
     "timestamp",
@@ -21,6 +21,18 @@ REQUIRED_FIELDS = (
     "duration_ms",
     "tasks_total",
     "tasks_complete",
+)
+
+POST_MERGE_REQUIRED_FIELDS = (
+    "metric_type",
+    "pr_number",
+    "timestamp",
+    "merged_at",
+    "iteration_count",
+    "tasks_total",
+    "tasks_complete",
+    "completion_rate",
+    "human_interventions",
 )
 
 
@@ -38,6 +50,10 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def _parse_timestamp(value: str) -> datetime:
     if not value:
         raise ValidationError("timestamp is required")
@@ -53,9 +69,8 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed
 
 
-def validate_record(record: dict[str, Any]) -> None:
-    """Validate required fields and types for a metrics record."""
-    missing = [field for field in REQUIRED_FIELDS if field not in record]
+def _validate_keepalive(record: dict[str, Any]) -> None:
+    missing = [field for field in KEEPALIVE_REQUIRED_FIELDS if field not in record]
     if missing:
         raise ValidationError(f"missing fields: {', '.join(missing)}")
 
@@ -76,6 +91,43 @@ def validate_record(record: dict[str, Any]) -> None:
 
     _parse_timestamp(str(record["timestamp"]))
 
+
+def _validate_post_merge(record: dict[str, Any]) -> None:
+    missing = [field for field in POST_MERGE_REQUIRED_FIELDS if field not in record]
+    if missing:
+        raise ValidationError(f"missing fields: {', '.join(missing)}")
+
+    metric_type = str(record.get("metric_type", "")).strip().lower()
+    if metric_type != "post-merge":
+        raise ValidationError("metric_type must be 'post-merge'")
+    if not _is_int(record["pr_number"]):
+        raise ValidationError("pr_number must be an integer")
+    if not _is_int(record["iteration_count"]):
+        raise ValidationError("iteration_count must be an integer")
+    if not _is_int(record["tasks_total"]):
+        raise ValidationError("tasks_total must be an integer")
+    if not _is_int(record["tasks_complete"]):
+        raise ValidationError("tasks_complete must be an integer")
+    if not _is_number(record["completion_rate"]):
+        raise ValidationError("completion_rate must be a number")
+    if not _is_int(record["human_interventions"]):
+        raise ValidationError("human_interventions must be an integer")
+
+    completion_rate = float(record["completion_rate"])
+    if not (0.0 <= completion_rate <= 1.0):
+        raise ValidationError("completion_rate must be between 0.0 and 1.0")
+
+    _parse_timestamp(str(record["timestamp"]))
+    _parse_timestamp(str(record["merged_at"]))
+
+
+def validate_record(record: dict[str, Any]) -> None:
+    """Validate required fields and types for a metrics record."""
+    metric_type = record.get("metric_type")
+    if metric_type is None or str(metric_type).strip().lower() == "keepalive":
+        _validate_keepalive(record)
+        return
+    _validate_post_merge(record)
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
