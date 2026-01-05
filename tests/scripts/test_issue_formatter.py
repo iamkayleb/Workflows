@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import sys
 import types
@@ -148,6 +149,68 @@ def test_format_issue_body_llm_path_includes_raw_issue(monkeypatch: pytest.Monke
     assert "Raw issue text" in result["formatted_body"]
 
 
+def test_format_issue_body_llm_invalid_output_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    mock_response = mock.MagicMock()
+    mock_response.content = "No required sections."
+    mock_chain.invoke.return_value = mock_response
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_formatter._get_llm_client",
+        return_value=(mock_client, "openai"),
+    ):
+        result = issue_formatter.format_issue_body("Why: Because", use_llm=True)
+
+    assert result["used_llm"] is False
+    assert result["provider_used"] is None
+    assert "## Acceptance Criteria" in result["formatted_body"]
+
+
+def test_format_issue_fallback_parses_aliases_and_preamble() -> None:
+    raw = """Quick summary without heading.
+
+**Motivation**
+Improve formatting.
+
+Task List:
+1. add formatter
+
+Definition of Done:
+* formatted body
+"""
+    result = issue_formatter.format_issue_body(raw, use_llm=False)
+    formatted = result["formatted_body"]
+
+    why = _extract_section(formatted, "Why")
+    scope = _extract_section(formatted, "Scope")
+    tasks = _extract_section(formatted, "Tasks")
+    acceptance = _extract_section(formatted, "Acceptance Criteria")
+
+    assert "Improve formatting." in why
+    assert "Quick summary without heading." in scope
+    assert "Quick summary without heading." in scope
+    assert "- [ ] add formatter" in tasks
+    assert "- [ ] formatted body" in acceptance
+
+
+def test_format_issue_fallback_preserves_code_fences_in_tasks() -> None:
+    raw = """## Tasks
+- add formatter
+```
+- [ ] should stay literal
+```
+"""
+    result = issue_formatter.format_issue_body(raw, use_llm=False)
+    tasks = _extract_section(result["formatted_body"], "Tasks")
+
+    assert "```" in tasks
+    assert "- [ ] add formatter" in tasks
+    assert "- [ ] should stay literal" in tasks
+
+
 def test_build_label_transition_matches_expected_labels() -> None:
     assert issue_formatter.build_label_transition() == {
         "add": ["agents:formatted"],
@@ -172,3 +235,35 @@ def test_main_emits_json_with_labels(monkeypatch, capsys) -> None:
     }
     assert payload["used_llm"] is False
     assert "## Acceptance Criteria" in payload["formatted_body"]
+
+
+def test_main_writes_output_file(monkeypatch, tmp_path, capsys) -> None:
+    output_path = tmp_path / "formatted.md"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "issue_formatter.py",
+            "--input-text",
+            "Why: Because",
+            "--output-file",
+            str(output_path),
+            "--no-llm",
+        ],
+    )
+
+    issue_formatter.main()
+    stdout = capsys.readouterr().out
+
+    assert output_path.exists()
+    assert output_path.read_text(encoding="utf-8") in stdout
+
+
+def test_main_reads_stdin_when_no_input_options(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(sys, "argv", ["issue_formatter.py", "--no-llm"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO("Why: stdin"))
+
+    issue_formatter.main()
+
+    stdout = capsys.readouterr().out
+    assert "## Why" in stdout

@@ -39,3 +39,19 @@ The `capability_check.py` module is P0 priority as it's designed to prevent wast
 - [x] Works with both LLM and fallback formatting modes
 
 <!-- auto-status-summary:end -->
+
+## LangChain Coverage Tasks (Issue #567)
+- [x] Add comprehensive tests for `issue_formatter.py` (213 statements, 82 branches)
+- [x] - Test LLM-based formatting path
+- [x] - Test fallback regex parsing
+- [x] - Test template validation
+- [x] - Test error handling
+- [x] - Test CLI interface
+- [x] Add tests for `capability_check.py` (141 statements, 46 branches)
+- [x] - Test agent capability detection
+- [x] - Test pre-flight checks
+- [x] - Test error scenarios
+- [x] Improve `task_decomposer.py` coverage from 82.16% to 90%+
+- [x] - Cover missing lines: 72, 76-98, 213, 247-262, 290
+- [x] - Cover missing branch: 145->138
+- [x] Rollout plan: `docs/plans/langchain-rollout-tasks.md`
