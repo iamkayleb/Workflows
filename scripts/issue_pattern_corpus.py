@@ -6,10 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from scripts.langchain import issue_formatter
 
@@ -30,6 +31,7 @@ SECTION_HEADERS = {
     "acceptance": "## Acceptance Criteria",
     "implementation": "## Implementation Notes",
 }
+
 
 @dataclass(frozen=True)
 class CorpusCriteria:
@@ -184,9 +186,7 @@ def _count_checklist_items(lines: list[str]) -> int:
             return 0
         if line.strip() == SUCCESS_PLACEHOLDERS["acceptance"]:
             return 0
-        if line.strip().startswith("- [") and "]" in line:
-            count += 1
-        elif line.strip().startswith("- ["):
+        if line.strip().startswith("- [") and "]" in line or line.strip().startswith("- ["):
             count += 1
     return count
 
@@ -216,9 +216,7 @@ def _pattern_key(task_count: int, acceptance_count: int, flags: dict[str, bool])
     )
 
 
-def _meets_success_criteria(
-    metrics: dict[str, Any], criteria: CorpusCriteria
-) -> bool:
+def _meets_success_criteria(metrics: dict[str, Any], criteria: CorpusCriteria) -> bool:
     completion_rate = _safe_float(metrics.get("completion_rate"))
     if completion_rate is None or completion_rate < criteria.min_completion_rate:
         return False
