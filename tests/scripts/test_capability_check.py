@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import types
 from io import StringIO
 from typing import Any
 from unittest import mock
@@ -274,6 +276,45 @@ class TestClassifyCapabilities:
                 assert result.recommendation == "REVIEW_NEEDED"
                 assert result.provider_used == "github-models"
                 assert "langchain-core not installed" in result.human_actions_needed
+
+    def test_invokes_chain_with_prompt_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        mock_client = mock.MagicMock()
+        mock_chain = mock.MagicMock()
+        mock_response = mock.MagicMock()
+        mock_response.content = json.dumps(
+            {
+                "actionable_tasks": ["task1"],
+                "partial_tasks": [],
+                "blocked_tasks": [],
+                "recommendation": "proceed",
+                "human_actions_needed": ["  review  "],
+            }
+        )
+        mock_chain.invoke.return_value = mock_response
+
+        mock_template = mock.MagicMock()
+        mock_template.__or__ = mock.MagicMock(return_value=mock_chain)
+
+        class FakeChatPromptTemplate:
+            @staticmethod
+            def from_template(_: str) -> Any:
+                return mock_template
+
+        fake_prompts = types.SimpleNamespace(ChatPromptTemplate=FakeChatPromptTemplate)
+        fake_core = types.SimpleNamespace(prompts=fake_prompts)
+        monkeypatch.setitem(sys.modules, "langchain_core", fake_core)
+        monkeypatch.setitem(sys.modules, "langchain_core.prompts", fake_prompts)
+
+        with mock.patch(
+            "scripts.langchain.capability_check._get_llm_client",
+            return_value=(mock_client, "github-models"),
+        ):
+            result = classify_capabilities(["task1"], "criteria")
+
+        mock_chain.invoke.assert_called_once_with(_prepare_prompt_values(["task1"], "criteria"))
+        assert result.recommendation == "PROCEED"
+        assert result.human_actions_needed == ["review"]
+        assert result.provider_used == "github-models"
 
 
 # The following tests require langchain_core to be installed
