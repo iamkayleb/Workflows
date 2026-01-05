@@ -45,6 +45,7 @@ jobs:
         id: context
         uses: actions/github-script@v8
         with:
+          github-token: ${{ secrets.ACTIONS_BOT_PAT || secrets.AGENTS_AUTOMATION_PAT || github.token }}
           script: |
             const path = require('path');
             const { paginateWithBackoff } = require(
@@ -100,12 +101,24 @@ jobs:
 
             // File check with rate limit retry
             const { owner, repo } = context.repo;
-            const files = await paginateWithBackoff(
-              github,
-              github.rest.pulls.listFiles,
-              { owner, repo, pull_number: pr.number, per_page: 100 },
-              { maxRetries: 3, core }
-            );
+            let files = [];
+            try {
+              files = await paginateWithBackoff(
+                github,
+                github.rest.pulls.listFiles,
+                { owner, repo, pull_number: pr.number, per_page: 100 },
+                { maxRetries: 3, core }
+              );
+            } catch (error) {
+              const message = String(error?.message || error || '');
+              const status = Number(error?.status || error?.response?.status || 0);
+              if (status === 403 && message.toLowerCase().includes('rate limit exceeded')) {
+                core.warning(`Rate limited while listing PR files; skipping autofix run. ${message}`);
+                core.setOutput('should_run', 'false');
+                return;
+              }
+              throw error;
+            }
 
             const hasPython = files.some(f => f.filename.endsWith('.py') || f.filename.endsWith('.pyi'));
             if (!hasPython) {
