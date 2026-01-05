@@ -62,6 +62,21 @@ def test_summarise_normalizes_categories_and_iterations() -> None:
     assert summary["avg_iterations"] == 2.5
 
 
+def test_summarise_skips_post_merge_records() -> None:
+    summary = dashboard._summarise(
+        [
+            {"metric_type": "post-merge", "pr_number": 1, "iteration": 9},
+            {"metric_type": "keepalive", "pr_number": 2, "iteration": 1, "error_category": "none"},
+            {"pr_number": 3, "iteration": 2, "error_category": "none"},
+        ]
+    )
+
+    assert summary["total"] == 2
+    assert summary["successes"] == 2
+    assert summary["iteration_counts"]["1"] == 1
+    assert summary["iteration_counts"]["2"] == 1
+
+
 def test_build_parser_defaults() -> None:
     parser = dashboard._build_parser()
     args = parser.parse_args([])

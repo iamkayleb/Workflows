@@ -65,6 +65,11 @@ def _summarise(records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     pr_iterations: dict[int, int] = {}
 
     for record in records:
+        metric_type = record.get("metric_type")
+        if metric_type is not None:
+            metric_value = str(metric_type).strip().lower()
+            if metric_value and metric_value != "keepalive":
+                continue
         total += 1
         error_category_raw = record.get("error_category")
         error_category = str(error_category_raw).strip() if error_category_raw is not None else ""

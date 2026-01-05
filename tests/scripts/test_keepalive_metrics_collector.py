@@ -19,8 +19,28 @@ def _sample_record() -> dict:
     }
 
 
+def _sample_post_merge_record() -> dict:
+    return {
+        "metric_type": "post-merge",
+        "pr_number": 202,
+        "timestamp": datetime(2025, 2, 1, tzinfo=UTC).isoformat().replace("+00:00", "Z"),
+        "merged_at": datetime(2025, 2, 1, 1, tzinfo=UTC).isoformat().replace("+00:00", "Z"),
+        "iteration_count": 4,
+        "tasks_total": 6,
+        "tasks_complete": 6,
+        "completion_rate": 1.0,
+        "human_interventions": 2,
+    }
+
+
 def test_validate_record_accepts_valid_payload() -> None:
     record = _sample_record()
+
+    collector.validate_record(record)
+
+
+def test_validate_record_accepts_post_merge_payload() -> None:
+    record = _sample_post_merge_record()
 
     collector.validate_record(record)
 
@@ -64,6 +84,12 @@ def test_append_record_appends_lines(tmp_path: Path) -> None:
 def test_is_int_rejects_bool() -> None:
     assert collector._is_int(3) is True
     assert collector._is_int(True) is False
+
+
+def test_is_number_rejects_bool() -> None:
+    assert collector._is_number(1.5) is True
+    assert collector._is_number(2) is True
+    assert collector._is_number(False) is False
 
 
 def test_parse_timestamp_validates_timezone() -> None:
@@ -143,6 +169,33 @@ def test_validate_record_rejects_specific_fields(field: str, value: object, mess
     record[field] = value
 
     with pytest.raises(collector.ValidationError, match=message):
+        collector.validate_record(record)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("metric_type", "unknown", "metric_type must be 'post-merge'"),
+        ("iteration_count", "two", "iteration_count must be an integer"),
+        ("completion_rate", "full", "completion_rate must be a number"),
+        ("human_interventions", None, "human_interventions must be an integer"),
+    ],
+)
+def test_validate_post_merge_rejects_specific_fields(
+    field: str, value: object, message: str
+) -> None:
+    record = _sample_post_merge_record()
+    record[field] = value
+
+    with pytest.raises(collector.ValidationError, match=message):
+        collector.validate_record(record)
+
+
+def test_validate_post_merge_rejects_out_of_range_completion_rate() -> None:
+    record = _sample_post_merge_record()
+    record["completion_rate"] = 1.5
+
+    with pytest.raises(collector.ValidationError, match="completion_rate must be between"):
         collector.validate_record(record)
 
 
