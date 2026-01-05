@@ -290,8 +290,8 @@ def test_apply_task_decomposition_skips_when_missing_header() -> None:
 
 
 def test_extract_json_payload_with_wrapped_text() -> None:
-    payload = issue_optimizer._extract_json_payload("Result:\n{\"ok\": true}\nThanks")
-    assert payload == "{\"ok\": true}"
+    payload = issue_optimizer._extract_json_payload('Result:\n{"ok": true}\nThanks')
+    assert payload == '{"ok": true}'
 
 
 def test_formatted_output_validates_sections() -> None:
