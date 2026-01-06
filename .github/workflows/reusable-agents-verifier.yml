@@ -361,14 +361,14 @@ jobs:
           context_file="${{ steps.context.outputs.context_path }}"
           diff_file="${{ steps.context.outputs.diff_summary_path }}"
           
-          # Build args
-          args="--context-file \"$context_file\" --compare --json"
+          # Build args array
+          args=(--context-file "$context_file" --compare --json)
           if [ -n "$diff_file" ] && [ -f "$diff_file" ]; then
-            args="$args --diff-file \"$diff_file\""
+            args+=(--diff-file "$diff_file")
           fi
           
           # Run comparison and capture output
-          python .workflows-lib/scripts/langchain/pr_verifier.py $args > comparison.json 2>&1 || true
+          python .workflows-lib/scripts/langchain/pr_verifier.py "${args[@]}" > comparison.json 2>&1 || true
           
           # Parse result
           if [ -f comparison.json ]; then
