@@ -14,6 +14,7 @@ import os
 import re
 import sys
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -134,6 +135,72 @@ def _get_llm_client() -> tuple[object, str] | None:
         ),
         "openai",
     )
+
+
+def _get_llm_clients() -> list[tuple[object, str]]:
+    try:
+        from langchain_openai import ChatOpenAI
+    except ImportError:
+        return []
+
+    github_token = os.environ.get("GITHUB_TOKEN")
+    openai_token = os.environ.get("OPENAI_API_KEY")
+    if not github_token and not openai_token:
+        return []
+
+    from tools.llm_provider import DEFAULT_MODEL, GITHUB_MODELS_BASE_URL
+
+    clients: list[tuple[object, str]] = []
+    if github_token:
+        clients.append(
+            (
+                ChatOpenAI(
+                    model=DEFAULT_MODEL,
+                    base_url=GITHUB_MODELS_BASE_URL,
+                    api_key=github_token,
+                    temperature=0.1,
+                ),
+                "github-models",
+            )
+        )
+    if openai_token:
+        clients.append(
+            (
+                ChatOpenAI(
+                    model=DEFAULT_MODEL,
+                    api_key=openai_token,
+                    temperature=0.1,
+                ),
+                "openai",
+            )
+        )
+    return clients
+
+
+@dataclass(frozen=True)
+class ComparisonRunner:
+    context: str
+    diff: str | None
+    prompt: str
+    clients: list[tuple[object, str]]
+
+    @classmethod
+    def from_environment(cls, context: str, diff: str | None) -> "ComparisonRunner":
+        return cls(
+            context=context,
+            diff=diff,
+            prompt=_prepare_prompt(context, diff),
+            clients=_get_llm_clients(),
+        )
+
+    def run_single(self, client: object, provider: str) -> EvaluationResult:
+        try:
+            response = client.invoke(self.prompt)
+        except Exception as exc:  # pragma: no cover - exercised in integration
+            return _fallback_evaluation(f"LLM invocation failed: {exc}", provider=provider)
+
+        content = getattr(response, "content", None) or str(response)
+        return _parse_llm_response(content, provider)
 
 
 def _prepare_prompt(context: str, diff: str | None) -> str:
@@ -258,13 +325,13 @@ def _create_followup_issue(
     return None
 
 
-def _fallback_evaluation(message: str) -> EvaluationResult:
+def _fallback_evaluation(message: str, provider: str | None = None) -> EvaluationResult:
     return EvaluationResult(
         verdict="CONCERNS",
         scores=None,
         concerns=["LLM evaluation could not run."],
         summary="Review the PR manually or re-run once LLM credentials are available.",
-        provider_used=None,
+        provider_used=provider,
         used_llm=False,
         error=message,
     )
