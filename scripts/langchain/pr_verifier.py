@@ -51,6 +51,13 @@ Respond in JSON with:
 """.strip()
 
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "pr_evaluation.md"
+REQUIRED_EVALUATION_AREAS = (
+    "correctness",
+    "completeness",
+    "quality",
+    "testing",
+    "risks",
+)
 
 
 class EvaluationScores(BaseModel):
@@ -72,10 +79,28 @@ class EvaluationResult(BaseModel):
     error: str | None = None
 
 
+def _ensure_prompt_rubric(prompt: str) -> str:
+    lowered = prompt.lower()
+    if all(area in lowered for area in REQUIRED_EVALUATION_AREAS):
+        return prompt
+
+    rubric_lines = [
+        "",
+        "Provide an evaluation that covers:",
+        "- correctness",
+        "- completeness",
+        "- quality",
+        "- testing",
+        "- risks",
+    ]
+    return prompt.rstrip() + "\n" + "\n".join(rubric_lines) + "\n"
+
+
 def _load_prompt() -> str:
     if PROMPT_PATH.is_file():
-        return PROMPT_PATH.read_text(encoding="utf-8").strip()
-    return PR_EVALUATION_PROMPT
+        prompt = PROMPT_PATH.read_text(encoding="utf-8").strip()
+        return _ensure_prompt_rubric(prompt)
+    return _ensure_prompt_rubric(PR_EVALUATION_PROMPT)
 
 
 def _get_llm_client() -> tuple[object, str] | None:
