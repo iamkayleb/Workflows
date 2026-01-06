@@ -406,6 +406,18 @@ def evaluate_pr(context: str, diff: str | None = None) -> EvaluationResult:
     return _parse_llm_response(content, provider)
 
 
+def evaluate_pr_multiple(context: str, diff: str | None = None) -> list[EvaluationResult]:
+    runner = ComparisonRunner.from_environment(context, diff)
+    if not runner.clients:
+        return [
+            _fallback_evaluation("LLM client unavailable (missing credentials or dependency).")
+        ]
+    results: list[EvaluationResult] = []
+    for client, provider in runner.clients:
+        results.append(runner.run_single(client, provider))
+    return results
+
+
 def _load_text(path: str | None) -> str:
     if path:
         return Path(path).read_text(encoding="utf-8")
