@@ -362,9 +362,9 @@ jobs:
           diff_file="${{ steps.context.outputs.diff_summary_path }}"
           
           # Build args
-          args="--context-file $context_file --compare --json"
+          args="--context-file \"$context_file\" --compare --json"
           if [ -n "$diff_file" ] && [ -f "$diff_file" ]; then
-            args="$args --diff-file $diff_file"
+            args="$args --diff-file \"$diff_file\""
           fi
           
           # Run comparison and capture output
