@@ -263,11 +263,11 @@ jobs:
           args="$args --create-issue --issue-label agent:codex --issue-label verify:evaluate"
           
           # Run evaluator
-          python .workflows-lib/scripts/langchain/pr_verifier.py $args > evaluation.json 2>&1 || true
+          python .workflows-lib/scripts/langchain/pr_verifier.py "$args" > evaluation.json 2>&1 || true
           
           # Parse result
           if [ -f evaluation.json ]; then
-            verdict=$(cat evaluation.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('verdict','CONCERNS'))" 2>/dev/null || echo "CONCERNS")
+            verdict=$(python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('verdict','CONCERNS'))" < evaluation.json 2>/dev/null || echo "CONCERNS")
             echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
             
             # Format output for comment
@@ -318,7 +318,7 @@ jobs:
             cat evaluation-comment.md
           else
             echo "verdict=CONCERNS" >> "$GITHUB_OUTPUT"
-            echo "## LLM Evaluation\n\nEvaluation could not run (missing output)." > evaluation-comment.md
+            printf "%s\n" "## LLM Evaluation" "" "Evaluation could not run (missing output)." > evaluation-comment.md
           fi
 
       - name: Post LLM evaluation comment
