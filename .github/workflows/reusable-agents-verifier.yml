@@ -20,6 +20,11 @@ on:
         required: false
         type: number
         default: 300000
+      mode:
+        description: 'Verification mode: checkbox (default) or evaluate (LLM-based)'
+        required: false
+        type: string
+        default: 'checkbox'
     secrets:
       CODEX_AUTH_JSON:
         required: true
@@ -27,7 +32,7 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
   issues: write
   actions: read
 
@@ -162,7 +167,7 @@ jobs:
           echo "prompt_file=$combined" >> "$GITHUB_OUTPUT"
 
       - name: Setup Codex auth
-        if: steps.context.outputs.should_run == 'true'
+        if: steps.context.outputs.should_run == 'true' && inputs.mode != 'evaluate'
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
           CODEX_HOME: ${{ runner.temp }}/.codex-verifier
@@ -176,12 +181,12 @@ jobs:
           echo "Codex auth configured"
 
       - name: Install Codex CLI
-        if: steps.context.outputs.should_run == 'true'
+        if: steps.context.outputs.should_run == 'true' && inputs.mode != 'evaluate'
         run: npm install -g @openai/codex
 
-      - name: Run verifier
+      - name: Run verifier (checkbox mode)
         id: codex
-        if: steps.context.outputs.should_run == 'true'
+        if: steps.context.outputs.should_run == 'true' && inputs.mode != 'evaluate'
         continue-on-error: true
         env:
           CODEX_HOME: ${{ runner.temp }}/.codex-verifier
@@ -205,9 +210,9 @@ jobs:
           fi
           exit "${codex_exit_code}"
 
-      - name: Parse verifier verdict
+      - name: Parse verifier verdict (checkbox mode)
         id: verdict
-        if: steps.context.outputs.should_run == 'true'
+        if: steps.context.outputs.should_run == 'true' && inputs.mode != 'evaluate'
         run: |
           set -euo pipefail
           verdict="unknown"
@@ -226,9 +231,127 @@ jobs:
           fi
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
+      # === LLM Evaluation Mode (when mode=evaluate) ===
+      - name: Setup Python for LLM evaluation
+        if: steps.context.outputs.should_run == 'true' && inputs.mode == 'evaluate'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install LLM evaluation dependencies
+        if: steps.context.outputs.should_run == 'true' && inputs.mode == 'evaluate'
+        run: |
+          pip install pydantic langchain-openai
+
+      - name: Run LLM evaluation
+        id: llm_evaluate
+        if: steps.context.outputs.should_run == 'true' && inputs.mode == 'evaluate'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONPATH: .workflows-lib
+        run: |
+          set -euo pipefail
+          context_file="${{ steps.context.outputs.context_path }}"
+          diff_file="${{ steps.context.outputs.diff_summary_path }}"
+          
+          # Build args
+          args="--context-file $context_file --json"
+          if [ -n "$diff_file" ] && [ -f "$diff_file" ]; then
+            args="$args --diff-file $diff_file"
+          fi
+          args="$args --create-issue --issue-label agent:codex --issue-label verify:evaluate"
+          
+          # Run evaluator
+          python .workflows-lib/scripts/langchain/pr_verifier.py $args > evaluation.json 2>&1 || true
+          
+          # Parse result
+          if [ -f evaluation.json ]; then
+            verdict=$(cat evaluation.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('verdict','CONCERNS'))" 2>/dev/null || echo "CONCERNS")
+            echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+            
+            # Format output for comment
+            python3 - <<'PYFORMAT'
+          import json
+          import sys
+          
+          try:
+              with open('evaluation.json') as f:
+                  data = json.load(f)
+              
+              lines = ["## LLM Evaluation Report", ""]
+              lines.append(f"**Verdict:** {data.get('verdict', 'UNKNOWN')}")
+              lines.append("")
+              
+              if data.get('summary'):
+                  lines.append(f"**Summary:** {data['summary']}")
+                  lines.append("")
+              
+              scores = data.get('scores')
+              if scores:
+                  lines.append("### Scores")
+                  lines.append("| Criterion | Score |")
+                  lines.append("|-----------|-------|")
+                  for key in ['correctness', 'completeness', 'quality', 'testing', 'risks']:
+                      score = scores.get(key, 'N/A')
+                      lines.append(f"| {key.capitalize()} | {score}/10 |")
+                  lines.append("")
+              
+              concerns = data.get('concerns', [])
+              if concerns:
+                  lines.append("### Concerns")
+                  for c in concerns:
+                      if c:
+                          lines.append(f"- {c}")
+                  lines.append("")
+              
+              if data.get('error'):
+                  lines.append(f"**Note:** {data['error']}")
+              
+              with open('evaluation-comment.md', 'w') as f:
+                  f.write('\n'.join(lines))
+          except Exception as e:
+              with open('evaluation-comment.md', 'w') as f:
+                  f.write(f"## LLM Evaluation\n\nEvaluation encountered an error: {e}")
+          PYFORMAT
+            
+            cat evaluation-comment.md
+          else
+            echo "verdict=CONCERNS" >> "$GITHUB_OUTPUT"
+            echo "## LLM Evaluation\n\nEvaluation could not run (missing output)." > evaluation-comment.md
+          fi
+
+      - name: Post LLM evaluation comment
+        if: steps.context.outputs.should_run == 'true' && inputs.mode == 'evaluate' && steps.llm_evaluate.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          pr_number="${{ steps.context.outputs.pr_number }}"
+          if [ -n "$pr_number" ] && [ -f "evaluation-comment.md" ]; then
+            gh pr comment "$pr_number" --body-file evaluation-comment.md || echo "Warning: Could not post comment"
+          fi
+
+      - name: Set unified verdict
+        id: unified_verdict
+        if: steps.context.outputs.should_run == 'true'
+        run: |
+          # Combine verdicts from both modes
+          checkbox_verdict="${{ steps.verdict.outputs.verdict }}"
+          llm_verdict="${{ steps.llm_evaluate.outputs.verdict }}"
+          
+          if [ "${{ inputs.mode }}" = "evaluate" ]; then
+            final_verdict="${llm_verdict:-unknown}"
+          else
+            final_verdict="${checkbox_verdict:-unknown}"
+          fi
+          
+          echo "verdict=$final_verdict" >> "$GITHUB_OUTPUT"
+          echo "Final verdict: $final_verdict"
+
       - name: Open follow-up issue on verifier failure
         id: failure_issue
-        if: steps.context.outputs.should_run == 'true' && (steps.verdict.outputs.verdict == 'fail' || steps.verdict.outputs.verdict == 'error')
+        if: steps.context.outputs.should_run == 'true' && (steps.unified_verdict.outputs.verdict == 'fail' || steps.unified_verdict.outputs.verdict == 'error' || steps.unified_verdict.outputs.verdict == 'FAIL' || steps.unified_verdict.outputs.verdict == 'CONCERNS')
         uses: actions/github-script@v8
         env:
           PR_URL: ${{ steps.context.outputs.pr_html_url }}
