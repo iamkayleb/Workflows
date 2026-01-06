@@ -16,6 +16,7 @@ Evaluate the change against the acceptance criteria and code quality. Explicitly
 Respond in JSON with:
 {
   "verdict": "PASS | CONCERNS | FAIL",
+  "confidence": 0.0-1.0,
   "scores": {
     "correctness": 0-10,
     "completeness": 0-10,

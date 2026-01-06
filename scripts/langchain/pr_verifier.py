@@ -39,6 +39,7 @@ Provide an evaluation that covers:
 Respond in JSON with:
 {
   "verdict": "PASS | CONCERNS | FAIL",
+  "confidence": 0.0-1.0,
   "scores": {
     "correctness": 0-10,
     "completeness": 0-10,
@@ -59,6 +60,7 @@ REQUIRED_EVALUATION_AREAS = (
     "testing",
     "risks",
 )
+SCORE_KEYS = ("correctness", "completeness", "quality", "testing", "risks")
 
 
 class EvaluationScores(BaseModel):
@@ -72,6 +74,7 @@ class EvaluationScores(BaseModel):
 class EvaluationResult(BaseModel):
     verdict: Literal["PASS", "CONCERNS", "FAIL"]
     scores: EvaluationScores | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
     concerns: list[str] = Field(default_factory=list)
     summary: str | None = None
     provider_used: str | None = None
@@ -416,6 +419,173 @@ def evaluate_pr_multiple(context: str, diff: str | None = None) -> list[Evaluati
     return results
 
 
+def _normalize_text(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", text.strip().lower())
+    return cleaned
+
+
+def _compact_text(text: str, limit: int = 160) -> str:
+    cleaned = re.sub(r"\s+", " ", text.strip())
+    if len(cleaned) <= limit:
+        return cleaned
+    return f"{cleaned[: max(0, limit - 3)].rstrip()}..."
+
+
+def _provider_label(result: EvaluationResult, index: int) -> str:
+    return result.provider_used or f"provider-{index + 1}"
+
+
+def _format_confidence(confidence: float | None) -> str:
+    if confidence is None:
+        return "N/A"
+    return f"{confidence:.0%}"
+
+
+def _shared_concerns(results: list[EvaluationResult]) -> list[str]:
+    counts: dict[str, dict[str, object]] = {}
+    for result in results:
+        for concern in result.concerns:
+            normalized = _normalize_text(concern)
+            if not normalized:
+                continue
+            entry = counts.setdefault(normalized, {"count": 0, "text": concern})
+            entry["count"] = int(entry["count"]) + 1
+    shared = []
+    for entry in counts.values():
+        if int(entry["count"]) > 1:
+            shared.append(str(entry["text"]))
+    return shared
+
+
+def _unique_concerns(results: list[EvaluationResult]) -> dict[int, list[str]]:
+    counts: dict[str, int] = {}
+    for result in results:
+        for concern in result.concerns:
+            normalized = _normalize_text(concern)
+            if not normalized:
+                continue
+            counts[normalized] = counts.get(normalized, 0) + 1
+
+    unique: dict[int, list[str]] = {}
+    for index, result in enumerate(results):
+        unique_concerns: list[str] = []
+        for concern in result.concerns:
+            normalized = _normalize_text(concern)
+            if normalized and counts.get(normalized, 0) == 1:
+                unique_concerns.append(concern)
+        unique[index] = unique_concerns
+    return unique
+
+
+def format_comparison_report(results: list[EvaluationResult]) -> str:
+    lines = ["## Provider Comparison Report", ""]
+    if not results:
+        lines.append("No evaluation results available.")
+        return "\n".join(lines).strip() + "\n"
+
+    if len(results) == 1:
+        lines.append("Only one provider was available; comparison skipped.")
+        lines.append("")
+
+    labels = [_provider_label(result, index) for index, result in enumerate(results)]
+
+    lines.append("### Provider Summary")
+    lines.append("| Provider | Verdict | Confidence | Summary |")
+    lines.append("| --- | --- | --- | --- |")
+    for index, result in enumerate(results):
+        summary_source = result.summary or result.raw_content or ""
+        summary = _compact_text(summary_source) if summary_source else "N/A"
+        lines.append(
+            "| {provider} | {verdict} | {confidence} | {summary} |".format(
+                provider=labels[index],
+                verdict=result.verdict,
+                confidence=_format_confidence(result.confidence),
+                summary=summary,
+            )
+        )
+    lines.append("")
+
+    lines.append("### Agreement")
+    agreements: list[str] = []
+    verdicts = {result.verdict for result in results}
+    if len(verdicts) == 1:
+        verdict = verdicts.pop()
+        agreements.append(f"- Verdict: {verdict} (all providers)")
+
+    for key in SCORE_KEYS:
+        scores = [
+            getattr(result.scores, key)
+            for result in results
+            if result.scores is not None
+        ]
+        if len(scores) != len(results):
+            continue
+        min_score = min(scores)
+        max_score = max(scores)
+        if max_score - min_score <= 1:
+            avg_score = sum(scores) / len(scores)
+            agreements.append(
+                f"- {key.capitalize()}: scores within 1 point (avg {avg_score:.1f}/10, "
+                f"range {min_score:.1f}-{max_score:.1f})"
+            )
+
+    for concern in _shared_concerns(results):
+        agreements.append(f"- Concern: {concern}")
+
+    if not agreements:
+        lines.append("- No clear areas of agreement.")
+    else:
+        lines.extend(agreements)
+    lines.append("")
+
+    lines.append("### Disagreement")
+    rows: list[tuple[str, list[str]]] = []
+    if len(verdicts) > 1:
+        rows.append(("Verdict", [result.verdict for result in results]))
+
+    for key in SCORE_KEYS:
+        scores = [
+            getattr(result.scores, key) if result.scores is not None else None
+            for result in results
+        ]
+        available = [score for score in scores if score is not None]
+        if len(available) < 2:
+            continue
+        min_score = min(available)
+        max_score = max(available)
+        if max_score - min_score > 1:
+            rendered = [
+                f"{score:.1f}/10" if score is not None else "N/A" for score in scores
+            ]
+            rows.append((key.capitalize(), rendered))
+
+    if rows:
+        header = "| Dimension | " + " | ".join(labels) + " |"
+        separator = "| --- | " + " | ".join(["---"] * len(labels)) + " |"
+        lines.append(header)
+        lines.append(separator)
+        for dimension, values in rows:
+            lines.append("| {dim} | {vals} |".format(dim=dimension, vals=" | ".join(values)))
+    else:
+        lines.append("No major disagreements detected.")
+    lines.append("")
+
+    lines.append("### Unique Insights")
+    unique_map = _unique_concerns(results)
+    for index, result in enumerate(results):
+        insights = unique_map.get(index, [])
+        if not insights:
+            summary = result.summary or ""
+            if summary:
+                insights = [_compact_text(summary)]
+        if not insights:
+            insights = ["No unique insights reported."]
+        lines.append(f"- {labels[index]}: {'; '.join(insights)}")
+    lines.append("")
+
+    return "\n".join(lines).strip() + "\n"
+
+
 def _load_text(path: str | None) -> str:
     if path:
         return Path(path).read_text(encoding="utf-8")
@@ -438,11 +608,31 @@ def main() -> None:
         default=[],
         help="Label to apply to follow-up issues (repeatable).",
     )
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="Run evaluations across multiple providers and output a comparison report.",
+    )
     parser.add_argument("--json", action="store_true", help="Emit JSON payload to stdout.")
     args = parser.parse_args()
 
     context = _load_text(args.context_file)
     diff = _load_text(args.diff_file) if args.diff_file else None
+    if args.compare:
+        results = evaluate_pr_multiple(context, diff=diff)
+        report = format_comparison_report(results)
+        if args.output_file:
+            Path(args.output_file).write_text(report, encoding="utf-8")
+        if args.json:
+            payload = {
+                "results": [result.model_dump() for result in results],
+                "report": report,
+            }
+            print(json.dumps(payload, ensure_ascii=True))
+        else:
+            print(report)
+        return
+
     result = evaluate_pr(context, diff=diff)
     issue_labels = args.issue_label or ["agent:codex"]
     run_url = None
