@@ -344,14 +344,20 @@ def main() -> None:
     result = evaluate_pr(context, diff=diff)
     issue_labels = args.issue_label or ["agent:codex"]
     run_url = None
-    if os.environ.get("GITHUB_RUN_ID") and os.environ.get("GITHUB_SERVER_URL") and os.environ.get("GITHUB_REPOSITORY"):
+    if (
+        os.environ.get("GITHUB_RUN_ID")
+        and os.environ.get("GITHUB_SERVER_URL")
+        and os.environ.get("GITHUB_REPOSITORY")
+    ):
         run_url = (
             f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}"
             f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
         )
     if args.create_issue:
         try:
-            issue_number = _create_followup_issue(result, context, labels=issue_labels, run_url=run_url)
+            issue_number = _create_followup_issue(
+                result, context, labels=issue_labels, run_url=run_url
+            )
             if issue_number:
                 print(f"Created follow-up issue #{issue_number}.", file=sys.stderr)
         except Exception as exc:
