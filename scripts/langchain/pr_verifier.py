@@ -185,7 +185,7 @@ class ComparisonRunner:
     clients: list[tuple[object, str]]
 
     @classmethod
-    def from_environment(cls, context: str, diff: str | None) -> "ComparisonRunner":
+    def from_environment(cls, context: str, diff: str | None) -> ComparisonRunner:
         return cls(
             context=context,
             diff=diff,
