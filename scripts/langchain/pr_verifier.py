@@ -496,12 +496,7 @@ def format_comparison_report(results: list[EvaluationResult]) -> str:
         summary_source = result.summary or result.raw_content or ""
         summary = _compact_text(summary_source) if summary_source else "N/A"
         lines.append(
-            "| {provider} | {verdict} | {confidence} | {summary} |".format(
-                provider=labels[index],
-                verdict=result.verdict,
-                confidence=_format_confidence(result.confidence),
-                summary=summary,
-            )
+            f"| {labels[index]} | {result.verdict} | {_format_confidence(result.confidence)} | {summary} |"
         )
     lines.append("")
 
@@ -513,11 +508,7 @@ def format_comparison_report(results: list[EvaluationResult]) -> str:
         agreements.append(f"- Verdict: {verdict} (all providers)")
 
     for key in SCORE_KEYS:
-        scores = [
-            getattr(result.scores, key)
-            for result in results
-            if result.scores is not None
-        ]
+        scores = [getattr(result.scores, key) for result in results if result.scores is not None]
         if len(scores) != len(results):
             continue
         min_score = min(scores)
@@ -545,8 +536,7 @@ def format_comparison_report(results: list[EvaluationResult]) -> str:
 
     for key in SCORE_KEYS:
         scores = [
-            getattr(result.scores, key) if result.scores is not None else None
-            for result in results
+            getattr(result.scores, key) if result.scores is not None else None for result in results
         ]
         available = [score for score in scores if score is not None]
         if len(available) < 2:
@@ -554,9 +544,7 @@ def format_comparison_report(results: list[EvaluationResult]) -> str:
         min_score = min(available)
         max_score = max(available)
         if max_score - min_score > 1:
-            rendered = [
-                f"{score:.1f}/10" if score is not None else "N/A" for score in scores
-            ]
+            rendered = [f"{score:.1f}/10" if score is not None else "N/A" for score in scores]
             rows.append((key.capitalize(), rendered))
 
     if rows:
