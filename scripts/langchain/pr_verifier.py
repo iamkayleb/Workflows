@@ -11,10 +11,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Literal
+
+from pydantic import BaseModel, Field, ValidationError
 
 PR_EVALUATION_PROMPT = """
 You are reviewing a pull request to ensure it meets the documented acceptance criteria.
@@ -32,26 +34,41 @@ Provide an evaluation that covers:
 - testing
 - risks
 
-Respond with a concise report and a clear verdict (PASS, CONCERNS, FAIL).
+Respond in JSON with:
+{
+  "verdict": "PASS | CONCERNS | FAIL",
+  "scores": {
+    "correctness": 0-10,
+    "completeness": 0-10,
+    "quality": 0-10,
+    "testing": 0-10,
+    "risks": 0-10
+  },
+  "concerns": ["..."],
+  "summary": "concise report"
+}
 """.strip()
 
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "pr_evaluation.md"
 
 
-@dataclass
-class PrEvaluationOutput:
-    content: str
-    provider_used: str | None
-    used_llm: bool
-    error: str | None = None
+class EvaluationScores(BaseModel):
+    correctness: float = Field(ge=0, le=10)
+    completeness: float = Field(ge=0, le=10)
+    quality: float = Field(ge=0, le=10)
+    testing: float = Field(ge=0, le=10)
+    risks: float = Field(ge=0, le=10)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "content": self.content,
-            "provider_used": self.provider_used,
-            "used_llm": self.used_llm,
-            "error": self.error,
-        }
+
+class EvaluationResult(BaseModel):
+    verdict: Literal["PASS", "CONCERNS", "FAIL"]
+    scores: EvaluationScores | None = None
+    concerns: list[str] = Field(default_factory=list)
+    summary: str | None = None
+    provider_used: str | None = None
+    used_llm: bool = False
+    raw_content: str | None = None
+    error: str | None = None
 
 
 def _load_prompt() -> str:
@@ -100,17 +117,72 @@ def _prepare_prompt(context: str, diff: str | None) -> str:
     return prompt.format(context=context_block, diff=diff_block)
 
 
-def _fallback_evaluation(message: str) -> PrEvaluationOutput:
-    content = (
-        "Verdict: CONCERNS\n\n"
-        "LLM evaluation could not run. "
-        "Review the PR manually or re-run once LLM credentials are available.\n\n"
-        f"Details: {message}"
+def _fallback_evaluation(message: str) -> EvaluationResult:
+    return EvaluationResult(
+        verdict="CONCERNS",
+        scores=None,
+        concerns=["LLM evaluation could not run."],
+        summary="Review the PR manually or re-run once LLM credentials are available.",
+        provider_used=None,
+        used_llm=False,
+        error=message,
     )
-    return PrEvaluationOutput(content=content, provider_used=None, used_llm=False, error=message)
 
 
-def evaluate_pr(context: str, diff: str | None = None) -> PrEvaluationOutput:
+def _extract_json_block(text: str) -> str | None:
+    match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    match = re.search(r"(\{.*\})", text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _parse_verdict(text: str) -> Literal["PASS", "CONCERNS", "FAIL"]:
+    match = re.search(r"\b(PASS|CONCERNS|FAIL)\b", text, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()  # type: ignore[return-value]
+    return "CONCERNS"
+
+
+def _parse_llm_response(content: str, provider: str) -> EvaluationResult:
+    json_block = _extract_json_block(content)
+    if json_block:
+        try:
+            payload = json.loads(json_block)
+            return EvaluationResult.model_validate(
+                {
+                    **payload,
+                    "provider_used": provider,
+                    "used_llm": True,
+                    "raw_content": content,
+                }
+            )
+        except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+            return EvaluationResult(
+                verdict=_parse_verdict(content),
+                scores=None,
+                concerns=[],
+                summary=content,
+                provider_used=provider,
+                used_llm=True,
+                raw_content=content,
+                error=f"Failed to parse JSON response: {exc}",
+            )
+
+    return EvaluationResult(
+        verdict=_parse_verdict(content),
+        scores=None,
+        concerns=[],
+        summary=content,
+        provider_used=provider,
+        used_llm=True,
+        raw_content=content,
+    )
+
+
+def evaluate_pr(context: str, diff: str | None = None) -> EvaluationResult:
     resolved = _get_llm_client()
     if resolved is None:
         return _fallback_evaluation("LLM client unavailable (missing credentials or dependency).")
@@ -123,7 +195,7 @@ def evaluate_pr(context: str, diff: str | None = None) -> PrEvaluationOutput:
         return _fallback_evaluation(f"LLM invocation failed: {exc}")
 
     content = getattr(response, "content", None) or str(response)
-    return PrEvaluationOutput(content=content, provider_used=provider, used_llm=True)
+    return _parse_llm_response(content, provider)
 
 
 def _load_text(path: str | None) -> str:
@@ -144,13 +216,15 @@ def main() -> None:
     diff = _load_text(args.diff_file) if args.diff_file else None
     result = evaluate_pr(context, diff=diff)
 
+    output_text = result.raw_content or result.summary or ""
+
     if args.output_file:
-        Path(args.output_file).write_text(result.content, encoding="utf-8")
+        Path(args.output_file).write_text(output_text, encoding="utf-8")
 
     if args.json:
-        print(json.dumps(result.to_dict(), ensure_ascii=True))
+        print(json.dumps(result.model_dump(), ensure_ascii=True))
     else:
-        print(result.content)
+        print(output_text)
 
 
 if __name__ == "__main__":
