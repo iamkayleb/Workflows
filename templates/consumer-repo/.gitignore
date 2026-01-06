@@ -19,6 +19,7 @@ codex-output.md
 codex-prompt-*.md
 codex-output-*.md
 verifier-context.md
+verifier-diff-summary.md
 
 # --- Autofix Status Files (HIGH conflict risk) ---
 # Updated by autofix workflow on every PR
