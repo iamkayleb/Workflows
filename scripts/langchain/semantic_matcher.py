@@ -41,6 +41,18 @@ def get_embedding_client(model: str | None = None) -> EmbeddingClientInfo | None
     openai_token = os.environ.get("OPENAI_API_KEY")
     embedding_model = model or os.environ.get("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL
 
+    # Prefer OpenAI for embeddings - GitHub Models doesn't support the embeddings endpoint
+    if openai_token:
+        return EmbeddingClientInfo(
+            client=OpenAIEmbeddings(
+                model=embedding_model,
+                api_key=openai_token,
+            ),
+            provider="openai",
+            model=embedding_model,
+        )
+
+    # Fall back to GitHub Models (may not work for embeddings)
     if github_token:
         return EmbeddingClientInfo(
             client=OpenAIEmbeddings(
@@ -49,16 +61,6 @@ def get_embedding_client(model: str | None = None) -> EmbeddingClientInfo | None
                 api_key=github_token,
             ),
             provider="github-models",
-            model=embedding_model,
-        )
-
-    if openai_token:
-        return EmbeddingClientInfo(
-            client=OpenAIEmbeddings(
-                model=embedding_model,
-                api_key=openai_token,
-            ),
-            provider="openai",
             model=embedding_model,
         )
 
