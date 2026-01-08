@@ -318,9 +318,11 @@ jobs:
           fi
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
+      # DISABLED: Automatic follow-up issue creation
+      # Use verify:create-issue label on PRs with CONCERNS to manually create follow-up issues
       - name: Open follow-up issue on verifier failure
         id: failure_issue
-        if: steps.context.outputs.should_run == 'true' && steps.verdict.outputs.verdict == 'fail'
+        if: false  # Disabled - use agents-verify-to-issue.yml with verify:create-issue label instead
         uses: actions/github-script@v8
         env:
           PR_URL: ${{ steps.context.outputs.pr_html_url }}
