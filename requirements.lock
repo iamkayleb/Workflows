@@ -51,6 +51,8 @@ docformatter==1.7.7
     # via workflows (pyproject.toml)
 execnet==2.1.2
     # via pytest-xdist
+faiss-cpu==1.13.2
+    # via workflows (pyproject.toml)
 filelock==3.20.2
     # via virtualenv
 flake8==7.3.0
@@ -154,6 +156,7 @@ nodeenv==1.10.0
 numpy==2.4.0
     # via
     #   workflows (pyproject.toml)
+    #   faiss-cpu
     #   langchain-community
     #   pandas
 openai==2.14.0
@@ -167,6 +170,7 @@ ormsgpack==1.12.1
 packaging==25.0
     # via
     #   black
+    #   faiss-cpu
     #   langchain-core
     #   langsmith
     #   marshmallow
@@ -273,6 +277,8 @@ tenacity==9.1.2
     #   langchain-core
 tiktoken==0.12.0
     # via langchain-openai
+tomli==2.3.0 ; python_full_version <= '3.11'
+    # via coverage
 tomlkit==0.13.3
     # via workflows (pyproject.toml)
 tqdm==4.67.1
