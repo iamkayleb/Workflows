@@ -117,67 +117,68 @@ Manual testing is slowing down releases. An automated testing pipeline will incr
 
 ---
 
-Issue 6 — Fix README typo in onboarding section
+Issue 6 — App crashes on login
 
 ## Why
-The onboarding instructions include a misspelled command that confuses new contributors.
+Users report the app terminates when submitting valid credentials, blocking access to core features.
 
 ## Scope
-- Correct the typo in the onboarding README section
-- Verify the command matches the repo's actual script name
+- Capture crash logs on login failure
+- Identify the regression window
+- Implement and verify the fix
 
 ## Tasks
-- [ ] Locate the onboarding command in README
-- [ ] Fix the typo and ensure formatting stays intact
+- [ ] Reproduce crash on the login flow
+- [ ] Inspect recent auth/session changes for regressions
+- [ ] Add guardrails around null session handling
+- [ ] Verify fix across supported platforms
 
 ## Acceptance Criteria
-- Onboarding command is spelled correctly
-- README formatting remains unchanged elsewhere
+- Login no longer crashes on valid credentials
+- Crash logs show no login-related stack traces
+- Regression tests cover the login flow
 
 ---
 
-Issue 7 — Integrate Stripe payments for subscriptions
+Issue 7 — Add dark mode support
 
 ## Why
-Recurring subscriptions are blocked until Stripe billing is integrated.
+Users in low-light environments want a darker UI to reduce eye strain.
 
 ## Scope
-- Add Stripe checkout flow for subscription tiers
-- Store Stripe customer IDs for existing users
-
-## Dependencies
-- Stripe API access and test keys
-- Webhook endpoint configuration in Stripe
+- Provide a dark theme for core screens
+- Respect OS-level theme preferences
+- Add a manual toggle in settings
 
 ## Tasks
-- [ ] Create Stripe customer records for new signups
-- [ ] Implement subscription checkout session
-- [ ] Handle Stripe webhook events for subscription status
+- [ ] Design dark theme color palette
+- [ ] Implement theme switcher logic
+- [ ] Update core screens for dark mode
+- [ ] Add settings toggle with persistence
 
 ## Acceptance Criteria
-- Users can start a subscription via Stripe checkout
-- Subscription status syncs via webhooks
-- Billing events are recorded in the database
+- Users can enable dark mode from settings
+- OS theme preference is respected by default
+- Core screens render correctly in dark mode
 
 ---
 
-Issue 8 — Rotate GitHub secrets for CI
+Issue 8 — Bug in docs examples
 
 ## Why
-Security policy requires rotating CI secrets every 90 days.
+Documentation examples currently fail when copied, leading to user confusion and support requests.
 
 ## Scope
-- Rotate CI service account token
-- Update secrets referenced by workflows
-
-## Admin Access
-- Requires org admin to update repository secrets
+- Identify broken examples in docs
+- Fix example code and outputs
+- Add validation for docs snippets
 
 ## Tasks
-- [ ] Rotate service account token in secret manager
-- [ ] Update GitHub repository secrets with new token
-- [ ] Confirm CI runs use updated secrets
+- [ ] Audit docs examples for correctness
+- [ ] Update broken examples and expected output
+- [ ] Add a quick docs validation check
 
 ## Acceptance Criteria
-- New token is active in GitHub secrets
-- CI pipelines succeed with rotated credentials
+- Docs examples run without errors
+- Updated snippets match current API behavior
+- Validation covers the critical docs examples
