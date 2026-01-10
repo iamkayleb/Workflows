@@ -144,7 +144,6 @@
 **6. Review Suite B Decomposition Quality**
 - PRs #249, #250, #251 were created successfully
 - Need to manually review decomposition quality
-- Verify sub-tasks are actionable and appropriately sized
 
 ---
 
