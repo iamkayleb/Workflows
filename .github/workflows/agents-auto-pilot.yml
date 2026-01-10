@@ -413,15 +413,80 @@ jobs:
           script: |
             const issueNumber = parseInt(process.env.ISSUE_NUMBER);
 
+            // Find the merged PR for this issue
+            // Look for PRs with the meta marker or explicit closing reference
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              sort: 'updated',
+              direction: 'desc',
+              per_page: 100
+            });
+
+            // Helper to detect explicit closing/fixing references to this issue
+            function matchesIssueReference(text, num) {
+              if (!text) return false;
+              // Match: closes #123, fixes #123, resolves #123 (and variations)
+              const pattern = new RegExp(
+                `\\b(close[sd]?|fixe?[sd]?|resolve[sd]?)\\s+#${num}\\b`, 'i'
+              );
+              return pattern.test(text);
+            }
+
+            // Find PR that references this issue
+            const linkedPr = prs.find(pr =>
+              pr.merged_at && (
+                pr.body?.includes(`meta:issue:${issueNumber}`) ||
+                matchesIssueReference(pr.body, issueNumber) ||
+                matchesIssueReference(pr.title, issueNumber)
+              )
+            );
+
+            if (!linkedPr) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `🤖 **Auto-pilot**: Issue closed but couldn't find linked merged PR.
+
+            Adding \`verify:evaluate\` label to issue for tracking.`
+              });
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['verify:evaluate']
+              });
+              return;
+            }
+
+            core.info(`Found merged PR #${linkedPr.number} for issue #${issueNumber}`);
+
+            const verifyMsg = [
+              `🤖 **Auto-pilot**: Issue closed.`,
+              `Triggering verification on PR #${linkedPr.number}...`,
+              '',
+              'Adding `verify:evaluate` label to PR.'
+            ].join('\n');
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `🤖 **Auto-pilot**: Issue closed. Triggering verification...
-
-            Adding \`verify:evaluate\` label.`
+              body: verifyMsg
             });
 
+            // Add verify label to the merged PR (this triggers agents-verifier.yml)
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: linkedPr.number,
+              labels: ['verify:evaluate']
+            });
+
+            // Also add to issue for tracking
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -488,9 +553,13 @@ jobs:
             });
 
             const prTitle = `[Auto-pilot] ${issueTitle}`;
-            const prBody = `<!-- meta:issue:${issueNumber} -->
-
-            ${issue.body || ''}`;
+            const prBody = [
+              `<!-- meta:issue:${issueNumber} -->`,
+              '',
+              `Closes #${issueNumber}`,
+              '',
+              issue.body || ''
+            ].join('\n');
 
             try {
               const { data: pr } = await github.rest.pulls.create({
@@ -516,11 +585,8 @@ jobs:
                 labelsAdded = true;
                 core.info(`Added agent labels to PR #${pr.number}`);
               } catch (labelError) {
-                core.warning(
-                  `Failed to add labels to PR #${pr.number}: ${
-                    labelError && labelError.message ? labelError.message : labelError
-                  }`
-                );
+                const errMsg = labelError?.message || String(labelError);
+                core.warning(`Failed to add labels to PR #${pr.number}: ${errMsg}`);
               }
 
               const labelStatus = labelsAdded
