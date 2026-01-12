@@ -91,10 +91,16 @@ def _load_prompt() -> str:
     return base_prompt
 
 
-def _get_llm_client() -> tuple[object, str] | None:
-    try:
-        from langchain_openai import ChatOpenAI
+def _get_llm_client(force_openai: bool = False) -> tuple[object, str] | None:
+    """Get LLM client, trying GitHub Models first (cheaper), then OpenAI.
 
+    Args:
+        force_openai: If True, skip GitHub Models and use OpenAI directly.
+                      Use this for retry after GitHub Models 401 error.
+    """
+    try:
+        # Keep imports contiguous; consumer repos treat both as third-party
+        from langchain_openai import ChatOpenAI  # noqa: I001
         from tools.llm_provider import DEFAULT_MODEL, GITHUB_MODELS_BASE_URL
     except ImportError:
         return None
@@ -104,7 +110,8 @@ def _get_llm_client() -> tuple[object, str] | None:
     if not github_token and not openai_token:
         return None
 
-    if github_token:
+    # Try GitHub Models first (cheaper) unless forced to use OpenAI
+    if github_token and not force_openai:
         return (
             ChatOpenAI(
                 model=DEFAULT_MODEL,
@@ -114,14 +121,16 @@ def _get_llm_client() -> tuple[object, str] | None:
             ),
             "github-models",
         )
-    return (
-        ChatOpenAI(
-            model=DEFAULT_MODEL,
-            api_key=openai_token,
-            temperature=0.1,
-        ),
-        "openai",
-    )
+    if openai_token:
+        return (
+            ChatOpenAI(
+                model=DEFAULT_MODEL,
+                api_key=openai_token,
+                temperature=0.1,
+            ),
+            "openai",
+        )
+    return None
 
 
 def _normalize_heading(text: str) -> str:
@@ -349,7 +358,10 @@ def _apply_task_decomposition(formatted: str, *, use_llm: bool) -> str:
     if not tasks:
         return formatted
 
-    from scripts.langchain import task_decomposer
+    try:
+        import task_decomposer
+    except ModuleNotFoundError:
+        from . import task_decomposer
 
     suggestions: list[dict[str, Any]] = []
     for task in tasks:
@@ -360,9 +372,18 @@ def _apply_task_decomposition(formatted: str, *, use_llm: bool) -> str:
     if not suggestions:
         return formatted
 
-    from scripts.langchain import issue_optimizer
+    try:
+        import issue_optimizer
+    except ModuleNotFoundError:
+        from . import issue_optimizer
 
     return issue_optimizer._apply_task_decomposition(formatted, {"task_splitting": suggestions})
+
+
+def _is_github_models_auth_error(exc: Exception) -> bool:
+    """Check if exception is a GitHub Models authentication error (401)."""
+    exc_str = str(exc).lower()
+    return "401" in exc_str and "models" in exc_str
 
 
 def format_issue_body(issue_body: str, *, use_llm: bool = True) -> dict[str, Any]:
@@ -379,7 +400,20 @@ def format_issue_body(issue_body: str, *, use_llm: bool = True) -> dict[str, Any
                 prompt = _load_prompt()
                 template = ChatPromptTemplate.from_template(prompt)
                 chain = template | client
-                response = chain.invoke({"issue_body": issue_body})
+                try:
+                    response = chain.invoke({"issue_body": issue_body})
+                except Exception as e:
+                    # If GitHub Models fails with 401, retry with OpenAI
+                    if provider == "github-models" and _is_github_models_auth_error(e):
+                        fallback_info = _get_llm_client(force_openai=True)
+                        if fallback_info:
+                            client, provider = fallback_info
+                            chain = template | client
+                            response = chain.invoke({"issue_body": issue_body})
+                        else:
+                            raise
+                    else:
+                        raise
                 content = getattr(response, "content", None) or str(response)
                 formatted = content.strip()
                 if _formatted_output_valid(formatted):
@@ -390,8 +424,8 @@ def format_issue_body(issue_body: str, *, use_llm: bool = True) -> dict[str, Any
                         "provider_used": provider,
                         "used_llm": True,
                     }
-            except (ImportError, Exception):
-                # Fall through to fallback if LLM fails (import, auth, API errors)
+            except ImportError:
+                # Fall through to fallback if imports fail
                 pass
 
     formatted = _format_issue_fallback(issue_body)

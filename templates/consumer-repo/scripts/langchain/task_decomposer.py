@@ -73,7 +73,13 @@ def _load_prompt() -> str:
     return TASK_DECOMPOSITION_PROMPT
 
 
-def _get_llm_client() -> tuple[object, str] | None:
+def _get_llm_client(force_openai: bool = False) -> tuple[object, str] | None:
+    """Get LLM client, trying GitHub Models first (cheaper), then OpenAI.
+
+    Args:
+        force_openai: If True, skip GitHub Models and use OpenAI directly.
+                      Use this for retry after GitHub Models 401 error.
+    """
     try:
         from langchain_openai import ChatOpenAI
     except ImportError:
@@ -86,7 +92,8 @@ def _get_llm_client() -> tuple[object, str] | None:
 
     from tools.llm_provider import DEFAULT_MODEL, GITHUB_MODELS_BASE_URL
 
-    if github_token:
+    # Try GitHub Models first (cheaper) unless forced to use OpenAI
+    if github_token and not force_openai:
         return (
             ChatOpenAI(
                 model=DEFAULT_MODEL,
@@ -96,14 +103,16 @@ def _get_llm_client() -> tuple[object, str] | None:
             ),
             "github-models",
         )
-    return (
-        ChatOpenAI(
-            model=DEFAULT_MODEL,
-            api_key=openai_token,
-            temperature=0.1,
-        ),
-        "openai",
-    )
+    if openai_token:
+        return (
+            ChatOpenAI(
+                model=DEFAULT_MODEL,
+                api_key=openai_token,
+                temperature=0.1,
+            ),
+            "openai",
+        )
+    return None
 
 
 def _ensure_verification(text: str) -> str:
@@ -167,8 +176,10 @@ def _split_task_parts(task: str) -> list[str]:
         parts = [part.strip() for part in task.split(";") if part.strip()]
     elif ", " in task:
         parts = [part.strip() for part in task.split(",") if part.strip()]
-    elif " / " in task or "/" in task:
-        parts = [part.strip() for part in re.split(r"\s*/\s*", task) if part.strip()]
+    elif " / " in task:
+        # Only split on spaced slashes to avoid splitting compound words
+        # like "additions/removals" or paths like "src/utils"
+        parts = [part.strip() for part in task.split(" / ") if part.strip()]
     else:
         parts = [task]
     return [part for part in parts if part]
@@ -451,6 +462,12 @@ def _fallback_decompose(task: str) -> list[str]:
     ]
 
 
+def _is_github_models_auth_error(exc: Exception) -> bool:
+    """Check if exception is a GitHub Models authentication error (401)."""
+    exc_str = str(exc).lower()
+    return "401" in exc_str and "models" in exc_str
+
+
 def decompose_task(task: str, *, use_llm: bool = True) -> dict[str, Any]:
     if not task or not task.strip():
         return {"sub_tasks": [], "provider_used": None, "used_llm": False}
@@ -469,7 +486,20 @@ def decompose_task(task: str, *, use_llm: bool = True) -> dict[str, Any]:
                 prompt = _load_prompt()
                 template = ChatPromptTemplate.from_template(prompt)
                 chain = template | client
-                response = chain.invoke({"large_task": task})
+                try:
+                    response = chain.invoke({"large_task": task})
+                except Exception as e:
+                    # If GitHub Models fails with 401, retry with OpenAI
+                    if provider == "github-models" and _is_github_models_auth_error(e):
+                        fallback_info = _get_llm_client(force_openai=True)
+                        if fallback_info:
+                            client, provider = fallback_info
+                            chain = template | client
+                            response = chain.invoke({"large_task": task})
+                        else:
+                            raise
+                    else:
+                        raise
                 content = getattr(response, "content", None) or str(response)
                 sub_tasks = _normalize_subtasks(_parse_subtasks(content))
                 if sub_tasks:
