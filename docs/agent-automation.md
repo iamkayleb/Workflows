@@ -1,6 +1,6 @@
 # Agent Automation & Telemetry Overview
 
-_Last updated: 2026-10-12_
+_Last updated: 2026-01-12_
 
 This document captures the trimmed agent automation surface that remains after Issue #2190. The GitHub Actions footprint now
 consists of a single orchestrator workflow plus the reusable composite it consumes. Everything else that previously handled
@@ -74,6 +74,58 @@ While the agent wrappers were removed, maintenance automation still supports the
 
 - The Gate summary job writes consolidated run summaries, applies low-risk fixes, uploads patches when automation cannot push directly after `pr-00-gate.yml` finishes, and now owns the CI failure tracker end to end.
 
+## Auto-Pilot Workflow Architecture
+
+The `agents-auto-pilot.yml` workflow implements a complete end-to-end automation pipeline from issue creation to PR merge.
+
+### Execution Model
+
+**Inline execution for issue preparation** (format, optimize, apply):
+- These steps run as inline Python scripts within the auto-pilot workflow
+- No child workflow triggering
+- Results are immediately available for next step
+
+**Label delegation for infrastructure operations** (merge, verify):
+- These steps add labels to hand off to specialized infrastructure
+- `automerge` → Orchestrator's scheduled merge job
+- `verify:evaluate` → Dedicated verifier workflow
+- These are asynchronous by design and shared across all workflows
+
+### Key Steps
+
+| Step | What It Does | Execution Pattern |
+|------|--------------|-------------------|
+| **Format** | Structures issue into standard template | ✅ Inline: `issue_formatter.py` |
+| **Optimize** | Analyzes and suggests improvements | ✅ Inline: `issue_optimizer.py` |
+| **Apply** | Applies optimization suggestions | ✅ Inline: `apply_suggestions()` |
+| **Capability Check** | Validates agent can handle task | 🏷️ Label: `agent:codex` (triggers capability workflow) |
+| **Create PR** | Creates branch and initial PR | ✅ Direct: GitHub API |
+| **Monitor** | Tracks PR progress via keepalive | 🏷️ Label: `agents:keepalive` (triggers keepalive) |
+| **Check Completion** | Verifies all tasks done, CI passes | ✅ Inline: Checks CI status directly |
+| **Trigger Merge** | Queues PR for auto-merge | 🏷️ Label: `automerge` (orchestrator merges) |
+| **Verify** | Runs verification after merge | 🏷️ Label: `verify:evaluate` (verifier workflow) |
+
+**Why the distinction?**
+- **Inline** = Simple data transformation that can complete in seconds
+- **Label delegation** = Complex operations requiring external systems (CI checks, LLM analysis, scheduled orchestration)
+
+### State Tracking
+
+The workflow tracks state by:
+- Reading issue/PR labels
+- Checking for optimizer output comments
+- Monitoring linked PRs
+- Counting auto-pilot step comments
+
+### Re-dispatch Pattern
+
+After each major step, the workflow re-dispatches itself to continue the pipeline. This allows:
+- Fresh workflow state for each phase
+- Better logging and debugging per step
+- Recovery from transient failures
+
+### Usage
+
 1. Use the **Agents 70 Orchestrator** workflow to run readiness checks, Codex bootstrap diagnostics, keepalive sweeps, or
   watchdog checks on demand.
 2. Supply additional toggles via `params_json`, for example:
@@ -97,6 +149,52 @@ While the agent wrappers were removed, maintenance automation still supports the
   `GITHUB_TOKEN` only when explicitly allowed by the repository variables.
 - Inputs that toggle optional behaviour remain string-valued (`'true'` / `'false'`) to stay compatible with the reusable
   composite.
+
+## Troubleshooting
+
+### Auto-Pilot Stuck or Not Progressing
+
+**Symptom:** The auto-pilot workflow appears to stop after triggering format/optimize/apply steps and doesn't proceed.
+
+**Root Cause (Fixed 2026-01-12):** The original implementation incorrectly used label-based triggering for child workflows within auto-pilot:
+1. Auto-pilot added labels like `agents:format`, `agents:optimize`, `agents:apply-suggestions`
+2. These triggered separate workflows (`agents-issue-optimizer.yml`)
+3. Auto-pilot waited for those workflows to complete via `workflow_run` events
+4. **Problem:** workflow_run continuation was unreliable and created race conditions
+
+**Current Solution (Complete Fix):** All preparation steps now run **inline** within the auto-pilot workflow:
+
+| Step | Old Approach | New Approach |
+|------|-------------|--------------|
+| **Format** | Added `agents:format` label → triggered separate workflow | Runs `issue_formatter.py` inline |
+| **Optimize** | Added `agents:optimize` label → triggered separate workflow | Runs `issue_optimizer.py` inline |
+| **Apply** | Added `agents:apply-suggestions` label → triggered separate workflow | Runs `apply_suggestions()` inline |
+
+**Benefits:**
+- ✅ No workflow_run dependencies or race conditions
+- ✅ Single workflow run for entire pipeline (easier debugging)
+- ✅ Faster execution (no workflow dispatch overhead)
+- ✅ Atomic operations within one job
+
+**Architecture Principle:**
+- **Standalone use**: Labels still work independently to trigger `agents-issue-optimizer.yml` for manual use
+- **Auto-pilot mode**: All logic executes inline; labels are only added as status markers (e.g., `agents:formatted`)
+
+**Prevention:**
+- Child workflows should only be triggered by labels for standalone/manual operations
+- Within orchestration workflows like auto-pilot, execute all logic inline as workflow steps
+- Avoid workflow_run chains - they introduce complexity, latency, and failure points
+
+**Manual Recovery (if using old version):**
+- Remove `agents:auto-pilot` label
+- Manually run the needed phase by adding appropriate label
+- Once complete, re-add `agents:auto-pilot` to continue
+
+### Keepalive Not Triggering
+
+**Symptom:** Codex PR has tasks but keepalive doesn't post continuation commands.
+
+**Root Cause:** Covered in [`docs/keepalive/KEEPALIVE_TROUBLESHOOTING.md`](keepalive/KEEPALIVE_TROUBLESHOOTING.md).
 
 ## Future Enhancements
 
