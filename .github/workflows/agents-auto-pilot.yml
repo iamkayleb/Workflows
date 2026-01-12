@@ -414,6 +414,69 @@ jobs:
               labels: ['agents:optimize']
             });
 
+      - name: Guard - Require optimizer output before apply
+        if: steps.next.outputs.next_step == 'apply'
+        uses: actions/github-script@v8
+        env:
+          ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
+        with:
+          script: |
+            // Guard: Verify optimizer produced suggestions before applying
+            // This prevents silent failures when optimizer runs but produces no output
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER);
+
+            // Fetch all comments on the issue
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100
+            });
+
+            // Look for optimizer suggestions marker
+            // The optimizer workflow posts a comment containing "Issue Optimization Suggestions"
+            // or the hidden marker "ISSUE_OPTIMIZER_SUGGESTIONS"
+            const hasOptimizerOutput = comments.data.some(comment => {
+              const body = comment.body || '';
+              return body.includes('Issue Optimization Suggestions') ||
+                     body.includes('ISSUE_OPTIMIZER_SUGGESTIONS') ||
+                     body.includes('## 📋 Optimization Suggestions');
+            });
+
+            if (!hasOptimizerOutput) {
+              // No optimizer output found - this is a bug in the pipeline
+              core.warning('⚠️ Optimizer was supposed to run but produced no suggestions comment');
+
+              // Post warning comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `⚠️ **Auto-pilot warning**: Optimizer step completed but no suggestions found.
+
+            This usually means the optimizer workflow was triggered but failed silently.
+
+            **Next steps:**
+            1. Check the \`agents-issue-optimizer.yml\` workflow runs
+            2. Look for error messages in workflow logs
+            3. Remove \`agents:auto-pilot-pause\` and \`needs-human\` labels to retry
+
+            **For maintainers:** Issue paused pending investigation of optimizer failure.`
+              });
+
+              // Add pause and needs-human labels
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['agents:auto-pilot-pause', 'needs-human']
+              });
+
+              core.setFailed('Optimizer produced no output - pausing for investigation');
+            } else {
+              core.info('✅ Optimizer output found - proceeding with apply step');
+            }
+
       - name: Execute step - Apply suggestions
         if: steps.next.outputs.next_step == 'apply'
         uses: actions/github-script@v8
