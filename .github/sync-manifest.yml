@@ -194,17 +194,89 @@ scripts:
   - source: .github/scripts/keepalive_state.js
     description: "Keepalive state management"
 
+  - source: .github/scripts/timeout_config.js
+    description: "Timeout configuration parser for keepalive - required by keepalive_loop.js"
+
+  - source: .github/scripts/keepalive_guard_utils.js
+    description: "Guard utilities for keepalive state protection"
+
+  - source: .github/scripts/keepalive_contract.js
+    description: "Keepalive contract definitions and validation"
+
+  - source: .github/scripts/keepalive_gate.js
+    description: "Gate evaluation logic for keepalive workflow"
+
+  - source: .github/scripts/keepalive_worker_gate.js
+    description: "Worker gate logic for keepalive workflow"
+
+  - source: .github/scripts/keepalive_orchestrator_gate_runner.js
+    description: "Orchestrator gate runner for keepalive"
+
+  - source: .github/scripts/keepalive_post_work.js
+    description: "Post-work handling for keepalive rounds"
+
+  - source: .github/scripts/keepalive_prompt_composer.js
+    description: "Composes prompts for keepalive Codex calls"
+
+  - source: .github/scripts/api-helpers.js
+    description: "GitHub API helper utilities"
+
+  - source: .github/scripts/github_api_retry.js
+    description: "Retry logic for GitHub API calls"
+
   - source: .github/scripts/prompt_injection_guard.js
     description: "Security guard against prompt injection attacks"
 
+  - source: .github/scripts/prompt_integrity_guard.js
+    description: "Integrity validation for prompts"
+
   - source: .github/scripts/error_classifier.js
     description: "Classifies CI errors for agent handling"
+
+  - source: .github/scripts/error_diagnostics.js
+    description: "Diagnostic utilities for error analysis"
 
   - source: .github/scripts/failure_comment_formatter.js
     description: "Formats failure comments for PR status updates"
 
   - source: .github/scripts/conflict_detector.js
     description: "Conflict detector - identifies merge conflicts for targeted resolution"
+
+  - source: .github/scripts/merge_manager.js
+    description: "Manages PR merge operations"
+
+  - source: .github/scripts/comment-dedupe.js
+    description: "Deduplicates bot comments on issues/PRs"
+
+  - source: .github/scripts/post_completion_comment.js
+    description: "Posts completion comments on PRs"
+
+  - source: .github/scripts/verifier_ci_query.js
+    description: "Queries CI status for verifier workflow"
+
+  - source: .github/scripts/verifier_issue_formatter.js
+    description: "Formats issues for verifier output"
+
+  - source: .github/scripts/agents_orchestrator_resolve.js
+    description: "Resolves agent orchestrator state"
+
+  - source: .github/scripts/agents_pr_meta_keepalive.js
+    description: "PR metadata handling for keepalive"
+
+  - source: .github/scripts/agents_pr_meta_orchestrator.js
+    description: "PR metadata orchestrator logic"
+
+  - source: .github/scripts/agents_pr_meta_update_body.js
+    description: "Updates PR body with agent metadata"
+
+  - source: .github/scripts/agents_verifier_context.js
+    description: "Context gathering for agent verifier"
+
+  - source: .github/scripts/agents_dispatch_summary.js
+    description: "Summarizes agent dispatch operations"
+
+  - source: .github/scripts/agents_belt_scan.js
+    description: "Scans agent belt for available tools"
 
   # LangChain scripts for agent workflows
   # Issue optimization (Phase 1) - agents-issue-optimizer.yml
