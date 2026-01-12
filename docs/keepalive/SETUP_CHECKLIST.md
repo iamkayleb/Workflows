@@ -74,7 +74,38 @@ Before beginning, ensure you have:
 
 ## Secrets Configuration
 
-### Step 5: Create Required Secrets
+### Step 5: Install Workflows GitHub App (Recommended)
+
+The Workflows GitHub App provides secure, scoped authentication without personal tokens.
+
+#### Install the App:
+
+1. [ ] Contact repository owner for Workflows App installation link
+2. [ ] Or create your own GitHub App with these permissions:
+   - **Contents**: Read and write
+   - **Issues**: Read and write  
+   - **Pull requests**: Read and write
+   - **Workflows**: Read and write
+   - **Metadata**: Read (auto-selected)
+3. [ ] Install App on your consumer repository
+
+#### Configure App Secrets:
+
+Navigate to **Settings** → **Secrets and variables** → **Actions** → **Secrets** tab
+
+1. [ ] Get **App ID** from App settings page (numeric ID)
+2. [ ] **Generate Private Key** from App settings (downloads `.pem` file)
+3. [ ] Add secrets:
+   - Name: `WORKFLOWS_APP_ID`
+   - Value: The numeric App ID
+   - Name: `WORKFLOWS_APP_PRIVATE_KEY`  
+   - Value: Contents of the `.pem` file (entire file, including `-----BEGIN/END-----` lines)
+
+> **Why use GitHub App?** Apps have repository-scoped permissions, don't count against user API limits, and don't expire like PATs. Workflows automatically fall back to PAT if App secrets aren't configured.
+
+### Step 6: Create PAT Secrets (Fallback)
+
+If not using GitHub App, create Personal Access Token secrets:
 
 Navigate to **Settings** → **Secrets and variables** → **Actions** → **Secrets** tab
 
@@ -86,7 +117,7 @@ Navigate to **Settings** → **Secrets and variables** → **Actions** → **Sec
 | `ACTIONS_BOT_PAT` | Alternative bot PAT (if using separate bot) | Same scopes as SERVICE_BOT_PAT |
 | `OWNER_PR_PAT` | Owner PAT for PR operations | Create from your account with `repo` scope |
 
-#### Creating SERVICE_BOT_PAT (Critical):
+#### Creating SERVICE_BOT_PAT:
 
 1. [ ] Log into bot account (e.g., `stranske-bot`)
 2. [ ] Go to **Settings** → **Developer settings** → **Personal access tokens** → **Fine-grained tokens**
@@ -106,7 +137,7 @@ Navigate to **Settings** → **Secrets and variables** → **Actions** → **Sec
     - Name: `SERVICE_BOT_PAT`
     - Value: (paste token)
 
-### Step 6: Create Repository Variables (Optional)
+### Step 7: Create Repository Variables (Optional)
 
 Navigate to **Settings** → **Secrets and variables** → **Actions** → **Variables** tab
 
@@ -142,7 +173,7 @@ timeout_warning_minutes: 10
 
 ## Branch Protection Rules
 
-### Step 7: Protect Main Branch
+### Step 8: Protect Main Branch
 
 1. [ ] Go to **Settings** → **Branches**
 2. [ ] Click **Add branch protection rule**
@@ -165,28 +196,46 @@ timeout_warning_minutes: 10
 
 ### Step 8: Update .gitignore
 
-Add the following entries to your `.gitignore` to prevent merge conflicts when multiple PRs run keepalive simultaneously:
+Copy the workflow-generated file patterns from the canonical template to prevent merge conflicts.
 
-```gitignore
-# Codex working files (preserved via workflow artifacts, not git)
-# CRITICAL: These must be gitignored to prevent merge conflicts when
-# multiple PRs run keepalive simultaneously. Each run rebuilds these files.
-# Generic names (legacy)
-codex-prompt.md
-codex-output.md
-# PR-specific names (used by reusable-codex-run.yml to avoid conflicts)
-codex-prompt-*.md
-codex-output-*.md
-verifier-context.md
+#### Option A: Copy from Template (Recommended)
+
+Copy the entire "Workflows Consumer Repo - Shared Status Files" section from:
+```
+stranske/Workflows/templates/consumer-repo/.gitignore
+```
+
+This includes all patterns for:
+- Agent working files (codex-prompt.md, verifier-context.md, etc.)
+- Autofix status files (autofix_report_enriched.json, ci/autofix/*.json)
+- Metrics/history files (keepalive_status.md, *-history.ndjson, etc.)
+- Build artifacts (.autofix-venv/)
+- PR automation files (pr_body.md)
+- And more
+
+#### Option B: Validate with Script
+
+Use the sync script to check your .gitignore coverage:
+
+```bash
+# Check what patterns are missing
+python scripts/sync_status_file_ignores.py --check
+
+# Print the canonical block to copy
+python scripts/sync_status_file_ignores.py --print-block
 ```
 
 > **Why this matters**: When multiple PRs run keepalive concurrently, each
-> generates these working files. The workflow uses PR-specific filenames
-> (e.g., `codex-output-123.md`) and explicitly excludes them from commits.
-> The `.gitignore` provides defense-in-depth against accidental commits.
-> Historical data is preserved in PR comments and workflow artifacts.
+> generates these working files. Without these patterns, files get tracked
+> and cause merge conflicts when agents try to update branches (see
+> stranske/Trend_Model_Project#4355). Historical data is preserved in PR
+> comments and workflow artifacts, not git history.
 
-### Step 9: Create Directory Structure
+> **Maintainability**: Don't copy individual patterns - reference the template
+> or use the validation script. The canonical list is maintained in one place
+> and consumer repos stay in sync.
+
+### Step 10: Create Directory Structure
 
 Create the following directory structure:
 
@@ -226,7 +275,7 @@ pyproject.toml                  # Python project configuration
 README.md
 ```
 
-### Step 10: Copy Essential Files
+### Step 11: Copy Essential Files
 
 #### JavaScript Agent Scripts (`.github/scripts/`)
 
@@ -263,7 +312,7 @@ Copy from:
 
 ## Workflow Configuration
 
-### Step 11: Configure Workflow Files
+### Step 12: Configure Workflow Files
 
 #### A. Gate Workflow (`pr-00-gate.yml`)
 
@@ -323,7 +372,24 @@ jobs:
     secrets: inherit
 ```
 
-#### C. Agent Workflows (if using keepalive)
+#### C. Autofix Workflow (`autofix.yml`)
+
+```yaml
+name: Autofix
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  autofix:
+    uses: stranske/Workflows/.github/workflows/reusable-11-autofix-python.yml@v1
+    secrets: inherit
+```
+
+> Autofix automatically formats code and fixes linting issues when Gate fails.
+
+#### D. Agent Workflows (if using keepalive)
 
 - [ ] Copy `agents-pr-meta.yml` from templates
 - [ ] Copy `agents-63-issue-intake.yml` from templates
@@ -335,7 +401,7 @@ jobs:
 pr_number: ${{ fromJSON(needs.detect.outputs.pr_number) }}
 ```
 
-### Step 12: Configure pyproject.toml
+### Step 13: Configure pyproject.toml
 
 ```toml
 [build-system]
@@ -377,19 +443,28 @@ warn_return_any = true
 warn_unused_configs = true
 ```
 
-### Step 13: Create Issues.txt
+### Step 14: Configure Issue Sources (For Agent Automation)
+
+If using `agents-issue-intake.yml` workflow, create these files:
+
+#### Issues.txt
+
+Lists GitHub issues to auto-create in your repo:
 
 ```text
 # Issues.txt - Agent Issue Queue
-# Format: One issue title per line
-# Lines starting with # are comments
-# Lines with [ ] or [x] are checkboxes (preserved)
+# Format: owner/repo#issue_number
+# One issue per line, comments start with #
 
-- [ ] Set up project structure and basic tests
-- [ ] Implement core functionality
+stranske/Workflows#123
+stranske/Trend_Model_Project#456
 ```
 
-### Step 14: Create Topics.txt
+> Issues listed here will be cloned into your repository with the `agent:codex` label.
+
+#### Topics.txt
+
+ChatGPT-generated topic breakdown for batch issue creation:
 
 ```text
 # Topics.txt - Issue Topic Configuration
@@ -404,33 +479,84 @@ category: features
 - Core functionality
 - API endpoints
 - Data processing
-
-category: maintenance
-- Dependency updates
-- Code cleanup
-- Performance optimization
 ```
+
+> **Note**: Both files are optional. You can also create issues manually and apply the `agent:codex` or `agent:copilot` labels.
+
+### Step 15: Configure Agent Labels
+
+Create these labels in **Settings** → **Labels**:
+
+| Label | Color | Description |
+|-------|-------|-------------|
+| `agent:codex` | `#0E8A16` | Assigns work to Codex agent |
+| `agent:copilot` | `#1D76DB` | Assigns work to Copilot agent |
+| `agents:paused` | `#D93F0B` | Pauses agent automation |
+| `agents:debug` | `#FBCA04` | Enables debug logging and escalation comments |
+| `autofix-exempt` | `#EDEDED` | Skips autofix attempts on this PR |
+| `gate-exempt` | `#EDEDED` | Allows merge without passing Gate checks |
+
+> The `agents-auto-label.yml` workflow can suggest additional labels based on issue content using semantic matching.
+
+### Step 16: Understand the Sync System
+
+Consumer repos receive automatic updates from Workflows via `maint-68-sync-consumer-repos.yml`.
+
+#### What Gets Synced
+
+The sync manifest (`.github/sync-manifest.yml` in Workflows) declares which files sync:
+
+- ✅ `.github/workflows/` - Agent and CI workflows
+- ✅ `.github/scripts/` - JavaScript utilities  
+- ✅ `.github/templates/` - Prompt templates
+- ✅ Some `scripts/` files - Python utilities (listed in manifest)
+- ✅ `tools/` - CI helper scripts
+- ❌ `.gitignore` - Repo-specific (never synced)
+- ❌ `pyproject.toml` - Repo-specific
+- ❌ `README.md` - Repo-specific
+- ❌ `scripts/langchain/` - Use sparse checkout instead
+
+#### Handling Sync PRs
+
+When Workflows updates, you'll get a PR with title like `chore: sync from Workflows`.
+
+**Option A - Automatic** (Recommended): The `maint-71-merge-sync-prs.yml` workflow in Workflows can auto-merge these PRs after CI passes.
+
+**Option B - Manual**: Review and merge normally:
+```bash
+gh pr merge <pr-number> --squash --auto
+```
+
+> **Important**: Files marked `sync_mode: create_only` in the manifest (like `pr-00-gate.yml` and `ci.yml`) won't be overwritten by sync. You maintain control over customizations like coverage thresholds and Python versions.
+
+#### When Sync Fails
+
+If a sync PR has conflicts:
+1. The sync workflow will comment on the PR with conflict details
+2. You can resolve conflicts manually or let the agent handle it
+3. Check `.github/sync-manifest.yml` in Workflows to see what's expected
 
 ---
 
 ## Verification Steps
 
-### Step 15: Verify Workflow Access
+### Step 17: Verify Workflow Access
 
 1. [ ] Go to **Actions** tab
 2. [ ] Confirm "I understand my workflows, go ahead and enable them" if prompted
 3. [ ] Verify no workflow errors in the list
 
-### Step 16: Create Test PR
+### Step 18: Create Test PR
 
 1. [ ] Create a new branch: `git checkout -b test/initial-setup`
 2. [ ] Make a small change (e.g., update README)
 3. [ ] Push and create PR
 4. [ ] Verify Gate workflow triggers
 5. [ ] Verify CI checks run
-6. [ ] Verify status checks appear on PR
+6. [ ] Verify Autofix workflow triggers if there are linting issues
+7. [ ] Verify status checks appear on PR
 
-### Step 17: Verify Agent Automation (if using keepalive)
+### Step 19: Verify Agent Automation (if using keepalive)
 
 1. [ ] Ensure Issues.txt has at least one issue
 2. [ ] Manually trigger `agents-63-issue-intake.yml` via Actions tab
@@ -509,8 +635,10 @@ Need keepalive automation? Also copy:
 
 | Setup Type | Required Secrets |
 |------------|------------------|
-| Basic CI | `SERVICE_BOT_PAT` |
-| Full Agents | `SERVICE_BOT_PAT`, `ACTIONS_BOT_PAT` (optional), `OWNER_PR_PAT` (optional) |
+| Basic CI | `WORKFLOWS_APP_ID` + `WORKFLOWS_APP_PRIVATE_KEY` (recommended) OR `SERVICE_BOT_PAT` (fallback) |
+| Full Agents | GitHub App (recommended) OR `SERVICE_BOT_PAT`, `ACTIONS_BOT_PAT` (optional), `OWNER_PR_PAT` (optional) |
+
+> **Recommendation**: Use GitHub App authentication (Step 5) for better security, scoped permissions, and no API rate limits. PATs are supported as fallback.
 
 ---
 
