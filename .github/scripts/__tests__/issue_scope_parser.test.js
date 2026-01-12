@@ -709,3 +709,69 @@ test('handles nested bullets', () => {
     ].join('\n')
   );
 });
+
+test('preserves code blocks but does not add checkboxes inside them', () => {
+  const issue = [
+    '## Tasks',
+    '- Implement the feature',
+    '- Add documentation',
+    '',
+    '```python',
+    'def example():',
+    '    # Code example with bullet that should NOT get checkbox',
+    '    tasks = ["- item one", "- item two"]',
+    '```',
+    '',
+    '## Acceptance Criteria',
+    '- Feature works correctly',
+  ].join('\n');
+
+  const result = extractScopeTasksAcceptanceSections(issue);
+  
+  // Real tasks should get checkboxes
+  assert.ok(result.includes('- [ ] Implement the feature'));
+  assert.ok(result.includes('- [ ] Add documentation'));
+  assert.ok(result.includes('- [ ] Feature works correctly'));
+  
+  // Code block should be preserved but items inside should NOT have checkboxes
+  assert.ok(result.includes('```python'));
+  assert.ok(result.includes('def example():'));
+  // The bullet inside the code should NOT have [ ] added
+  assert.ok(!result.includes('- [ ] item one'));
+});
+
+test('handles multiple code blocks - preserves content without adding checkboxes', () => {
+  const issue = [
+    '## Tasks',
+    '- Real task one',
+    '',
+    '```yaml',
+    'tasks:',
+    '  - YAML example task',
+    '```',
+    '',
+    '- Real task two',
+    '',
+    '~~~markdown',
+    '- Markdown example in tilde fence',
+    '~~~',
+    '',
+    '## Acceptance Criteria',
+    '- Done',
+  ].join('\n');
+
+  const result = extractScopeTasksAcceptanceSections(issue);
+  
+  // Real tasks outside code blocks get checkboxes
+  assert.ok(result.includes('- [ ] Real task one'));
+  assert.ok(result.includes('- [ ] Real task two'));
+  assert.ok(result.includes('- [ ] Done'));
+  
+  // Code blocks are preserved
+  assert.ok(result.includes('```yaml'));
+  assert.ok(result.includes('~~~markdown'));
+  
+  // But items inside code blocks do NOT get checkboxes added
+  assert.ok(result.includes('  - YAML example task'));  // preserved as-is
+  assert.ok(!result.includes('- [ ] YAML example task'));  // no checkbox added
+});
