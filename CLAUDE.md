@@ -392,6 +392,89 @@ git status --ignored
 - Auto-generated files in git → hours of debugging conflict resolution
 - One forgotten artifact file → 7+ repos with conflicts
 
+## ⚠️ CRITICAL: Issue Creation Standards
+
+**BEFORE creating any GitHub issue, use the AGENT_ISSUE_TEMPLATE.**
+
+Issues in this repo follow a strict format defined in [`docs/templates/AGENT_ISSUE_TEMPLATE.md`](docs/templates/AGENT_ISSUE_TEMPLATE.md).
+
+### Required Sections
+
+Every issue MUST have:
+
+| Section | Purpose |
+|---------|---------|
+| **Tasks** | Actionable checkboxes (`- [ ]` format) for agent automation |
+| **Acceptance Criteria** | Verifiable completion conditions with checkboxes |
+
+### Recommended Sections
+
+Every issue SHOULD have:
+
+| Section | Purpose |
+|---------|---------|
+| **Why** | Motivation - explains why this matters |
+| **Scope** | What this issue covers (boundaries) |
+| **Non-Goals** | What is explicitly excluded |
+| **Implementation Notes** | Files to create/modify, branch name, PR title |
+
+### Issue Format Example
+
+```markdown
+## Why
+
+[1-2 sentences explaining the motivation and value]
+
+## Scope
+
+[What this issue covers - be specific about deliverables]
+
+## Non-Goals
+
+- [What is explicitly NOT covered]
+- [Prevent scope creep by listing exclusions]
+
+## Tasks
+
+- [ ] [First actionable task]
+- [ ] [Second actionable task]
+- [ ] [Continue with specific, checkable items]
+
+## Acceptance Criteria
+
+- [ ] [First verifiable condition]
+- [ ] [Second verifiable condition]
+- [ ] [How to confirm the issue is complete]
+
+## Implementation Notes
+
+Files to create/modify:
+- `path/to/file.py`
+- `path/to/other-file.yml`
+
+Branch: `codex/issue-XXX`
+PR title: `[Category] Short description of changes`
+```
+
+### Why This Matters
+
+- **Agent automation**: Codex keepalive uses checkbox Tasks to track progress
+- **Scope clarity**: Non-Goals prevent agents from over-engineering solutions
+- **Verification**: Acceptance Criteria provide clear completion signals
+- **Traceability**: Implementation Notes guide agents to correct files
+
+### Common Mistakes
+
+❌ **DON'T**: Create issues with only Priority/Estimate/Description
+❌ **DON'T**: Use bullet points without checkboxes in Tasks
+❌ **DON'T**: Skip Non-Goals (leads to scope creep)
+❌ **DON'T**: Forget Implementation Notes (agents waste time finding files)
+
+✅ **DO**: Follow the full template structure
+✅ **DO**: Convert all bullet points in Tasks/Criteria to checkboxes
+✅ **DO**: Be specific about files and branch names
+✅ **DO**: Include "Part of #XXX" for issues in a series
+
 ## Quick Commands
 
 ```bash
