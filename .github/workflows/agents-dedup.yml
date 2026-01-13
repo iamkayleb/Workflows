@@ -18,6 +18,10 @@ env:
   # issues in the same domain/feature area that share vocabulary
   SIMILARITY_THRESHOLD: "0.92"
 
+concurrency:
+  group: agents-dedup-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   dedup:
     runs-on: ubuntu-latest

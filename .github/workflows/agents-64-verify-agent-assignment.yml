@@ -44,6 +44,10 @@ on:
 permissions:
   issues: read
 
+concurrency:
+  group: agents-verify-assignment-${{ github.repository }}-${{ inputs.issue_number || github.run_id }}
+  cancel-in-progress: false
+
 jobs:
   verify:
     name: Verify Agent Issue Assignment
