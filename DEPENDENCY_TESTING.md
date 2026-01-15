@@ -14,19 +14,15 @@ When dependabot updates dependencies in `pyproject.toml`, it can cause cascading
 ### 1. Complete Lock File Generation
 
 The `requirements.lock` file **must** include ALL optional dependency groups:
-- `app` - Application dependencies (Streamlit, FastAPI)
-- `llm` - LLM/AI dependencies (langchain, openai)
-- `notebooks` - Jupyter notebook dependencies
 - `dev` - Development tools (black, mypy, pytest)
+- `langchain` - LangChain integration for LLM-enhanced task analysis
 
-**Workflow**: `.github/workflows/dependabot-auto-lock.yml` automatically regenerates the lock file when dependabot updates `pyproject.toml`:
+**Workflow**: `.github/workflows/maint-51-dependency-refresh.yml` automatically regenerates the lock file when dependencies need updating:
 
 ```yaml
 uv pip compile pyproject.toml \
-  --extra app \
-  --extra llm \
-  --extra notebooks \
   --extra dev \
+  --extra langchain \
   --universal \
   --output-file requirements.lock
 ```
