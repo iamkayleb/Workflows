@@ -89,3 +89,21 @@ To output the JSON schema from the collector:
 ```bash
 python scripts/autopilot_metrics_collector.py --print-schema
 ```
+
+## Interpreting Metrics
+
+Use the records together to answer three questions: how long each step takes,
+how often steps fail, and when human escalation occurs.
+
+- **Step timing**: For each `step` record, `duration_ms` captures elapsed time
+  for that step. High `duration_ms` outliers point to bottlenecks; compare
+  medians across runs to separate noisy spikes from systemic slowness.
+- **Step success**: `success` plus `failure_reason` explain failure modes.
+  Aggregate by `failure_reason` to identify recurring blockers (e.g., parser
+  errors vs. external service timeouts).
+- **Cycle health**: `cycle` records summarize overall progress per run. When
+  `steps_attempted` is high but `steps_completed` is low, investigate the
+  failing step name(s) for that cycle.
+- **Escalation signals**: `escalation` records show when auto-pilot stopped and
+  required human intervention. Track escalation rate and correlate with
+  `failure_reason` to prioritize fixes that reduce handoffs.
