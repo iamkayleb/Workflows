@@ -48,7 +48,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=["epoch-ms", "iso"], default="epoch-ms")
     destination = parser.add_mutually_exclusive_group()
     destination.add_argument("--env-path", help="Write KEY=VALUE to env file instead of stdout")
-    destination.add_argument("--output-path", help="Write KEY=VALUE to output file instead of stdout")
+    destination.add_argument(
+        "--output-path", help="Write KEY=VALUE to output file instead of stdout"
+    )
     destination.add_argument(
         "--github-env",
         action="store_true",
