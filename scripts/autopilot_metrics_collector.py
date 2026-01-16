@@ -318,9 +318,7 @@ def build_record_from_args(args: argparse.Namespace) -> dict[str, Any]:
         return record
 
     if metric_type == "escalation":
-        escalation_reason = _env_or_value(
-            args.escalation_reason, "AUTOPILOT_ESCALATION_REASON"
-        )
+        escalation_reason = _env_or_value(args.escalation_reason, "AUTOPILOT_ESCALATION_REASON")
         if escalation_reason is None or not str(escalation_reason).strip():
             raise ValidationError("escalation_reason must be a non-empty string")
         record["escalation_reason"] = str(escalation_reason).strip()
