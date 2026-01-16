@@ -297,12 +297,13 @@ def build_record_from_args(args: argparse.Namespace) -> dict[str, Any]:
         if args.success is None:
             raise ValidationError("success is required")
         success = _coerce_bool(args.success, "success")
+        failure_reason = _env_or_value(args.failure_reason, "AUTOPILOT_FAILURE_REASON")
         record.update(
             {
                 "step_name": args.step_name,
                 "duration_ms": _coerce_int(duration_ms, "duration_ms"),
                 "success": success,
-                "failure_reason": _normalize_failure_reason(success, args.failure_reason),
+                "failure_reason": _normalize_failure_reason(success, failure_reason),
             }
         )
         return record
@@ -317,9 +318,12 @@ def build_record_from_args(args: argparse.Namespace) -> dict[str, Any]:
         return record
 
     if metric_type == "escalation":
-        if args.escalation_reason is None or not str(args.escalation_reason).strip():
+        escalation_reason = _env_or_value(
+            args.escalation_reason, "AUTOPILOT_ESCALATION_REASON"
+        )
+        if escalation_reason is None or not str(escalation_reason).strip():
             raise ValidationError("escalation_reason must be a non-empty string")
-        record["escalation_reason"] = args.escalation_reason.strip()
+        record["escalation_reason"] = str(escalation_reason).strip()
         return record
 
     raise ValidationError("metric_type must be 'step', 'cycle', or 'escalation'")
