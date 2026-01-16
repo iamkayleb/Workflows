@@ -9,6 +9,7 @@ from scripts import autopilot_metrics_collector as collector
 
 def _step_record(success: bool = True) -> dict:
     return {
+        "schema_version": collector.AUTOPILOT_METRICS_SCHEMA_VERSION,
         "metric_type": "step",
         "issue_number": 101,
         "timestamp": datetime(2025, 1, 1, tzinfo=UTC).isoformat().replace("+00:00", "Z"),
@@ -22,6 +23,7 @@ def _step_record(success: bool = True) -> dict:
 
 def _cycle_record() -> dict:
     return {
+        "schema_version": collector.AUTOPILOT_METRICS_SCHEMA_VERSION,
         "metric_type": "cycle",
         "issue_number": 101,
         "timestamp": datetime(2025, 1, 2, tzinfo=UTC).isoformat().replace("+00:00", "Z"),
@@ -34,6 +36,7 @@ def _cycle_record() -> dict:
 
 def _escalation_record() -> dict:
     return {
+        "schema_version": collector.AUTOPILOT_METRICS_SCHEMA_VERSION,
         "metric_type": "escalation",
         "issue_number": 101,
         "timestamp": datetime(2025, 1, 3, tzinfo=UTC).isoformat().replace("+00:00", "Z"),
@@ -70,6 +73,30 @@ def test_validate_record_rejects_invalid_metric_type() -> None:
         collector.validate_record(record)
 
 
+def test_validate_record_rejects_missing_metric_type() -> None:
+    record = _step_record()
+    record["metric_type"] = None
+
+    with pytest.raises(collector.ValidationError, match="metric_type must be set"):
+        collector.validate_record(record)
+
+
+def test_validate_record_rejects_non_int_schema_version() -> None:
+    record = _step_record()
+    record["schema_version"] = "1"
+
+    with pytest.raises(collector.ValidationError, match="schema_version must be an integer"):
+        collector.validate_record(record)
+
+
+def test_validate_record_rejects_unknown_schema_version() -> None:
+    record = _step_record()
+    record["schema_version"] = collector.AUTOPILOT_METRICS_SCHEMA_VERSION + 1
+
+    with pytest.raises(collector.ValidationError, match="schema_version must be"):
+        collector.validate_record(record)
+
+
 def test_validate_record_rejects_invalid_timestamp() -> None:
     record = _step_record()
     record["timestamp"] = "not-a-timestamp"
@@ -91,6 +118,14 @@ def test_validate_record_requires_failure_reason_on_failure() -> None:
     record["failure_reason"] = "  "
 
     with pytest.raises(collector.ValidationError, match="failure_reason must be set"):
+        collector.validate_record(record)
+
+
+def test_validate_record_requires_none_failure_reason_on_success() -> None:
+    record = _step_record(success=True)
+    record["failure_reason"] = "timeout"
+
+    with pytest.raises(collector.ValidationError, match="failure_reason must be 'none'"):
         collector.validate_record(record)
 
 
@@ -131,8 +166,97 @@ def test_build_record_from_args_defaults_timestamp(monkeypatch: pytest.MonkeyPat
     record = collector.build_record_from_args(args)
 
     assert record["timestamp"] == "2025-04-05T06:07:08Z"
+    assert record["schema_version"] == collector.AUTOPILOT_METRICS_SCHEMA_VERSION
     assert record["issue_number"] == 12
     assert record["failure_reason"] == "none"
+
+
+def test_build_record_from_args_normalizes_failure_reason_on_success() -> None:
+    args = collector.argparse.Namespace(
+        metric_type="step",
+        issue_number="12",
+        cycle_count="3",
+        timestamp="2025-04-05T06:07:08Z",
+        step_name="format-issue",
+        duration_ms="1200",
+        started_at=None,
+        ended_at=None,
+        started_at_ms=None,
+        ended_at_ms=None,
+        success="true",
+        failure_reason="flaky infra",
+        max_cycles=None,
+        steps_attempted=None,
+        steps_completed=None,
+        escalation_reason=None,
+    )
+
+    record = collector.build_record_from_args(args)
+
+    assert record["failure_reason"] == "none"
+
+
+def test_build_record_from_args_normalizes_blank_failure_reason_on_success() -> None:
+    args = collector.argparse.Namespace(
+        metric_type="step",
+        issue_number="42",
+        cycle_count="5",
+        timestamp="2025-04-05T06:07:08Z",
+        step_name="format-issue",
+        duration_ms="1200",
+        started_at=None,
+        ended_at=None,
+        started_at_ms=None,
+        ended_at_ms=None,
+        success="true",
+        failure_reason="   ",
+        max_cycles=None,
+        steps_attempted=None,
+        steps_completed=None,
+        escalation_reason=None,
+    )
+
+    record = collector.build_record_from_args(args)
+
+    assert record["failure_reason"] == "none"
+
+
+def test_load_record_from_json_normalizes_failure_reason_on_success() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": collector.AUTOPILOT_METRICS_SCHEMA_VERSION,
+            "metric_type": "STEP",
+            "issue_number": 101,
+            "timestamp": "2025-04-05T06:07:08Z",
+            "cycle_count": 1,
+            "step_name": "format-issue",
+            "duration_ms": 1200,
+            "success": "true",
+            "failure_reason": "infra flake",
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["failure_reason"] == "none"
+
+
+def test_load_record_from_json_rejects_missing_failure_reason_on_failure() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": collector.AUTOPILOT_METRICS_SCHEMA_VERSION,
+            "metric_type": "step",
+            "issue_number": 101,
+            "timestamp": "2025-04-05T06:07:08Z",
+            "cycle_count": 1,
+            "step_name": "format-issue",
+            "duration_ms": 1200,
+            "success": False,
+        }
+    )
+
+    with pytest.raises(collector.ValidationError, match="failure_reason is required"):
+        collector.load_record_from_json(payload)
 
 
 def test_schema_payload_contains_record_types() -> None:
@@ -212,6 +336,289 @@ def test_build_record_from_args_requires_failure_reason_on_failure() -> None:
 
     with pytest.raises(collector.ValidationError, match="failure_reason is required"):
         collector.build_record_from_args(args)
+
+
+def test_load_record_from_json_defaults_schema_and_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(collector, "_utc_now_iso", lambda: "2025-01-01T00:00:00Z")
+    payload = json.dumps(
+        {
+            "metric_type": "cycle",
+            "issue_number": 101,
+            "cycle_count": 2,
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["schema_version"] == collector.AUTOPILOT_METRICS_SCHEMA_VERSION
+    assert record["timestamp"] == "2025-01-01T00:00:00Z"
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_defaults_null_schema_version() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": None,
+            "metric_type": "cycle",
+            "issue_number": 101,
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": 2,
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["schema_version"] == collector.AUTOPILOT_METRICS_SCHEMA_VERSION
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_defaults_blank_schema_version() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "  ",
+            "metric_type": "cycle",
+            "issue_number": 101,
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": 2,
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["schema_version"] == collector.AUTOPILOT_METRICS_SCHEMA_VERSION
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_defaults_null_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(collector, "_utc_now_iso", lambda: "2025-02-03T04:05:06Z")
+    payload = json.dumps(
+        {
+            "schema_version": collector.AUTOPILOT_METRICS_SCHEMA_VERSION,
+            "metric_type": "cycle",
+            "issue_number": 101,
+            "timestamp": None,
+            "cycle_count": 2,
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["timestamp"] == "2025-02-03T04:05:06Z"
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_defaults_blank_timestamp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(collector, "_utc_now_iso", lambda: "2025-02-03T04:05:06Z")
+    payload = json.dumps(
+        {
+            "schema_version": collector.AUTOPILOT_METRICS_SCHEMA_VERSION,
+            "metric_type": "cycle",
+            "issue_number": 101,
+            "timestamp": "   ",
+            "cycle_count": 2,
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["timestamp"] == "2025-02-03T04:05:06Z"
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_normalizes_metric_type() -> None:
+    payload = json.dumps(
+        {
+            "metric_type": " Step ",
+            "issue_number": 101,
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": 2,
+            "step_name": "format-issue",
+            "duration_ms": 1200,
+            "success": True,
+            "failure_reason": "none",
+            "schema_version": collector.AUTOPILOT_METRICS_SCHEMA_VERSION,
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["metric_type"] == "step"
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_coerces_int_fields() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "metric_type": "step",
+            "issue_number": "101",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": "2",
+            "step_name": "format-issue",
+            "duration_ms": "1200",
+            "success": True,
+            "failure_reason": "none",
+            "max_cycles": "6",
+            "steps_attempted": "4",
+            "steps_completed": "3",
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["schema_version"] == 1
+    assert record["issue_number"] == 101
+    assert record["cycle_count"] == 2
+    assert record["duration_ms"] == 1200
+    assert record["max_cycles"] == 6
+    assert record["steps_attempted"] == 4
+    assert record["steps_completed"] == 3
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_coerces_success_flag() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "metric_type": "step",
+            "issue_number": "101",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": "2",
+            "step_name": "format-issue",
+            "duration_ms": "1200",
+            "success": "true",
+            "failure_reason": "none",
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["success"] is True
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_rejects_invalid_success_flag() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "metric_type": "step",
+            "issue_number": "101",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": "2",
+            "step_name": "format-issue",
+            "duration_ms": "1200",
+            "success": "maybe",
+            "failure_reason": "none",
+        }
+    )
+
+    with pytest.raises(collector.ValidationError, match="success must be a boolean"):
+        collector.load_record_from_json(payload)
+
+
+def test_load_record_from_json_defaults_failure_reason_for_success() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "metric_type": "step",
+            "issue_number": "101",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": "2",
+            "step_name": "format-issue",
+            "duration_ms": "1200",
+            "success": "true",
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["failure_reason"] == "none"
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_normalizes_blank_failure_reason_on_success() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "metric_type": "step",
+            "issue_number": "101",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": "2",
+            "step_name": "format-issue",
+            "duration_ms": "1200",
+            "success": "true",
+            "failure_reason": "   ",
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["failure_reason"] == "none"
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_coerces_and_normalizes_failure_reason_on_success() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "metric_type": "step",
+            "issue_number": "101",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": "2",
+            "step_name": "format-issue",
+            "duration_ms": "1200",
+            "success": "true",
+            "failure_reason": "infra flaky",
+        }
+    )
+
+    record = collector.load_record_from_json(payload)
+
+    assert record["failure_reason"] == "none"
+    collector.validate_record(record)
+
+
+def test_load_record_from_json_requires_failure_reason_on_failure() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "metric_type": "step",
+            "issue_number": "101",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": "2",
+            "step_name": "format-issue",
+            "duration_ms": "1200",
+            "success": "false",
+        }
+    )
+
+    with pytest.raises(collector.ValidationError, match="failure_reason is required"):
+        collector.load_record_from_json(payload)
+
+
+def test_load_record_from_json_rejects_blank_failure_reason_on_failure() -> None:
+    payload = json.dumps(
+        {
+            "schema_version": "1",
+            "metric_type": "step",
+            "issue_number": "101",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "cycle_count": "2",
+            "step_name": "format-issue",
+            "duration_ms": "1200",
+            "success": "false",
+            "failure_reason": "   ",
+        }
+    )
+
+    with pytest.raises(collector.ValidationError, match="failure_reason is required"):
+        collector.load_record_from_json(payload)
 
 
 def test_build_record_from_args_computes_duration_from_bounds() -> None:
@@ -392,6 +799,34 @@ def test_build_record_from_args_uses_iso_env_bounds(monkeypatch: pytest.MonkeyPa
     assert record["duration_ms"] == 2000
 
 
+def test_build_record_from_args_normalizes_failure_reason_env_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AUTOPILOT_FAILURE_REASON", "pipeline error")
+    args = collector.argparse.Namespace(
+        metric_type="step",
+        issue_number="12",
+        cycle_count="3",
+        timestamp="2025-04-05T06:07:08Z",
+        step_name="format-issue",
+        duration_ms="1200",
+        started_at=None,
+        ended_at=None,
+        started_at_ms=None,
+        ended_at_ms=None,
+        success="true",
+        failure_reason=None,
+        max_cycles=None,
+        steps_attempted=None,
+        steps_completed=None,
+        escalation_reason=None,
+    )
+
+    record = collector.build_record_from_args(args)
+
+    assert record["failure_reason"] == "none"
+
+
 def test_build_record_from_args_uses_failure_reason_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -468,6 +903,7 @@ def test_load_record_from_json_adds_timestamp(monkeypatch: pytest.MonkeyPatch) -
         '{"metric_type": "cycle", "issue_number": 1, "cycle_count": 1}'
     )
 
+    assert record["schema_version"] == collector.AUTOPILOT_METRICS_SCHEMA_VERSION
     assert record["timestamp"] == "2025-06-07T08:09:10Z"
 
 
