@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -132,6 +133,13 @@ def test_build_record_from_args_defaults_timestamp(monkeypatch: pytest.MonkeyPat
     assert record["timestamp"] == "2025-04-05T06:07:08Z"
     assert record["issue_number"] == 12
     assert record["failure_reason"] == "none"
+
+
+def test_schema_payload_contains_record_types() -> None:
+    payload = json.loads(collector.schema_payload())
+
+    assert payload["version"] == collector.AUTOPILOT_METRICS_SCHEMA_VERSION
+    assert set(payload["record_types"].keys()) == {"cycle", "escalation", "step"}
 
 
 def test_build_record_from_args_escalation_requires_reason() -> None:

@@ -78,6 +78,11 @@ ESCALATION_REQUIRED_FIELDS = AUTOPILOT_METRICS_SCHEMA["record_types"]["escalatio
 _CYCLE_OPTIONAL_FIELDS = AUTOPILOT_METRICS_SCHEMA["record_types"]["cycle"]["optional"]
 
 
+def schema_payload() -> str:
+    """Return the JSON schema payload for documentation or tooling."""
+    return json.dumps(AUTOPILOT_METRICS_SCHEMA, sort_keys=True, indent=2)
+
+
 @dataclass(frozen=True)
 class ValidationError(Exception):
     """Raised when a record fails schema validation."""
@@ -344,6 +349,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path", default="autopilot-metrics.ndjson", help="NDJSON output path")
     parser.add_argument("--record-json", help="JSON object payload for the record")
     parser.add_argument(
+        "--print-schema",
+        action="store_true",
+        help="Print JSON schema for auto-pilot metrics and exit",
+    )
+    parser.add_argument(
         "--metric-type", choices=["step", "cycle", "escalation"], help="Record type"
     )
     parser.add_argument("--issue-number", help="Issue number")
@@ -369,6 +379,9 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.print_schema:
+            print(schema_payload())
+            return 0
         if args.record_json:
             record = load_record_from_json(args.record_json)
         else:
