@@ -9,23 +9,23 @@ const {
   resolveDispatchToken,
 } = require(path.join(__dirname, '../../../scripts/keepalive-runner.js'));
 
-test('resolveInstructionToken prefers service bot token', () => {
+test('resolveInstructionToken prefers actions bot token', () => {
   const token = resolveInstructionToken({
+    ACTIONS_BOT_PAT: 'actions-token',
     SERVICE_BOT_PAT: 'service-token',
-    ACTIONS_BOT_PAT: 'actions-token',
-    GH_TOKEN: 'gh-token',
-  });
-
-  assert.equal(token, 'service-token');
-});
-
-test('resolveInstructionToken falls back to actions bot token', () => {
-  const token = resolveInstructionToken({
-    ACTIONS_BOT_PAT: 'actions-token',
     GH_TOKEN: 'gh-token',
   });
 
   assert.equal(token, 'actions-token');
+});
+
+test('resolveInstructionToken falls back to service bot token', () => {
+  const token = resolveInstructionToken({
+    SERVICE_BOT_PAT: 'service-token',
+    GH_TOKEN: 'gh-token',
+  });
+
+  assert.equal(token, 'service-token');
 });
 
 test('resolveInstructionToken falls back to gh token', () => {
@@ -34,6 +34,14 @@ test('resolveInstructionToken falls back to gh token', () => {
   });
 
   assert.equal(token, 'gh-token');
+});
+
+test('resolveInstructionToken falls back to github token', () => {
+  const token = resolveInstructionToken({
+    GITHUB_TOKEN: 'github-token',
+  });
+
+  assert.equal(token, 'github-token');
 });
 
 test('resolveDispatchToken prefers actions bot token', () => {
@@ -51,6 +59,14 @@ test('resolveDispatchToken falls back to gh token', () => {
   });
 
   assert.equal(token, 'gh-token');
+});
+
+test('resolveDispatchToken falls back to github token', () => {
+  const token = resolveDispatchToken({
+    GITHUB_TOKEN: 'github-token',
+  });
+
+  assert.equal(token, 'github-token');
 });
 
 test('resolveDispatchToken returns empty string when unset', () => {

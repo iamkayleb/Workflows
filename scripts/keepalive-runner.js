@@ -517,7 +517,7 @@ async function dispatchKeepaliveCommand({
 }) {
   const trimmedToken = String(token ?? '').trim();
   if (!trimmedToken) {
-    throw new Error('GitHub token is required for keepalive dispatch (app token or PAT).');
+    throw new Error('GitHub token is required for keepalive dispatch (app token, PAT, or GITHUB_TOKEN).');
   }
 
   const octokit = buildOctokitInstance({ core, github, token: trimmedToken });
@@ -633,32 +633,35 @@ function buildTraceToken({ seed, prNumber, round }) {
   return parts.join('-');
 }
 
+function resolveWriteToken(env = {}) {
+  const candidates = [
+    env.ACTIONS_BOT_PAT,
+    env.actions_bot_pat,
+    env.SERVICE_BOT_PAT,
+    env.service_bot_pat,
+    env.GH_TOKEN,
+    env.gh_token,
+    env.GITHUB_TOKEN,
+    env.github_token,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined) {
+      continue;
+    }
+    const trimmed = String(candidate).trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return '';
+}
+
 function resolveInstructionToken(env = {}) {
-  return (
-    String(
-      env.SERVICE_BOT_PAT ||
-        env.service_bot_pat ||
-        env.ACTIONS_BOT_PAT ||
-        env.actions_bot_pat ||
-        env.GH_TOKEN ||
-        env.gh_token ||
-        ''
-    )
-      .trim() || ''
-  );
+  return resolveWriteToken(env);
 }
 
 function resolveDispatchToken(env = {}) {
-  return (
-    String(
-      env.ACTIONS_BOT_PAT ||
-        env.actions_bot_pat ||
-        env.GH_TOKEN ||
-        env.gh_token ||
-        ''
-    )
-      .trim() || ''
-  );
+  return resolveWriteToken(env);
 }
 
 async function runKeepalive({ core, github, context, env = process.env }) {
@@ -690,7 +693,9 @@ async function runKeepalive({ core, github, context, env = process.env }) {
 
   const instructionAuthorToken = resolveInstructionToken(env);
   if (!instructionAuthorToken) {
-    throw new Error('GitHub token is required to author keepalive instructions (app token or PAT).');
+    throw new Error(
+      'GitHub token is required to author keepalive instructions (app token, PAT, or GITHUB_TOKEN).'
+    );
   }
   const resolvedDispatchToken = resolveDispatchToken(env);
   const dispatchToken = resolvedDispatchToken;
@@ -1096,6 +1101,11 @@ async function runKeepalive({ core, github, context, env = process.env }) {
           `#${prNumber}: dry run – keepalive comment not posted (remaining tasks: ${outstanding}, round ${nextRound}, trace ${traceToken}).`
         );
       } else {
+        if (!dispatchToken) {
+          const message = 'GitHub token is required for keepalive dispatch (app token, PAT, or GITHUB_TOKEN).';
+          core.setFailed(`#${prNumber}: failed to emit keepalive dispatch: ${message}`);
+          throw new Error(message);
+        }
         const response = await instructionAuthorOctokit.rest.issues.createComment({
           owner,
           repo,
