@@ -670,6 +670,83 @@ test('updateKeepaliveLoopSummary increments iteration and clears failures on suc
   assert.match(github.actions[0].body, /"failure":\{\}/);
 });
 
+test('updateKeepaliveLoopSummary reuses cached PR data for labels and body', async () => {
+  const pr = {
+    number: 321,
+    labels: [{ name: 'agent:codex' }],
+    body: prBodyFixture,
+  };
+  const github = buildGithubStub({ pr });
+  let prCalls = 0;
+  const originalGet = github.rest.pulls.get;
+  github.rest.pulls.get = async (...args) => {
+    prCalls += 1;
+    return originalGet(...args);
+  };
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(pr.number),
+    core: buildCore(),
+    inputs: {
+      prNumber: pr.number,
+      action: 'run',
+      runResult: 'success',
+      gateConclusion: 'success',
+      tasksTotal: 2,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 1,
+      maxIterations: 5,
+      failureThreshold: 3,
+    },
+  });
+
+  assert.equal(prCalls, 1);
+});
+
+test('evaluateKeepaliveLoop invalidates cache and emits cache metrics', async () => {
+  const pr = {
+    number: 808,
+    head: { ref: 'feature/cache', sha: 'sha-808' },
+    labels: [],
+    body: prBodyFixture,
+  };
+  const github = buildGithubStub({
+    pr,
+    workflowRuns: [{ head_sha: pr.head.sha, conclusion: 'success' }],
+  });
+  const cacheCalls = { invalidations: [], metrics: 0 };
+  github.__keepaliveApiCache = {
+    buildPrCacheKey() {
+      return 'pr-key';
+    },
+    async getOrSet({ fetcher }) {
+      return fetcher();
+    },
+    invalidateForWebhook(args) {
+      cacheCalls.invalidations.push(args);
+      return { invalidated: 1, prNumbers: [pr.number] };
+    },
+    emitMetrics() {
+      cacheCalls.metrics += 1;
+    },
+  };
+
+  await evaluateKeepaliveLoop({
+    github,
+    context: buildContext(pr.number),
+    core: buildCore(),
+  });
+
+  assert.equal(cacheCalls.invalidations.length, 1);
+  assert.equal(cacheCalls.invalidations[0].eventName, 'pull_request');
+  assert.equal(cacheCalls.invalidations[0].owner, 'octo');
+  assert.equal(cacheCalls.invalidations[0].repo, 'workflows');
+  assert.equal(cacheCalls.metrics, 1);
+});
+
 test('updateKeepaliveLoopSummary logs timeout warning near expiration', async () => {
   const nowMs = Date.parse('2026-01-01T00:00:00Z');
   const realNow = Date.now;
