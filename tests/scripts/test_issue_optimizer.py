@@ -45,7 +45,7 @@ def test_extract_suggestions_json_from_comment() -> None:
     payload = issue_optimizer._extract_suggestions_json(comment)
     assert payload is not None
     assert payload["blocked_tasks"][0]["task"] == "Update workflow"
-    assert "Updated WORKFLOW_OUTPUTS.md suggestions-json:" in comment
+    assert "suggestions-json:" in comment
 
 
 def test_format_suggestions_comment_includes_key_sections() -> None:
@@ -80,7 +80,7 @@ def test_format_suggestions_comment_includes_key_sections() -> None:
     assert "### Task splitting" in comment
     assert "### Blocked tasks" in comment
     assert "### Objective acceptance criteria" in comment
-    assert "<!-- Updated WORKFLOW_OUTPUTS.md suggestions-json:" in comment
+    assert "<!-- suggestions-json:" in comment
 
 
 def test_apply_suggestions_fallback_adds_deferred_tasks() -> None:
@@ -222,6 +222,65 @@ def test_parse_sections_and_checklist_extracts_tasks() -> None:
     assert acceptance == ["Must pass tests"]
 
 
+def test_parse_sections_accepts_plain_headings() -> None:
+    body = "\n".join(
+        [
+            "Why",
+            "Because.",
+            "**Scope**",
+            "Only the issue optimizer.",
+            "Tasks:",
+            "- [ ] First task",
+            "Acceptance criteria",
+            "- Must pass tests",
+            "```",
+            "Tasks",
+            "- [ ] Not a heading inside code block",
+            "```",
+        ]
+    )
+    sections = issue_optimizer._parse_sections(body)
+    tasks = issue_optimizer._parse_checklist(sections["tasks"])
+    acceptance = issue_optimizer._parse_checklist(sections["acceptance"])
+    assert "Only the issue optimizer." in sections["scope"]
+    assert tasks == ["First task"]
+    assert acceptance == ["Must pass tests"]
+
+
+def test_parse_checklist_handles_numbered_items() -> None:
+    body = "\n".join(
+        [
+            "## Tasks",
+            "1. [ ] First task",
+            "2) Second task",
+            "## Acceptance Criteria",
+            "1. Must pass tests",
+        ]
+    )
+    sections = issue_optimizer._parse_sections(body)
+    tasks = issue_optimizer._parse_checklist(sections["tasks"])
+    acceptance = issue_optimizer._parse_checklist(sections["acceptance"])
+    assert tasks == ["First task", "Second task"]
+    assert acceptance == ["Must pass tests"]
+
+
+def test_parse_checklist_handles_alpha_items() -> None:
+    body = "\n".join(
+        [
+            "## Tasks",
+            "a) [ ] First task",
+            "b) Second task",
+            "## Acceptance Criteria",
+            "A) Must pass tests",
+        ]
+    )
+    sections = issue_optimizer._parse_sections(body)
+    tasks = issue_optimizer._parse_checklist(sections["tasks"])
+    acceptance = issue_optimizer._parse_checklist(sections["acceptance"])
+    assert tasks == ["First task", "Second task"]
+    assert acceptance == ["Must pass tests"]
+
+
 def test_detect_blocked_and_subjective_criteria() -> None:
     blocked = issue_optimizer._detect_blocked_tasks(
         ["Edit .github/workflows/ci.yml", "Raise coverage to 80%"]
@@ -301,6 +360,24 @@ def test_apply_task_decomposition_skips_when_missing_header() -> None:
     }
     updated = issue_optimizer._apply_task_decomposition(formatted, suggestions)
     assert updated == formatted
+
+
+def test_apply_task_decomposition_handles_alpha_items() -> None:
+    formatted = "\n".join(
+        [
+            "## Tasks",
+            "a) First task",
+            "b) Second task",
+            "## Acceptance Criteria",
+            "- Works",
+        ]
+    )
+    suggestions = {
+        "task_splitting": [{"task": "First task", "split_suggestions": ["Step one", "Step two"]}]
+    }
+    updated = issue_optimizer._apply_task_decomposition(formatted, suggestions)
+    assert "a) First task\n  - [ ] Step one" in updated
+    assert "  - [ ] Step two" in updated
 
 
 def test_extract_json_payload_with_wrapped_text() -> None:

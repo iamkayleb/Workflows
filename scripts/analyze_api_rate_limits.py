@@ -10,10 +10,11 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 
@@ -102,7 +103,7 @@ def get_rate_limits(token: str | None = None) -> dict[str, Any] | None:
         return None
 
 
-def get_workflow_runs(repo: str, token: str | None = None, hours: int = 1) -> dict[str, Any]:
+def get_workflow_runs(repo: str, token: str | None = None) -> dict[str, Any]:
     """Get recent workflow runs for a repository."""
     env = os.environ.copy()
     if token:
@@ -126,6 +127,212 @@ def get_workflow_runs(repo: str, token: str | None = None, hours: int = 1) -> di
     except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
         print(f"Warning: Failed to get workflow runs for {repo}: {e}", file=sys.stderr)
         return {"workflow_runs": [], "total_count": 0}
+
+
+def _parse_github_timestamp(value: str) -> datetime | None:
+    """Parse GitHub timestamp strings into timezone-aware datetimes."""
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
+
+
+def _normalize_now(now: datetime | None) -> datetime:
+    """Ensure a timezone-aware timestamp for comparison."""
+    if now is None:
+        return datetime.now(tz=UTC)
+    if now.tzinfo is None:
+        return now.replace(tzinfo=UTC)
+    return now
+
+
+def _extract_run_timestamp(run: dict[str, Any]) -> datetime | None:
+    """Select the best available timestamp for a workflow run."""
+    for key in ("created_at", "run_started_at", "updated_at"):
+        value = run.get(key)
+        if not value:
+            continue
+        parsed = _parse_github_timestamp(str(value))
+        if parsed:
+            return parsed
+    return None
+
+
+def _normalize_repos(repos: list[str]) -> list[str]:
+    """Normalize repo inputs into clean owner/repo strings."""
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_repo in repos:
+        for line in str(raw_repo).splitlines():
+            for repo in _split_repo_entries(line):
+                repo = _clean_repo(repo)
+                if repo and repo not in seen:
+                    normalized.append(repo)
+                    seen.add(repo)
+    return normalized
+
+
+_REPO_ENTRY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\\.git)?(?:@\\S+)?")
+
+
+def _split_repo_entries(raw: str) -> list[str]:
+    """Split raw input into repo-like entries."""
+    raw = raw.strip()
+    if not raw:
+        return []
+    if "," in raw:
+        entries: list[str] = []
+        for chunk in raw.split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            entries.extend(_split_repo_entries(chunk))
+        return entries
+
+    matches = _REPO_ENTRY.findall(raw)
+    if len(matches) > 1:
+        remainder = _REPO_ENTRY.sub("", raw)
+        if re.fullmatch(r"[\s,;|]*", remainder):
+            return matches
+    return [raw]
+
+
+# Pattern to identify tokens that are valid GitHub URLs
+# Matches URLs where github.com is the actual host, not a substring of another domain
+_GITHUB_URL_PATTERN = re.compile(r"^(?:https?://|git://|ssh://)?(?:git@)?(?:www\.)?github\.com[/:]")
+
+
+def _is_github_url(token: str) -> bool:
+    """Check if a token is a valid GitHub URL (not a lookalike domain)."""
+    return bool(_GITHUB_URL_PATTERN.match(token))
+
+
+def _strip_wrapping_repo(value: str) -> str:
+    """Strip wrapping punctuation from a repo-like string."""
+    repo = value.strip().strip("`'\"")
+    for left, right in (("<", ">"), ("[", "]"), ("(", ")")):
+        if repo.startswith(left) and repo.endswith(right):
+            repo = repo[1:-1].strip()
+            break
+    return repo.strip(" ,.;:")
+
+
+def _clean_repo(repo: str) -> str:
+    """Normalize repo string from common URL or git formats."""
+    repo = _strip_wrapping_repo(repo)
+    if not repo:
+        return ""
+    if repo.endswith(")") and " (" in repo:
+        repo = repo.rsplit(" (", 1)[0].strip()
+    tokens = repo.split()
+    if len(tokens) > 1:
+        # Use proper URL validation instead of substring check to avoid
+        # matching lookalike domains (e.g., evil-github.com, github.com.evil.org)
+        candidate = next((token for token in tokens if _is_github_url(token)), None)
+        if candidate is None:
+            # Prefer simple owner/repo format over URLs with "/" that might be
+            # from malicious domains. Skip anything that looks like a URL scheme.
+            candidate = next(
+                (
+                    token
+                    for token in tokens
+                    if "/" in token
+                    and not token.startswith("(")
+                    and "://" not in token
+                    and not token.startswith("git@")
+                ),
+                None,
+            )
+        if candidate is None:
+            # Last resort: pick any token with "/" but not a known malicious URL pattern
+            candidate = next(
+                (token for token in tokens if "/" in token and not token.startswith("(")),
+                None,
+            )
+        repo = candidate or tokens[-1]
+        repo = _strip_wrapping_repo(repo)
+    if repo.startswith("ssh://"):
+        repo = repo[len("ssh://") :]
+    for host in ("github.com", "www.github.com"):
+        if f"@{host}" in repo:
+            repo = repo.split("@", 1)[1]
+            break
+    for prefix in (
+        "https://github.com/",
+        "http://github.com/",
+        "git://github.com/",
+        "github.com/",
+        "www.github.com/",
+    ):
+        if repo.startswith(prefix):
+            repo = repo[len(prefix) :]
+            break
+    if repo.startswith("git@github.com:") or repo.startswith("git@www.github.com:"):
+        repo = repo.split(":", 1)[1]
+        if repo.split("/", 1)[0].isdigit():
+            repo = repo.split("/", 1)[1] if "/" in repo else repo
+    elif repo.startswith("git@github.com/") or repo.startswith("git@www.github.com/"):
+        repo = repo.split("/", 1)[1]
+    elif repo.startswith("github.com:") or repo.startswith("www.github.com:"):
+        repo = repo.split(":", 1)[1]
+        if repo.split("/", 1)[0].isdigit():
+            repo = repo.split("/", 1)[1] if "/" in repo else repo
+    repo = repo.split("?", 1)[0].split("#", 1)[0]
+    repo = repo.rstrip("/")
+    if "@" in repo:
+        repo = repo.split("@", 1)[0]
+    parts = [part for part in repo.split("/") if part]
+    if len(parts) < 2:
+        return ""
+    repo = "/".join(parts[:2])
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    return repo
+
+
+def summarize_workflow_activity(
+    repos: list[str],
+    *,
+    token: str | None = None,
+    hours: int = 1,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Summarize recent workflow activity for the requested repositories."""
+    normalized_repos = _normalize_repos(repos)
+    if not normalized_repos:
+        return []
+
+    window_start = _normalize_now(now) - timedelta(hours=hours)
+    summaries: list[dict[str, Any]] = []
+
+    for repo in normalized_repos:
+        data = get_workflow_runs(repo, token=token)
+        runs_raw = data.get("workflow_runs", [])
+        runs = []
+        if isinstance(runs_raw, list):
+            runs = [run for run in runs_raw if isinstance(run, dict)]
+        recent_runs = []
+        for run in runs:
+            created_dt = _extract_run_timestamp(run)
+            if created_dt and created_dt >= window_start:
+                recent_runs.append(run)
+        summaries.append(
+            {
+                "repo": repo,
+                "window_hours": hours,
+                "recent_runs": len(recent_runs),
+                "total_runs": (
+                    data.get("total_count")
+                    if isinstance(data.get("total_count"), int)
+                    else len(runs)
+                ),
+            }
+        )
+
+    return summaries
 
 
 def analyze_rate_limits(tokens: dict[str, str | None]) -> list[TokenRateLimits]:
@@ -161,6 +368,23 @@ def print_utilization_table(limits: list[TokenRateLimits]) -> None:
 
     print("-" * 80)
 
+    optional_entries: list[tuple[str, str, RateLimitInfo]] = []
+    for trl in limits:
+        if trl.code_search is not None:
+            optional_entries.append((trl.source, "Code Search", trl.code_search))
+        if trl.actions_runner is not None:
+            optional_entries.append((trl.source, "Actions Runner Registration", trl.actions_runner))
+
+    if optional_entries:
+        print("\nOPTIONAL RESOURCE UTILIZATION")
+        print("-" * 80)
+        print(f"{'Token':<25} {'Resource':<30} {'Used/Limit (%)':<20}")
+        print("-" * 80)
+        for source, name, info in optional_entries:
+            info_str = f"{info.used}/{info.limit} ({info.utilization_pct:.1f}%)"
+            print(f"{source:<25} {name:<30} {info_str:<20}")
+        print("-" * 80)
+
 
 def print_warnings(limits: list[TokenRateLimits]) -> list[str]:
     """Print warnings for high utilization and return list of warnings."""
@@ -170,11 +394,17 @@ def print_warnings(limits: list[TokenRateLimits]) -> list[str]:
 
     has_warnings = False
     for trl in limits:
-        for resource_name, resource in [
+        resources = [
             ("Core", trl.core),
             ("GraphQL", trl.graphql),
             ("Search", trl.search),
-        ]:
+        ]
+        if trl.code_search is not None:
+            resources.append(("Code Search", trl.code_search))
+        if trl.actions_runner is not None:
+            resources.append(("Actions Runner Registration", trl.actions_runner))
+
+        for resource_name, resource in resources:
             pct = resource.utilization_pct
             if pct > 80:
                 msg = f"🔴 CRITICAL: {trl.source} {resource_name} at {pct:.1f}%"
@@ -234,6 +464,31 @@ def print_recommendations() -> None:
         print(f"  {rec}")
 
 
+def print_workflow_activity(summaries: list[dict[str, Any]]) -> None:
+    """Print workflow activity summary."""
+    if not summaries:
+        return
+    print("\n📊 WORKFLOW ACTIVITY")
+    print("-" * 40)
+    for summary in summaries:
+        repo = summary.get("repo", "unknown")
+        window = summary.get("window_hours", "?")
+        recent = summary.get("recent_runs", 0)
+        total = summary.get("total_runs", 0)
+        print(f"{repo}: {recent} run(s) in last {window}h (total reported: {total})")
+
+
+def _rate_limit_payload(info: RateLimitInfo) -> dict[str, Any]:
+    """Serialize rate limit info for JSON output."""
+    return {
+        "limit": info.limit,
+        "remaining": info.remaining,
+        "used": info.used,
+        "utilization_pct": round(info.utilization_pct, 2),
+        "reset": info.reset_time,
+    }
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -249,6 +504,12 @@ def main() -> int:
         nargs="*",
         metavar="REPO",
         help="Also check workflow activity in specified repos (owner/repo format)",
+    )
+    parser.add_argument(
+        "--workflow-hours",
+        type=int,
+        default=1,
+        help="Time window (hours) for workflow activity checks (default: 1)",
     )
     parser.add_argument(
         "--pat-env",
@@ -276,36 +537,36 @@ def main() -> int:
         print("Error: Could not retrieve rate limits for any token", file=sys.stderr)
         return 1
 
+    workflow_summaries: list[dict[str, Any]] = []
+    if args.check_repos:
+        token_for_workflows = next((value for value in tokens.values() if value), None)
+        workflow_summaries = summarize_workflow_activity(
+            args.check_repos,
+            token=token_for_workflows,
+            hours=args.workflow_hours,
+        )
+
     if args.json:
         # JSON output for programmatic use
         output = {
             "timestamp": datetime.now(tz=UTC).isoformat(),
             "tokens": {},
         }
+        if workflow_summaries:
+            output["workflow_activity"] = workflow_summaries
         for trl in limits:
-            output["tokens"][trl.source] = {
-                "core": {
-                    "limit": trl.core.limit,
-                    "remaining": trl.core.remaining,
-                    "used": trl.core.used,
-                    "utilization_pct": round(trl.core.utilization_pct, 2),
-                    "reset": trl.core.reset_time,
-                },
-                "graphql": {
-                    "limit": trl.graphql.limit,
-                    "remaining": trl.graphql.remaining,
-                    "used": trl.graphql.used,
-                    "utilization_pct": round(trl.graphql.utilization_pct, 2),
-                    "reset": trl.graphql.reset_time,
-                },
-                "search": {
-                    "limit": trl.search.limit,
-                    "remaining": trl.search.remaining,
-                    "used": trl.search.used,
-                    "utilization_pct": round(trl.search.utilization_pct, 2),
-                    "reset": trl.search.reset_time,
-                },
+            token_payload = {
+                "core": _rate_limit_payload(trl.core),
+                "graphql": _rate_limit_payload(trl.graphql),
+                "search": _rate_limit_payload(trl.search),
             }
+            if trl.code_search is not None:
+                token_payload["code_search"] = _rate_limit_payload(trl.code_search)
+            if trl.actions_runner is not None:
+                token_payload["actions_runner_registration"] = _rate_limit_payload(
+                    trl.actions_runner
+                )
+            output["tokens"][trl.source] = token_payload
         print(json.dumps(output, indent=2))
         return 0
 
@@ -314,6 +575,7 @@ def main() -> int:
     warnings = print_warnings(limits)
     print_load_balance_analysis(limits)
     print_recommendations()
+    print_workflow_activity(workflow_summaries)
 
     # Return non-zero if critical warnings
     critical = any("CRITICAL" in w for w in warnings)
