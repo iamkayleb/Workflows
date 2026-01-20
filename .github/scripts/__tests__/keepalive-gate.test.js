@@ -234,6 +234,89 @@ test('countActive ignores completed runs outside the lookback window', async () 
   }
 });
 
+test('evaluateRunCapForPr caches pull request fetches', async () => {
+  let pullCalls = 0;
+  const github = {
+    rest: {
+      actions: {
+        listWorkflowRuns: Symbol('listWorkflowRuns'),
+        async getWorkflowRun() {
+          const error = new Error('not found');
+          error.status = 404;
+          throw error;
+        },
+      },
+      pulls: {
+        async get() {
+          pullCalls += 1;
+          return {
+            data: {
+              labels: [],
+              head: { sha: 'abc123', ref: 'feature/cache-test' },
+            },
+          };
+        },
+      },
+    },
+    async paginate() {
+      return [];
+    },
+  };
+
+  const args = {
+    github,
+    owner: 'stranske',
+    repo: 'Workflows',
+    prNumber: 12,
+    headSha: 'abc123',
+    headRef: 'feature/cache-test',
+  };
+
+  await evaluateRunCapForPr(args);
+  await evaluateRunCapForPr(args);
+
+  assert.equal(pullCalls, 1);
+});
+
+test('evaluateRunCapForPr does not cache empty pull responses', async () => {
+  let pullCalls = 0;
+  const github = {
+    rest: {
+      actions: {
+        listWorkflowRuns: Symbol('listWorkflowRuns'),
+        async getWorkflowRun() {
+          const error = new Error('not found');
+          error.status = 404;
+          throw error;
+        },
+      },
+      pulls: {
+        async get() {
+          pullCalls += 1;
+          return { data: null };
+        },
+      },
+    },
+    async paginate() {
+      return [];
+    },
+  };
+
+  const args = {
+    github,
+    owner: 'stranske',
+    repo: 'Workflows',
+    prNumber: 77,
+  };
+
+  const first = await evaluateRunCapForPr(args);
+  const second = await evaluateRunCapForPr(args);
+
+  assert.equal(pullCalls, 2);
+  assert.equal(first.reason, 'pr-fetch-failed');
+  assert.equal(second.reason, 'pr-fetch-failed');
+});
+
 test('evaluateRunCapForPr returns ok when active runs are below cap', async () => {
   const registry = {
     'agents-70-orchestrator.yml|queued': [
@@ -335,4 +418,54 @@ test('evaluateRunCapForPr respects labelled cap across successive attempts', asy
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'run-cap-reached');
   assert.equal(result.activeRuns, 2);
+});
+
+test('evaluateRunCapForPr reuses cached pull request data across calls', async () => {
+  const pulls = {
+    88: {
+      number: 88,
+      head: { ref: 'feature/cache', sha: 'abc888' },
+      labels: [],
+    },
+  };
+  let getCalls = 0;
+  const github = {
+    rest: {
+      actions: {
+        listWorkflowRuns: Symbol('listWorkflowRuns'),
+        async getWorkflowRun() {
+          const error = new Error('not found');
+          error.status = 404;
+          throw error;
+        },
+      },
+      pulls: {
+        async get({ pull_number: pullNumber }) {
+          getCalls += 1;
+          if (Object.prototype.hasOwnProperty.call(pulls, pullNumber)) {
+            return { data: pulls[pullNumber] };
+          }
+          const error = new Error('pull not found');
+          error.status = 404;
+          throw error;
+        },
+      },
+    },
+    async paginate() {
+      return [];
+    },
+  };
+
+  const baseArgs = {
+    core: { warning: () => {} },
+    github,
+    owner: 'stranske',
+    repo: 'Workflows',
+    prNumber: 88,
+  };
+
+  await evaluateRunCapForPr(baseArgs);
+  await evaluateRunCapForPr(baseArgs);
+
+  assert.equal(getCalls, 1);
 });
