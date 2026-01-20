@@ -7,6 +7,8 @@ Schema (version 1):
   "issue_number": int,
   "timestamp": "YYYY-MM-DDTHH:MM:SSZ",
   "cycle_count": int,
+  "langsmith_trace_id": str?,
+  "langsmith_trace_url": str?,
 
   // step records
   "step_name": str,
@@ -34,6 +36,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -56,6 +59,7 @@ AUTOPILOT_METRICS_SCHEMA: dict[str, Any] = {
                 "success",
                 "failure_reason",
             ),
+            "optional": ("langsmith_trace_id", "langsmith_trace_url"),
         },
         "cycle": {
             "required": (
@@ -65,7 +69,13 @@ AUTOPILOT_METRICS_SCHEMA: dict[str, Any] = {
                 "timestamp",
                 "cycle_count",
             ),
-            "optional": ("max_cycles", "steps_attempted", "steps_completed"),
+            "optional": (
+                "max_cycles",
+                "steps_attempted",
+                "steps_completed",
+                "langsmith_trace_id",
+                "langsmith_trace_url",
+            ),
         },
         "escalation": {
             "required": (
@@ -76,6 +86,7 @@ AUTOPILOT_METRICS_SCHEMA: dict[str, Any] = {
                 "cycle_count",
                 "escalation_reason",
             ),
+            "optional": ("langsmith_trace_id", "langsmith_trace_url"),
         },
     },
 }
@@ -83,7 +94,10 @@ AUTOPILOT_METRICS_SCHEMA: dict[str, Any] = {
 STEP_REQUIRED_FIELDS = AUTOPILOT_METRICS_SCHEMA["record_types"]["step"]["required"]
 CYCLE_REQUIRED_FIELDS = AUTOPILOT_METRICS_SCHEMA["record_types"]["cycle"]["required"]
 ESCALATION_REQUIRED_FIELDS = AUTOPILOT_METRICS_SCHEMA["record_types"]["escalation"]["required"]
-_CYCLE_OPTIONAL_FIELDS = AUTOPILOT_METRICS_SCHEMA["record_types"]["cycle"]["optional"]
+_CYCLE_OPTIONAL_FIELDS = ("max_cycles", "steps_attempted", "steps_completed")
+_TRACE_FIELDS = ("langsmith_trace_id", "langsmith_trace_url")
+LANGSMITH_TRACE_URL_BASE = "https://smith.langchain.com/r/"
+RUNTIME_WARNING_THRESHOLD_MS = 5000
 
 
 def schema_payload() -> str:
@@ -120,6 +134,15 @@ def _parse_timestamp(value: str) -> datetime:
     return parsed
 
 
+def _validate_trace_fields(record: dict[str, Any]) -> None:
+    for field in _TRACE_FIELDS:
+        if field not in record:
+            continue
+        value = record[field]
+        if not isinstance(value, str) or not value.strip():
+            raise ValidationError(f"{field} must be a non-empty string")
+
+
 def _duration_ms_from_bounds(started_at: str, ended_at: str) -> int:
     start = _parse_timestamp(started_at)
     end = _parse_timestamp(ended_at)
@@ -144,6 +167,8 @@ def _validate_step(record: dict[str, Any]) -> None:
     missing = [field for field in STEP_REQUIRED_FIELDS if field not in record]
     if missing:
         raise ValidationError(f"missing fields: {', '.join(missing)}")
+
+    _validate_trace_fields(record)
 
     if not _is_int(record["schema_version"]):
         raise ValidationError("schema_version must be an integer")
@@ -174,6 +199,8 @@ def _validate_cycle(record: dict[str, Any]) -> None:
     if missing:
         raise ValidationError(f"missing fields: {', '.join(missing)}")
 
+    _validate_trace_fields(record)
+
     if not _is_int(record["schema_version"]):
         raise ValidationError("schema_version must be an integer")
     if record["schema_version"] != AUTOPILOT_METRICS_SCHEMA_VERSION:
@@ -194,6 +221,8 @@ def _validate_escalation(record: dict[str, Any]) -> None:
     missing = [field for field in ESCALATION_REQUIRED_FIELDS if field not in record]
     if missing:
         raise ValidationError(f"missing fields: {', '.join(missing)}")
+
+    _validate_trace_fields(record)
 
     if not _is_int(record["schema_version"]):
         raise ValidationError("schema_version must be an integer")
@@ -272,11 +301,31 @@ def _normalize_failure_reason(success: bool, failure_reason: str | None) -> str:
     raise ValidationError("failure_reason is required when success is false")
 
 
+def _derive_trace_url(trace_id: str | None) -> str | None:
+    if not trace_id:
+        return None
+    return f"{LANGSMITH_TRACE_URL_BASE}{trace_id}"
+
+
+def _normalize_trace_url(trace_id: str | None, trace_url: str | None) -> str | None:
+    if trace_url is None:
+        return _derive_trace_url(trace_id)
+    normalized = trace_url.strip()
+    if not normalized:
+        return None
+    if normalized.startswith(("http://", "https://")):
+        return normalized
+    return _derive_trace_url(normalized)
+
+
 def build_record_from_args(args: argparse.Namespace) -> dict[str, Any]:
     metric_type = str(args.metric_type or "").strip().lower()
     if not metric_type:
         raise ValidationError("metric_type must be set")
 
+    trace_id = _env_or_value(getattr(args, "langsmith_trace_id", None), "LANGSMITH_TRACE_ID")
+    trace_url = _env_or_value(getattr(args, "langsmith_trace_url", None), "LANGSMITH_TRACE_URL")
+    trace_url = _normalize_trace_url(trace_id, trace_url)
     record: dict[str, Any] = {
         "schema_version": AUTOPILOT_METRICS_SCHEMA_VERSION,
         "metric_type": metric_type,
@@ -284,6 +333,10 @@ def build_record_from_args(args: argparse.Namespace) -> dict[str, Any]:
         "timestamp": args.timestamp or _utc_now_iso(),
         "cycle_count": _coerce_int(args.cycle_count, "cycle_count"),
     }
+    if trace_id:
+        record["langsmith_trace_id"] = trace_id
+    if trace_url:
+        record["langsmith_trace_url"] = trace_url
 
     if metric_type == "step":
         if args.step_name is None:
@@ -382,6 +435,13 @@ def load_record_from_json(payload: str) -> dict[str, Any]:
         record["failure_reason"] = _normalize_failure_reason(
             record["success"], record.get("failure_reason")
         )
+    if "langsmith_trace_id" in record or "langsmith_trace_url" in record:
+        trace_url = _normalize_trace_url(
+            record.get("langsmith_trace_id"),
+            record.get("langsmith_trace_url"),
+        )
+        if trace_url:
+            record["langsmith_trace_url"] = trace_url
     return record
 
 
@@ -448,6 +508,36 @@ def _write_failure_summary(
         handle.write(payload + "\n")
 
 
+def _write_runtime_summary(*, elapsed_ms: int, args: argparse.Namespace | None) -> None:
+    if elapsed_ms <= RUNTIME_WARNING_THRESHOLD_MS:
+        return
+    summary_path = os.environ.get("AUTOPILOT_METRICS_SUMMARY_PATH")
+    if not summary_path:
+        return
+    path = Path(summary_path)
+    step_name = os.environ.get("AUTOPILOT_STEP_NAME")
+    if not step_name and args is not None:
+        step_name = args.step_name
+    metric_type = None
+    if args is not None:
+        metric_type = args.metric_type
+
+    record = {
+        "summary_type": "autopilot-metrics-runtime",
+        "component": "autopilot_metrics_collector",
+        "timestamp": _utc_now_iso(),
+        "elapsed_ms": elapsed_ms,
+        "threshold_ms": RUNTIME_WARNING_THRESHOLD_MS,
+        "step_name": step_name or "",
+        "metric_type": str(metric_type).strip().lower() if metric_type else "",
+        "environment": _summary_env_details(),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(record, separators=(",", ":"), sort_keys=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(payload + "\n")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Append auto-pilot metrics record to NDJSON log.")
     parser.add_argument("--path", default="autopilot-metrics.ndjson", help="NDJSON output path")
@@ -475,41 +565,49 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--steps-attempted", help="Steps attempted for cycle records")
     parser.add_argument("--steps-completed", help="Steps completed for cycle records")
     parser.add_argument("--escalation-reason", help="Escalation reason for escalation records")
+    parser.add_argument("--langsmith-trace-id", help="LangSmith trace identifier (optional)")
+    parser.add_argument("--langsmith-trace-url", help="LangSmith trace URL (optional)")
     return parser
 
 
 def main(argv: list[str]) -> int:
+    start_time = time.monotonic()
+    args: argparse.Namespace | None = None
     parser = build_parser()
     try:
-        args = parser.parse_args(argv)
-    except SystemExit as exc:
-        code = 0 if exc.code is None else int(exc.code)
-        if code != 0:
-            _write_failure_summary(error=exc, exit_code=code, args=None)
-        return code
+        try:
+            args = parser.parse_args(argv)
+        except SystemExit as exc:
+            code = 0 if exc.code is None else int(exc.code)
+            if code != 0:
+                _write_failure_summary(error=exc, exit_code=code, args=None)
+            return code
 
-    log_path = Path(args.path)
-    env_log_path = os.environ.get("AUTOPILOT_METRICS_LOG_PATH")
-    if env_log_path and args.path == "autopilot-metrics.ndjson":
-        log_path = Path(env_log_path)
+        log_path = Path(args.path)
+        env_log_path = os.environ.get("AUTOPILOT_METRICS_LOG_PATH")
+        if env_log_path and args.path == "autopilot-metrics.ndjson":
+            log_path = Path(env_log_path)
 
-    try:
-        if args.print_schema:
-            print(schema_payload())
-            return 0
-        if args.record_json:
-            record = load_record_from_json(args.record_json)
-        else:
-            record = build_record_from_args(args)
-        validate_record(record)
-        append_record(log_path, record)
-        print(json.dumps(record, separators=(",", ":"), sort_keys=True))
-    except Exception as exc:
-        _write_failure_summary(error=exc, exit_code=1, args=args)
-        print(f"autopilot_metrics_collector: {exc}", file=sys.stderr)
-        return 1
+        try:
+            if args.print_schema:
+                print(schema_payload())
+                return 0
+            if args.record_json:
+                record = load_record_from_json(args.record_json)
+            else:
+                record = build_record_from_args(args)
+            validate_record(record)
+            append_record(log_path, record)
+            print(json.dumps(record, separators=(",", ":"), sort_keys=True))
+        except Exception as exc:
+            _write_failure_summary(error=exc, exit_code=1, args=args)
+            print(f"autopilot_metrics_collector: {exc}", file=sys.stderr)
+            return 1
 
-    return 0
+        return 0
+    finally:
+        elapsed_ms = int((time.monotonic() - start_time) * 1000)
+        _write_runtime_summary(elapsed_ms=elapsed_ms, args=args)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry point
