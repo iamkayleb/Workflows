@@ -11,13 +11,34 @@ from pathlib import Path
 
 import yaml
 
-PR_CONTEXT_PATTERNS = {
-    "github.event.pull_request": re.compile(r"github\.event\.pull_request"),
-    "github.event.issue.pull_request": re.compile(r"github\.event\.issue\.pull_request"),
-    "context.payload.pull_request": re.compile(r"context\.payload\.pull_request"),
-    "workflow_run.pull_requests": re.compile(r"workflow_run\.pull_requests"),
-    "pull_request_number": re.compile(r"\bpull_request_number\b"),
-}
+PR_CONTEXT_PATHS = (
+    "github.event.pull_request",
+    "github.event.issue.pull_request",
+    "github.event.issue.number",
+    "context.payload.issue.pull_request",
+    "context.payload.issue.number",
+    "context.payload.pull_request",
+    "event.source.issue.pull_request",
+    "event.source.issue.number",
+    "workflow_run.pull_requests",
+)
+
+
+def build_path_pattern(path: str) -> re.Pattern[str]:
+    """Build a regex that matches dotted or bracketed access paths."""
+    segments = path.split(".")
+    if not segments:
+        return re.compile("")
+    pattern = re.escape(segments[0])
+    for segment in segments[1:]:
+        escaped = re.escape(segment)
+        dot_segment = rf"{escaped}\b"
+        pattern += rf"(?:\??\.(?:{dot_segment})|(?:\??\.)?\[['\"]{escaped}['\"]\])"
+    return re.compile(pattern)
+
+
+PR_CONTEXT_PATTERNS = {path: build_path_pattern(path) for path in PR_CONTEXT_PATHS}
+PR_CONTEXT_PATTERNS["pull_request_number"] = re.compile(r"\bpull_request_number\b")
 
 
 @dataclass(frozen=True)
@@ -28,6 +49,7 @@ class WorkflowAudit:
     triggers: tuple[str, ...]
     pr_context_markers: tuple[str, ...]
     valid: bool
+    error: str | None
 
 
 @dataclass(frozen=True)
@@ -39,12 +61,17 @@ class TriggerSummary:
     pr_context_markers: tuple[str, ...]
 
 
-def load_workflow(path: Path) -> dict | None:
+def load_workflow(path: Path, text: str | None = None) -> dict | None:
     """Load a workflow YAML file and return the parsed content."""
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
+        content = text if text is not None else path.read_text(encoding="utf-8")
+    except OSError:
         return None
+    try:
+        data = yaml.safe_load(content)
+    except yaml.YAMLError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def normalize_triggers(on_field: object) -> tuple[str, ...]:
@@ -70,17 +97,31 @@ def audit_workflows(workflows_dir: Path) -> list[WorkflowAudit]:
     """Audit workflows in a directory for PR context usage."""
     results: list[WorkflowAudit] = []
     for path in sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml")):
-        text = path.read_text(encoding="utf-8")
-        data = load_workflow(path)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            results.append(
+                WorkflowAudit(
+                    path=path,
+                    triggers=(),
+                    pr_context_markers=(),
+                    valid=False,
+                    error="unreadable",
+                )
+            )
+            continue
+        data = load_workflow(path, text=text)
         if data is None:
             triggers: tuple[str, ...] = ()
             valid = False
+            error = "invalid-yaml"
         else:
             on_field = data.get("on")
             if on_field is None and True in data:
                 on_field = data.get(True)
             triggers = tuple(sorted(normalize_triggers(on_field)))
             valid = True
+            error = None
         markers = detect_pr_context_markers(text)
         results.append(
             WorkflowAudit(
@@ -88,6 +129,7 @@ def audit_workflows(workflows_dir: Path) -> list[WorkflowAudit]:
                 triggers=triggers,
                 pr_context_markers=markers,
                 valid=valid,
+                error=error,
             )
         )
     return results
@@ -95,7 +137,7 @@ def audit_workflows(workflows_dir: Path) -> list[WorkflowAudit]:
 
 def format_table(results: list[WorkflowAudit]) -> str:
     """Render a tab-delimited report for easy copy/paste."""
-    lines = ["path\ttriggers\tpr_context_markers\tvalid"]
+    lines = ["path\ttriggers\tpr_context_markers\tvalid\terror"]
     for item in results:
         lines.append(
             "\t".join(
@@ -104,6 +146,7 @@ def format_table(results: list[WorkflowAudit]) -> str:
                     ",".join(item.triggers),
                     ",".join(item.pr_context_markers),
                     "true" if item.valid else "false",
+                    item.error or "",
                 ]
             )
         )
@@ -164,6 +207,7 @@ def main() -> int:
                 "triggers": list(item.triggers),
                 "pr_context_markers": list(item.pr_context_markers),
                 "valid": item.valid,
+                "error": item.error,
             }
             for item in results
         ]
