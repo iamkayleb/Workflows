@@ -2287,6 +2287,52 @@ No actual links here, just text`;
   assert.equal(source, null);
 });
 
+test('extractSourceSection captures source context with agent subsections', () => {
+  const { extractSourceSection } = require('../keepalive_loop.js');
+
+  const prBody = `## Source
+<!-- Updated WORKFLOW_OUTPUTS.md context:start -->
+## Context for Agent
+
+### Related Issues/PRs
+
+### Tasks
+- [ ] #1001
+`;
+
+  const source = extractSourceSection(prBody);
+  assert.ok(source.includes('Context for Agent'));
+  assert.ok(source.includes('#1001'));
+});
+
+test('extractSourceSection supports nested heading levels', () => {
+  const { extractSourceSection } = require('../keepalive_loop.js');
+
+  const prBody = `### Source
+- Parent issue: https://github.com/org/repo/issues/123
+
+## Next Section
+Unrelated content`;
+
+  const source = extractSourceSection(prBody);
+  assert.ok(source.includes('github.com'));
+  assert.ok(!source.includes('Unrelated content'));
+});
+
+test('extractSourceSection handles indented headings', () => {
+  const { extractSourceSection } = require('../keepalive_loop.js');
+
+  const prBody = `  ## Source
+  - https://github.com/org/repo/issues/456
+
+  ## Next Section
+Unrelated content`;
+
+  const source = extractSourceSection(prBody);
+  assert.ok(source.includes('github.com/org/repo/issues/456'));
+  assert.ok(!source.includes('Unrelated content'));
+});
+
 test('buildTaskAppendix includes Source Context when prBody has source links', () => {
   const { buildTaskAppendix } = require('../keepalive_loop.js');
   const sections = {
@@ -2512,6 +2558,94 @@ test('analyzeTaskCompletion identifies high-confidence matches', async () => {
   );
   assert.ok(stepSummaryMatch, 'Should match step summary task');
   assert.equal(stepSummaryMatch.confidence, 'high', 'Should be high confidence');
+});
+
+test('analyzeTaskCompletion parses numbered checklist items', async () => {
+  const commits = [
+    { sha: 'abc123', commit: { message: 'feat: add step summary output to keepalive loop' } },
+  ];
+  const files = [
+    { filename: '.github/scripts/keepalive_loop.js' },
+  ];
+
+  const github = {
+    rest: {
+      repos: {
+        async compareCommits() {
+          return { data: { commits } };
+        },
+      },
+      pulls: {
+        async listFiles() {
+          return { data: files };
+        },
+      },
+    },
+  };
+
+  const taskText = `
+1. [ ] Add step summary output to keepalive loop
+2) [ ] Add tests for step summary
+`;
+
+  const result = await analyzeTaskCompletion({
+    github,
+    context: { repo: { owner: 'test', repo: 'repo' } },
+    prNumber: 1,
+    baseSha: 'base123',
+    headSha: 'head456',
+    taskText,
+    core: buildCore(),
+  });
+
+  const numberedMatch = result.matches.find(m =>
+    m.task.toLowerCase().includes('step summary output')
+  );
+  assert.ok(numberedMatch, 'Should match numbered checklist task');
+  assert.equal(numberedMatch.confidence, 'high', 'Should be high confidence');
+});
+
+test('analyzeTaskCompletion matches issue link tasks using PR metadata', async () => {
+  const commits = [
+    { sha: 'abc123', commit: { message: 'chore: update keepalive loop' } },
+  ];
+  const files = [
+    { filename: '.github/scripts/keepalive_loop.js' },
+  ];
+
+  const github = {
+    rest: {
+      repos: {
+        async compareCommits() {
+          return { data: { commits } };
+        },
+      },
+      pulls: {
+        async listFiles() {
+          return { data: files };
+        },
+      },
+    },
+  };
+
+  const taskText = `
+- [ ] [#1001](https://github.com/org/repo/issues/1001)
+`;
+
+  const result = await analyzeTaskCompletion({
+    github,
+    context: { repo: { owner: 'test', repo: 'repo' } },
+    prNumber: 1,
+    baseSha: 'base123',
+    headSha: 'head456',
+    taskText,
+    core: buildCore(),
+    pr: { title: 'codex/issue-1001', head: { ref: 'codex/issue-1001' } },
+  });
+
+  assert.equal(result.matches.length, 1, 'Should match issue link task');
+  assert.equal(result.matches[0].confidence, 'high', 'Should be high confidence');
+  assert.ok(result.matches[0].reason.includes('Issue 1001'), 'Reason should include issue number');
 });
 
 test('analyzeTaskCompletion matches explicit file creation tasks', async () => {
@@ -2847,6 +2981,62 @@ test('autoReconcileTasks handles tasks with backticks and special characters', a
       'Should check off task with double quotes');
     assert.ok(updatedBody.includes('[ ] Task with \'single quotes\''),
       'Should leave uncompleted task with single quotes');
+  }
+});
+
+test('autoReconcileTasks checks numbered checklist items', async () => {
+  const prBody = `## Tasks
+1. [ ] Ship first numbered task
+2) [ ] Ship second numbered task
+`;
+
+  const llmCompletedTasks = [
+    'Ship first numbered task',
+    'Ship second numbered task',
+  ];
+
+  let updatedBody = null;
+  const github = {
+    rest: {
+      pulls: {
+        async get() {
+          return { data: { body: prBody } };
+        },
+        async update({ body }) {
+          updatedBody = body;
+          return { data: {} };
+        },
+        async listFiles() {
+          return { data: [] };
+        },
+      },
+      repos: {
+        async compareCommits() {
+          return { data: { commits: [] } };
+        },
+      },
+    },
+  };
+
+  const result = await autoReconcileTasks({
+    github,
+    context: { repo: { owner: 'test', repo: 'repo' } },
+    prNumber: 1,
+    baseSha: 'base123',
+    headSha: 'head456',
+    llmCompletedTasks,
+    core: buildCore(),
+  });
+
+  assert.ok(result.updated, 'Should update PR body for numbered tasks');
+  assert.equal(result.tasksChecked, 2, 'Should check off both numbered tasks');
+  assert.equal(result.sources.llm, 2, 'Should report LLM sources');
+
+  if (updatedBody) {
+    assert.ok(updatedBody.includes('1. [x] Ship first numbered task'),
+      'Should check off first numbered task');
+    assert.ok(updatedBody.includes('2) [x] Ship second numbered task'),
+      'Should check off second numbered task');
   }
 });
 
