@@ -40,6 +40,14 @@ from tools.codex_session_analyzer import AnalysisResult, analyze_session
 
 logger = logging.getLogger(__name__)
 
+SUMMARY_TAG_PATTERN = re.compile(r"^<summary\b[^>]*>.*</summary>\s*$", re.IGNORECASE)
+DETAILS_TAG_PATTERN = re.compile(r"^</?(summary|details)\b", re.IGNORECASE)
+
+
+def is_details_or_summary_tag(task_text: str) -> bool:
+    """Return True when the task line is a details/summary HTML tag."""
+    return bool(SUMMARY_TAG_PATTERN.match(task_text) or DETAILS_TAG_PATTERN.match(task_text))
+
 
 def extract_tasks_from_pr_body(pr_body: str) -> list[str]:
     """
@@ -61,6 +69,9 @@ def extract_tasks_from_pr_body(pr_body: str) -> list[str]:
         checked = match.group(1).lower() == "x"
         task_text = match.group(2).strip()
 
+        if is_details_or_summary_tag(task_text):
+            continue
+
         # Only track unchecked tasks
         if not checked and task_text:
             tasks.append(task_text)
@@ -81,6 +92,8 @@ def extract_all_tasks_from_pr_body(pr_body: str) -> dict[str, bool]:
     for match in checkbox_pattern.finditer(pr_body):
         checked = match.group(1).lower() == "x"
         task_text = match.group(2).strip()
+        if is_details_or_summary_tag(task_text):
+            continue
         if task_text:
             tasks[task_text] = checked
 
@@ -101,6 +114,8 @@ def update_pr_body_checkboxes(pr_body: str, completed_tasks: list[str]) -> str:
     updated_body = pr_body
 
     for task in completed_tasks:
+        if not task or is_details_or_summary_tag(task):
+            continue
         # Escape special regex characters in task
         escaped_task = re.escape(task)
 
