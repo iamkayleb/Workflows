@@ -14,13 +14,52 @@ def _full_gitignore_content() -> str:
     return "\n".join(sync_status_file_ignores.CANONICAL_PATTERNS) + "\n"
 
 
+def _template_block_patterns() -> list[str]:
+    template_path = Path(sync_status_file_ignores.__file__).resolve().parents[1]
+    template_path = template_path / "templates/consumer-repo/.gitignore"
+    text = template_path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    start = next(
+        idx
+        for idx, line in enumerate(lines)
+        if "Workflows Consumer Repo - Shared Status Files" in line
+    )
+    end = next(idx for idx, line in enumerate(lines) if "Langchain Scripts Exclusion" in line)
+    patterns: list[str] = []
+    for line in lines[start + 1 : end]:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        patterns.append(stripped)
+    return patterns
+
+
 def test_generate_minimal_block_includes_header_and_patterns() -> None:
     block = sync_status_file_ignores.generate_minimal_block()
 
     assert block.startswith(sync_status_file_ignores.GITIGNORE_BLOCK_HEADER.strip())
+    assert "Validate: python scripts/sync_status_file_ignores.py --check" in block
     assert block.endswith("\n")
     for pattern in sync_status_file_ignores.CANONICAL_PATTERNS:
         assert f"\n{pattern}\n" in block or block.endswith(f"{pattern}\n")
+
+
+def test_canonical_patterns_cover_template_block() -> None:
+    template_patterns = _template_block_patterns()
+    missing = [
+        pattern
+        for pattern in template_patterns
+        if pattern not in sync_status_file_ignores.CANONICAL_PATTERNS
+    ]
+
+    assert not missing, f"Missing canonical patterns: {missing}"
+
+
+def test_load_template_patterns_matches_canonical() -> None:
+    template_patterns = sync_status_file_ignores._load_template_patterns()
+
+    assert template_patterns
+    assert template_patterns == sync_status_file_ignores.CANONICAL_PATTERNS
 
 
 def test_check_gitignore_content_ignores_comments_and_negation() -> None:
@@ -96,6 +135,21 @@ def test_load_template_gitignore_falls_back(monkeypatch: pytest.MonkeyPatch) -> 
     assert content == sync_status_file_ignores.generate_minimal_block()
 
 
+def test_load_template_block_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    original_exists = Path.exists
+
+    def fake_exists(self: Path) -> bool:
+        if self.name == ".gitignore" and "templates/consumer-repo" in str(self):
+            return False
+        return original_exists(self)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+
+    content = sync_status_file_ignores.load_template_block()
+
+    assert content == sync_status_file_ignores.generate_minimal_block()
+
+
 def test_main_print_block(
     capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -105,7 +159,7 @@ def test_main_print_block(
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert captured.out == sync_status_file_ignores.load_template_gitignore() + "\n"
+    assert captured.out == sync_status_file_ignores.load_template_block()
 
 
 def test_main_print_patterns(
@@ -220,6 +274,55 @@ def test_main_repo_error(
     assert exit_code == 1
     assert "Error fetching .gitignore" in captured.err
     assert "boom" in captured.err
+
+
+def test_main_repo_empty_response(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class DummyResult:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    import subprocess
+
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: DummyResult())
+    monkeypatch.setattr(sys, "argv", ["script", "--repo", "owner/repo"])
+
+    exit_code = sync_status_file_ignores.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "empty response" in captured.err
+
+
+def test_main_repo_invalid_base64(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class DummyResult:
+        returncode = 0
+        stdout = "not-base64"
+        stderr = ""
+
+    import subprocess
+
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: DummyResult())
+    monkeypatch.setattr(sys, "argv", ["script", "--repo", "owner/repo"])
+
+    exit_code = sync_status_file_ignores.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Error decoding .gitignore" in captured.err
+
+
+def test_decode_repo_gitignore_strips_whitespace() -> None:
+    encoded = base64.b64encode(_full_gitignore_content().encode("utf-8")).decode("utf-8")
+    encoded = f"{encoded[:10]}\n{encoded[10:40]}\n{encoded[40:]}\n"
+
+    decoded = sync_status_file_ignores.decode_repo_gitignore(encoded, "owner/repo")
+
+    assert decoded == _full_gitignore_content()
 
 
 def test_main_default_print_help(
