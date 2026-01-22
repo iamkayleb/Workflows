@@ -27,6 +27,7 @@ class ConcurrencySetting:
     location: str
     group: str | None
     cancel_in_progress: bool | None
+    cancel_is_expression: bool
 
 
 @dataclass(frozen=True)
@@ -38,20 +39,35 @@ class WorkflowConcurrencyAudit:
     high_frequency: bool
     concurrency: tuple[ConcurrencySetting, ...]
     has_canceling_concurrency: bool
+    has_workflow_concurrency: bool
+    has_workflow_canceling_concurrency: bool
+    has_job_concurrency: bool
+    has_job_canceling_concurrency: bool
     action_required: str
     recommended_group: str | None
+    valid: bool
+    error: str | None
 
 
-def load_workflow(path: Path) -> dict | None:
-    """Load a workflow YAML file and return the parsed content."""
+def load_workflow(path: Path) -> tuple[dict | None, str | None]:
+    """Load a workflow YAML file and return the parsed content and error."""
     try:
-        return yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError):
-        return None
+        payload = path.read_text(encoding="utf-8")
+    except OSError:
+        return None, "unreadable"
+    try:
+        data = yaml.safe_load(payload)
+    except yaml.YAMLError:
+        return None, "invalid-yaml"
+    if not isinstance(data, dict):
+        return None, "invalid-yaml"
+    return data, None
 
 
 def _normalize_trigger_name(value: object) -> str | None:
-    name = str(value).strip()
+    if not isinstance(value, str):
+        return None
+    name = value.strip()
     return name or None
 
 
@@ -60,7 +76,8 @@ def normalize_triggers(on_field: object) -> tuple[str, ...]:
     if on_field is None:
         return ()
     if isinstance(on_field, str):
-        return (on_field,)
+        name = _normalize_trigger_name(on_field)
+        return (name,) if name else ()
     triggers: list[str] = []
     if isinstance(on_field, list):
         for item in on_field:
@@ -83,14 +100,19 @@ def normalize_triggers(on_field: object) -> tuple[str, ...]:
     return tuple(sorted(set(triggers)))
 
 
-def _normalize_cancel(value: object) -> bool | None:
+def _normalize_cancel(value: object) -> tuple[bool | None, bool]:
     if isinstance(value, bool):
-        return value
+        return value, False
     if isinstance(value, str):
         lowered = value.strip().lower()
         if lowered in {"true", "false"}:
-            return lowered == "true"
-    return None
+            return lowered == "true", False
+        if lowered:
+            return None, True
+        return None, False
+    if value is None:
+        return None, False
+    return None, True
 
 
 def _parse_concurrency(value: object, location: str) -> ConcurrencySetting | None:
@@ -102,6 +124,7 @@ def _parse_concurrency(value: object, location: str) -> ConcurrencySetting | Non
             location=location,
             group=group or None,
             cancel_in_progress=None,
+            cancel_is_expression=False,
         )
     if isinstance(value, dict):
         group = value.get("group")
@@ -109,8 +132,13 @@ def _parse_concurrency(value: object, location: str) -> ConcurrencySetting | Non
             group = str(group).strip()
             if not group:
                 group = None
-        cancel = _normalize_cancel(value.get("cancel-in-progress"))
-        return ConcurrencySetting(location=location, group=group, cancel_in_progress=cancel)
+        cancel, cancel_is_expression = _normalize_cancel(value.get("cancel-in-progress"))
+        return ConcurrencySetting(
+            location=location,
+            group=group,
+            cancel_in_progress=cancel,
+            cancel_is_expression=cancel_is_expression,
+        )
     return None
 
 
@@ -130,7 +158,16 @@ def collect_concurrency(data: dict) -> tuple[ConcurrencySetting, ...]:
 
 
 def _has_canceling_concurrency(settings: tuple[ConcurrencySetting, ...]) -> bool:
-    return any(setting.cancel_in_progress is True and bool(setting.group) for setting in settings)
+    return any(
+        bool(setting.group) and (setting.cancel_in_progress is True or setting.cancel_is_expression)
+        for setting in settings
+    )
+
+
+def _filter_concurrency(
+    settings: tuple[ConcurrencySetting, ...], *, location: str
+) -> tuple[ConcurrencySetting, ...]:
+    return tuple(setting for setting in settings if setting.location == location)
 
 
 def _action_required(
@@ -138,7 +175,11 @@ def _action_required(
     high_frequency: bool,
     settings: tuple[ConcurrencySetting, ...],
     has_canceling_concurrency: bool,
+    valid: bool,
+    error: str | None,
 ) -> str:
+    if not valid:
+        return error or "invalid"
     if not high_frequency:
         return "none"
     if has_canceling_concurrency:
@@ -186,19 +227,30 @@ def audit_workflows(
     normalized_triggers = {trigger.lower() for trigger in high_frequency_triggers}
     results: list[WorkflowConcurrencyAudit] = []
     for path in sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml")):
-        data = load_workflow(path)
+        data, error = load_workflow(path)
         if data is None:
             triggers: tuple[str, ...] = ()
             concurrency: tuple[ConcurrencySetting, ...] = ()
+            valid = False
         else:
             on_field = data.get("on")
             if on_field is None and True in data:
                 on_field = data.get(True)
             triggers = tuple(sorted(normalize_triggers(on_field)))
             concurrency = collect_concurrency(data)
+            valid = True
+            error = None
         high_frequency = any(trigger.lower() in normalized_triggers for trigger in triggers)
-        if high_frequency or include_non_high_frequency:
+        if high_frequency or include_non_high_frequency or not valid:
+            workflow_concurrency = _filter_concurrency(concurrency, location="workflow")
+            job_concurrency = tuple(
+                setting for setting in concurrency if setting.location.startswith("job:")
+            )
             has_canceling_concurrency = _has_canceling_concurrency(concurrency)
+            has_workflow_concurrency = bool(workflow_concurrency)
+            has_workflow_canceling_concurrency = _has_canceling_concurrency(workflow_concurrency)
+            has_job_concurrency = bool(job_concurrency)
+            has_job_canceling_concurrency = _has_canceling_concurrency(job_concurrency)
             results.append(
                 WorkflowConcurrencyAudit(
                     path=path,
@@ -206,44 +258,96 @@ def audit_workflows(
                     high_frequency=high_frequency,
                     concurrency=concurrency,
                     has_canceling_concurrency=has_canceling_concurrency,
+                    has_workflow_concurrency=has_workflow_concurrency,
+                    has_workflow_canceling_concurrency=has_workflow_canceling_concurrency,
+                    has_job_concurrency=has_job_concurrency,
+                    has_job_canceling_concurrency=has_job_canceling_concurrency,
                     action_required=_action_required(
                         high_frequency=high_frequency,
                         settings=concurrency,
                         has_canceling_concurrency=has_canceling_concurrency,
+                        valid=valid,
+                        error=error,
                     ),
                     recommended_group=(
                         suggest_concurrency_group(triggers) if high_frequency else None
                     ),
+                    valid=valid,
+                    error=error,
                 )
             )
     return results
 
 
+TABLE_HEADERS = (
+    "path",
+    "triggers",
+    "high_frequency",
+    "valid",
+    "error",
+    "has_canceling_concurrency",
+    "workflow_has_concurrency",
+    "workflow_has_canceling_concurrency",
+    "job_has_concurrency",
+    "job_has_canceling_concurrency",
+    "action_required",
+    "recommended_group",
+    "concurrency",
+)
+
+
+def _format_cancel(setting: ConcurrencySetting) -> str:
+    if setting.cancel_in_progress is True:
+        return "true"
+    if setting.cancel_in_progress is False:
+        return "false"
+    if setting.cancel_is_expression:
+        return "expr"
+    return "unset"
+
+
+def _table_row(item: WorkflowConcurrencyAudit) -> list[str]:
+    concurrency = ";".join(
+        f"{setting.location}:{setting.group or 'none'}:" f"{_format_cancel(setting)}"
+        for setting in item.concurrency
+    )
+    return [
+        str(item.path),
+        ",".join(item.triggers),
+        "true" if item.high_frequency else "false",
+        "true" if item.valid else "false",
+        item.error or "",
+        "true" if item.has_canceling_concurrency else "false",
+        "true" if item.has_workflow_concurrency else "false",
+        "true" if item.has_workflow_canceling_concurrency else "false",
+        "true" if item.has_job_concurrency else "false",
+        "true" if item.has_job_canceling_concurrency else "false",
+        item.action_required,
+        item.recommended_group or "",
+        concurrency,
+    ]
+
+
+def _escape_markdown_cell(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", "<br>")
+
+
 def format_table(results: list[WorkflowConcurrencyAudit]) -> str:
     """Render a tab-delimited report for easy copy/paste."""
+    lines = ["\t".join(TABLE_HEADERS)]
+    lines.extend("\t".join(_table_row(item)) for item in results)
+    return "\n".join(lines)
+
+
+def format_markdown(results: list[WorkflowConcurrencyAudit]) -> str:
+    """Render a Markdown table report."""
     lines = [
-        "path\ttriggers\thigh_frequency\thas_canceling_concurrency"
-        "\taction_required\trecommended_group\tconcurrency"
+        "| " + " | ".join(TABLE_HEADERS) + " |",
+        "| " + " | ".join(["---"] * len(TABLE_HEADERS)) + " |",
     ]
     for item in results:
-        concurrency = ";".join(
-            f"{setting.location}:{setting.group or 'none'}:"
-            f"{setting.cancel_in_progress if setting.cancel_in_progress is not None else 'unset'}"
-            for setting in item.concurrency
-        )
-        lines.append(
-            "\t".join(
-                [
-                    str(item.path),
-                    ",".join(item.triggers),
-                    "true" if item.high_frequency else "false",
-                    "true" if item.has_canceling_concurrency else "false",
-                    item.action_required,
-                    item.recommended_group or "",
-                    concurrency,
-                ]
-            )
-        )
+        row = [_escape_markdown_cell(value) for value in _table_row(item)]
+        lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
 
 
@@ -271,7 +375,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--format",
-        choices=("table", "json"),
+        choices=("table", "markdown", "json"),
         default="table",
         help="Output format.",
     )
@@ -290,7 +394,13 @@ def main() -> int:
                 "path": str(item.path),
                 "triggers": list(item.triggers),
                 "high_frequency": item.high_frequency,
+                "valid": item.valid,
+                "error": item.error,
                 "has_canceling_concurrency": item.has_canceling_concurrency,
+                "has_workflow_concurrency": item.has_workflow_concurrency,
+                "has_workflow_canceling_concurrency": item.has_workflow_canceling_concurrency,
+                "has_job_concurrency": item.has_job_concurrency,
+                "has_job_canceling_concurrency": item.has_job_canceling_concurrency,
                 "action_required": item.action_required,
                 "recommended_group": item.recommended_group,
                 "concurrency": [
@@ -298,6 +408,7 @@ def main() -> int:
                         "location": setting.location,
                         "group": setting.group,
                         "cancel_in_progress": setting.cancel_in_progress,
+                        "cancel_is_expression": setting.cancel_is_expression,
                     }
                     for setting in item.concurrency
                 ],
@@ -305,6 +416,8 @@ def main() -> int:
             for item in results
         ]
         print(json.dumps(payload, indent=2))
+    elif args.format == "markdown":
+        print(format_markdown(results))
     else:
         print(format_table(results))
     return 0
