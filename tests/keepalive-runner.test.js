@@ -6,8 +6,11 @@ const assert = require('node:assert/strict');
 const {
   buildOctokitInstance,
   countCheckboxes,
+  extractLatestChecklist,
   resolveInstructionToken,
   resolveDispatchToken,
+  coerceNumber,
+  resolvePromptCheckboxCounts,
 } = require('../scripts/keepalive-runner.js');
 
 test('resolveInstructionToken prefers service bot PAT over actions bot PAT', () => {
@@ -107,5 +110,63 @@ test('countCheckboxes ignores tilde-fenced code blocks', () => {
     total: 2,
     checked: 0,
     unchecked: 2,
+  });
+});
+
+test('extractLatestChecklist returns latest checklist even when all tasks are complete', () => {
+  const botComments = [
+    {
+      body: '- [ ] Task one',
+      updated_at: '2025-01-01T00:00:00Z',
+      created_at: '2025-01-01T00:00:00Z',
+    },
+    {
+      body: '- [x] Task one',
+      updated_at: '2025-01-02T00:00:00Z',
+      created_at: '2025-01-02T00:00:00Z',
+    },
+  ];
+
+  const latest = extractLatestChecklist(botComments);
+  assert.ok(latest);
+  assert.equal(latest.total, 1);
+  assert.equal(latest.unchecked, 0);
+});
+
+test('extractLatestChecklist ignores comments without checkboxes', () => {
+  const botComments = [
+    {
+      body: 'No checklist here',
+      updated_at: '2025-01-03T00:00:00Z',
+      created_at: '2025-01-03T00:00:00Z',
+    },
+  ];
+
+  assert.equal(extractLatestChecklist(botComments), null);
+});
+
+test('coerceNumber accepts zero when min is zero', () => {
+  assert.equal(coerceNumber(0, 10, { min: 0 }), 0);
+});
+
+test('coerceNumber rejects values below min', () => {
+  assert.equal(coerceNumber(0, 5, { min: 1 }), 5);
+});
+
+test('resolvePromptCheckboxCounts prefers latest checklist when it has outstanding tasks', () => {
+  const scopeCounts = { total: 3, unchecked: 0 };
+  const latestChecklist = { total: 3, unchecked: 1 };
+  assert.deepEqual(resolvePromptCheckboxCounts(scopeCounts, latestChecklist), {
+    total: 3,
+    unchecked: 1,
+  });
+});
+
+test('resolvePromptCheckboxCounts uses latest checklist when scope has no tasks', () => {
+  const scopeCounts = { total: 0, unchecked: 0 };
+  const latestChecklist = { total: 2, unchecked: 0 };
+  assert.deepEqual(resolvePromptCheckboxCounts(scopeCounts, latestChecklist), {
+    total: 2,
+    unchecked: 0,
   });
 });
