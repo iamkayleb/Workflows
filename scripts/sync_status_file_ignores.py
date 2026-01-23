@@ -74,7 +74,14 @@ GITIGNORE_BLOCK_HEADER = """# ==================================================
 # Sync from: stranske/Workflows templates/consumer-repo/.gitignore
 # Validate: python scripts/sync_status_file_ignores.py --check
 # =============================================================================
+# Template-Version: 1
+# BEGIN WORKFLOWS STATUS FILES
 """
+
+TEMPLATE_VERSION_PREFIX = "# Template-Version:"
+PATTERN_BLOCK_BEGIN = "# BEGIN WORKFLOWS STATUS FILES"
+PATTERN_BLOCK_END = "# END WORKFLOWS STATUS FILES"
+SEPARATOR_LINE = "# ============================================================================="
 
 
 def _load_template_patterns() -> list[str]:
@@ -83,19 +90,25 @@ def _load_template_patterns() -> list[str]:
         return []
     text = template_path.read_text(encoding="utf-8")
     lines = text.splitlines()
+    version_index = next(
+        (idx for idx, line in enumerate(lines) if line.strip().startswith(TEMPLATE_VERSION_PREFIX)),
+        None,
+    )
     start = next(
-        (
-            idx
-            for idx, line in enumerate(lines)
-            if "Workflows Consumer Repo - Shared Status Files" in line
-        ),
+        (idx for idx, line in enumerate(lines) if line.strip() == PATTERN_BLOCK_BEGIN),
         None,
     )
     end = next(
-        (idx for idx, line in enumerate(lines) if "Langchain Scripts Exclusion" in line),
+        (idx for idx, line in enumerate(lines) if line.strip() == PATTERN_BLOCK_END),
         None,
     )
-    if start is None or end is None or end <= start:
+    if (
+        version_index is None
+        or start is None
+        or end is None
+        or end <= start
+        or version_index > start
+    ):
         return []
     patterns: list[str] = []
     for line in lines[start + 1 : end]:
@@ -135,36 +148,24 @@ def load_template_block() -> str:
     if header_index is None:
         return generate_minimal_block()
     start = next(
-        (
-            idx
-            for idx in range(header_index, -1, -1)
-            if lines[idx]
-            .strip()
-            .startswith(
-                "# ============================================================================="
-            )
-        ),
+        (idx for idx in range(header_index, -1, -1) if lines[idx].strip() == SEPARATOR_LINE),
         header_index,
     )
-    end_header_index = next(
-        (idx for idx, line in enumerate(lines) if "Langchain Scripts Exclusion" in line),
+    end_marker_index = next(
+        (idx for idx in range(header_index, len(lines)) if lines[idx].strip() == PATTERN_BLOCK_END),
         None,
     )
-    if end_header_index is None:
+    if end_marker_index is None:
         return generate_minimal_block()
     end = next(
         (
             idx
-            for idx in range(end_header_index, -1, -1)
-            if lines[idx]
-            .strip()
-            .startswith(
-                "# ============================================================================="
-            )
+            for idx in range(end_marker_index + 1, len(lines))
+            if lines[idx].strip() == SEPARATOR_LINE
         ),
-        end_header_index,
+        None,
     )
-    if end <= start:
+    if end is None or not (start < header_index < end_marker_index < end):
         return generate_minimal_block()
     return "\n".join(lines[start:end]).rstrip("\n") + "\n"
 
@@ -174,6 +175,7 @@ def generate_minimal_block() -> str:
     lines = [GITIGNORE_BLOCK_HEADER.strip()]
     for pattern in CANONICAL_PATTERNS:
         lines.append(pattern)
+    lines.append(PATTERN_BLOCK_END)
     return "\n".join(lines) + "\n"
 
 
