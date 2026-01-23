@@ -243,7 +243,7 @@ quick_check() {
 ACTIONLINT_BIN=""
 ACTIONLINT_IGNORE_ARGS=()
 ACTIONLINT_SECRETS_ALLOWLIST=()
-ACTIONLINT_SECRETS_MESSAGE='unexpected key "secrets" for "step"'
+ACTIONLINT_SECRETS_MESSAGE='unexpected key "secrets"'
 ensure_actionlint() {
     if command -v actionlint >/dev/null 2>&1; then
         ACTIONLINT_BIN=$(command -v actionlint)
@@ -295,7 +295,6 @@ build_actionlint_command() {
     fi
     cmd_ref+=("${files_ref[@]}")
 }
-
 load_actionlint_secrets_allowlist() {
     local allowlist_file="${DEV_CHECK_SECRETS_ALLOWLIST:-.github/actionlint-secrets-allowlist.txt}"
     ACTIONLINT_SECRETS_ALLOWLIST=()
@@ -321,22 +320,37 @@ filter_actionlint_output() {
     local output_file="$2"
     local secrets_found=false
     local unexpected_found=false
+    local unexpected_message=""
+    local skip_context=false
+    local path_line_pattern='^[^[:space:]].*:[0-9]+:[0-9]+:'
 
     : > "$output_file"
     while IFS= read -r line; do
+        if [[ "$skip_context" == true ]]; then
+            if [[ "$line" =~ $path_line_pattern ]]; then
+                skip_context=false
+            else
+                continue
+            fi
+        fi
+
         if [[ "$line" == *"$ACTIONLINT_SECRETS_MESSAGE"* ]]; then
             secrets_found=true
             local file_path="${line%%:*}"
             if [[ -n "$file_path" ]] && is_actionlint_secrets_allowlisted "$file_path"; then
+                skip_context=true
                 continue
             fi
             unexpected_found=true
+            if [[ -z "$unexpected_message" ]]; then
+                unexpected_message="${line##*: }"
+            fi
         fi
         printf '%s\n' "$line" >> "$output_file"
     done < "$input_file"
 
     if [[ "$unexpected_found" == true ]]; then
-        echo "$ACTIONLINT_SECRETS_MESSAGE" >&2
+        echo "${unexpected_message:-$ACTIONLINT_SECRETS_MESSAGE}" >&2
         return 2
     fi
     if [[ "$secrets_found" == true ]]; then
@@ -362,7 +376,7 @@ run_actionlint_for_files() {
     fi
 
     local -a actionlint_cmd=()
-    build_actionlint_command actionlint_cmd files_ref
+    build_actionlint_command actionlint_cmd "$2"
 
     local exit_code=0
     if ! timeout "$CHECK_TIMEOUT" "${actionlint_cmd[@]}" > "$output_file" 2>&1; then
