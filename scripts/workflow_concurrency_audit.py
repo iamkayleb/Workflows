@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,9 +79,17 @@ def load_workflow(path: Path) -> tuple[dict | None, str | None]:
     return data, None
 
 
+LOGGER = logging.getLogger(__name__)
+
+
 def _normalize_trigger_name(value: object) -> str | None:
     if not isinstance(value, str):
-        return None
+        LOGGER.warning(
+            "Non-string trigger value encountered: %r (type %s); coerced to string",
+            value,
+            type(value).__name__,
+        )
+        value = str(value)
     name = value.strip()
     return name or None
 

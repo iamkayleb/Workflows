@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 import runpy
 import sys
 from pathlib import Path
@@ -183,6 +184,33 @@ def test_load_template_block_falls_back(monkeypatch: pytest.MonkeyPatch) -> None
     content = sync_status_file_ignores.load_template_block()
 
     assert content == sync_status_file_ignores.generate_minimal_block()
+
+
+def test_load_template_block_raises_on_missing_markers(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    template_path = Path(sync_status_file_ignores.__file__).resolve().parents[1]
+    template_path = template_path / "templates/consumer-repo/.gitignore"
+    original_exists = Path.exists
+    original_read_text = Path.read_text
+
+    def fake_exists(self: Path) -> bool:
+        if self == template_path:
+            return True
+        return original_exists(self)
+
+    def fake_read_text(self: Path, *args: object, **kwargs: object) -> str:
+        if self == template_path:
+            return "# invalid template without markers\n"
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "exists", fake_exists)
+    monkeypatch.setattr(Path, "read_text", fake_read_text)
+
+    caplog.set_level(logging.CRITICAL)
+    with pytest.raises(sync_status_file_ignores.TemplateBlockError):
+        sync_status_file_ignores.load_template_block()
+    assert "Template sentinel validation failed" in caplog.text
 
 
 def test_load_template_block_uses_separator_boundaries(
