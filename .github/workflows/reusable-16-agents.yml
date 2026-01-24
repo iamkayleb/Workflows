@@ -160,7 +160,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { owner, repo } = context.repo;
             const q = `query($owner:String!, $repo:String!) { repository(owner:$owner, name:$repo) { suggestedActors(capabilities:[CAN_BE_ASSIGNED], first:100) { nodes { login } } } }`;
@@ -178,7 +179,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             const { owner, repo } = context.repo;
@@ -243,7 +245,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             const { owner, repo } = context.repo;
@@ -289,7 +292,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             const user = process.env.CODEX_USER;
@@ -454,7 +458,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
 
@@ -713,7 +718,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             const { data: me } = await withRetry(() => github.rest.users.getAuthenticated());

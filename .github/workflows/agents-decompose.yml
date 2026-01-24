@@ -130,7 +130,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             const subtasks = fs.readFileSync('subtasks.md', 'utf8');
@@ -199,7 +200,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             try {

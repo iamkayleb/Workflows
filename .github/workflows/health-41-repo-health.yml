@@ -38,7 +38,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             try {
@@ -87,7 +88,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry, paginateWithRetry } = retryHelpers;
 
@@ -308,7 +310,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
 

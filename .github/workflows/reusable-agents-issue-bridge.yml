@@ -129,7 +129,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
 
@@ -262,7 +263,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             const { data } = await withRetry(() => github.rest.repos.get({ owner, repo }));
@@ -359,7 +361,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry, paginateWithRetry } = retryHelpers;
             const sentinel = /\[keepalive\]/i;
@@ -574,7 +577,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry, paginateWithRetry } = retryHelpers;
             if (!agent || agent === 'unknown') {
@@ -786,7 +790,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             if (!agent || agent === 'unknown') {
@@ -949,7 +954,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             if (!agent || agent === 'unknown') {
@@ -1016,7 +1022,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry, paginateWithRetry } = retryHelpers;
 
@@ -1159,7 +1166,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             if (!agent || agent === 'unknown') {
@@ -1185,7 +1193,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             if (!agent || agent === 'unknown') {
@@ -1211,7 +1220,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             if (!agent || agent === 'unknown') {
@@ -1249,7 +1259,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             if (!issue_number) {
