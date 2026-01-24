@@ -42,7 +42,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Install js-yaml
-        run: npm install js-yaml
+        run: npm install -g js-yaml
 
       - name: Parse labels-core.yml
         id: parse
