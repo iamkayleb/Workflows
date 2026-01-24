@@ -56,7 +56,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const paginateWithRetry = (method, params, options) =>
               retryHelpers.paginateWithRetry.length >= 3
@@ -65,7 +66,7 @@ jobs:
 
             // Paginate to get all labels (handles repos with >100 labels)
             const labels = await paginateWithRetry(
-              github.rest.issues.listLabelsForRepo,
+              github, github.rest.issues.listLabelsForRepo,
               {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -194,7 +195,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
 
@@ -243,7 +245,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
 

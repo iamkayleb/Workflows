@@ -431,7 +431,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry, paginateWithRetry } = retryHelpers;
             const defaultOutputs = {
@@ -680,7 +681,7 @@ jobs:
               return dp[a.length][b.length];
             };
             const labelsCache = await paginateWithRetry(
-              github.rest.issues.listLabelsForRepo,
+              github, github.rest.issues.listLabelsForRepo,
               { owner, repo, per_page: 100 },
             );
             const usedColors = new Set(labelsCache.map((l) => l.color.toLowerCase()));
@@ -1213,7 +1214,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
 

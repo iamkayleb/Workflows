@@ -201,7 +201,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { paginateWithRetry } = retryHelpers;
 
@@ -255,7 +256,7 @@ jobs:
 
             let count = 0;
             const openIssues = await paginateWithRetry(
-              github.rest.issues.listForRepo,
+              github, github.rest.issues.listForRepo,
               { owner, repo, state: 'open', per_page: 100 }
             );
             for (const issue of openIssues) {
@@ -345,7 +346,8 @@ jobs:
               ? require(retryHelperPath)
               : {
                   withRetry: (fn) => fn(),
-                  paginateWithRetry: (method, params) => github.paginate(method, params),
+                  paginateWithRetry: (githubInstance, method, params) =>
+                    githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
             const { data } = await withRetry(() => github.rest.users.getAuthenticated());
