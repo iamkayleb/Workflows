@@ -2084,7 +2084,7 @@ jobs:
             let jobs;
             try {
               jobs = await paginateWithRetry(
-                github.rest.actions.listJobsForWorkflowRun,
+                github, github.rest.actions.listJobsForWorkflowRun,
                 { owner, repo, run_id, per_page: 100 },
               );
             } catch (error) {

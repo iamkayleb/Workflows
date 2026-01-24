@@ -256,7 +256,7 @@ jobs:
 
             let count = 0;
             const openIssues = await paginateWithRetry(
-              github.rest.issues.listForRepo,
+              github, github.rest.issues.listForRepo,
               { owner, repo, state: 'open', per_page: 100 }
             );
             for (const issue of openIssues) {

@@ -433,7 +433,7 @@ jobs:
             if (!enabled) {
               try {
                 const comments = await paginateWithRetry(
-                  github.rest.issues.listComments,
+                  github, github.rest.issues.listComments,
                   { owner, repo, issue_number: issueNumber, per_page: 100 }
                 );
                 for (const comment of comments) {
@@ -707,7 +707,7 @@ jobs:
               try {
                 // Fetch all comments using pagination to avoid missing any
                 const comments = await paginateWithRetry(
-                  github.rest.issues.listComments,
+                  github, github.rest.issues.listComments,
                   {
                     owner,
                     repo,

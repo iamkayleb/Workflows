@@ -681,7 +681,7 @@ jobs:
               return dp[a.length][b.length];
             };
             const labelsCache = await paginateWithRetry(
-              github.rest.issues.listLabelsForRepo,
+              github, github.rest.issues.listLabelsForRepo,
               { owner, repo, per_page: 100 },
             );
             const usedColors = new Set(labelsCache.map((l) => l.color.toLowerCase()));

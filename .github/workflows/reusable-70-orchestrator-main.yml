@@ -2790,7 +2790,7 @@ jobs:
             }
 
             const issues = await paginateWithRetry(
-              github.rest.issues.listForRepo,
+              github, github.rest.issues.listForRepo,
               { owner, repo, state: 'open', labels: label, per_page: 100 }
             );
 

@@ -66,7 +66,7 @@ jobs:
             let summaryJob = null;
             try {
               const jobs = await paginateWithRetry(
-                github.rest.actions.listJobsForWorkflowRun,
+                github, github.rest.actions.listJobsForWorkflowRun,
                 {
                   owner,
                   repo,
