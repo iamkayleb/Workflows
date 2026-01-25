@@ -13,6 +13,7 @@ permissions:
   pull-requests: write
   issues: write
   actions: write
+  models: read
 
 env:
   PYTHON_VERSION: "3.12"

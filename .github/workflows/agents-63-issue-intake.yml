@@ -106,6 +106,12 @@ on:
       owner_pr_pat:
         required: false
 
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  models: read
+
 concurrency:
   group: issue-intake-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: true
