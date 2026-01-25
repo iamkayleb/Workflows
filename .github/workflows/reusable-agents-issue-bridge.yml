@@ -69,6 +69,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
+  models: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
