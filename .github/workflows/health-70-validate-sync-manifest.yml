@@ -31,7 +31,6 @@ on:
 permissions:
   contents: read
   pull-requests: write
-    models: read
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}

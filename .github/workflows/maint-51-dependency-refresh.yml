@@ -13,7 +13,6 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  models: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
