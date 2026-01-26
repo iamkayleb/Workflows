@@ -195,6 +195,8 @@ jobs:
                   const bTime = new Date(b.started_at || b.completed_at || 0).getTime();
                   return bTime - aTime;
                 });
+                const matrixPlaceholder = '${' + '{ matrix.';
+                const matrixPlaceholderPython = 'matrix.python-version';
                 const latestChecksByName = new Map();
                 for (const check of orderedChecks) {
                   if (!latestChecksByName.has(check.name)) {
@@ -206,8 +208,8 @@ jobs:
                   !c.name.includes('pr_meta') &&
                   !c.name.includes('resolve_pr') &&
                   !c.name.includes('Cleanup') &&
-                  !c.name.includes('${{ matrix.') &&
-                  !c.name.includes('matrix.python-version') &&
+                  !c.name.includes(matrixPlaceholder) &&
+                  !c.name.includes(matrixPlaceholderPython) &&
                   c.conclusion !== 'skipped' &&
                   c.conclusion !== 'neutral'
                 );
