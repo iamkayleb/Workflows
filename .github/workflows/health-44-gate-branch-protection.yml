@@ -88,7 +88,7 @@ jobs:
               return;
             }
 
-            const resolvedFallback = directDefault || payload.repository?.default_branch || 'main';
+            const resolvedFallback = payload.repository?.default_branch || null;
 
             try {
               const response = await withApiRetry(
@@ -98,25 +98,33 @@ jobs:
                 }),
                 { label: 'determine default branch' },
               );
-              core.setOutput('name', response.data.default_branch || resolvedFallback);
+              const resolved = response.data.default_branch || resolvedFallback;
+              if (!resolved) {
+                core.setFailed('Repository default branch not available');
+                return;
+              }
+              core.setOutput('name', resolved);
             } catch (error) {
               const detail = error?.message || '';
               const status = error?.status || error?.response?.status;
               const rateLimited = status === 429 || (status === 403 && /rate limit/i.test(detail));
               if (rateLimited) {
+                if (!resolvedFallback) {
+                  core.setFailed('Repository default branch not available');
+                  return;
+                }
                 core.warning(`Rate limit while resolving default branch; using fallback "${resolvedFallback}".`);
                 core.setOutput('name', resolvedFallback);
               } else {
                 throw error;
               }
             }
-            core.setOutput('name', resolvedDefault);
 
       - name: Export default branch variable
         run: |
           echo "DEFAULT_BRANCH_NAME=${DEFAULT_BRANCH}" >> "$GITHUB_ENV"
         env:
-          DEFAULT_BRANCH: ${{ steps.default-branch.outputs.name || github.event.repository.default_branch || 'main' }}
+          DEFAULT_BRANCH: ${{ steps.default-branch.outputs.name || github.event.repository.default_branch }}
 
       - uses: actions/setup-python@v6
         with:

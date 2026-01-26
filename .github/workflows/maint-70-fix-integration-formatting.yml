@@ -23,11 +23,25 @@ jobs:
     name: Apply formatting fixes
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve integration repo default branch
+        id: integration_ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data } = await github.rest.repos.get({
+              owner: 'stranske',
+              repo: 'Workflows-Integration-Tests'
+            });
+            if (!data?.default_branch) {
+              core.setFailed('Could not determine integration repo default branch');
+              return;
+            }
+            core.setOutput('ref', data.default_branch);
       - name: Checkout Integration-Tests repo
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows-Integration-Tests
-          ref: main
+          ref: ${{ steps.integration_ref.outputs.ref }}
           token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS }}
           path: integration-tests
 
