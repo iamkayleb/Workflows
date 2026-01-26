@@ -435,7 +435,11 @@ jobs:
         with:
           script: |
             const ref = context.ref || '';
-            const defaultBranch = context.payload?.repository?.default_branch || 'main';
+            const defaultBranch = context.payload?.repository?.default_branch;
+            if (!defaultBranch) {
+              core.setFailed('Repository default branch not available');
+              return;
+            }
             const expectedRef = `refs/heads/${defaultBranch}`;
             core.info(`Workflow ref: ${ref}`);
             core.info(`Repository default branch: ${defaultBranch}`);

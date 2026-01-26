@@ -72,12 +72,16 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
             }));
-            core.setOutput('name', data.default_branch || 'main');
+            if (!data.default_branch) {
+              core.setFailed('Repository default branch not available');
+              return;
+            }
+            core.setOutput('name', data.default_branch);
 
       - name: Export default branch
         run: echo "DEFAULT_BRANCH=${DEFAULT_BRANCH}" >> "$GITHUB_ENV"
         env:
-          DEFAULT_BRANCH: ${{ steps.default-branch.outputs.name || github.event.repository.default_branch || 'main' }}
+          DEFAULT_BRANCH: ${{ steps.default-branch.outputs.name || github.event.repository.default_branch }}
 
       - uses: actions/setup-python@v6
         if: ${{ env.HAS_ADMIN_TOKEN == 'true' }}

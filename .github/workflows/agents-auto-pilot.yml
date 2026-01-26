@@ -110,12 +110,28 @@ jobs:
         if: steps.check_enabled.outputs.enabled == 'true'
         uses: actions/checkout@v6
 
+      - name: Resolve Workflows default branch
+        if: steps.check_enabled.outputs.enabled == 'true'
+        id: workflows_ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data } = await github.rest.repos.get({
+              owner: 'stranske',
+              repo: 'Workflows'
+            });
+            if (!data?.default_branch) {
+              core.setFailed('Could not determine Workflows default branch');
+              return;
+            }
+            core.setOutput('ref', data.default_branch);
+
       - name: Checkout Workflows scripts
         if: steps.check_enabled.outputs.enabled == 'true'
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows
-          ref: main
+          ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             .github/scripts
           sparse-checkout-cone-mode: false
@@ -879,7 +895,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 workflow_id: 'agents-71-codex-belt-dispatcher.yml',
-                ref: 'main',
+                ref: baseBranch,
                 inputs: {
                   force_issue: issueNumber.toString(),
                   dry_run: 'false'
@@ -1204,7 +1220,11 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo
             });
-            const baseBranch = repoInfo.default_branch || 'main';
+            const baseBranch = repoInfo.default_branch;
+            if (!baseBranch) {
+              core.setFailed('Repository default branch not available');
+              return;
+            }
 
             // If a PR already exists for this branch, stop create-pr loop
             try {
@@ -1467,7 +1487,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   workflow_id: 'agents-pr-meta-v4.yml',
-                  ref: 'main',
+                  ref: baseBranch,
                   inputs: {
                     pr_number: pr.number.toString(),
                     debug: 'false'
@@ -1484,7 +1504,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   workflow_id: 'agents-keepalive-loop.yml',
-                  ref: 'main',
+                  ref: baseBranch,
                   inputs: {
                     pr_number: pr.number.toString(),
                     force_retry: 'true'
@@ -1871,6 +1891,15 @@ jobs:
           script: |
             const issueNumber = parseInt(process.env.ISSUE_NUMBER);
             const currentStep = process.env.CURRENT_STEP;
+            const { data: repoInfo } = await github.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+            const baseBranch = repoInfo.default_branch;
+            if (!baseBranch) {
+              core.setFailed('Repository default branch not available');
+              return;
+            }
 
             // Determine next step explicitly to avoid label race conditions
             // Don't rely on 'auto' detection which has API cache timing issues
@@ -1903,7 +1932,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'agents-auto-pilot.yml',
-              ref: 'main',
+              ref: baseBranch,
               inputs: {
                 issue_number: issueNumber.toString(),
                 force_step: nextStep
