@@ -2313,6 +2313,20 @@ async function updateKeepaliveLoopSummary({ github, context, core, inputs }) {
     const errorRecovery = failureDetails.recovery;
     const tasksComplete = Math.max(0, tasksTotal - tasksUnchecked);
     const allTasksComplete = tasksUnchecked === 0 && tasksTotal > 0;
+    const previousCompleteGateFailureRounds = toNumber(previousState?.complete_gate_failure_rounds, 0);
+    const completeGateFailureMax = Math.max(
+      1,
+      toNumber(
+        inputs.completeGateFailureRoundsMax ??
+          inputs.complete_gate_failure_rounds_max ??
+          previousState?.complete_gate_failure_rounds_max,
+        2,
+      ),
+    );
+    const completeGateFailureRounds =
+      allTasksComplete && gateConclusion && gateConclusion !== 'success'
+        ? previousCompleteGateFailureRounds + 1
+        : 0;
     const metricsIteration = action === 'run' ? currentIteration + 1 : currentIteration;
     const durationMs = resolveDurationMs({
       durationMs: toOptionalNumber(inputs.duration_ms ?? inputs.durationMs),
