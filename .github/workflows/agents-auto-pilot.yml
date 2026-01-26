@@ -1121,30 +1121,6 @@ jobs:
               const stallCount = await countConsecutiveWaits('Waiting for agent to create branch');
               core.info(`Consecutive branch-wait count: ${stallCount}/${maxStallRetries}`);
 
-              // EXPONENTIAL BACKOFF: Wait longer between each retry
-              // Delays: 1min, 2min, 4min, 8min, 16min (2^stallCount minutes)
-              if (stallCount > 0) {
-                const backoffMinutes = Math.pow(2, stallCount);
-                const backoffMs = backoffMinutes * 60 * 1000;
-                const maxBackoffMs = 16 * 60 * 1000; // Cap at 16 minutes
-                const actualBackoffMs = Math.min(backoffMs, maxBackoffMs);
-                const actualMinutes = Math.round(actualBackoffMs / 60000);
-
-                core.info(`Applying branch-creation backoff: waiting ${actualMinutes} minutes`);
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issueNumber,
-                  body: `🤖 **Auto-pilot**: Backoff delay (${actualMinutes}m)
-
-            Branch not created yet. Attempt ${stallCount + 1}/${maxStallRetries}.
-            Waiting before retry...`
-                });
-
-                // Sleep with exponential backoff
-                await new Promise(resolve => setTimeout(resolve, actualBackoffMs));
-              }
-
               if (stallCount >= maxStallRetries) {
                 const warnMsg = `Stall: ${stallCount} attempts without branch creation`;
                 core.warning(warnMsg);
@@ -1180,6 +1156,34 @@ jobs:
                 return;
               }
 
+              // EXPONENTIAL BACKOFF: Wait longer between each retry
+              // Delays: 1min, 2min, 4min, 8min, 16min (2^stallCount minutes)
+              if (stallCount > 0) {
+                const backoffMinutes = Math.pow(2, stallCount);
+                const backoffMs = backoffMinutes * 60 * 1000;
+                const maxBackoffMs = 16 * 60 * 1000; // Cap at 16 minutes
+                const actualBackoffMs = Math.min(backoffMs, maxBackoffMs);
+                const actualMinutes = Math.round(actualBackoffMs / 60000);
+
+                core.info(`Applying branch-creation backoff: waiting ${actualMinutes} minutes`);
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  body: `🤖 **Auto-pilot**: Backoff delay (${actualMinutes}m)
+
+            Branch not created yet. Attempt ${stallCount + 1}/${maxStallRetries}.
+            Waiting before retry...`
+                });
+
+                // Sleep with exponential backoff
+                await new Promise(resolve => setTimeout(resolve, actualBackoffMs));
+              }
+
+              const backoffNote = stallCount === 0
+                ? ' (no backoff on the first check).'
+                : '.';
+
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -1189,9 +1193,9 @@ jobs:
             The agent has been assigned but hasn't created the branch yet.
             Branch expected: \`${branchName}\`
 
-            📊 Stall count: ${stallCount + 1}/${maxStallRetries}
+            📊 Branch check attempt: ${stallCount + 1}/${maxStallRetries}
 
-            ⏳ Auto-pilot will check again on next trigger.`
+            ⏳ Auto-pilot will check again on next trigger${backoffNote}`
               });
               return;
             }
@@ -1204,17 +1208,19 @@ jobs:
 
             // If a PR already exists for this branch, stop create-pr loop
             try {
+              const headRef = `${context.repo.owner}:${branchName}`;
               const { data: existingPrs } = await github.rest.pulls.list({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                state: 'all',
-                head: `${context.repo.owner}:${branchName}`,
+                state: 'open',
+                head: headRef,
                 per_page: 1
               });
 
               if (existingPrs.length > 0) {
                 const pr = existingPrs[0];
-                const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
+                const serverUrl = process.env.GITHUB_SERVER_URL
+                  || 'https://github.com';
                 const { owner, repo } = context.repo;
                 const prUrl = `${serverUrl}/${owner}/${repo}/pull/${pr.number}`;
 
@@ -1264,29 +1270,6 @@ jobs:
                 const stallCount = await countConsecutiveWaits('Branch ready, waiting for commits');
                 core.info(`Consecutive stall count: ${stallCount}/${maxStallRetries}`);
 
-                // EXPONENTIAL BACKOFF: Wait longer between each retry
-                // Delays: 1min, 2min, 4min, 8min, 16min (2^stallCount minutes)
-                if (stallCount > 0) {
-                  const backoffMinutes = Math.pow(2, stallCount);
-                  const backoffMs = backoffMinutes * 60 * 1000;
-                  const maxBackoffMs = 16 * 60 * 1000; // Cap at 16 minutes
-                  const actualBackoffMs = Math.min(backoffMs, maxBackoffMs);
-                  const actualMinutes = Math.round(actualBackoffMs / 60000);
-
-                  core.info(`Applying backoff: waiting ${actualMinutes} minutes`);
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: issueNumber,
-                    body: `🤖 **Auto-pilot**: Backoff delay (${actualMinutes}m)
-
-            Attempt ${stallCount + 1}/${maxStallRetries}. Waiting before retry...`
-                  });
-
-                  // Sleep with exponential backoff
-                  await new Promise(resolve => setTimeout(resolve, actualBackoffMs));
-                }
-
                 if (stallCount >= maxStallRetries) {
                   // Worker failed to produce commits - pause for human review
                   const warnMsg = `Stall: ${stallCount} attempts without commits`;
@@ -1326,6 +1309,29 @@ jobs:
                   const failMsg = `Auto-pilot stalled: ${stallCount} failed dispatches`;
                   core.setFailed(failMsg);
                   return;
+                }
+
+                // EXPONENTIAL BACKOFF: Wait longer between each retry
+                // Delays: 1min, 2min, 4min, 8min, 16min (2^stallCount minutes)
+                if (stallCount > 0) {
+                  const backoffMinutes = Math.pow(2, stallCount);
+                  const backoffMs = backoffMinutes * 60 * 1000;
+                  const maxBackoffMs = 16 * 60 * 1000; // Cap at 16 minutes
+                  const actualBackoffMs = Math.min(backoffMs, maxBackoffMs);
+                  const actualMinutes = Math.round(actualBackoffMs / 60000);
+
+                  core.info(`Applying backoff: waiting ${actualMinutes} minutes`);
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    body: `🤖 **Auto-pilot**: Backoff delay (${actualMinutes}m)
+
+            Attempt ${stallCount + 1}/${maxStallRetries}. Waiting before retry...`
+                  });
+
+                  // Sleep with exponential backoff
+                  await new Promise(resolve => setTimeout(resolve, actualBackoffMs));
                 }
 
                 let workerDispatched = false;
@@ -1586,7 +1592,7 @@ jobs:
             const maxStallRetries = parseInt(process.env.MAX_STALL_RETRIES || '5');
 
             // Helper: count consecutive "monitor-pr" comments (stall detection)
-            async function countConsecutiveWaits() {
+            async function countConsecutiveWaits(waitText) {
               const { data: comments } = await github.rest.issues.listComments({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -1601,7 +1607,7 @@ jobs:
               for (const comment of reversed) {
                 const body = comment.body || '';
                 const isStallComment = body.includes('Auto-pilot step') &&
-                  body.includes('Monitoring PR status');
+                  body.includes(waitText);
                 if (isStallComment) {
                   stallCount++;
                 } else if (body.includes('Auto-pilot step')) {
@@ -1612,32 +1618,8 @@ jobs:
               return stallCount;
             }
 
-            const stallCount = await countConsecutiveWaits();
+            const stallCount = await countConsecutiveWaits('Monitoring PR status');
             core.info(`Consecutive monitor-pr count: ${stallCount}/${maxStallRetries}`);
-
-            // EXPONENTIAL BACKOFF: Wait longer between each retry
-            // Delays: 1min, 2min, 4min, 8min, 16min (2^stallCount minutes)
-            if (stallCount > 0) {
-              const backoffMinutes = Math.pow(2, stallCount);
-              const backoffMs = backoffMinutes * 60 * 1000;
-              const maxBackoffMs = 16 * 60 * 1000; // Cap at 16 minutes
-              const actualBackoffMs = Math.min(backoffMs, maxBackoffMs);
-              const actualMinutes = Math.round(actualBackoffMs / 60000);
-
-              core.info(`Applying monitor-pr backoff: waiting ${actualMinutes} minutes`);
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `🤖 **Auto-pilot**: Backoff delay (${actualMinutes}m)
-
-            Monitoring PR status. Attempt ${stallCount + 1}/${maxStallRetries}.
-            Waiting before retry...`
-              });
-
-              // Sleep with exponential backoff
-              await new Promise(resolve => setTimeout(resolve, actualBackoffMs));
-            }
 
             if (stallCount >= maxStallRetries) {
               const warnMsg = `Stall: ${stallCount} monitor-pr attempts without completion`;
@@ -1667,6 +1649,30 @@ jobs:
               core.setOutput('stop_autopilot', 'true');
               core.setFailed(warnMsg);
               return;
+            }
+
+            // EXPONENTIAL BACKOFF: Wait longer between each retry
+            // Delays: 1min, 2min, 4min, 8min, 16min (2^stallCount minutes)
+            if (stallCount > 0) {
+              const backoffMinutes = Math.pow(2, stallCount);
+              const backoffMs = backoffMinutes * 60 * 1000;
+              const maxBackoffMs = 16 * 60 * 1000; // Cap at 16 minutes
+              const actualBackoffMs = Math.min(backoffMs, maxBackoffMs);
+              const actualMinutes = Math.round(actualBackoffMs / 60000);
+
+              core.info(`Applying monitor-pr backoff: waiting ${actualMinutes} minutes`);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `🤖 **Auto-pilot**: Backoff delay (${actualMinutes}m)
+
+            Monitoring PR status. Attempt ${stallCount + 1}/${maxStallRetries}.
+            Waiting before retry...`
+              });
+
+              // Sleep with exponential backoff
+              await new Promise(resolve => setTimeout(resolve, actualBackoffMs));
             }
 
             await github.rest.issues.createComment({
