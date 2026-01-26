@@ -17,11 +17,11 @@ on:
     inputs:
       lookback_runs:
         description: 'Number of recent runs to check'
-        type: number
+        type: string
         default: 5
       max_age_hours:
         description: 'Max hours since last successful sync'
-        type: number
+        type: string
         default: 72
 
 permissions:
