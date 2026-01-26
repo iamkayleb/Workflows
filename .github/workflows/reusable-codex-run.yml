@@ -143,8 +143,8 @@ permissions:
   models: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: codex-${{ inputs.mode }}-${{ inputs.pr_number || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   codex:
