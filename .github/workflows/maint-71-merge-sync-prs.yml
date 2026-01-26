@@ -206,6 +206,8 @@ jobs:
                   !c.name.includes('pr_meta') &&
                   !c.name.includes('resolve_pr') &&
                   !c.name.includes('Cleanup') &&
+                  !c.name.includes('${{ matrix.') &&
+                  !c.name.includes('matrix.python-version') &&
                   c.conclusion !== 'skipped' &&
                   c.conclusion !== 'neutral'
                 );
