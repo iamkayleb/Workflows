@@ -9,6 +9,10 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   sync-ledger-base:
     name: Align .agents ledger base
@@ -21,6 +25,12 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml
 
       - name: Resolve default branch
         id: base
@@ -43,7 +53,7 @@ jobs:
           python scripts/ledger_migrate_base.py --default "${{ steps.base.outputs.branch }}"
 
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           commit-message: "chore: align agent ledgers to default branch"
           title: "chore: align agent ledgers to default branch"
