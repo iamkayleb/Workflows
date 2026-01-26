@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
-from typing import Any, Iterable
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -67,7 +68,7 @@ def _rest_calls_missing_retry(script: str, step_name: str, workflow_path: Path) 
     failures: list[str] = []
     for match in re.finditer(r"github\.rest\.", script):
         window_start = max(0, match.start() - 250)
-        window = script[window_start:match.start()]
+        window = script[window_start : match.start()]
         if not any(helper in window for helper in RETRY_HELPERS):
             line = script[: match.start()].count("\n") + 1
             failures.append(f"{workflow_path.as_posix()}::{step_name} line {line}")
@@ -92,8 +93,7 @@ def test_retry_wrappers_cover_rest_calls() -> None:
             failures.extend(_rest_calls_missing_retry(script, step_name, relative_path))
     assert not failures, (
         "GitHub REST calls must be wrapped in retry helpers (withRetry/withBackoff or "
-        "paginateWithRetry/paginateWithBackoff): "
-        + ", ".join(sorted(failures))
+        "paginateWithRetry/paginateWithBackoff): " + ", ".join(sorted(failures))
     )
 
 
@@ -105,7 +105,8 @@ def test_retry_wrappers_cover_pagination() -> None:
         workflow = _load_workflow(workflow_path)
         for step_name, script in _iter_job_scripts(workflow):
             failures.extend(_paginate_calls(script, step_name, relative_path))
-    assert not failures, (
-        "Use paginateWithRetry/paginateWithBackoff instead of github.paginate: "
-        + ", ".join(sorted(failures))
+    assert (
+        not failures
+    ), "Use paginateWithRetry/paginateWithBackoff instead of github.paginate: " + ", ".join(
+        sorted(failures)
     )
