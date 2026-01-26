@@ -889,6 +889,23 @@ jobs:
               labels: ['agent:codex']
             });
 
+            let baseBranch = context.payload?.repository?.default_branch || '';
+            if (!baseBranch) {
+              try {
+                const { data: repoInfo } = await github.rest.repos.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo
+                });
+                baseBranch = repoInfo?.default_branch || '';
+              } catch (error) {
+                core.warning(`Failed to resolve default branch: ${error?.message || error}`);
+              }
+            }
+            if (!baseBranch) {
+              core.warning('Repository default branch not available; skipping belt dispatch.');
+              return;
+            }
+
             // Force-dispatch Codex belt dispatcher to create the branch
             try {
               await github.rest.actions.createWorkflowDispatch({
