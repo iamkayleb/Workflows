@@ -104,6 +104,9 @@ jobs:
     needs: rate-limit-check
     if: needs.rate-limit-check.outputs.proceed == 'true'
     uses: ./.github/workflows/reusable-10-ci-python.yml
+    permissions:
+      contents: read
+      actions: read
     with:
       python-versions: ${{ (github.event_name == 'workflow_dispatch' && inputs.python_versions != '' && inputs.python_versions)
         || (github.event_name == 'workflow_dispatch' && inputs.mode == 'dual-runtime' && '["3.11","3.12"]')
