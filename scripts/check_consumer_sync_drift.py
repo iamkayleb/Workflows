@@ -87,6 +87,7 @@ def main() -> int:
     drift: set[str] = set()
     missing: set[str] = set()
     errors: set[str] = set()
+    obsolete: set[str] = set()
 
     for section in sections:
         for entry in manifest.get(section, []) or []:
@@ -120,6 +121,20 @@ def main() -> int:
                 if file_hash(remote_content) != local_digest:
                     drift.add(f"{repo}: {target}")
 
+    for entry in manifest.get("removals", []) or []:
+        target = entry.get("target")
+        if not target:
+            continue
+        for repo in repos:
+            url = f"https://api.github.com/repos/{repo}/contents/{target}"
+            response = session.get(url)
+            if response.status_code == 404:
+                continue
+            if response.status_code >= 400:
+                errors.add(f"{repo}: {target} (HTTP {response.status_code})")
+                continue
+            obsolete.add(f"{repo}: {target}")
+
     if args.summary:
         summary_path = Path(args.summary)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -140,8 +155,12 @@ def main() -> int:
                 handle.write("⚠️ Errors:\n")
                 handle.write("\n".join(f"- {item}" for item in sorted(errors)))
                 handle.write("\n\n")
+            if obsolete:
+                handle.write("⚠️ Obsolete files present (should be removed):\n")
+                handle.write("\n".join(f"- {item}" for item in sorted(obsolete)))
+                handle.write("\n\n")
 
-    if drift or missing or errors:
+    if drift or missing or errors or obsolete:
         print("::warning::Consumer repo drift detected")
         return 1
 
