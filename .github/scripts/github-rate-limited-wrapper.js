@@ -91,12 +91,74 @@ async function createRateLimitedGithub(options = {}) {
     });
   }
 
+  // Create wrapped paginate that includes iterator support
+  function createWrappedPaginate(originalPaginate) {
+    // Wrap the main paginate function
+    const wrappedPaginate = async function (method, params, ...rest) {
+      // The method is an Octokit endpoint like github.rest.issues.listComments
+      // We must use baseClient.paginate directly because:
+      // 1. The method arg may be a proxied endpoint bound to the wrapped client
+      // 2. Octokit's paginate needs the endpoint to be from the same client instance
+      // 3. Using withRetry with (client) => client.paginate would pass a different client
+      //    which breaks the endpoint's internal binding to route.endpoint
+      return withRetry(async () => baseClient.paginate(method, params, ...rest));
+    };
+    
+    // Add iterator method that wraps each page fetch with retry logic
+    // and preserves the full AsyncIterator interface (next/return/throw)
+    wrappedPaginate.iterator = function (method, params, ...rest) {
+      // Get the original async iterable from the base client
+      // Note: paginate.iterator() returns an async iterable (has [Symbol.asyncIterator])
+      // not a direct async iterator (with .next). We need to get the iterator from it.
+      const originalIterable = baseClient.paginate.iterator(method, params, ...rest);
+      
+      // Return a wrapped async iterable that:
+      // 1. Applies retry to each next() call for rate limit resilience
+      // 2. Preserves the full AsyncIterator interface for compatibility
+      return {
+        [Symbol.asyncIterator]() {
+          // Get the actual iterator from the iterable
+          const originalIterator = originalIterable[Symbol.asyncIterator]();
+          
+          return {
+            async next(...args) {
+              // Wrap each page fetch with retry logic for rate limit resilience
+              return withRetry(async () => {
+                return originalIterator.next(...args);
+              });
+            },
+            async return(value) {
+              // Delegate to original iterator's return() if it exists
+              if (typeof originalIterator.return === 'function') {
+                return originalIterator.return(value);
+              }
+              return { value, done: true };
+            },
+            async throw(error) {
+              // Delegate to original iterator's throw() if it exists
+              if (typeof originalIterator.throw === 'function') {
+                return originalIterator.throw(error);
+              }
+              throw error;
+            },
+          };
+        },
+      };
+    };
+    
+    return wrappedPaginate;
+  }
+
   // Create the proxied github object
   const proxiedGithub = new Proxy(baseClient, {
     get(target, prop) {
-      // Special handling for rest and graphql
+      // For 'rest' namespace, return the original baseClient.rest directly
+      // This is critical because paginate.iterator needs the original endpoint
+      // methods with their internal route.endpoint() bindings intact.
+      // Wrapping rest methods breaks paginate since Octokit expects the
+      // endpoint to be the actual method object, not a wrapped function.
       if (prop === 'rest' && target.rest) {
-        return createNamespaceProxy(target.rest, 'rest');
+        return target.rest;
       }
       
       if (prop === 'graphql' && typeof target.graphql === 'function') {
@@ -106,10 +168,7 @@ async function createRateLimitedGithub(options = {}) {
       }
       
       if (prop === 'paginate' && typeof target.paginate === 'function') {
-        // For paginate, wrap the entire operation
-        return async function wrappedPaginate(method, params, ...rest) {
-          return withRetry((client) => client.paginate(method, params, ...rest));
-        };
+        return createWrappedPaginate(target.paginate);
       }
       
       // Pass through other properties
