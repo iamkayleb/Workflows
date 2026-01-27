@@ -364,6 +364,19 @@ jobs:
                   changes.append(f"{dst.name}/ ({len(dir_changes)} files): {description}")
               return len(dir_changes) > 0
 
+              def remove_path(target_path, description):
+                """Remove an obsolete path from the consumer repo."""
+                dst = Path(target_path)
+                if not dst.exists():
+                  return False
+                if not dry_run:
+                  if dst.is_dir():
+                    shutil.rmtree(dst)
+                  else:
+                    dst.unlink()
+                changes.append(f"removed {dst}: {description}")
+                return True
+
           # Process workflows
           print("Processing workflows...")
           for item in manifest.get('workflows', []):
@@ -455,6 +468,16 @@ jobs:
               template_src = Path('workflows/templates/consumer-repo') / source
               consumer_dst = Path('consumer') / target
               sync_file(template_src, consumer_dst, description)
+
+            # Process removals
+            print("Processing removals...")
+            for item in manifest.get('removals', []) or []:
+              target = item.get('target', '')
+              description = item.get('description', 'No description')
+              if not target:
+                continue
+              consumer_dst = Path('consumer') / target
+              remove_path(consumer_dst, description)
 
           # Output results
           print(f"\n{'='*60}")
