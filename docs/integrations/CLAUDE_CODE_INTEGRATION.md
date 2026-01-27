@@ -442,32 +442,36 @@ The keepalive system is **multiple workflows working together** to enable autono
 
 ### Switching Agents Mid-Run
 
-> ⚠️ **Partial confidence** - This should work based on architecture, but hasn't been extensively tested.
+Switching agents mid-run **is supported** - the infrastructure handles it. However, there are risks to be aware of.
 
-**What should work:**
-- Agent type is read from labels on each keepalive evaluation
-- PR state (iteration count, tasks) is stored in summary comment, not agent-specific
-- Both agents use the same prompt files (`.github/codex/prompts/`)
-
-**To switch from Codex to Claude (or vice versa):**
+**How to switch from Codex to Claude (or vice versa):**
 
 1. Remove the current agent label (`agent:codex`)
 2. Add the new agent label (`agent:claude`)
-3. **Trigger a new evaluation** (required - just changing labels doesn't trigger):
+3. **Trigger a new evaluation** (just changing labels doesn't trigger):
    - Add the `agent:retry` label, OR
    - Push a commit to trigger Gate → Keepalive, OR
    - Manually dispatch `agents-keepalive-loop.yml`
+
+**Why this works:**
+- Agent type is read fresh from labels on each keepalive evaluation
+- PR state (iteration count, tasks) is stored in summary comment, not agent-specific
+- Both agents use the same prompt files (`.github/codex/prompts/`)
+- The `agent:retry` label is fully implemented and will trigger evaluation
 
 **Prerequisites for switching to Claude:**
 - AWS secrets must be configured in the repo (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
 - If secrets are missing, the workflow will fail with auth errors
 
-**What we're less certain about:**
-- Whether partial work from one agent causes issues for the other
-- Conflict resolution if both agents touched the same files
-- How iteration/failure counts carry over
+**Risks to consider:**
 
-**Recommendation:** For now, prefer assigning an agent at issue creation rather than switching mid-run.
+| Risk | Description |
+|------|-------------|
+| **Partial work handoff** | New agent inherits code changes from previous agent - may not understand the context |
+| **File conflicts** | If both agents modify the same files differently, merge conflicts may occur |
+| **State carryover** | Iteration/failure counts persist - a fresh agent inherits the history |
+
+**Recommendation:** Assigning an agent at issue creation is cleaner, but switching mid-run works if needed.
 
 ## Feature Parity with Codex
 
