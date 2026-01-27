@@ -440,12 +440,34 @@ The keepalive system is **multiple workflows working together** to enable autono
    - **Loop**: Gate runs again → Keepalive continues → Claude works more
    - **Complete**: When all tasks checked, verifier validates
 
-### Switching Agents
+### Switching Agents Mid-Run
 
-To switch from Codex to Claude (or vice versa):
+> ⚠️ **Partial confidence** - This should work based on architecture, but hasn't been extensively tested.
+
+**What should work:**
+- Agent type is read from labels on each keepalive evaluation
+- PR state (iteration count, tasks) is stored in summary comment, not agent-specific
+- Both agents use the same prompt files (`.github/codex/prompts/`)
+
+**To switch from Codex to Claude (or vice versa):**
+
 1. Remove the current agent label (`agent:codex`)
 2. Add the new agent label (`agent:claude`)
-3. The next keepalive iteration will route to the new agent
+3. **Trigger a new evaluation** (required - just changing labels doesn't trigger):
+   - Add the `agent:retry` label, OR
+   - Push a commit to trigger Gate → Keepalive, OR
+   - Manually dispatch `agents-keepalive-loop.yml`
+
+**Prerequisites for switching to Claude:**
+- AWS secrets must be configured in the repo (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+- If secrets are missing, the workflow will fail with auth errors
+
+**What we're less certain about:**
+- Whether partial work from one agent causes issues for the other
+- Conflict resolution if both agents touched the same files
+- How iteration/failure counts carry over
+
+**Recommendation:** For now, prefer assigning an agent at issue creation rather than switching mid-run.
 
 ## Feature Parity with Codex
 
