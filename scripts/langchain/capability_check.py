@@ -312,7 +312,9 @@ def classify_capabilities(tasks: list[str] | str, acceptance: str) -> Capability
     content = getattr(response, "content", None) or str(response)
     payload = _extract_json_payload(content)
     if not payload:
-        result = _fallback_classify(normalized_tasks, acceptance, "LLM response missing JSON payload")
+        result = _fallback_classify(
+            normalized_tasks, acceptance, "LLM response missing JSON payload"
+        )
         result.provider_used = provider_name
         return result
     try:
