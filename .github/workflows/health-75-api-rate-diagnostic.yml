@@ -1233,7 +1233,7 @@ jobs:
       - name: Fetch historical workflow runs
         id: history
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || github.token }}
           START_DATE: ${{ steps.dates.outputs.start_date }}
           END_DATE: ${{ steps.dates.outputs.end_date }}
         run: |
