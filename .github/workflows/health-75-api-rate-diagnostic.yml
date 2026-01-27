@@ -1233,7 +1233,8 @@ jobs:
       - name: Fetch historical workflow runs
         id: history
         env:
-          GH_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || github.token }}
+          PRIMARY_GH_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+          FALLBACK_GH_TOKEN: ${{ github.token }}
           START_DATE: ${{ steps.dates.outputs.start_date }}
           END_DATE: ${{ steps.dates.outputs.end_date }}
         run: |
@@ -1241,9 +1242,18 @@ jobs:
 
           echo "Fetching Health 75 workflow runs from $START_DATE to $END_DATE"
 
+          primary_token="$PRIMARY_GH_TOKEN"
+          if [ -z "$primary_token" ]; then
+            primary_token="$FALLBACK_GH_TOKEN"
+          fi
+
           # Get workflow ID for Health 75 (direct path lookup avoids pagination limits)
-          workflow_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
-            --jq '.id // empty')
+          if ! workflow_id=$(GH_TOKEN="$primary_token" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
+            --jq '.id // empty'); then
+            echo "Primary token could not access workflow metadata. Retrying with GITHUB_TOKEN." >&2
+            workflow_id=$(GH_TOKEN="$FALLBACK_GH_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
+              --jq '.id // empty')
+          fi
 
           if [ -z "$workflow_id" ]; then
             echo "::error::Could not find Health 75 workflow"
@@ -1253,7 +1263,7 @@ jobs:
           echo "Workflow ID: $workflow_id"
 
           # Fetch runs in date range (GitHub API uses created filter)
-          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs" \
+          if ! runs=$(GH_TOKEN="$primary_token" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs" \
             --paginate \
             -F "created=>=$START_DATE" \
             -F "status=completed" \
@@ -1261,7 +1271,18 @@ jobs:
               id: .id,
               created_at: .created_at,
               run_number: .run_number
-            }]')
+            }]'); then
+            echo "Primary token could not access workflow runs. Retrying with GITHUB_TOKEN." >&2
+            runs=$(GH_TOKEN="$FALLBACK_GH_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs" \
+              --paginate \
+              -F "created=>=$START_DATE" \
+              -F "status=completed" \
+              --jq '[.workflow_runs[] | select(.conclusion == "success") | {
+                id: .id,
+                created_at: .created_at,
+                run_number: .run_number
+              }]')
+          fi
 
           # Normalize END_DATE to an ISO 8601 end-of-day timestamp
           if [[ "$END_DATE" == *T* ]]; then
