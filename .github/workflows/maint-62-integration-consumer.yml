@@ -60,7 +60,7 @@ jobs:
             coverage-alert-drop: '1'
     with:
       working-directory: templates/integration-repo
-      python-versions: ${{ matrix.python-versions }}
+      python-versions: ${{ matrix['python-versions'] }}
       coverage: ${{ matrix.coverage }}
       format_check: ${{ matrix['format-check'] }}
       lint: ${{ matrix.lint }}
@@ -69,7 +69,7 @@ jobs:
       enable-coverage-delta: ${{ matrix['enable-coverage-delta'] }}
       enable-metrics: ${{ matrix['enable-metrics'] }}
       enable-history: ${{ matrix['enable-history'] }}
-      baseline-coverage: ${{ matrix.baseline-coverage }}
+      baseline-coverage: ${{ matrix['baseline-coverage'] }}
       coverage-alert-drop: ${{ matrix['coverage-alert-drop'] }}
       artifact-prefix: integration-${{ matrix.name }}-
     secrets: inherit
