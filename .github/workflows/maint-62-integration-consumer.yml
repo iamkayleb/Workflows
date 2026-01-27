@@ -71,6 +71,28 @@ jobs:
           echo "baseline-coverage=${{ matrix['baseline-coverage'] }}"
           echo "coverage-alert-drop=${{ matrix['coverage-alert-drop'] }}"
 
+  reusable-smoke:
+    name: Reusable smoke
+    uses: ./.github/workflows/reusable-10-ci-python.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      working-directory: templates/integration-repo
+      python-versions: '["3.11"]'
+      coverage: false
+      format_check: false
+      lint: false
+      typecheck: false
+      enable-soft-gate: false
+      enable-coverage-delta: false
+      enable-metrics: false
+      enable-history: false
+      baseline-coverage: '0'
+      coverage-alert-drop: '0'
+      artifact-prefix: integration-smoke-
+    secrets: inherit
+
   scenarios:
     name: Integration - ${{ matrix.name }}
     uses: ./.github/workflows/reusable-10-ci-python.yml
