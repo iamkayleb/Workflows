@@ -139,7 +139,8 @@ workflows:
     description: "Reusable PR context workflow - centralized PR data fetching via GraphQL"
 
 # Files to remove from consumer repos (obsolete / harmful when present)
-removals: []
+removals:
+  - .github/workflows/agents-63-issue-intake.yml
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md
