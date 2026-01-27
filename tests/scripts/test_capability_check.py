@@ -18,6 +18,7 @@ from scripts.langchain.capability_check import (
     _coerce_list,
     _extract_json_payload,
     _normalize_result,
+    _normalize_tasks_input,
     _parse_tasks_from_text,
     _prepare_prompt_values,
     _strip_checkbox,
@@ -253,6 +254,17 @@ class TestParseTasksFromText:
         assert _parse_tasks_from_text(text) == ["task1", "task2"]
 
 
+class TestNormalizeTasksInput:
+    """Tests for _normalize_tasks_input."""
+
+    def test_returns_empty_for_none(self) -> None:
+        assert _normalize_tasks_input(None) == []
+
+    def test_parses_bullets_from_string(self) -> None:
+        tasks = "- task1\n- task2"
+        assert _normalize_tasks_input(tasks) == ["task1", "task2"]
+
+
 class TestClassifyCapabilities:
     """Tests for classify_capabilities."""
 
@@ -300,6 +312,27 @@ class TestClassifyCapabilities:
                 result = classify_capabilities(["task1"], "criteria")
                 assert result.recommendation == "PROCEED"
                 assert result.actionable_tasks == ["task1"]
+                assert result.provider_used == "github-models"
+                assert "langchain-core not installed" in result.human_actions_needed
+
+    def test_normalizes_tasks_when_langchain_core_missing(self) -> None:
+        mock_client = mock.MagicMock()
+        with mock.patch(
+            "scripts.langchain.capability_check._get_llm_client",
+            return_value=(mock_client, "github-models"),
+        ):
+            import builtins
+
+            original_import = builtins.__import__
+
+            def mock_import(name: str, *args: Any, **kwargs: Any) -> Any:
+                if name == "langchain_core.prompts":
+                    raise ImportError("No module named 'langchain_core'")
+                return original_import(name, *args, **kwargs)
+
+            with mock.patch.object(builtins, "__import__", mock_import):
+                result = classify_capabilities("- task1\n- task2", "criteria")
+                assert result.actionable_tasks == ["task1", "task2"]
                 assert result.provider_used == "github-models"
                 assert "langchain-core not installed" in result.human_actions_needed
 
