@@ -328,6 +328,104 @@ WORKFLOWS_APP_ID: "123456"
 WORKFLOWS_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----..."
 ```
 
+## The Keepalive System
+
+The keepalive system is **multiple workflows working together** to enable autonomous agent work. Here's how they connect:
+
+### Workflow Chain
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. ISSUE INTAKE                                                 │
+│     agents-issue-intake.yml (or agents-63-issue-intake.yml)     │
+│                                                                  │
+│     Trigger: Issue labeled with agent:claude or agent:codex     │
+│     Action:  Creates a PR from the issue                        │
+│              Copies issue tasks to PR body                       │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  2. GATE (CI)                                                    │
+│     pr-00-gate.yml                                               │
+│                                                                  │
+│     Trigger: PR opened or updated                                │
+│     Action:  Runs tests, lint, type checking                    │
+│              Must pass before agent can work                     │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  3. KEEPALIVE LOOP                                               │
+│     agents-keepalive-loop.yml                                    │
+│                                                                  │
+│     Trigger: Gate workflow completes                             │
+│     Action:  Evaluates PR state (tasks remaining? gate passed?) │
+│              Routes to correct agent based on label              │
+│              Calls reusable-claude-run.yml or reusable-codex-run│
+└─────────────────────────────────────────────────────────────────┘
+                              │
+              ┌───────────────┴───────────────┐
+              ▼                               ▼
+┌─────────────────────────┐     ┌─────────────────────────┐
+│  4a. REUSABLE CLAUDE    │     │  4b. REUSABLE CODEX     │
+│  reusable-claude-run.yml│     │  reusable-codex-run.yml │
+│                         │     │                         │
+│  - Runs Claude CLI      │     │  - Runs Codex CLI       │
+│  - Reads prompt file    │     │  - Reads prompt file    │
+│  - Makes code changes   │     │  - Makes code changes   │
+│  - Commits and pushes   │     │  - Commits and pushes   │
+└─────────────────────────┘     └─────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  5. LOOP CONTINUES                                               │
+│                                                                  │
+│     Agent pushes → Gate runs again → Keepalive evaluates →      │
+│     Agent works again → ... until all tasks complete            │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│  6. VERIFIER (Optional)                                          │
+│     agents-verifier.yml                                          │
+│                                                                  │
+│     Trigger: All tasks checked off                               │
+│     Action:  LLM validates acceptance criteria are met          │
+│              Approves PR or creates follow-up issues            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Workflows Summary
+
+| Workflow | Location | Purpose |
+|----------|----------|---------|
+| `agents-issue-intake.yml` | Consumer repo | Converts labeled issues to PRs |
+| `pr-00-gate.yml` | Consumer repo | CI gate (tests, lint) |
+| `agents-keepalive-loop.yml` | Consumer repo | Orchestrates agent iterations |
+| `reusable-claude-run.yml` | **Workflows repo** | Executes Claude (called via `uses:`) |
+| `reusable-codex-run.yml` | **Workflows repo** | Executes Codex (called via `uses:`) |
+| `agents-verifier.yml` | Consumer repo | Validates completed work |
+| `agents-orchestrator.yml` | Consumer repo | Scheduled sweeps for idle PRs |
+
+### Key Points
+
+1. **Consumer repos have thin callers** - They contain `agents-keepalive-loop.yml` which calls the reusable workflows
+2. **Reusable workflows stay in Workflows repo** - `reusable-claude-run.yml` is never copied to consumers
+3. **The loop is automatic** - Agent pushes code → Gate runs → Keepalive triggers → Agent works again
+4. **Iteration limits** - Default max 10 iterations to prevent infinite loops
+5. **Failure handling** - After 3 consecutive failures, adds `agent:needs-attention` label
+
+### What Triggers Each Workflow?
+
+| Workflow | Triggered By |
+|----------|--------------|
+| Issue Intake | Issue labeled `agent:claude` or `agent:codex` |
+| Gate | PR push, PR open |
+| Keepalive Loop | Gate `workflow_run` completion, PR labeled `agent:retry` |
+| Reusable Agent | Called by Keepalive Loop (not triggered directly) |
+| Verifier | All PR tasks checked, or manual dispatch |
+
 ## Usage
 
 ### Assigning Claude to an Issue
@@ -335,9 +433,12 @@ WORKFLOWS_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----..."
 1. Create an issue with clear tasks using checkbox format
 2. Add the `agent:claude` label to the issue
 3. The keepalive system will:
-   - Create a PR from the issue
-   - Route work to Claude via the keepalive loop
-   - Claude will work through tasks autonomously
+   - **Issue Intake**: Creates a PR from the issue
+   - **Gate**: Runs CI on the new PR
+   - **Keepalive Loop**: Detects `agent:claude` label, routes to Claude
+   - **Claude Run**: Claude reads tasks, makes changes, commits
+   - **Loop**: Gate runs again → Keepalive continues → Claude works more
+   - **Complete**: When all tasks checked, verifier validates
 
 ### Switching Agents
 
