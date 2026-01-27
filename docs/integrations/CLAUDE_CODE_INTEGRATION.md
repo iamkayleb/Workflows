@@ -6,6 +6,118 @@ This document describes the integration of Claude Code as a second AI agent in t
 
 Claude Code is integrated as an alternative AI coding agent that can be assigned to issues using the `agent:claude` label. It uses Amazon Bedrock for inference instead of the Anthropic API directly.
 
+## Workflows Repo vs Consumer Repos
+
+Understanding the relationship between these repositories is essential before working with the system.
+
+### The Two-Repo Model
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     stranske/Workflows                           │
+│                    (Central Library)                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  REUSABLE WORKFLOWS (heavy logic, stays here)                   │
+│  ├── reusable-claude-run.yml    ← Agent execution logic         │
+│  ├── reusable-codex-run.yml     ← Agent execution logic         │
+│  └── reusable-10-ci-python.yml  ← CI logic                      │
+│                                                                  │
+│  TEMPLATES (synced to consumers)                                 │
+│  └── templates/consumer-repo/                                    │
+│      └── .github/workflows/                                      │
+│          ├── agents-keepalive-loop.yml  ← Thin caller           │
+│          ├── pr-00-gate.yml             ← Thin caller           │
+│          └── ...                                                 │
+│                                                                  │
+│  SCRIPTS (used by workflows)                                     │
+│  └── .github/scripts/*.js                                        │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ sync (copies templates)
+                              │ uses: (runtime reference)
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│              Consumer Repos (Travel-Plan-Permission, etc.)       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  YOUR CODE (the actual project)                                  │
+│  ├── src/                                                        │
+│  ├── tests/                                                      │
+│  └── ...                                                         │
+│                                                                  │
+│  THIN CALLER WORKFLOWS (synced from Workflows)                   │
+│  └── .github/workflows/                                          │
+│      ├── agents-keepalive-loop.yml                               │
+│      │     └── uses: stranske/Workflows/...reusable-claude-run   │
+│      └── pr-00-gate.yml                                          │
+│            └── uses: stranske/Workflows/...reusable-10-ci-python │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### What Each Repo Does
+
+| Aspect | Workflows Repo | Consumer Repos |
+|--------|----------------|----------------|
+| **Contains** | Reusable workflows, scripts, templates | Your actual project code |
+| **Agent logic** | Yes - full implementation | No - just calls Workflows |
+| **Code changes** | Agents DON'T modify this repo* | Agents modify THIS repo |
+| **Runs workflows** | Yes (for self-testing) | Yes (for your project) |
+
+*Exception: Workflows repo is also a consumer of itself for testing purposes.
+
+### Could You Do Without One?
+
+| Scenario | Possible? | Consequence |
+|----------|-----------|-------------|
+| Without Workflows repo | No | No agent logic exists - `uses:` would fail |
+| Without consumer repos | Technically yes | But there's nothing to work on - no project code |
+
+The Workflows repo is the **library**. Consumer repos are the **applications** that use it.
+
+### Where Do Updates Go?
+
+| Change Type | Where to Update | Why |
+|-------------|-----------------|-----|
+| Agent execution logic | `Workflows/.github/workflows/reusable-*.yml` | Central logic, used by all consumers |
+| New agent features | `Workflows/.github/workflows/reusable-*.yml` | Same reason |
+| Workflow triggers/routing | `Workflows/templates/consumer-repo/...` | Gets synced to consumers |
+| Scripts used by workflows | `Workflows/.github/scripts/` | Referenced at runtime |
+| Consumer-specific CI config | Consumer repo directly | Not synced, repo-specific |
+
+### Same Update or Different?
+
+**Same file in two places** (e.g., `agents-keepalive-loop.yml`):
+
+| Location | Purpose | Update Pattern |
+|----------|---------|----------------|
+| `.github/workflows/agents-keepalive-loop.yml` | Runs in Workflows repo | Update here for self-testing |
+| `templates/consumer-repo/.github/workflows/agents-keepalive-loop.yml` | Source for sync | Update here to distribute to consumers |
+
+These should be **identical**. If you update one, update the other. (Or update template and copy to `.github/workflows/`.)
+
+### Where Does Agent Code End Up?
+
+When an agent (Claude or Codex) runs:
+
+1. **Workflow runs in**: Consumer repo (triggered by PR events)
+2. **Agent logic from**: Workflows repo (via `uses:` reference)
+3. **Agent reads**: Consumer repo files (checked out in the workflow)
+4. **Agent writes to**: Consumer repo (commits pushed to PR branch)
+
+```
+Agent Run Flow:
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│ Consumer repo   │────▶│ Workflows repo  │────▶│ Consumer repo   │
+│ triggers        │     │ provides logic  │     │ receives code   │
+│ workflow        │     │ (reusable-*)    │     │ changes         │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+The agent never modifies the Workflows repo (unless Workflows repo IS the consumer for that PR).
+
 ## Architecture
 
 ```
