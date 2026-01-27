@@ -7,7 +7,7 @@
 # POLICY: Any file intended for consumer repos MUST be listed here.
 # Files not listed will NOT be synced, even if they exist in templates/consumer-repo/.
 #
-# Last sync trigger: 2026-01-12T04:02:00Z - force sync after N806 fix (PR #830)
+# Last sync trigger: 2026-01-27T06:05:00Z - fix removals manifest entry (issue-1123)
 #
 # Categories:
 #   workflows: Thin caller workflows that consumers run directly
@@ -140,7 +140,8 @@ workflows:
 
 # Files to remove from consumer repos (obsolete / harmful when present)
 removals:
-  - .github/workflows/agents-63-issue-intake.yml
+  - target: .github/workflows/agents-63-issue-intake.yml
+    description: "Remove deprecated issue intake workflow (replaced by agents-64/70)"
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md
