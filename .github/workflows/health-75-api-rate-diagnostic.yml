@@ -623,7 +623,10 @@ jobs:
           echo "::group::Rate data aggregation"
 
           # Debug: show raw values (lengths and first 100 chars)
-          echo "Raw env var lengths: gt=${#GITHUB_TOKEN_RATE}, pat=${#PAT_RATE}, svc=${#SERVICE_BOT_RATE:-0}, app=${#APP_RATE}, ka=${#KEEPALIVE_APP_RATE:-0}, gh=${#GH_APP_RATE:-0}"
+          svc_rate="${SERVICE_BOT_RATE:-}"
+          ka_rate="${KEEPALIVE_APP_RATE:-}"
+          gh_rate="${GH_APP_RATE:-}"
+          echo "Raw env var lengths: gt=${#GITHUB_TOKEN_RATE}, pat=${#PAT_RATE}, svc=${#svc_rate}, app=${#APP_RATE}, ka=${#ka_rate}, gh=${#gh_rate}"
           echo "GITHUB_TOKEN_RATE first 100: ${GITHUB_TOKEN_RATE:0:100}"
           echo "PAT_RATE first 100: ${PAT_RATE:0:100}"
           echo "SERVICE_BOT_RATE first 100: ${SERVICE_BOT_RATE:0:100}"
@@ -839,7 +842,7 @@ jobs:
           fi
 
           # PAT
-          pat=$(echo "$summary" | jq '.tokens.pat // {}')
+          pat=$(echo "$summary" | jq '.tokens.codespaces_workflows_pat // {}')
           if [ "$pat" != "{}" ] && [ "$pat" != "null" ]; then
             pat_core=$(echo "$pat" | jq -r '"\(.core.used)/\(.core.limit) (\(.core.pct)%)"')
             pat_graphql=$(echo "$pat" | jq -r '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
@@ -849,7 +852,7 @@ jobs:
           fi
 
           # App
-          app=$(echo "$summary" | jq '.tokens.app // {}')
+          app=$(echo "$summary" | jq '.tokens.workflows_app // {}')
           if [ "$app" != "{}" ] && [ "$app" != "null" ]; then
             app_core=$(echo "$app" | jq -r '"\(.core.used)/\(.core.limit) (\(.core.pct)%)"')
             app_graphql=$(echo "$app" | jq -r '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
@@ -867,7 +870,7 @@ jobs:
           warnings=0
 
           # Check for high utilization
-          for token_path in ".tokens.github_token" ".tokens.pat" ".tokens.app"; do
+          for token_path in ".tokens.github_token" ".tokens.codespaces_workflows_pat" ".tokens.workflows_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
               source=$(echo "$token_data" | jq -r '.source // "unknown"')
@@ -987,7 +990,7 @@ jobs:
           raw_json="${SUMMARY_JSON:-{}}"
           summary=$(echo "$raw_json" | jq -c '.' 2>/dev/null || echo '{}')
 
-          for token_path in ".tokens.github_token" ".tokens.pat" ".tokens.app"; do
+          for token_path in ".tokens.github_token" ".tokens.codespaces_workflows_pat" ".tokens.workflows_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
               core_pct=$(echo "$token_data" | jq -r '.core.pct // "0"' | sed 's/[^0-9.]//g')
@@ -1161,9 +1164,9 @@ jobs:
 
           echo "Fetching Health 75 workflow runs from $START_DATE to $END_DATE"
 
-          # Get workflow ID for Health 75
-          workflow_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows" \
-            --jq '.workflows[] | select(.name == "Health 75 API Rate Diagnostic") | .id')
+          # Get workflow ID for Health 75 (direct path lookup avoids pagination limits)
+          workflow_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
+            --jq '.id // empty')
 
           if [ -z "$workflow_id" ]; then
             echo "::error::Could not find Health 75 workflow"
