@@ -139,9 +139,7 @@ workflows:
     description: "Reusable PR context workflow - centralized PR data fetching via GraphQL"
 
 # Files to remove from consumer repos (obsolete / harmful when present)
-removals:
-  - target: .github/workflows/agents-63-issue-intake.yml
-    description: "Obsolete issue intake workflow; depends on local reusable workflow and causes startup_failure in consumers"
+removals: []
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md
