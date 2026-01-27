@@ -148,7 +148,7 @@ def test_deletion_blocks_with_comment():
     result = run_guard(
         files=[
             {
-                "filename": ".github/workflows/agents-63-issue-intake.yml",
+                "filename": ".github/workflows/agents-70-orchestrator.yml",
                 "status": "removed",
             }
         ],
@@ -167,7 +167,7 @@ def test_custom_marker_propagates_to_comment():
     result = run_guard(
         files=[
             {
-                "filename": ".github/workflows/agents-63-issue-intake.yml",
+                "filename": ".github/workflows/agents-70-orchestrator.yml",
                 "status": "removed",
             }
         ],
@@ -184,7 +184,7 @@ def test_default_marker_added_once():
     result = run_guard(
         files=[
             {
-                "filename": ".github/workflows/agents-63-issue-intake.yml",
+                "filename": ".github/workflows/agents-70-orchestrator.yml",
                 "status": "removed",
             }
         ],
@@ -212,12 +212,29 @@ def test_chatgpt_sync_deletion_allowed():
 
 
 @skip_if_no_node
-def test_rename_blocks_with_guidance():
+def test_issue_intake_deletion_allowed():
     result = run_guard(
         files=[
             {
                 "filename": ".github/workflows/agents-63-issue-intake.yml",
-                "previous_filename": ".github/workflows/agents-63-issue-intake.yml",
+                "status": "removed",
+            }
+        ],
+        codeowners=CODEOWNERS_SAMPLE,
+    )
+
+    assert result["blocked"] is False
+    assert not result["failureReasons"]
+    assert result["commentBody"] is None
+
+
+@skip_if_no_node
+def test_rename_blocks_with_guidance():
+    result = run_guard(
+        files=[
+            {
+                "filename": ".github/workflows/agents-70-orchestrator.yml",
+                "previous_filename": ".github/workflows/agents-70-orchestrator.yml",
                 "status": "renamed",
             }
         ],
