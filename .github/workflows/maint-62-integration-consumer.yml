@@ -73,7 +73,7 @@ jobs:
 
   reusable-smoke:
     name: Reusable smoke
-    uses: ./.github/workflows/reusable-10-ci-python.yml
+    uses: stranske/Workflows/.github/workflows/reusable-10-ci-python.yml@main
     permissions:
       contents: read
       actions: read
@@ -95,7 +95,7 @@ jobs:
 
   scenarios:
     name: Integration - ${{ matrix.name }}
-    uses: ./.github/workflows/reusable-10-ci-python.yml
+    uses: stranske/Workflows/.github/workflows/reusable-10-ci-python.yml@main
     permissions:
       contents: read
       actions: read
