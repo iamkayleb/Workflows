@@ -139,9 +139,7 @@ workflows:
     description: "Reusable PR context workflow - centralized PR data fetching via GraphQL"
 
 # Files to remove from consumer repos (obsolete / harmful when present)
-removals:
-  - target: .github/workflows/agents-63-issue-intake.yml
-    description: "Obsolete issue intake workflow; depends on local reusable workflow and causes startup_failure in consumers"
+removals: []
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md
@@ -214,6 +212,9 @@ scripts:
   # JavaScript scripts for CI/Gate operations
   - source: .github/scripts/detect-changes.js
     description: "Detects changed files for CI path-based filtering"
+
+  - source: .github/scripts/agents-guard.js
+    description: "Health 45 agents guard logic used by the workflow protections"
 
   - source: .github/scripts/coverage-normalize.js
     description: "Normalizes coverage data across different report formats"
