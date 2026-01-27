@@ -1074,6 +1074,83 @@ jobs:
             echo "Updated existing issue #$existing"
           fi
 
+  alert-on-repeat-failure:
+    name: Alert on Repeated Failure
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Create issue on repeated failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.conclusion // ""')
+          if [ "$conclusion" != "failure" ]; then
+            echo "Run conclusion is '$conclusion' - no failure alert needed."
+            exit 0
+          fi
+
+          workflow_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" --jq '.id // empty')
+          if [ -z "$workflow_id" ]; then
+            echo "Could not resolve workflow id; skipping repeat failure check."
+            exit 0
+          fi
+
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs?per_page=2" \
+            --jq '[.workflow_runs[] | {id: .id, conclusion: .conclusion}]')
+
+          first=$(echo "$runs" | jq -r '.[0].conclusion // ""')
+          second=$(echo "$runs" | jq -r '.[1].conclusion // ""')
+
+          if [ "$first" != "failure" ] || [ "$second" != "failure" ]; then
+            echo "No consecutive failures detected (latest: $first, previous: $second)."
+            exit 0
+          fi
+
+          issue_title="⚠️ Health 75 API Rate Diagnostic failing repeatedly"
+          issue_label="workflow-failure,automated,api-rate-limit"
+
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label "workflow-failure" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
+
+          body=$(printf '%s\n' \
+            "## Repeated workflow failures detected" \
+            "" \
+            "The Health 75 API Rate Diagnostic workflow has failed in two consecutive runs." \
+            "" \
+            "- **Current run:** $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            "- **Detected at:** $(date -u +\"%Y-%m-%d %H:%M:%S UTC\")" \
+            "" \
+            "### Next steps" \
+            "1. Review the run logs to identify the failing step(s)." \
+            "2. Validate that API credentials and required secrets are configured." \
+            "3. Re-run the workflow after applying fixes." \
+            "" \
+            "This issue was created automatically to ensure repeated failures are tracked.")
+
+          if [ -z "$existing" ]; then
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$issue_title" \
+              --label "$issue_label" \
+              --body "$body"
+            echo "Created failure alert issue."
+          else
+            gh issue comment "$existing" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body "Repeated failure detected again. Latest run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Updated existing failure alert issue #$existing."
+          fi
+
   # Historical report job - runs when report_mode is 'historical'
   generate-historical-report:
     name: Generate Historical Report
