@@ -1248,8 +1248,12 @@ jobs:
           fi
 
           # Get workflow ID for Health 75 (direct path lookup avoids pagination limits)
-          workflow_id=$(GH_TOKEN="$primary_token" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
-            --jq '.id // empty')
+          if ! workflow_id=$(GH_TOKEN="$primary_token" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
+            --jq '.id // empty'); then
+            echo "Primary token could not access workflow metadata. Retrying with GITHUB_TOKEN." >&2
+            workflow_id=$(GH_TOKEN="$FALLBACK_GH_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
+              --jq '.id // empty')
+          fi
 
           if [ -z "$workflow_id" ]; then
             echo "::error::Could not find Health 75 workflow"
