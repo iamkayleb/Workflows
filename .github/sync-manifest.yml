@@ -215,6 +215,9 @@ scripts:
   - source: .github/scripts/detect-changes.js
     description: "Detects changed files for CI path-based filtering"
 
+  - source: .github/scripts/agents-guard.js
+    description: "Health 45 agents guard logic used by the workflow protections"
+
   - source: .github/scripts/coverage-normalize.js
     description: "Normalizes coverage data across different report formats"
 
