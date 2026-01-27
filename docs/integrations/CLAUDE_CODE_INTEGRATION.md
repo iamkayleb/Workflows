@@ -78,13 +78,15 @@ inputs:
 ```yaml
 secrets:
   AWS_ACCESS_KEY_ID:
-    required: true
+    required: true   # AWS authentication for Bedrock
   AWS_SECRET_ACCESS_KEY:
-    required: true
+    required: true   # AWS authentication for Bedrock
   AWS_SESSION_TOKEN:
-    required: false  # Optional for temporary credentials
-  SERVICE_BOT_PAT:
-    required: true
+    required: false  # Only needed for assumed roles/SSO
+  WORKFLOWS_APP_ID:
+    required: false  # GitHub App auth (recommended)
+  WORKFLOWS_APP_PRIVATE_KEY:
+    required: false  # GitHub App auth (recommended)
 ```
 
 ### 2. Keepalive Loop Integration
@@ -109,7 +111,8 @@ run-claude:
     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
-    SERVICE_BOT_PAT: ${{ secrets.SERVICE_BOT_PAT }}
+    WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
+    WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
 ```
 
 Updated the `summary` job to handle outputs from either agent:
@@ -145,20 +148,57 @@ Added two new labels:
 - `.github/labels.yml` - For label sync
 - `.github/workflows/agents-keepalive-loop.yml` - For workflow sync
 
-## Required Secrets Setup
+## Secrets Reference
 
-Consumer repos need these secrets configured:
+This section explains all secrets used by the agent system, their purposes, and requirements.
 
-| Secret | Description | Required |
-|--------|-------------|----------|
-| `AWS_ACCESS_KEY_ID` | AWS access key with Bedrock permissions | Yes |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes |
-| `AWS_SESSION_TOKEN` | Session token (for temporary credentials) | No |
-| `SERVICE_BOT_PAT` | GitHub PAT for bot operations | Yes |
+### Overview
 
-### AWS IAM Policy
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    SECRET CATEGORIES                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌─────────────────────┐     ┌─────────────────────┐            │
+│  │   AI BACKEND        │     │   GITHUB ACCESS     │            │
+│  │   (Choose One)      │     │   (Choose One)      │            │
+│  ├─────────────────────┤     ├─────────────────────┤            │
+│  │ For Codex:          │     │ Option A:           │            │
+│  │  • CODEX_AUTH_JSON  │     │  • WORKFLOWS_APP_ID │            │
+│  │                     │     │  • WORKFLOWS_APP_   │            │
+│  │ For Claude:         │     │    PRIVATE_KEY      │            │
+│  │  • AWS_ACCESS_KEY_ID│     │                     │            │
+│  │  • AWS_SECRET_      │     │ Option B:           │            │
+│  │    ACCESS_KEY       │     │  • SERVICE_BOT_PAT  │            │
+│  │  • AWS_SESSION_     │     │                     │            │
+│  │    TOKEN (optional) │     │                     │            │
+│  └─────────────────────┘     └─────────────────────┘            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-The AWS credentials need these Bedrock permissions:
+### AI Backend Secrets
+
+These authenticate with the AI service. **They are NOT interchangeable** - each agent requires its specific backend.
+
+#### For Claude (Amazon Bedrock)
+
+| Secret | Purpose | Required |
+|--------|---------|----------|
+| `AWS_ACCESS_KEY_ID` | Identifies the AWS IAM user/role | **Yes** |
+| `AWS_SECRET_ACCESS_KEY` | Authenticates the AWS IAM user/role | **Yes** |
+| `AWS_SESSION_TOKEN` | Temporary credential token | **No** (see below) |
+
+**When is `AWS_SESSION_TOKEN` needed?**
+
+| Credential Type | SESSION_TOKEN Required |
+|-----------------|------------------------|
+| IAM User (long-term) | No |
+| IAM Role (assumed via STS) | Yes |
+| AWS SSO / Identity Center | Yes |
+| EC2 Instance Role | No (handled by SDK) |
+
+**AWS IAM Policy Required:**
 
 ```json
 {
@@ -176,6 +216,116 @@ The AWS credentials need these Bedrock permissions:
     }
   ]
 }
+```
+
+#### For Codex (OpenAI)
+
+| Secret | Purpose | Required |
+|--------|---------|----------|
+| `CODEX_AUTH_JSON` | ChatGPT subscription authentication | **Yes** for Codex |
+
+**Not interchangeable with AWS credentials.** Codex uses OpenAI's API, Claude uses AWS Bedrock.
+
+### GitHub Access Secrets
+
+These allow the workflow to interact with GitHub (post comments, push commits, manage labels). **Choose ONE method** - they ARE interchangeable.
+
+#### Option A: GitHub App (Recommended)
+
+| Secret | Purpose | Required |
+|--------|---------|----------|
+| `WORKFLOWS_APP_ID` | GitHub App installation ID | **Yes** (if using App) |
+| `WORKFLOWS_APP_PRIVATE_KEY` | GitHub App private key (PEM format) | **Yes** (if using App) |
+
+**Benefits:**
+- Higher rate limits (5,000 requests/hour per installation)
+- Better audit trail (actions attributed to App)
+- Granular permissions per repository
+- No personal account dependency
+
+**Optional dedicated keepalive pool:**
+
+| Secret | Purpose |
+|--------|---------|
+| `KEEPALIVE_APP_ID` | Separate App for keepalive (isolates rate limits) |
+| `KEEPALIVE_APP_PRIVATE_KEY` | Private key for keepalive App |
+
+If not set, falls back to `WORKFLOWS_APP_*`.
+
+#### Option B: Personal Access Token
+
+| Secret | Purpose | Required |
+|--------|---------|----------|
+| `SERVICE_BOT_PAT` | GitHub PAT with repo permissions | **Yes** (if not using App) |
+
+**Required PAT scopes:**
+- `repo` - Full repository access
+- `workflow` - Workflow management (if modifying workflows)
+
+**Drawbacks:**
+- Lower rate limits (5,000 requests/hour total)
+- Tied to a personal account
+- Less granular permissions
+
+### Summary Table
+
+| Secret | Used By | Purpose | Required When |
+|--------|---------|---------|---------------|
+| `AWS_ACCESS_KEY_ID` | Claude | AWS authentication | Using Claude agent |
+| `AWS_SECRET_ACCESS_KEY` | Claude | AWS authentication | Using Claude agent |
+| `AWS_SESSION_TOKEN` | Claude | Temporary AWS creds | Using assumed roles/SSO |
+| `CODEX_AUTH_JSON` | Codex | OpenAI authentication | Using Codex agent |
+| `WORKFLOWS_APP_ID` | Both | GitHub App auth | Using GitHub App |
+| `WORKFLOWS_APP_PRIVATE_KEY` | Both | GitHub App auth | Using GitHub App |
+| `SERVICE_BOT_PAT` | Both | GitHub PAT auth | Not using GitHub App |
+
+### Are They Interchangeable?
+
+| Category | Interchangeable? | Notes |
+|----------|------------------|-------|
+| AWS vs CODEX credentials | **No** | Different AI backends entirely |
+| GitHub App vs PAT | **Yes** | Both provide GitHub access |
+| KEEPALIVE_APP vs WORKFLOWS_APP | **Yes** | KEEPALIVE is optional isolation |
+
+### Minimum Configuration
+
+**For Claude only:**
+```yaml
+# Required
+AWS_ACCESS_KEY_ID: "AKIA..."
+AWS_SECRET_ACCESS_KEY: "..."
+
+# Plus ONE of:
+WORKFLOWS_APP_ID: "123456"
+WORKFLOWS_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----..."
+# OR
+SERVICE_BOT_PAT: "ghp_..."
+```
+
+**For Codex only:**
+```yaml
+# Required
+CODEX_AUTH_JSON: '{"token": "..."}'
+
+# Plus ONE of:
+WORKFLOWS_APP_ID: "123456"
+WORKFLOWS_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----..."
+# OR
+SERVICE_BOT_PAT: "ghp_..."
+```
+
+**For both agents:**
+```yaml
+# Claude backend
+AWS_ACCESS_KEY_ID: "AKIA..."
+AWS_SECRET_ACCESS_KEY: "..."
+
+# Codex backend
+CODEX_AUTH_JSON: '{"token": "..."}'
+
+# GitHub access (choose one)
+WORKFLOWS_APP_ID: "123456"
+WORKFLOWS_APP_PRIVATE_KEY: "-----BEGIN RSA PRIVATE KEY-----..."
 ```
 
 ## Usage
