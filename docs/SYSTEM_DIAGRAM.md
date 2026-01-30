@@ -741,6 +741,342 @@ SECRET NAMING CONVENTION:
     └───────────────────────────────────────────────────────────────┘
 ```
 
+## Multi-Agent Architecture (Codex + Claude + Gemini)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      MULTI-AGENT ROUTING SYSTEM                              │
+│                                                                             │
+│  Supports multiple AI backends: Codex (OpenAI), Claude (Anthropic),        │
+│  Gemini (Google). Agent selection via PR/Issue labels.                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+                         Issue/PR with agent label
+                                   │
+                                   ▼
+                    ┌──────────────────────────────┐
+                    │       LABEL DETECTION         │
+                    │                              │
+                    │   agent:codex  → Codex      │
+                    │   agent:claude → Claude     │
+                    │   agent:gemini → Gemini     │
+                    │   (no label)   → Codex      │
+                    └──────────────┬───────────────┘
+                                   │
+         ┌─────────────────────────┼─────────────────────────┐
+         │                         │                         │
+         ▼                         ▼                         ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   CODEX         │     │   CLAUDE        │     │   GEMINI        │
+│                 │     │                 │     │                 │
+│ reusable-       │     │ reusable-       │     │ reusable-       │
+│ codex-run.yml   │     │ claude-run.yml  │     │ gemini-run.yml  │
+│                 │     │                 │     │                 │
+│ Backend:        │     │ Backend:        │     │ Backend:        │
+│ OpenAI API      │     │ Amazon Bedrock  │     │ Google AI       │
+│                 │     │ (Claude API)    │     │ Platform        │
+│                 │     │                 │     │                 │
+│ Secrets:        │     │ Secrets:        │     │ Secrets:        │
+│ OPENAI_API_KEY  │     │ AWS_ACCESS_KEY  │     │ GOOGLE_API_KEY  │
+│                 │     │ AWS_SECRET_KEY  │     │                 │
+│                 │     │ AWS_REGION      │     │                 │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+
+
+AGENT EXECUTION ENVIRONMENTS:
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                                                            │
+│  Codex:   chatgpt-codex-connector (GitHub App) - OpenAI infrastructure    │
+│  Claude:  claude-code CLI - Runs in GitHub Actions runner via Bedrock     │
+│  Gemini:  gemini-cli - Runs in GitHub Actions runner via Google AI        │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Agent Integration Points Map
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              FILES REQUIRING MULTI-AGENT SUPPORT                             │
+│                                                                             │
+│  Legend: ✅ Has Claude support | 🔴 Needs Claude support | ⚪ N/A          │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+REUSABLE WORKFLOWS (Core Agent Execution)
+─────────────────────────────────────────
+.github/workflows/
+├── ✅ reusable-codex-run.yml           Codex agent execution
+├── ✅ reusable-claude-run.yml          Claude agent execution (CREATED)
+├── ⚪ reusable-gemini-run.yml          Gemini agent execution (future)
+└── ✅ reusable-bot-comment-handler.yml Has routing for all agents
+
+
+AGENT TRIGGER WORKFLOWS (Entry Points)
+──────────────────────────────────────
+.github/workflows/
+├── 🔴 agents-capability-check.yml      Only triggers on agent:codex
+├── 🔴 agents-63-issue-intake.yml       May need Claude label support
+├── 🔴 agents-70-orchestrator.yml       Orchestrator agent sweeps
+└── ✅ agents-keepalive-loop.yml        Has run-claude job (UPDATED)
+
+
+AUTOMATION WORKFLOWS (CI/Auto-fix)
+──────────────────────────────────
+.github/workflows/
+├── 🔴 agents-autofix-loop.yml          Calls reusable-codex-run only
+├── 🔴 agents-auto-pilot.yml            References agent:codex only
+└── 🔴 agents-81-gate-followups.yml     Triggers keepalive (check routing)
+
+
+BELT SYSTEM (Parallel Processing)
+─────────────────────────────────
+.github/workflows/
+├── 🔴 agents-71-codex-belt-dispatcher.yml   Dispatcher - Codex only
+├── 🔴 agents-72-codex-belt-worker-dispatch  Worker dispatch - Codex only
+├── 🔴 agents-72-codex-belt-worker.yml       Worker execution - Codex only
+└── 🔴 agents-73-codex-belt-conveyor.yml     Conveyor - Codex only
+
+
+SCRIPTS (Logic & Routing)
+─────────────────────────
+.github/scripts/
+├── 🔴 keepalive_loop.js                Agent routing logic
+├── 🔴 agents_orchestrator_resolve.js   Agent label recognition
+├── 🔴 error_classifier.js              Add AWS/Bedrock error patterns
+└── ⚪ github-api-with-retry.js         Agent-agnostic (no changes)
+
+scripts/
+└── 🔴 keepalive-runner.js              CLI agent label detection
+
+
+CONSUMER TEMPLATES (Must Mirror Main)
+─────────────────────────────────────
+templates/consumer-repo/.github/workflows/
+├── 🔴 agents-capability-check.yml
+├── 🔴 agents-autofix-loop.yml
+├── 🔴 agents-auto-pilot.yml
+├── 🔴 agents-71-codex-belt-dispatcher.yml
+├── 🔴 agents-72-codex-belt-worker-dispatch.yml
+├── 🔴 agents-72-codex-belt-worker.yml
+├── 🔴 agents-73-codex-belt-conveyor.yml
+└── ✅ agents-keepalive-loop.yml
+
+templates/consumer-repo/.github/scripts/
+├── 🔴 keepalive_loop.js
+└── 🔴 agents_orchestrator_resolve.js
+
+
+LABELS CONFIGURATION
+────────────────────
+├── 🔴 .github/labels.yml               Add agent:claude label
+├── 🔴 .github/labels-core.yml          Add agent:claude label
+└── 🔴 templates/.../labels.yml         Add agent:claude label
+
+
+DOCUMENTATION
+─────────────
+docs/keepalive/
+├── 🔴 MULTI_AGENT_ROUTING.md           Update "not implemented"
+├── 🔴 Agents.md                        Add Claude section
+└── 🔴 SETUP_CHECKLIST.md               Add AWS secrets setup
+```
+
+## Multi-Agent Data Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   MULTI-AGENT KEEPALIVE FLOW                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+    Issue labeled with agent:claude
+              │
+              ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  agents-63-issue-intake.yml                                          │
+    │                                                                     │
+    │  • Detects agent:claude label                                       │
+    │  • Creates PR with same label                                       │
+    │  • Branch: claude/issue-XX-hash                                     │
+    └──────────────────────────────────┬──────────────────────────────────┘
+                                       │
+                                       ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  pr-00-gate.yml (Gate)                                              │
+    │                                                                     │
+    │  • Runs CI checks (lint, test, mypy)                                │
+    │  • Agent-agnostic - same for all agents                             │
+    │  • Publishes "Gate / gate" status                                   │
+    └──────────────────────────────────┬──────────────────────────────────┘
+                                       │
+                                       ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  agents-81-gate-followups.yml                                        │
+    │                                                                     │
+    │  • Gate passed, check conditions                                    │
+    │  • Dispatch to agents-keepalive-loop.yml                            │
+    └──────────────────────────────────┬──────────────────────────────────┘
+                                       │
+                                       ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  agents-keepalive-loop.yml                                           │
+    │                                                                     │
+    │  AGENT ROUTING:                                                     │
+    │  ┌─────────────────────────────────────────────────────────────┐   │
+    │  │  if: has_label('agent:claude')                              │   │
+    │  │      → run-claude job → reusable-claude-run.yml             │   │
+    │  │  elif: has_label('agent:codex')                             │   │
+    │  │      → run-codex job → reusable-codex-run.yml               │   │
+    │  │  else:                                                      │   │
+    │  │      → default to Codex                                     │   │
+    │  └─────────────────────────────────────────────────────────────┘   │
+    └──────────────────────────────────┬──────────────────────────────────┘
+                                       │
+              ┌────────────────────────┴────────────────────────┐
+              │                                                 │
+              ▼                                                 ▼
+    ┌───────────────────────┐                     ┌───────────────────────┐
+    │  reusable-codex-run   │                     │  reusable-claude-run  │
+    │                       │                     │                       │
+    │  • OpenAI backend     │                     │  • Bedrock backend    │
+    │  • OPENAI_API_KEY     │                     │  • AWS credentials    │
+    │  • chatgpt-codex-     │                     │  • claude-code CLI    │
+    │    connector          │                     │  • Runs in GH runner  │
+    └───────────┬───────────┘                     └───────────┬───────────┘
+                │                                             │
+                └─────────────────────┬───────────────────────┘
+                                      │
+                                      ▼
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │  Agent pushes commits                                                │
+    │                                                                     │
+    │  • Checks off completed task in PR body                             │
+    │  • Push triggers Gate → Loop continues                              │
+    │  • Until all tasks complete                                         │
+    └─────────────────────────────────────────────────────────────────────┘
+```
+
+## Secrets Architecture for Multi-Agent
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      SECRETS BY AGENT TYPE                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  AI BACKEND SECRETS (NOT interchangeable)                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  CODEX (OpenAI)                                                             │
+│  ├── OPENAI_API_KEY            API key for OpenAI                          │
+│  └── (managed by chatgpt-codex-connector GitHub App)                       │
+│                                                                             │
+│  CLAUDE (Amazon Bedrock)                                                    │
+│  ├── AWS_ACCESS_KEY_ID         AWS IAM access key                          │
+│  ├── AWS_SECRET_ACCESS_KEY     AWS IAM secret key                          │
+│  ├── AWS_REGION                Region (e.g., us-east-1)                    │
+│  └── ANTHROPIC_MODEL           Model ID (claude-sonnet-4-20250514)   │
+│                                                                             │
+│  GEMINI (Google AI)                                                         │
+│  ├── GOOGLE_API_KEY            Google AI Platform key                      │
+│  └── GEMINI_MODEL              Model ID                                    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  GITHUB ACCESS SECRETS (ARE interchangeable)                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Option A: GitHub App (Preferred)                                           │
+│  ├── GH_APP_ID                 App ID                                      │
+│  └── GH_APP_PRIVATE_KEY        App private key (PEM)                       │
+│                                                                             │
+│  Option B: Personal Access Token                                            │
+│  ├── SERVICE_BOT_PAT           For comments, labels                        │
+│  └── OWNER_PR_PAT              For PR creation                             │
+│                                                                             │
+│  Either option works for any agent - GitHub access is agent-agnostic        │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+
+CONSUMER REPO SECRET SETUP:
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                                                            │
+│  For Codex only:                                                           │
+│    • Install chatgpt-codex-connector GitHub App                            │
+│    • No additional secrets needed (App handles OpenAI auth)                │
+│                                                                            │
+│  For Claude:                                                               │
+│    • Add AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION              │
+│    • Ensure IAM user has bedrock:InvokeModel permission                    │
+│                                                                            │
+│  For Both (multi-agent):                                                   │
+│    • All of the above                                                      │
+│    • Use labels to route: agent:codex or agent:claude                      │
+│                                                                            │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Integration Status Summary
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    CLAUDE INTEGRATION PROGRESS                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                                    COMPLETE
+                                    ────────
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  ✅ reusable-claude-run.yml          Core Claude execution workflow     │
+  │  ✅ agents-keepalive-loop.yml        Added run-claude job              │
+  │  ✅ reusable-bot-comment-handler     Already has Claude routing        │
+  │  ✅ docs/integrations/CLAUDE_CODE_INTEGRATION.md  Documentation        │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+                                  REMAINING
+                                  ─────────
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │  WORKFLOWS (10 files)                                                   │
+  │  ────────────────────                                                   │
+  │  🔴 agents-capability-check.yml      Add agent:claude trigger          │
+  │  🔴 agents-autofix-loop.yml          Add Claude routing                │
+  │  🔴 agents-auto-pilot.yml            Add Claude routing                │
+  │  🔴 agents-63-issue-intake.yml       Verify Claude label support       │
+  │  🔴 agents-70-orchestrator.yml       Add Claude to sweeps              │
+  │  🔴 agents-71-belt-dispatcher        Add Claude to belt system         │
+  │  🔴 agents-72-belt-worker-dispatch   Add Claude routing                │
+  │  🔴 agents-72-belt-worker            Add Claude execution              │
+  │  🔴 agents-73-belt-conveyor          Add Claude support                │
+  │  🔴 agents-81-gate-followups         Verify routing                    │
+  │                                                                         │
+  │  SCRIPTS (4 files)                                                      │
+  │  ─────────────────                                                      │
+  │  🔴 keepalive_loop.js                Add Claude routing logic          │
+  │  🔴 agents_orchestrator_resolve.js   Recognize agent:claude            │
+  │  🔴 error_classifier.js              Add AWS/Bedrock patterns          │
+  │  🔴 keepalive-runner.js              Add agent:claude to CLI labels    │
+  │                                                                         │
+  │  TEMPLATES (10+ files)                                                  │
+  │  ─────────────────────                                                  │
+  │  🔴 Mirror all workflow changes to templates/consumer-repo/            │
+  │                                                                         │
+  │  LABELS (3 files)                                                       │
+  │  ────────────────                                                       │
+  │  🔴 Add agent:claude label definition to all label configs             │
+  │                                                                         │
+  │  DOCUMENTATION (5+ files)                                               │
+  │  ────────────────────────                                               │
+  │  🔴 Update MULTI_AGENT_ROUTING.md, Agents.md, SETUP_CHECKLIST.md       │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+  TOTAL: ~32 files need updates for full Claude integration
+```
+
 ## Key Files Reference
 
 | File | Purpose | Location |
@@ -750,8 +1086,11 @@ SECRET NAMING CONVENTION:
 | `GoalsAndPlumbing.md` | Canonical keepalive contract | `docs/keepalive/` |
 | `AGENT_INSTRUCTIONS.md` | Base Codex instructions | `.github/codex/` |
 | `reusable-10-ci-python.yml` | Main Python CI workflow | `.github/workflows/` |
+| `reusable-codex-run.yml` | Codex agent execution | `.github/workflows/` |
+| `reusable-claude-run.yml` | Claude agent execution | `.github/workflows/` |
 | `maint-68-sync-consumer-repos.yml` | Primary sync workflow | `.github/workflows/` |
 | `keepalive_loop.js` | Core keepalive logic | `.github/scripts/` |
+| `MULTI_AGENT_ROUTING.md` | Agent routing architecture | `docs/keepalive/` |
 
 ---
 
