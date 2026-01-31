@@ -454,197 +454,197 @@ jobs:
             if [ -f "$SESSION_FILE" ]; then
               # Try to extract the last assistant message
               python3 -c "
-import json
-import sys
-try:
-    with open('$SESSION_FILE', 'r') as f:
-        content = f.read()
-    # Try parsing as JSONL
-    lines = content.strip().split('\n')
-    last_msg = ''
-    for line in lines:
-        try:
-            obj = json.loads(line)
-            if obj.get('type') == 'assistant' or obj.get('role') == 'assistant':
-                last_msg = obj.get('content', obj.get('message', ''))
-        except:
-            pass
-    if last_msg:
-        print(last_msg)
-    else:
-        print(content)
-except Exception as e:
-    print(f'Error parsing session: {e}', file=sys.stderr)
-    with open('$SESSION_FILE', 'r') as f:
-        print(f.read())
-" > "$OUTPUT_FILE" || cp "$SESSION_FILE" "$OUTPUT_FILE"
-            fi
-          else
-            echo "Claude CLI not available, using direct Bedrock API..."
-            # Fallback to direct Bedrock API call via Python
-            python3 << PYEOF
-import boto3
-import json
-import os
-import sys
-
-bedrock = boto3.client(
-    service_name='bedrock-runtime',
-    region_name=os.environ.get('AWS_REGION', 'us-east-1')
-)
-
-model_id = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-sonnet-4-20250514-v1:0')
-prompt_file = "${PROMPT_FILE}"
-output_file = "${OUTPUT_FILE}"
-session_file = "${SESSION_FILE}"
-
-with open(prompt_file, 'r') as f:
-    prompt_content = f.read()
-
-body = json.dumps({
-    "anthropic_version": "bedrock-2023-05-31",
-    "max_tokens": 4096,
-    "messages": [
-        {
-            "role": "user",
-            "content": prompt_content
-        }
-    ]
-})
-
-try:
-    response = bedrock.invoke_model(
-        modelId=model_id,
-        body=body,
-        contentType='application/json',
-        accept='application/json'
-    )
-
-    response_body = json.loads(response['body'].read())
-    output_text = response_body.get('content', [{}])[0].get('text', '')
-
-    with open(output_file, 'w') as f:
-        f.write(output_text)
-
-    # Write session info
-    with open(session_file, 'w') as f:
-        json.dump({
-            'type': 'assistant',
-            'content': output_text,
-            'model': model_id,
-            'usage': response_body.get('usage', {})
-        }, f)
-
-    print(f"Claude response written to {output_file}")
-    sys.exit(0)
-
-except Exception as e:
-    print(f"::error::Bedrock API call failed: {e}")
-    with open(output_file, 'w') as f:
-        f.write(f"Error: {str(e)}")
-    sys.exit(1)
-PYEOF
-            CLAUDE_EXIT=$?
-          fi
-
-          echo "exit-code=${CLAUDE_EXIT}" >> "$GITHUB_OUTPUT"
-
-          if [ "$CLAUDE_EXIT" -ne 0 ]; then
-            echo "::error::Claude run exited with code ${CLAUDE_EXIT}"
-          fi
-
-          echo "Claude completed with exit code ${CLAUDE_EXIT}."
-
-          # Set outputs
-          if [ -f "$OUTPUT_FILE" ]; then
-            encoded=$(base64 -w 0 "$OUTPUT_FILE")
-            echo "final-message=${encoded}" >> "$GITHUB_OUTPUT"
-
-            summary=$(head -c 500 "$OUTPUT_FILE" | tr '\n' ' ' | sed 's/"/\\"/g')
-            echo "final-message-summary=${summary}" >> "$GITHUB_OUTPUT"
-          else
-            echo "final-message=" >> "$GITHUB_OUTPUT"
-            echo "final-message-summary=No output captured" >> "$GITHUB_OUTPUT"
-          fi
-
-          exit "$CLAUDE_EXIT"
-
-      - name: Analyze Claude session
-        id: analyze_session
-        if: always()
-        env:
-          PYTHONPATH: ${{ github.workspace }}/.workflows-lib:${{ github.workspace }}
-          PR_NUM: ${{ inputs.pr_number }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          if [ -n "${PR_NUM}" ]; then
-            SESSION_FILE="claude-session-${PR_NUM}.jsonl"
-          else
-            SESSION_FILE="claude-session.jsonl"
-          fi
-          export SESSION_FILE
-
-          if [ ! -f "$SESSION_FILE" ] || [ ! -s "$SESSION_FILE" ]; then
-            echo "No session file found or file is empty"
-            echo "session-available=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "Session file captured: $(wc -l < "$SESSION_FILE") lines"
-          echo "session-available=true" >> "$GITHUB_OUTPUT"
-
-          # Basic metrics
-          python3 << 'PYEOF'
-          import os
-          import json
-
-          session_file = os.environ.get("SESSION_FILE", "claude-session.jsonl")
-          github_output = os.environ.get("GITHUB_OUTPUT", "/dev/null")
-
-          try:
-              event_count = 0
-              with open(session_file, 'r') as f:
-                  for line in f:
-                      try:
-                          json.loads(line.strip())
-                          event_count += 1
-                      except:
-                          pass
-
-              print(f"::notice::Session parsed: {event_count} events")
-
-              with open(github_output, "a") as f:
-                  f.write(f"event-count={event_count}\n")
-
-          except Exception as e:
-              print(f"::warning::Session analysis failed: {e}")
-          PYEOF
-
-      - name: Analyze task completion with LLM
-        id: llm_analysis
-        if: always() && steps.analyze_session.outputs.session-available == 'true' && inputs.pr_number != ''
-        env:
-          PYTHONPATH: ${{ github.workspace }}/.workflows-lib:${{ github.workspace }}
-          PR_NUM: ${{ inputs.pr_number }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          SESSION_FILE="claude-session-${PR_NUM}.jsonl"
-          ANALYSIS_FILE="claude-analysis-${PR_NUM}.json"
-
-          echo "Fetching PR #${PR_NUM} body..."
-          PR_BODY=$(gh pr view "${PR_NUM}" --json body --jq '.body' 2>/dev/null || echo "")
-
-          if [ -z "$PR_BODY" ]; then
-            echo "::notice::Could not fetch PR body, skipping LLM analysis"
-            echo "llm-analysis-run=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "$PR_BODY" > pr_body.md
+                import json
+                import sys
+                  try:
+                      with open('$SESSION_FILE', 'r') as f:
+                          content = f.read()
+                      # Try parsing as JSONL
+                      lines = content.strip().split('\n')
+                      last_msg = ''
+                      for line in lines:
+                          try:
+                              obj = json.loads(line)
+                              if obj.get('type') == 'assistant' or obj.get('role') == 'assistant':
+                                  last_msg = obj.get('content', obj.get('message', ''))
+                          except:
+                              pass
+                      if last_msg:
+                          print(last_msg)
+                      else:
+                          print(content)
+                  except Exception as e:
+                      print(f'Error parsing session: {e}', file=sys.stderr)
+                      with open('$SESSION_FILE', 'r') as f:
+                          print(f.read())
+                  " > "$OUTPUT_FILE" || cp "$SESSION_FILE" "$OUTPUT_FILE"
+                              fi
+                            else
+                              echo "Claude CLI not available, using direct Bedrock API..."
+                              # Fallback to direct Bedrock API call via Python
+                              python3 << PYEOF
+                  import boto3
+                  import json
+                  import os
+                  import sys
+                  
+                  bedrock = boto3.client(
+                      service_name='bedrock-runtime',
+                      region_name=os.environ.get('AWS_REGION', 'us-east-1')
+                  )
+                  
+                  model_id = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-sonnet-4-20250514-v1:0')
+                  prompt_file = "${PROMPT_FILE}"
+                  output_file = "${OUTPUT_FILE}"
+                  session_file = "${SESSION_FILE}"
+                  
+                  with open(prompt_file, 'r') as f:
+                      prompt_content = f.read()
+                  
+                  body = json.dumps({
+                      "anthropic_version": "bedrock-2023-05-31",
+                      "max_tokens": 4096,
+                      "messages": [
+                          {
+                              "role": "user",
+                              "content": prompt_content
+                          }
+                      ]
+                  })
+                  
+                  try:
+                      response = bedrock.invoke_model(
+                          modelId=model_id,
+                          body=body,
+                          contentType='application/json',
+                          accept='application/json'
+                      )
+                  
+                      response_body = json.loads(response['body'].read())
+                      output_text = response_body.get('content', [{}])[0].get('text', '')
+                  
+                      with open(output_file, 'w') as f:
+                          f.write(output_text)
+                  
+                      # Write session info
+                      with open(session_file, 'w') as f:
+                          json.dump({
+                              'type': 'assistant',
+                              'content': output_text,
+                              'model': model_id,
+                              'usage': response_body.get('usage', {})
+                          }, f)
+                  
+                      print(f"Claude response written to {output_file}")
+                      sys.exit(0)
+                  
+                  except Exception as e:
+                      print(f"::error::Bedrock API call failed: {e}")
+                      with open(output_file, 'w') as f:
+                          f.write(f"Error: {str(e)}")
+                      sys.exit(1)
+                  PYEOF
+                              CLAUDE_EXIT=$?
+                            fi
+                  
+                            echo "exit-code=${CLAUDE_EXIT}" >> "$GITHUB_OUTPUT"
+                  
+                            if [ "$CLAUDE_EXIT" -ne 0 ]; then
+                              echo "::error::Claude run exited with code ${CLAUDE_EXIT}"
+                            fi
+                  
+                            echo "Claude completed with exit code ${CLAUDE_EXIT}."
+                  
+                            # Set outputs
+                            if [ -f "$OUTPUT_FILE" ]; then
+                              encoded=$(base64 -w 0 "$OUTPUT_FILE")
+                              echo "final-message=${encoded}" >> "$GITHUB_OUTPUT"
+                  
+                              summary=$(head -c 500 "$OUTPUT_FILE" | tr '\n' ' ' | sed 's/"/\\"/g')
+                              echo "final-message-summary=${summary}" >> "$GITHUB_OUTPUT"
+                            else
+                              echo "final-message=" >> "$GITHUB_OUTPUT"
+                              echo "final-message-summary=No output captured" >> "$GITHUB_OUTPUT"
+                            fi
+                  
+                            exit "$CLAUDE_EXIT"
+                  
+                        - name: Analyse Claude session
+                          id: analyze_session
+                          if: always()
+                          env:
+                            PYTHONPATH: ${{ github.workspace }}/.workflows-lib:${{ github.workspace }}
+                            PR_NUM: ${{ inputs.pr_number }}
+                            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                          run: |
+                            set -euo pipefail
+                  
+                            if [ -n "${PR_NUM}" ]; then
+                              SESSION_FILE="claude-session-${PR_NUM}.jsonl"
+                            else
+                              SESSION_FILE="claude-session.jsonl"
+                            fi
+                            export SESSION_FILE
+                  
+                            if [ ! -f "$SESSION_FILE" ] || [ ! -s "$SESSION_FILE" ]; then
+                              echo "No session file found or file is empty"
+                              echo "session-available=false" >> "$GITHUB_OUTPUT"
+                              exit 0
+                            fi
+                  
+                            echo "Session file captured: $(wc -l < "$SESSION_FILE") lines"
+                            echo "session-available=true" >> "$GITHUB_OUTPUT"
+                  
+                            # Basic metrics
+                            python3 << 'PYEOF'
+                            import os
+                            import json
+                  
+                            session_file = os.environ.get("SESSION_FILE", "claude-session.jsonl")
+                            github_output = os.environ.get("GITHUB_OUTPUT", "/dev/null")
+                  
+                            try:
+                                event_count = 0
+                                with open(session_file, 'r') as f:
+                                    for line in f:
+                                        try:
+                                            json.loads(line.strip())
+                                            event_count += 1
+                                        except:
+                                            pass
+                  
+                                print(f"::notice::Session parsed: {event_count} events")
+                  
+                                with open(github_output, "a") as f:
+                                    f.write(f"event-count={event_count}\n")
+                  
+                            except Exception as e:
+                                print(f"::warning::Session analysis failed: {e}")
+                            PYEOF
+                  
+                        - name: Analyze task completion with LLM
+                          id: llm_analysis
+                          if: always() && steps.analyze_session.outputs.session-available == 'true' && inputs.pr_number != ''
+                          env:
+                            PYTHONPATH: ${{ github.workspace }}/.workflows-lib:${{ github.workspace }}
+                            PR_NUM: ${{ inputs.pr_number }}
+                            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                          run: |
+                            set -euo pipefail
+                  
+                            SESSION_FILE="claude-session-${PR_NUM}.jsonl"
+                            ANALYSIS_FILE="claude-analysis-${PR_NUM}.json"
+                  
+                            echo "Fetching PR #${PR_NUM} body..."
+                            PR_BODY=$(gh pr view "${PR_NUM}" --json body --jq '.body' 2>/dev/null || echo "")
+                  
+                            if [ -z "$PR_BODY" ]; then
+                              echo "::notice::Could not fetch PR body, skipping LLM analysis"
+                              echo "llm-analysis-run=false" >> "$GITHUB_OUTPUT"
+                              exit 0
+                            fi
+                  
+                            echo "$PR_BODY" > pr_body.md
 
           # Try to run analysis if script exists
           if [ -f ".workflows-lib/scripts/analyze_codex_session.py" ]; then
