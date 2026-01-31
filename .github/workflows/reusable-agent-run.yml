@@ -427,24 +427,18 @@ jobs:
           CUSTOM_INSTRUCTIONS: ${{ inputs.custom_instructions }}
         run: |
           if [ -f "$PROMPT_FILE" ]; then
-            PROMPT_CONTENT=$(cat "$PROMPT_FILE")
+            cp "$PROMPT_FILE" /tmp/agent_prompt.md
             echo "Loaded prompt from: $PROMPT_FILE"
           else
             echo "::warning::Prompt file not found: $PROMPT_FILE"
-            PROMPT_CONTENT="Complete the next unchecked task in the PR description."
+            echo "Complete the next unchecked task in the PR description." > /tmp/agent_prompt.md
           fi
 
           # Append custom instructions if provided
           if [ -n "$CUSTOM_INSTRUCTIONS" ]; then
-            PROMPT_CONTENT="${PROMPT_CONTENT}
-
-## Additional Instructions
-
-${CUSTOM_INSTRUCTIONS}"
+            printf '\n\n## Additional Instructions\n\n%s\n' "$CUSTOM_INSTRUCTIONS" >> /tmp/agent_prompt.md
           fi
 
-          # Save to file for agent
-          echo "$PROMPT_CONTENT" > /tmp/agent_prompt.md
           echo "prompt_file=/tmp/agent_prompt.md" >> "$GITHUB_OUTPUT"
 
       - name: Run agent (CLI mode)
