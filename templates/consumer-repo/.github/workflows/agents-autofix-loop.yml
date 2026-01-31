@@ -209,7 +209,9 @@ jobs:
                   .map((label) => (label?.name || '').toLowerCase())
                   .filter(Boolean)
               : [];
-            const hasAgentLabel = labels.includes('agent:codex');
+            const hasCodexLabel = labels.includes('agent:codex');
+            const hasClaudeLabel = labels.includes('agent:claude');
+            const hasAgentLabel = hasCodexLabel || hasClaudeLabel;
 
             const body = prData.body || '';
             const configMatch = body.match(/autofix\s*:\s*(true|false)/i);

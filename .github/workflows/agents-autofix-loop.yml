@@ -39,6 +39,7 @@ jobs:
       gate_conclusion: ${{ steps.evaluate.outputs.gate_conclusion }}
       gate_run_id: ${{ steps.evaluate.outputs.gate_run_id }}
       has_high_privilege: ${{ steps.evaluate.outputs.has_high_privilege }}
+      agent_type: ${{ steps.evaluate.outputs.agent_type }}
       security_blocked: ${{ steps.security_gate.outputs.blocked }}
       security_reason: ${{ steps.security_gate.outputs.reason }}
     steps:
@@ -205,9 +206,13 @@ jobs:
                   .map((label) => (label?.name || '').toLowerCase())
                   .filter(Boolean)
               : [];
-            const hasAgentLabel = labels.includes('agent:codex');
+            const hasCodexLabel = labels.includes('agent:codex');
+            const hasClaudeLabel = labels.includes('agent:claude');
+            const hasAgentLabel = hasCodexLabel || hasClaudeLabel;
             const hasHighPrivilege = labels.includes('agent-high-privilege');
             outputs.has_high_privilege = String(hasHighPrivilege);
+            // Determine which agent to use (Claude takes precedence if both are present)
+            outputs.agent_type = hasClaudeLabel ? 'claude' : 'codex';
 
             const body = prData.body || '';
             const configMatch = body.match(/autofix\s*:\s*(true|false)/i);
@@ -366,9 +371,9 @@ jobs:
               core.setOutput(key, value);
             }
 
-  autofix:
+  autofix-codex:
     needs: prepare
-    if: needs.prepare.outputs.should_run == 'true'
+    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.agent_type == 'codex'
     name: Run Codex autofix
     uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@main
     with:
@@ -380,6 +385,26 @@ jobs:
       environment: ${{ needs.prepare.outputs.has_high_privilege == 'true' && 'agent-high-privilege' || 'agent-standard' }}
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+      WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
+      WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+
+  autofix-claude:
+    needs: prepare
+    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.agent_type == 'claude'
+    name: Run Claude autofix
+    uses: stranske/Workflows/.github/workflows/reusable-claude-run.yml@main
+    with:
+      prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
+      mode: autofix
+      pr_number: ${{ needs.prepare.outputs.pr_number }}
+      pr_ref: ${{ needs.prepare.outputs.head_ref }}
+      appendix: ${{ needs.prepare.outputs.appendix }}
+      environment: ${{ needs.prepare.outputs.has_high_privilege == 'true' && 'agent-high-privilege' || 'agent-standard' }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
       WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
       WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
 

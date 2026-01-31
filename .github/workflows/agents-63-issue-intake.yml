@@ -1022,10 +1022,12 @@ jobs:
                   const currentAgentLabels = current
                     .map((label) => normalizeAgentLabel(label))
                     .filter((label) => label !== null);
-                  const hasNonCodexAssignment = currentAgentLabels.some(
-                    (label) => label !== 'agent:codex',
+                  // Known agent labels that this workflow supports
+                  const supportedAgents = ['agent:codex', 'agent:claude'];
+                  const hasOtherAgentAssignment = currentAgentLabels.some(
+                    (label) => !supportedAgents.includes(label),
                   );
-                  if (hasNonCodexAssignment) {
+                  if (hasOtherAgentAssignment) {
                     core.info(
                       `Skipping issue #${issueNumber} because it already has an agent assignment (${currentAgentLabels.join(
                         ', ',
@@ -1179,7 +1181,7 @@ jobs:
   bridge_preflight:
     needs: normalize_inputs
     if: needs.normalize_inputs.outputs.intake_mode == 'agent_bridge'
-    name: Validate Codex issue labels
+    name: Validate agent issue labels
     runs-on: ubuntu-latest
     permissions:
       issues: read
@@ -1252,7 +1254,8 @@ jobs:
               'keepalive', 'formatted', 'optimize', 'allow-change',
               'apply-suggestions', 'debug', 'format', 'sync-failed', 'sync-required'
             ];
-            const codexGuardLabels = ['agent:codex', 'agents:codex'];
+            // Agent labels that trigger the bridge workflow
+            const agentGuardLabels = ['agent:codex', 'agents:codex', 'agent:claude', 'agents:claude'];
             const agentLabels = labels
               .filter(name => /^agents?:[a-z0-9-]+$/.test(name))
               .filter(name => {
@@ -1383,7 +1386,7 @@ jobs:
       pull-requests: write
     concurrency:
       group: >
-        codex-issue-${{
+        agent-issue-${{
           needs.normalize_inputs.outputs.issue_number ||
           github.event.issue.number ||
           github.run_id

@@ -15,8 +15,8 @@ permissions:
 jobs:
   capability-check:
     runs-on: ubuntu-latest
-    # Trigger when agent:codex is added (pre-agent gate)
-    if: github.event.label.name == 'agent:codex'
+    # Trigger when any agent:* label is added (pre-agent gate)
+    if: startsWith(github.event.label.name, 'agent:')
 
     steps:
       - name: Checkout repository
@@ -110,16 +110,19 @@ jobs:
               labels: ['needs-human']
             });
 
-            // Remove agent:codex since agent can't complete this
-            try {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                name: 'agent:codex'
-              });
-            } catch (e) {
-              core.warning('Could not remove agent:codex label');
+            // Remove the triggering agent:* label since agent can't complete this
+            const triggerLabel = context.payload.label?.name;
+            if (triggerLabel && triggerLabel.startsWith('agent:')) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  name: triggerLabel
+                });
+              } catch (e) {
+                core.warning(`Could not remove ${triggerLabel} label`);
+              }
             }
 
       - name: Post capability report

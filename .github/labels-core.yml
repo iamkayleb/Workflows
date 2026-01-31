@@ -11,6 +11,9 @@
 - name: agent:codex
   color: 0e8a16
   description: Assign to Codex agent
+- name: agent:claude
+  color: d4a017
+  description: Assign to Claude agent (via Amazon Bedrock)
 - name: agent:copilot
   color: 1d76db
   description: Assign to Copilot
@@ -50,6 +53,9 @@
 - name: from:codex
   color: 0e8a16
   description: PR was created by or for Codex
+- name: from:claude
+  color: d4a017
+  description: PR was created by or for Claude
 - name: from:copilot
   color: 0366d6
   description: PR was created by or for Copilot

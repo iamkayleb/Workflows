@@ -69,7 +69,8 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event.action == 'labeled' && (
         github.event.label.name == 'agents:auto-pilot' ||
-        github.event.label.name == 'agent:codex'
+        github.event.label.name == 'agent:codex' ||
+        github.event.label.name == 'agent:claude'
       )) ||
       (github.event.action == 'closed' &&
        contains(github.event.issue.labels.*.name, 'agents:auto-pilot'))
@@ -213,6 +214,9 @@ jobs:
             const hasOptimize = labels.includes('agents:optimize');
             const hasApplySuggestions = labels.includes('agents:apply-suggestions');
             const hasAgentCodex = labels.includes('agent:codex');
+            const hasAgentClaude = labels.includes('agent:claude');
+            const hasAgentLabel = hasAgentCodex || hasAgentClaude;
+            const agentType = hasAgentClaude ? 'claude' : 'codex';
             const hasAutofix = labels.includes('autofix');
             const hasAutomerge = labels.includes('automerge');
             const hasVerify = labels.includes('verify:evaluate');
@@ -287,7 +291,8 @@ jobs:
             core.setOutput('has_optimize', hasOptimize.toString());
             core.setOutput('has_optimizer_output', hasOptimizerOutput.toString());
             core.setOutput('has_apply', hasApplySuggestions.toString());
-            core.setOutput('has_agent', hasAgentCodex.toString());
+            core.setOutput('has_agent', hasAgentLabel.toString());
+            core.setOutput('agent_type', agentType);
             core.setOutput('has_autofix', hasAutofix.toString());
             core.setOutput('has_automerge', hasAutomerge.toString());
             core.setOutput('has_verify', hasVerify.toString());
@@ -849,10 +854,14 @@ jobs:
         env:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
           STEP_COUNT: ${{ steps.cycles.outputs.count }}
+          DEFAULT_AGENT: codex
         with:
           script: |
             const issueNumber = parseInt(process.env.ISSUE_NUMBER);
             const stepCount = parseInt(process.env.STEP_COUNT || '0') + 1;
+            // Default agent can be overridden via env var; supports 'codex' or 'claude'
+            const agentType = process.env.DEFAULT_AGENT || 'codex';
+            const agentLabel = `agent:${agentType}`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -860,7 +869,7 @@ jobs:
               issue_number: issueNumber,
               body: `🤖 **Auto-pilot step ${stepCount}**: Issue prepared! Assigning to agent...
 
-            Adding \`agent:codex\` label. The capability check will run automatically.
+            Adding \`${agentLabel}\` label. The capability check will run automatically.
 
             ⏳ Agent will create a PR shortly.`
             });
@@ -870,24 +879,29 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              labels: ['agent:codex']
+              labels: [agentLabel]
             });
 
-            // Force-dispatch Codex belt dispatcher to create the branch
+            // Force-dispatch belt dispatcher to create the branch
+            // Each agent has its own belt dispatcher workflow
+            const dispatcherWorkflow = agentType === 'claude'
+              ? 'agents-71-claude-belt-dispatcher.yml'
+              : 'agents-71-codex-belt-dispatcher.yml';
+
             try {
               await github.rest.actions.createWorkflowDispatch({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                workflow_id: 'agents-71-codex-belt-dispatcher.yml',
+                workflow_id: dispatcherWorkflow,
                 ref: 'main',
                 inputs: {
                   force_issue: issueNumber.toString(),
                   dry_run: 'false'
                 }
               });
-              core.info(`Dispatched codex belt dispatcher for issue #${issueNumber}`);
+              core.info(`Dispatched ${agentType} belt dispatcher for issue #${issueNumber}`);
             } catch (dispatchError) {
-              core.warning(`Could not dispatch codex belt dispatcher: ${dispatchError?.message}`);
+              core.warning(`Could not dispatch ${agentType} belt dispatcher: ${dispatchError?.message}`);
             }
 
       - name: Metrics - End capability check timer
@@ -1062,13 +1076,16 @@ jobs:
           ISSUE_NUMBER: ${{ steps.context.outputs.issue_number }}
           ISSUE_TITLE: ${{ steps.context.outputs.issue_title }}
           STEP_COUNT: ${{ steps.cycles.outputs.count }}
+          AGENT_TYPE: ${{ steps.context.outputs.agent_type || 'codex' }}
           MAX_STALL_RETRIES: '5'
         with:
           script: |
             const issueNumber = parseInt(process.env.ISSUE_NUMBER);
             const issueTitle = process.env.ISSUE_TITLE || `Issue #${issueNumber}`;
             const stepCount = parseInt(process.env.STEP_COUNT || '0') + 1;
-            const branchName = `codex/issue-${issueNumber}`;
+            const agentType = process.env.AGENT_TYPE || 'codex';
+            const branchName = `${agentType}/issue-${issueNumber}`;
+            const agentLabel = `agent:${agentType}`;
             const maxStallRetries = parseInt(process.env.MAX_STALL_RETRIES || '5');
 
             // Helper: count consecutive "waiting for commits" comments (stall detection)
@@ -1189,13 +1206,15 @@ jobs:
                     labels: ['agents:auto-pilot-pause', 'needs-human']
                   });
 
+                  const workerName = agentType === 'claude' ? 'Claude' : 'Codex';
+                  const workerWorkflow = `agents-72-${agentType}-belt-worker`;
                   await github.rest.issues.createComment({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     issue_number: issueNumber,
                     body: `## ⚠️ Auto-Pilot Stalled
 
-            **Reason:** Codex belt worker failed to generate commits after ${stallCount} attempts.
+            **Reason:** ${workerName} belt worker failed to generate commits after ${stallCount} attempts.
 
             Branch \`${branchName}\` exists but the agent has not produced any changes.
 
@@ -1205,9 +1224,9 @@ jobs:
             - Belt worker workflow failed silently
 
             **To investigate:**
-            1. Check recent workflow runs for \`agents-72-codex-belt-worker\` failures
+            1. Check recent workflow runs for \`${workerWorkflow}\` failures
             2. Review the issue requirements for clarity
-            3. Check the Codex session logs if available
+            3. Check the ${workerName} session logs if available
 
             **To resume:** Remove \`agents:auto-pilot-pause\` and \`needs-human\` labels,
             then re-add \`agents:auto-pilot\`.`
@@ -1220,11 +1239,17 @@ jobs:
 
                 let workerDispatched = false;
                 let dispatchError = null;
+                // Each agent has its own belt worker dispatch workflow
+                const workerDispatchWorkflow = agentType === 'claude'
+                  ? 'agents-72-claude-belt-worker-dispatch.yml'
+                  : 'agents-72-codex-belt-worker-dispatch.yml';
+                const workerDisplayName = agentType === 'claude' ? 'Claude' : 'Codex';
+
                 try {
                   await github.rest.actions.createWorkflowDispatch({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
-                    workflow_id: 'agents-72-codex-belt-worker-dispatch.yml',
+                    workflow_id: workerDispatchWorkflow,
                     ref: baseBranch,
                     inputs: {
                       issue: issueNumber.toString(),
@@ -1234,10 +1259,10 @@ jobs:
                     }
                   });
                   workerDispatched = true;
-                  core.info(`Dispatched codex belt worker for issue #${issueNumber}`);
+                  core.info(`Dispatched ${agentType} belt worker for issue #${issueNumber}`);
                 } catch (err) {
                   dispatchError = err;
-                  core.warning(`Could not dispatch codex belt worker: ${err?.message}`);
+                  core.warning(`Could not dispatch ${agentType} belt worker: ${err?.message}`);
                 }
 
                 // Build detailed status message
@@ -1245,7 +1270,7 @@ jobs:
                 if (workerDispatched) {
                   const stallMsg = `${stallCount + 1}/${maxStallRetries}`;
                   dispatchLine = [
-                    '✅ Dispatched the Codex belt worker to generate changes.',
+                    `✅ Dispatched the ${workerDisplayName} belt worker to generate changes.`,
                     '',
                     `📊 Stall count: ${stallMsg} (pauses after ${maxStallRetries})`
                   ].join('\n');
@@ -1254,12 +1279,12 @@ jobs:
                   const errorStatus = dispatchError?.status
                     ? ` (HTTP ${dispatchError.status})` : '';
                   dispatchLine = [
-                    `❌ **Failed to dispatch Codex belt worker**${errorStatus}`,
+                    `❌ **Failed to dispatch ${workerDisplayName} belt worker**${errorStatus}`,
                     '',
                     `Error: \`${errorDetail}\``,
                     '',
                     '**Troubleshooting:**',
-                    '- Check if `agents-72-codex-belt-worker-dispatch.yml` exists',
+                    `- Check if \`${workerDispatchWorkflow}\` exists`,
                     '- Verify workflow permissions allow `actions: write`',
                     '- Check workflow runs in the Actions tab for errors'
                   ].join('\n');
@@ -1331,7 +1356,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: pr.number,
-                  labels: ['agent:codex', 'agents:keepalive', 'autofix']
+                  labels: [agentLabel, 'agents:keepalive', 'autofix']
                 });
                 labelsAdded = true;
                 core.info(`Added agent labels to PR #${pr.number}`);
@@ -1341,7 +1366,7 @@ jobs:
               }
 
               const labelStatus = labelsAdded
-                ? '✅ Added labels: `agent:codex`, `agents:keepalive`, `autofix`'
+                ? `✅ Added labels: \`${agentLabel}\`, \`agents:keepalive\`, \`autofix\``
                 : '⚠️ Could not add labels (add manually)';
 
               // Dispatch PR meta workflow to build Automated Status Summary

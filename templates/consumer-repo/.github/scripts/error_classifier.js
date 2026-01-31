@@ -48,6 +48,16 @@ const TRANSIENT_PATTERNS = [
   'codex-session',
   'existing changes',
   'how would you like me to proceed',
+  // AWS Bedrock / Claude-specific transient errors
+  'throttlingexception',
+  'serviceunavailableexception',
+  'modelnotreadyexception',
+  'modeltimeoutexception',
+  'modelstreamerrorexception',
+  'provisionedthroughputexceeded',
+  'internalservererror',
+  'servicequotaexceeded',
+  'toomanyrequestsexception',
 ];
 
 const AUTH_PATTERNS = [
@@ -65,6 +75,16 @@ const AUTH_PATTERNS = [
   'missing token',
   'authentication',
   'invalid token',
+  // AWS Bedrock / Claude-specific auth errors
+  'accessdeniedexception',
+  'unrecognizedclientexception',
+  'incompleteSignature',
+  'invalidsignatureexception',
+  'missingauthenticationtoken',
+  'expiredtokenerror',
+  'credentialsnotfound',
+  'aws_access_key_id',
+  'aws_secret_access_key',
 ];
 
 const RESOURCE_PATTERNS = [
@@ -82,6 +102,11 @@ const RESOURCE_PATTERNS = [
   'gone',
   'missing',
   'reference not found',
+  // AWS Bedrock / Claude-specific resource errors
+  'resourcenotfoundexception',
+  'modelnotfound',
+  'nosuchbucket',
+  'nosuchkey',
 ];
 
 const LOGIC_PATTERNS = [
@@ -100,6 +125,12 @@ const LOGIC_PATTERNS = [
   'failed to validate',
   'failed to parse',
   'unexpected token',
+  // AWS Bedrock / Claude-specific logic errors
+  'validationexception',
+  'malformedpolicydocument',
+  'invalidparametervalue',
+  'modelerror',
+  'contentfiltered',
 ];
 
 function normaliseMessage(error) {
