@@ -3,7 +3,8 @@ name: Capability Check
 # Pre-flight check before agent assignment to identify blockers
 # Uses capability_check.py to detect issues agents cannot complete
 #
-# DYNAMIC: Triggers on ANY agent label from registry.yml
+# SUPPORTED AGENTS: agent:codex, agent:claude, and any future agent:* labels
+# DYNAMIC: Triggers on ANY agent label from registry.yml or with agent: prefix
 # No need to modify this workflow when adding new agents.
 
 on:
