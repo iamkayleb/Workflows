@@ -98,3 +98,8 @@ keepalive-metrics.ndjson
 Thumbs.db
 autofix_report_enriched.json
 test_parser_debug.js
+
+# Test dependencies
+node_modules/
+package-lock.json
+package.json
