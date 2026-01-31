@@ -188,6 +188,7 @@ EXPECTED_NAMES = {
     "agents-73-codex-belt-conveyor.yml": "Agents 73 Codex Belt Conveyor",
     "agents-debug-issue-event.yml": "Agents Debug Issue Event",
     "agents-keepalive-loop.yml": "Agents Keepalive Loop",
+    "agents-keepalive-loop-reporter.yml": "Keepalive Loop Reporter",
     "agents-keepalive-branch-sync.yml": "Keepalive Branch Sync",
     "agents-keepalive-dispatch-handler.yml": "Keepalive Dispatch Handler",
     # Note: agents-pr-meta.yml, v2, v3 archived to archives/github-actions/2025-12-02-pr-meta-legacy/
@@ -228,6 +229,7 @@ EXPECTED_NAMES = {
     "maint-70-fix-integration-formatting.yml": "Fix Integration Tests Formatting",
     "maint-71-auto-fix-integration.yml": "Auto-Fix Integration Test Failures",
     "maint-71-merge-sync-prs.yml": "Merge Sync PRs",
+    "maint-74-ledger-base-sync.yml": "Ledger Base Sync",
     "maint-72-fix-pr-body-conflicts.yml": "Maint 72 Fix PR Body Conflicts",
     "maint-61-create-floating-v1-tag.yml": "Maint 61 Create Floating v1 Tag",
     "maint-coverage-guard.yml": "Maint Coverage Guard",

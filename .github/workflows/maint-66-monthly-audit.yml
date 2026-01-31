@@ -8,7 +8,7 @@ on:
     inputs:
       lookback_days:
         description: 'Number of days to analyze'
-        type: number
+        type: string
         default: 30
       create_issue:
         description: 'Create audit issue'

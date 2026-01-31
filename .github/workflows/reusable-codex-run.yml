@@ -143,8 +143,8 @@ permissions:
   models: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: codex-${{ inputs.mode }}-${{ inputs.pr_number || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   codex:
@@ -495,7 +495,6 @@ jobs:
           # 1. Use GITHUB_BASE_REF if set (PR workflows).
           # 2. Use WORKFLOW_BASE_REF from the workflow_call context if provided.
           # 3. Derive the default branch from origin/HEAD.
-          # 4. Fall back to 'main' for backward compatibility.
           base_branch="${GITHUB_BASE_REF:-}"
           if [ -z "$base_branch" ] && [ -n "${WORKFLOW_BASE_REF:-}" ]; then
             base_branch="$WORKFLOW_BASE_REF"
@@ -504,8 +503,8 @@ jobs:
             base_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
           fi
           if [ -z "$base_branch" ]; then
-            echo "Warning: could not determine base branch automatically; defaulting to 'main'."
-            base_branch="main"
+            echo "Error: could not determine base branch automatically." >&2
+            exit 1
           fi
 
           echo "Using base branch '$base_branch' to surface merge conflicts."

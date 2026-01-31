@@ -15,6 +15,9 @@ jobs:
   scenarios:
     name: Integration - ${{ matrix.name }}
     uses: ./.github/workflows/reusable-10-ci-python.yml
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -57,17 +60,17 @@ jobs:
             coverage-alert-drop: '1'
     with:
       working-directory: templates/integration-repo
-      python-versions: ${{ matrix.python-versions }}
+      python-versions: ${{ matrix['python-versions'] }}
       coverage: ${{ matrix.coverage }}
-      format_check: ${{ matrix.format-check }}
+      format_check: ${{ matrix['format-check'] }}
       lint: ${{ matrix.lint }}
       typecheck: ${{ matrix.typecheck }}
-      enable-soft-gate: ${{ matrix.enable-soft-gate }}
-      enable-coverage-delta: ${{ matrix.enable-coverage-delta }}
-      enable-metrics: ${{ matrix.enable-metrics }}
-      enable-history: ${{ matrix.enable-history }}
-      baseline-coverage: ${{ matrix.baseline-coverage }}
-      coverage-alert-drop: ${{ matrix.coverage-alert-drop }}
+      enable-soft-gate: ${{ matrix['enable-soft-gate'] }}
+      enable-coverage-delta: ${{ matrix['enable-coverage-delta'] }}
+      enable-metrics: ${{ matrix['enable-metrics'] }}
+      enable-history: ${{ matrix['enable-history'] }}
+      baseline-coverage: ${{ matrix['baseline-coverage'] }}
+      coverage-alert-drop: ${{ matrix['coverage-alert-drop'] }}
       artifact-prefix: integration-${{ matrix.name }}-
     secrets: inherit
 

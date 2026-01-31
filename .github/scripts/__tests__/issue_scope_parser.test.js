@@ -588,7 +588,7 @@ test('hasNonPlaceholderScopeTasksAcceptanceContent detects PR meta fallback plac
     'Update coverage tool version.',
     '',
     '## Tasks',
-    '- [ ] Bump coverage to 7.13.1',
+    '- [ ] Bump coverage to 7.13.2',
     '',
     '## Acceptance Criteria',
     '- [ ] CI passes with new version',

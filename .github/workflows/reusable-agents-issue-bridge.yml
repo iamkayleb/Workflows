@@ -269,7 +269,11 @@ jobs:
                 };
             const { withRetry } = retryHelpers;
             const { data } = await withRetry(() => github.rest.repos.get({ owner, repo }));
-            const base = data.default_branch || 'main';
+            const base = data.default_branch;
+            if (!base) {
+              core.setFailed('Repository default branch not available');
+              return;
+            }
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             const head = issue ? `codex/issue-${issue}` : '';
             core.setOutput('base', base);

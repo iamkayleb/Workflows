@@ -1319,7 +1319,11 @@ jobs:
             const { withRetry, paginateWithRetry } = retryHelpers;
             let ref = (process.env.TARGET_REF || '').trim();
             if (!ref) {
-              ref = context.payload?.repository?.default_branch || 'main';
+              ref = context.payload?.repository?.default_branch || '';
+            }
+            if (!ref) {
+              core.setFailed('Repository default branch not available');
+              return;
             }
             ref = ref.replace(/^refs\/heads\//, '');
 
@@ -1410,7 +1414,11 @@ jobs:
             const { withRetry } = retryHelpers;
             let ref = (process.env.REF || '').trim();
             if (!ref) {
-              ref = context.payload?.repository?.default_branch || 'main';
+              ref = context.payload?.repository?.default_branch || '';
+            }
+            if (!ref) {
+              core.setFailed('Repository default branch not available');
+              return;
             }
             const dispatchedAt = Date.parse(process.env.DISPATCHED_AT || new Date().toISOString());
             const timeoutMs = (Number(process.env.TIMEOUT_SECONDS) || 600) * 1000;
@@ -2758,7 +2766,11 @@ jobs:
             let defaultBranch = (process.env.DEFAULT_BRANCH || '').trim();
             if (!defaultBranch) {
               const { data: repoInfo } = await withRetry(() => github.rest.repos.get({ owner, repo }));
-              defaultBranch = repoInfo.default_branch || 'main';
+              defaultBranch = repoInfo.default_branch || '';
+            }
+            if (!defaultBranch) {
+              core.setFailed('Repository default branch not available');
+              return;
             }
 
             const automationUsersRaw = process.env.AUTOMATION_USERS || '';

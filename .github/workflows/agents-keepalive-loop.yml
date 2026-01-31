@@ -12,7 +12,7 @@ on:
       pr_number:
         description: 'PR number to force retry'
         required: true
-        type: number
+        type: string
       force_retry:
         description: 'Force retry even if gate is cancelled/deferred'
         required: false
@@ -347,7 +347,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@v1
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
       # Use KEEPALIVE_APP for isolated rate limit pool (5000/hr)

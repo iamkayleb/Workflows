@@ -268,7 +268,7 @@ a) formatter runs
     assert "- [ ] formatter runs" in acceptance
 
 
-def test_format_issue_fallback_preserves_code_fences_in_tasks() -> None:
+def test_format_issue_fallback_drops_code_fences_in_tasks() -> None:
     raw = """## Tasks
 - add formatter
 ```
@@ -278,9 +278,9 @@ def test_format_issue_fallback_preserves_code_fences_in_tasks() -> None:
     result = issue_formatter.format_issue_body(raw, use_llm=False)
     tasks = _extract_section(result["formatted_body"], "Tasks")
 
-    assert "```" in tasks
+    assert "```" not in tasks
     assert "- [ ] add formatter" in tasks
-    assert "- [ ] should stay literal" in tasks
+    assert "should stay literal" not in tasks
 
 
 def test_build_label_transition_matches_expected_labels() -> None:

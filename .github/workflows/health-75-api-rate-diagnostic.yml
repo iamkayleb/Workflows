@@ -608,6 +608,50 @@ jobs:
           fi
           echo "::endgroup::"
 
+      - name: Verify Actions runs access per token
+        env:
+          GITHUB_TOKEN_VALUE: ${{ github.token }}
+          CODESPACES_WORKFLOWS_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+          SERVICE_BOT_TOKEN: ${{ secrets.SERVICE_BOT_PAT || '' }}
+          WORKFLOWS_APP_TOKEN: ${{ steps.app_token.outputs.token || '' }}
+          KEEPALIVE_APP_TOKEN: ${{ steps.keepalive_app_token.outputs.token || '' }}
+          GH_APP_TOKEN: ${{ steps.gh_app_token.outputs.token || '' }}
+        run: |
+          set -u
+
+          echo "::group::Actions runs access checks"
+
+          check_token() {
+            local label="$1"
+            local token="$2"
+            if [ -z "$token" ]; then
+              echo "$label: not set"
+              return 0
+            fi
+
+            local output
+            output=$(GH_TOKEN="$token" gh api -i "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml/runs?per_page=1" 2>&1 || true)
+            local status
+            status=$(echo "$output" | head -n1)
+            local accepted
+            accepted=$(echo "$output" | awk -F': ' '/^X-Accepted-GitHub-Permissions/ {print $2; exit}')
+
+            if [ -n "$accepted" ]; then
+              echo "$label: $status | perms: $accepted"
+            else
+              echo "$label: $status"
+            fi
+          }
+
+          check_token "GITHUB_TOKEN" "$GITHUB_TOKEN_VALUE"
+          check_token "CODESPACES_WORKFLOWS" "$CODESPACES_WORKFLOWS_TOKEN"
+          check_token "SERVICE_BOT_PAT" "$SERVICE_BOT_TOKEN"
+          check_token "WORKFLOWS_APP" "$WORKFLOWS_APP_TOKEN"
+          check_token "KEEPALIVE_APP" "$KEEPALIVE_APP_TOKEN"
+          check_token "GH_APP" "$GH_APP_TOKEN"
+
+          echo "::endgroup::"
+
       - name: Aggregate and analyze results
         id: aggregate
         env:
@@ -623,7 +667,10 @@ jobs:
           echo "::group::Rate data aggregation"
 
           # Debug: show raw values (lengths and first 100 chars)
-          echo "Raw env var lengths: gt=${#GITHUB_TOKEN_RATE}, pat=${#PAT_RATE}, svc=${#SERVICE_BOT_RATE:-0}, app=${#APP_RATE}, ka=${#KEEPALIVE_APP_RATE:-0}, gh=${#GH_APP_RATE:-0}"
+          svc_rate="${SERVICE_BOT_RATE:-}"
+          ka_rate="${KEEPALIVE_APP_RATE:-}"
+          gh_rate="${GH_APP_RATE:-}"
+          echo "Raw env var lengths: gt=${#GITHUB_TOKEN_RATE}, pat=${#PAT_RATE}, svc=${#svc_rate}, app=${#APP_RATE}, ka=${#ka_rate}, gh=${#gh_rate}"
           echo "GITHUB_TOKEN_RATE first 100: ${GITHUB_TOKEN_RATE:0:100}"
           echo "PAT_RATE first 100: ${PAT_RATE:0:100}"
           echo "SERVICE_BOT_RATE first 100: ${SERVICE_BOT_RATE:0:100}"
@@ -839,7 +886,7 @@ jobs:
           fi
 
           # PAT
-          pat=$(echo "$summary" | jq '.tokens.pat // {}')
+          pat=$(echo "$summary" | jq '.tokens.codespaces_workflows_pat // {}')
           if [ "$pat" != "{}" ] && [ "$pat" != "null" ]; then
             pat_core=$(echo "$pat" | jq -r '"\(.core.used)/\(.core.limit) (\(.core.pct)%)"')
             pat_graphql=$(echo "$pat" | jq -r '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
@@ -849,7 +896,7 @@ jobs:
           fi
 
           # App
-          app=$(echo "$summary" | jq '.tokens.app // {}')
+          app=$(echo "$summary" | jq '.tokens.workflows_app // {}')
           if [ "$app" != "{}" ] && [ "$app" != "null" ]; then
             app_core=$(echo "$app" | jq -r '"\(.core.used)/\(.core.limit) (\(.core.pct)%)"')
             app_graphql=$(echo "$app" | jq -r '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
@@ -867,7 +914,7 @@ jobs:
           warnings=0
 
           # Check for high utilization
-          for token_path in ".tokens.github_token" ".tokens.pat" ".tokens.app"; do
+          for token_path in ".tokens.github_token" ".tokens.codespaces_workflows_pat" ".tokens.workflows_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
               source=$(echo "$token_data" | jq -r '.source // "unknown"')
@@ -987,7 +1034,7 @@ jobs:
           raw_json="${SUMMARY_JSON:-{}}"
           summary=$(echo "$raw_json" | jq -c '.' 2>/dev/null || echo '{}')
 
-          for token_path in ".tokens.github_token" ".tokens.pat" ".tokens.app"; do
+          for token_path in ".tokens.github_token" ".tokens.codespaces_workflows_pat" ".tokens.workflows_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
               core_pct=$(echo "$token_data" | jq -r '.core.pct // "0"' | sed 's/[^0-9.]//g')
@@ -1071,6 +1118,83 @@ jobs:
             echo "Updated existing issue #$existing"
           fi
 
+  alert-on-repeat-failure:
+    name: Alert on Repeated Failure
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Create issue on repeated failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq '.conclusion // ""')
+          if [ "$conclusion" != "failure" ]; then
+            echo "Run conclusion is '$conclusion' - no failure alert needed."
+            exit 0
+          fi
+
+          workflow_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" --jq '.id // empty')
+          if [ -z "$workflow_id" ]; then
+            echo "Could not resolve workflow id; skipping repeat failure check."
+            exit 0
+          fi
+
+          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs?per_page=2" \
+            --jq '[.workflow_runs[] | {id: .id, conclusion: .conclusion}]')
+
+          first=$(echo "$runs" | jq -r '.[0].conclusion // ""')
+          second=$(echo "$runs" | jq -r '.[1].conclusion // ""')
+
+          if [ "$first" != "failure" ] || [ "$second" != "failure" ]; then
+            echo "No consecutive failures detected (latest: $first, previous: $second)."
+            exit 0
+          fi
+
+          issue_title="⚠️ Health 75 API Rate Diagnostic failing repeatedly"
+          issue_label="workflow-failure,automated,api-rate-limit"
+
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label "workflow-failure" \
+            --state open \
+            --limit 1 \
+            --json number \
+            --jq '.[0].number // empty')
+
+          body=$(printf '%s\n' \
+            "## Repeated workflow failures detected" \
+            "" \
+            "The Health 75 API Rate Diagnostic workflow has failed in two consecutive runs." \
+            "" \
+            "- **Current run:** $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            "- **Detected at:** $(date -u +\"%Y-%m-%d %H:%M:%S UTC\")" \
+            "" \
+            "### Next steps" \
+            "1. Review the run logs to identify the failing step(s)." \
+            "2. Validate that API credentials and required secrets are configured." \
+            "3. Re-run the workflow after applying fixes." \
+            "" \
+            "This issue was created automatically to ensure repeated failures are tracked.")
+
+          if [ -z "$existing" ]; then
+            gh issue create \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$issue_title" \
+              --label "$issue_label" \
+              --body "$body"
+            echo "Created failure alert issue."
+          else
+            gh issue comment "$existing" \
+              --repo "$GITHUB_REPOSITORY" \
+              --body "Repeated failure detected again. Latest run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "Updated existing failure alert issue #$existing."
+          fi
+
   # Historical report job - runs when report_mode is 'historical'
   generate-historical-report:
     name: Generate Historical Report
@@ -1150,10 +1274,24 @@ jobs:
           echo "start_date=$START_DATE" >> "$GITHUB_OUTPUT"
           echo "end_date=$END_DATE" >> "$GITHUB_OUTPUT"
 
+      - name: Mint workflows app token
+        id: workflows_app_token
+        env:
+          WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID || '' }}
+          WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || '' }}
+        if: ${{ env.WORKFLOWS_APP_ID != '' && env.WORKFLOWS_APP_PRIVATE_KEY != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ env.WORKFLOWS_APP_ID }}
+          private-key: ${{ env.WORKFLOWS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Fetch historical workflow runs
         id: history
         env:
-          GH_TOKEN: ${{ github.token }}
+          APP_GH_TOKEN: ${{ steps.workflows_app_token.outputs.token || '' }}
+          PRIMARY_GH_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+          FALLBACK_GH_TOKEN: ${{ github.token }}
           START_DATE: ${{ steps.dates.outputs.start_date }}
           END_DATE: ${{ steps.dates.outputs.end_date }}
         run: |
@@ -1161,9 +1299,21 @@ jobs:
 
           echo "Fetching Health 75 workflow runs from $START_DATE to $END_DATE"
 
-          # Get workflow ID for Health 75
-          workflow_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows" \
-            --jq '.workflows[] | select(.name == "Health 75 API Rate Diagnostic") | .id')
+          primary_token="$APP_GH_TOKEN"
+          if [ -z "$primary_token" ]; then
+            primary_token="$PRIMARY_GH_TOKEN"
+          fi
+          if [ -z "$primary_token" ]; then
+            primary_token="$FALLBACK_GH_TOKEN"
+          fi
+
+          # Get workflow ID for Health 75 (direct path lookup avoids pagination limits)
+          if ! workflow_id=$(GH_TOKEN="$primary_token" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
+            --jq '.id // empty'); then
+            echo "Primary token could not access workflow metadata. Retrying with GITHUB_TOKEN." >&2
+            workflow_id=$(GH_TOKEN="$FALLBACK_GH_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/health-75-api-rate-diagnostic.yml" \
+              --jq '.id // empty')
+          fi
 
           if [ -z "$workflow_id" ]; then
             echo "::error::Could not find Health 75 workflow"
@@ -1173,15 +1323,23 @@ jobs:
           echo "Workflow ID: $workflow_id"
 
           # Fetch runs in date range (GitHub API uses created filter)
-          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs" \
+          # Note: Use query params instead of -F flags to keep this a GET request
+          if ! runs=$(GH_TOKEN="$primary_token" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs?created=>=${START_DATE}&status=completed" \
             --paginate \
-            -F "created=>=$START_DATE" \
-            -F "status=completed" \
             --jq '[.workflow_runs[] | select(.conclusion == "success") | {
               id: .id,
               created_at: .created_at,
               run_number: .run_number
-            }]')
+            }]'); then
+            echo "Primary token could not access workflow runs. Retrying with GITHUB_TOKEN." >&2
+            runs=$(GH_TOKEN="$FALLBACK_GH_TOKEN" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs?created=>=${START_DATE}&status=completed" \
+              --paginate \
+              --jq '[.workflow_runs[] | select(.conclusion == "success") | {
+                id: .id,
+                created_at: .created_at,
+                run_number: .run_number
+              }]')
+          fi
 
           # Normalize END_DATE to an ISO 8601 end-of-day timestamp
           if [[ "$END_DATE" == *T* ]]; then

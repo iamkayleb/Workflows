@@ -81,12 +81,28 @@ jobs:
             echo "should_fix=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve integration repo default branch
+        if: steps.check_status.outputs.should_fix == 'true'
+        id: integration_ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { data } = await github.rest.repos.get({
+              owner: 'stranske',
+              repo: 'Workflows-Integration-Tests'
+            });
+            if (!data?.default_branch) {
+              core.setFailed('Could not determine integration repo default branch');
+              return;
+            }
+            core.setOutput('ref', data.default_branch);
+
       - name: Checkout Integration-Tests repo
         if: steps.check_status.outputs.should_fix == 'true'
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows-Integration-Tests
-          ref: main
+          ref: ${{ steps.integration_ref.outputs.ref }}
           token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS }}
           path: integration-tests
 
