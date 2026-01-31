@@ -1,0 +1,615 @@
+# Unified Agent Execution Workflow
+#
+# This reusable workflow handles execution of ANY AI agent type (Codex, Claude, Gemini, etc.)
+# by reading configuration from .github/agents/registry.yml.
+#
+# Usage:
+#   jobs:
+#     run-agent:
+#       uses: stranske/Workflows/.github/workflows/reusable-agent-run.yml@v1
+#       with:
+#         pr_number: "123"
+#         agent_type: "claude"  # or "codex", "gemini", or omit for auto-detect
+#         prompt_context: "keepalive"  # or "ci_fix", "bot_comments", etc.
+#       secrets: inherit
+#
+# To add a new agent:
+#   1. Add entry to .github/agents/registry.yml
+#   2. Create .github/actions/setup-{agent}/action.yml
+#   3. Add required secrets to consumer repos
+#
+# See docs/SYSTEM_DIAGRAM.md for architecture details.
+
+name: Unified Agent Runner
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        description: 'PR number to work on'
+        required: true
+        type: string
+      agent_type:
+        description: 'Agent type (codex, claude, gemini). Auto-detected from labels if not specified.'
+        required: false
+        type: string
+        default: ''
+      prompt_context:
+        description: 'Prompt context type (keepalive, ci_fix, bot_comments, merge_conflicts, verification)'
+        required: false
+        type: string
+        default: 'keepalive'
+      prompt_file:
+        description: 'Override prompt file path (relative to repo root)'
+        required: false
+        type: string
+        default: ''
+      custom_instructions:
+        description: 'Additional instructions to append to prompt'
+        required: false
+        type: string
+        default: ''
+      timeout_minutes:
+        description: 'Timeout for agent execution (overrides registry default)'
+        required: false
+        type: number
+        default: 0
+      dry_run:
+        description: 'Preview what would be done without executing agent'
+        required: false
+        type: boolean
+        default: false
+
+    outputs:
+      agent_used:
+        description: 'Which agent was used (codex, claude, gemini)'
+        value: ${{ jobs.execute.outputs.agent_used }}
+      execution_mode:
+        description: 'Execution mode (cli or github-app)'
+        value: ${{ jobs.execute.outputs.execution_mode }}
+      success:
+        description: 'Whether execution completed successfully'
+        value: ${{ jobs.execute.outputs.success }}
+      commits_pushed:
+        description: 'Number of commits pushed by agent'
+        value: ${{ jobs.execute.outputs.commits_pushed }}
+
+    secrets:
+      # GitHub access (choose one)
+      service_bot_pat:
+        description: 'PAT for service bot (comments, labels)'
+        required: false
+      gh_app_id:
+        description: 'GitHub App ID for authentication'
+        required: false
+      gh_app_private_key:
+        description: 'GitHub App private key'
+        required: false
+
+      # Codex secrets
+      openai_api_key:
+        description: 'OpenAI API key (for Codex)'
+        required: false
+
+      # Claude secrets (Bedrock)
+      aws_access_key_id:
+        description: 'AWS Access Key ID (for Claude/Bedrock)'
+        required: false
+      aws_secret_access_key:
+        description: 'AWS Secret Access Key (for Claude/Bedrock)'
+        required: false
+      aws_region:
+        description: 'AWS Region (for Claude/Bedrock)'
+        required: false
+      anthropic_model:
+        description: 'Claude model ID'
+        required: false
+
+      # Gemini secrets
+      google_api_key:
+        description: 'Google API key (for Gemini)'
+        required: false
+      gemini_model:
+        description: 'Gemini model ID'
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  checks: read
+  statuses: read
+
+concurrency:
+  group: agent-run-${{ github.repository }}-${{ inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  # Detect which agent to use and validate configuration
+  detect:
+    name: Detect agent
+    runs-on: ubuntu-latest
+    outputs:
+      agent_id: ${{ steps.detect.outputs.agent_id }}
+      agent_name: ${{ steps.detect.outputs.agent_name }}
+      execution_mode: ${{ steps.detect.outputs.execution_mode }}
+      setup_action: ${{ steps.detect.outputs.setup_action }}
+      timeout: ${{ steps.detect.outputs.timeout }}
+      prompt_file: ${{ steps.detect.outputs.prompt_file }}
+      secrets_valid: ${{ steps.validate.outputs.valid }}
+      skip_reason: ${{ steps.validate.outputs.skip_reason }}
+
+    steps:
+      - name: Generate token
+        id: token
+        uses: actions/create-github-app-token@v2
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.gh_app_id }}
+          private-key: ${{ secrets.gh_app_private_key }}
+
+      - name: Resolve token
+        id: auth
+        env:
+          TOKEN_OUTPUT: ${{ steps.token.outputs.token }}
+          SERVICE_PAT: ${{ secrets.service_bot_pat }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${TOKEN_OUTPUT}" ]; then
+            echo "token=${TOKEN_OUTPUT}" >> "$GITHUB_OUTPUT"
+            echo "Using GitHub App token"
+          elif [ -n "${SERVICE_PAT}" ]; then
+            echo "token=${SERVICE_PAT}" >> "$GITHUB_OUTPUT"
+            echo "Using service bot PAT"
+          else
+            echo "token=${GITHUB_TOKEN}" >> "$GITHUB_OUTPUT"
+            echo "Using default GITHUB_TOKEN"
+          fi
+
+      - name: Checkout for registry
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github/agents/registry.yml
+            .github/scripts/agent-router.js
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install js-yaml
+
+      - name: Detect agent from labels
+        id: detect
+        uses: actions/github-script@v8
+        env:
+          INPUT_AGENT_TYPE: ${{ inputs.agent_type }}
+          INPUT_PROMPT_CONTEXT: ${{ inputs.prompt_context }}
+          INPUT_PROMPT_FILE: ${{ inputs.prompt_file }}
+          INPUT_TIMEOUT: ${{ inputs.timeout_minutes }}
+        with:
+          github-token: ${{ steps.auth.outputs.token }}
+          script: |
+            const fs = require('fs');
+            const yaml = require('js-yaml');
+
+            const prNumber = parseInt('${{ inputs.pr_number }}');
+            const inputAgentType = process.env.INPUT_AGENT_TYPE;
+            const promptContext = process.env.INPUT_PROMPT_CONTEXT || 'keepalive';
+            const promptFileOverride = process.env.INPUT_PROMPT_FILE;
+            const inputTimeout = parseInt(process.env.INPUT_TIMEOUT) || 0;
+
+            // Load registry
+            let registry;
+            try {
+              const registryContent = fs.readFileSync('.github/agents/registry.yml', 'utf8');
+              registry = yaml.load(registryContent);
+            } catch (error) {
+              core.warning(`Could not load registry: ${error.message}`);
+              // Use defaults
+              registry = {
+                default_agent: 'codex',
+                agents: {
+                  codex: { name: 'Codex', label: 'agent:codex', execution_mode: 'github-app', timeout_minutes: 30 },
+                  claude: { name: 'Claude', label: 'agent:claude', execution_mode: 'cli', timeout_minutes: 45 },
+                  gemini: { name: 'Gemini', label: 'agent:gemini', execution_mode: 'cli', timeout_minutes: 30 }
+                },
+                prompts: {
+                  base_path: '.github/codex/prompts',
+                  contexts: {
+                    keepalive: 'keepalive_next_task.md',
+                    ci_fix: 'fix_ci_failures.md',
+                    bot_comments: 'fix_bot_comments.md'
+                  }
+                }
+              };
+            }
+
+            let agentId = inputAgentType;
+            let detectionSource = 'input';
+
+            // If no agent specified, detect from labels
+            if (!agentId) {
+              try {
+                const { data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber
+                });
+
+                const labels = pr.labels.map(l => l.name);
+                console.log(`PR #${prNumber} labels: ${labels.join(', ')}`);
+
+                // Find matching agent label
+                for (const [id, config] of Object.entries(registry.agents)) {
+                  if (labels.includes(config.label)) {
+                    agentId = id;
+                    detectionSource = 'label';
+                    console.log(`Detected agent from label: ${id}`);
+                    break;
+                  }
+                }
+              } catch (error) {
+                console.log(`Could not fetch PR: ${error.message}`);
+              }
+            }
+
+            // Fall back to default
+            if (!agentId) {
+              agentId = registry.default_agent || 'codex';
+              detectionSource = 'default';
+              console.log(`Using default agent: ${agentId}`);
+            }
+
+            const agentConfig = registry.agents[agentId];
+            if (!agentConfig) {
+              core.setFailed(`Unknown agent type: ${agentId}`);
+              return;
+            }
+
+            // Determine prompt file
+            let promptFile = promptFileOverride;
+            if (!promptFile) {
+              const basePath = registry.prompts?.base_path || '.github/codex/prompts';
+              const fileName = registry.prompts?.contexts?.[promptContext] || `${promptContext}.md`;
+              promptFile = `${basePath}/${fileName}`;
+            }
+
+            // Determine timeout
+            const timeout = inputTimeout > 0 ? inputTimeout : (agentConfig.timeout_minutes || 30);
+
+            // Set outputs
+            core.setOutput('agent_id', agentId);
+            core.setOutput('agent_name', agentConfig.name);
+            core.setOutput('execution_mode', agentConfig.execution_mode);
+            core.setOutput('setup_action', agentConfig.setup_action || `setup-${agentId}`);
+            core.setOutput('timeout', timeout);
+            core.setOutput('prompt_file', promptFile);
+
+            console.log(`Agent: ${agentConfig.name} (${agentId})`);
+            console.log(`Execution mode: ${agentConfig.execution_mode}`);
+            console.log(`Detection source: ${detectionSource}`);
+            console.log(`Prompt file: ${promptFile}`);
+            console.log(`Timeout: ${timeout} minutes`);
+
+      - name: Validate secrets
+        id: validate
+        env:
+          AGENT_ID: ${{ steps.detect.outputs.agent_id }}
+          # Check which secrets are available
+          HAS_OPENAI: ${{ secrets.openai_api_key != '' }}
+          HAS_AWS_KEY: ${{ secrets.aws_access_key_id != '' }}
+          HAS_AWS_SECRET: ${{ secrets.aws_secret_access_key != '' }}
+          HAS_GOOGLE: ${{ secrets.google_api_key != '' }}
+        run: |
+          AGENT_ID="${AGENT_ID}"
+          VALID="true"
+          SKIP_REASON=""
+
+          case "$AGENT_ID" in
+            codex)
+              # Codex can use GitHub App mode without API key
+              echo "Codex agent - GitHub App mode available"
+              ;;
+            claude)
+              if [ "$HAS_AWS_KEY" != "true" ] || [ "$HAS_AWS_SECRET" != "true" ]; then
+                VALID="false"
+                SKIP_REASON="Missing AWS credentials for Claude (need AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)"
+              fi
+              ;;
+            gemini)
+              if [ "$HAS_GOOGLE" != "true" ]; then
+                VALID="false"
+                SKIP_REASON="Missing GOOGLE_API_KEY for Gemini"
+              fi
+              ;;
+            *)
+              VALID="false"
+              SKIP_REASON="Unknown agent type: $AGENT_ID"
+              ;;
+          esac
+
+          echo "valid=${VALID}" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=${SKIP_REASON}" >> "$GITHUB_OUTPUT"
+
+          if [ "$VALID" != "true" ]; then
+            echo "::warning::${SKIP_REASON}"
+          fi
+
+  # Execute the agent
+  execute:
+    name: Execute ${{ needs.detect.outputs.agent_name }}
+    needs: detect
+    if: needs.detect.outputs.secrets_valid == 'true' && inputs.dry_run == false
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ fromJSON(needs.detect.outputs.timeout) }}
+
+    outputs:
+      agent_used: ${{ needs.detect.outputs.agent_id }}
+      execution_mode: ${{ needs.detect.outputs.execution_mode }}
+      success: ${{ steps.run.outputs.success }}
+      commits_pushed: ${{ steps.run.outputs.commits_pushed }}
+
+    steps:
+      - name: Generate token
+        id: token
+        uses: actions/create-github-app-token@v2
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.gh_app_id }}
+          private-key: ${{ secrets.gh_app_private_key }}
+
+      - name: Resolve token
+        id: auth
+        env:
+          TOKEN_OUTPUT: ${{ steps.token.outputs.token }}
+          SERVICE_PAT: ${{ secrets.service_bot_pat }}
+        run: |
+          if [ -n "${TOKEN_OUTPUT}" ]; then
+            echo "token=${TOKEN_OUTPUT}" >> "$GITHUB_OUTPUT"
+          elif [ -n "${SERVICE_PAT}" ]; then
+            echo "token=${SERVICE_PAT}" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=${GITHUB_TOKEN}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          token: ${{ steps.auth.outputs.token }}
+          fetch-depth: 0
+
+      - name: Fetch PR branch
+        env:
+          GH_TOKEN: ${{ steps.auth.outputs.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          # Get PR branch info
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json headRefName,headRepository,headRepositoryOwner --jq '.')
+          BRANCH=$(echo "$PR_DATA" | jq -r '.headRefName')
+
+          echo "Checking out PR branch: $BRANCH"
+          git fetch origin "$BRANCH"
+          git checkout "$BRANCH"
+
+          echo "branch=$BRANCH" >> "$GITHUB_ENV"
+
+      # Setup agent based on detected type
+      - name: Setup Codex
+        if: needs.detect.outputs.agent_id == 'codex'
+        uses: ./.github/actions/setup-codex
+        with:
+          openai_api_key: ${{ secrets.openai_api_key }}
+
+      - name: Setup Claude
+        if: needs.detect.outputs.agent_id == 'claude'
+        uses: ./.github/actions/setup-claude
+        with:
+          aws_access_key_id: ${{ secrets.aws_access_key_id }}
+          aws_secret_access_key: ${{ secrets.aws_secret_access_key }}
+          aws_region: ${{ secrets.aws_region || 'us-east-1' }}
+          anthropic_model: ${{ secrets.anthropic_model || 'claude-sonnet-4-20250514' }}
+
+      - name: Setup Gemini
+        if: needs.detect.outputs.agent_id == 'gemini'
+        uses: ./.github/actions/setup-gemini
+        with:
+          google_api_key: ${{ secrets.google_api_key }}
+          gemini_model: ${{ secrets.gemini_model || 'gemini-pro' }}
+
+      - name: Get prompt content
+        id: prompt
+        env:
+          PROMPT_FILE: ${{ needs.detect.outputs.prompt_file }}
+          CUSTOM_INSTRUCTIONS: ${{ inputs.custom_instructions }}
+        run: |
+          if [ -f "$PROMPT_FILE" ]; then
+            PROMPT_CONTENT=$(cat "$PROMPT_FILE")
+            echo "Loaded prompt from: $PROMPT_FILE"
+          else
+            echo "::warning::Prompt file not found: $PROMPT_FILE"
+            PROMPT_CONTENT="Complete the next unchecked task in the PR description."
+          fi
+
+          # Append custom instructions if provided
+          if [ -n "$CUSTOM_INSTRUCTIONS" ]; then
+            PROMPT_CONTENT="${PROMPT_CONTENT}
+
+## Additional Instructions
+
+${CUSTOM_INSTRUCTIONS}"
+          fi
+
+          # Save to file for agent
+          echo "$PROMPT_CONTENT" > /tmp/agent_prompt.md
+          echo "prompt_file=/tmp/agent_prompt.md" >> "$GITHUB_OUTPUT"
+
+      - name: Run agent (CLI mode)
+        id: run
+        if: needs.detect.outputs.execution_mode == 'cli'
+        env:
+          AGENT_ID: ${{ needs.detect.outputs.agent_id }}
+          PROMPT_FILE: ${{ steps.prompt.outputs.prompt_file }}
+          GH_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set +e  # Don't exit on error
+
+          BEFORE_SHA=$(git rev-parse HEAD)
+
+          echo "Running $AGENT_ID agent..."
+
+          case "$AGENT_ID" in
+            claude)
+              # Run Claude CLI
+              claude --prompt-file "$PROMPT_FILE" \
+                --allowedTools "Bash,Read,Write,Edit,Glob,Grep,TodoWrite" \
+                --max-turns 30 \
+                2>&1 | tee /tmp/agent_output.log
+              EXIT_CODE=${PIPESTATUS[0]}
+              ;;
+            gemini)
+              # Run Gemini CLI
+              gemini --prompt-file "$PROMPT_FILE" \
+                2>&1 | tee /tmp/agent_output.log
+              EXIT_CODE=${PIPESTATUS[0]}
+              ;;
+            *)
+              echo "::error::Unknown CLI agent: $AGENT_ID"
+              EXIT_CODE=1
+              ;;
+          esac
+
+          AFTER_SHA=$(git rev-parse HEAD)
+
+          # Count commits pushed
+          if [ "$BEFORE_SHA" != "$AFTER_SHA" ]; then
+            COMMITS=$(git rev-list --count "${BEFORE_SHA}..${AFTER_SHA}")
+          else
+            COMMITS=0
+          fi
+
+          echo "commits_pushed=${COMMITS}" >> "$GITHUB_OUTPUT"
+
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "success=true" >> "$GITHUB_OUTPUT"
+            echo "Agent completed successfully, pushed $COMMITS commits"
+          else
+            echo "success=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Agent exited with code $EXIT_CODE"
+          fi
+
+      - name: Run agent (GitHub App mode)
+        if: needs.detect.outputs.execution_mode == 'github-app'
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PROMPT_CONTENT: ${{ steps.prompt.outputs.prompt_file }}
+        with:
+          github-token: ${{ steps.auth.outputs.token }}
+          script: |
+            const prNumber = parseInt(process.env.PR_NUMBER);
+            const fs = require('fs');
+
+            // For GitHub App agents like Codex, we trigger by assignment
+            // The chatgpt-codex-connector watches for assignments
+
+            const prompt = fs.readFileSync(process.env.PROMPT_CONTENT, 'utf8');
+
+            // Post instruction comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `## 🤖 Agent Instructions\n\n${prompt.substring(0, 500)}...`
+            });
+
+            // Assign the Codex bot
+            try {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                assignees: ['chatgpt-codex-connector']
+              });
+              console.log('Assigned chatgpt-codex-connector to PR');
+            } catch (error) {
+              console.log(`Could not assign bot: ${error.message}`);
+            }
+
+            core.setOutput('success', 'true');
+            core.setOutput('commits_pushed', '0');
+
+      - name: Push changes
+        if: needs.detect.outputs.execution_mode == 'cli'
+        env:
+          GH_TOKEN: ${{ steps.auth.outputs.token }}
+          BRANCH: ${{ env.branch }}
+        run: |
+          # Check if there are changes to push
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "Uncommitted changes detected, committing..."
+            git add -A
+            git commit -m "chore: agent work in progress" || true
+          fi
+
+          # Push if we have commits ahead of remote
+          if git log origin/${BRANCH}..HEAD --oneline | grep -q .; then
+            echo "Pushing changes to $BRANCH..."
+            git push origin "$BRANCH"
+          else
+            echo "No new commits to push"
+          fi
+
+  # Summary job
+  summary:
+    name: Summary
+    needs: [detect, execute]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate summary
+        env:
+          AGENT_ID: ${{ needs.detect.outputs.agent_id }}
+          AGENT_NAME: ${{ needs.detect.outputs.agent_name }}
+          EXECUTION_MODE: ${{ needs.detect.outputs.execution_mode }}
+          SECRETS_VALID: ${{ needs.detect.outputs.secrets_valid }}
+          SKIP_REASON: ${{ needs.detect.outputs.skip_reason }}
+          SUCCESS: ${{ needs.execute.outputs.success }}
+          COMMITS: ${{ needs.execute.outputs.commits_pushed }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "## 🤖 Unified Agent Runner Summary"
+            echo ""
+            echo "| Property | Value |"
+            echo "|----------|-------|"
+            echo "| PR | #${{ inputs.pr_number }} |"
+            echo "| Agent | ${AGENT_NAME} (${AGENT_ID}) |"
+            echo "| Execution Mode | ${EXECUTION_MODE} |"
+            echo "| Prompt Context | ${{ inputs.prompt_context }} |"
+            echo "| Dry Run | ${DRY_RUN} |"
+            echo ""
+
+            if [ "$SECRETS_VALID" != "true" ]; then
+              echo "### ⚠️ Skipped"
+              echo ""
+              echo "Reason: ${SKIP_REASON}"
+            elif [ "$DRY_RUN" == "true" ]; then
+              echo "### 🔍 Dry Run"
+              echo ""
+              echo "Would have executed ${AGENT_NAME} agent."
+            elif [ "$SUCCESS" == "true" ]; then
+              echo "### ✅ Success"
+              echo ""
+              echo "Agent completed successfully."
+              echo "Commits pushed: ${COMMITS:-0}"
+            else
+              echo "### ❌ Failed"
+              echo ""
+              echo "Agent execution failed or had errors."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

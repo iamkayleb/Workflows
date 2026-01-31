@@ -1,0 +1,109 @@
+# Setup action for Codex agent
+#
+# This action prepares the environment for running the Codex CLI.
+# Called by reusable-agent-run.yml when agent_type is 'codex'.
+
+name: 'Setup Codex Agent'
+description: 'Installs and configures the Codex CLI for agent execution'
+
+inputs:
+  openai_api_key:
+    description: 'OpenAI API key for authentication'
+    required: true
+  working_directory:
+    description: 'Working directory for the agent'
+    required: false
+    default: '.'
+  node_version:
+    description: 'Node.js version to use'
+    required: false
+    default: '20'
+
+outputs:
+  cli_path:
+    description: 'Path to the Codex CLI executable'
+    value: ${{ steps.install.outputs.cli_path }}
+  version:
+    description: 'Installed Codex CLI version'
+    value: ${{ steps.install.outputs.version }}
+  ready:
+    description: 'Whether the agent is ready to execute'
+    value: ${{ steps.validate.outputs.ready }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    - name: Install Codex CLI
+      id: install
+      shell: bash
+      run: |
+        echo "Installing Codex CLI..."
+        npm install -g @openai/codex 2>/dev/null || {
+          echo "::warning::Codex CLI not available via npm, using fallback"
+          echo "cli_path=codex" >> "$GITHUB_OUTPUT"
+          echo "version=fallback" >> "$GITHUB_OUTPUT"
+          exit 0
+        }
+
+        CLI_PATH=$(which codex || echo "codex")
+        VERSION=$(codex --version 2>/dev/null || echo "unknown")
+
+        echo "cli_path=${CLI_PATH}" >> "$GITHUB_OUTPUT"
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "Codex CLI installed: ${VERSION}"
+
+    - name: Configure authentication
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+      run: |
+        if [ -z "$OPENAI_API_KEY" ]; then
+          echo "::error::OPENAI_API_KEY is required but not set"
+          exit 1
+        fi
+
+        # Mask the API key in logs
+        echo "::add-mask::${OPENAI_API_KEY}"
+
+        # Export for subsequent steps
+        echo "OPENAI_API_KEY=${OPENAI_API_KEY}" >> "$GITHUB_ENV"
+        echo "Authentication configured"
+
+    - name: Validate setup
+      id: validate
+      shell: bash
+      env:
+        OPENAI_API_KEY: ${{ inputs.openai_api_key }}
+      run: |
+        echo "Validating Codex setup..."
+
+        # Check if CLI is available
+        if ! command -v codex &> /dev/null; then
+          echo "::warning::Codex CLI not found, will use GitHub App mode"
+          echo "ready=github-app" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # Basic validation (don't make actual API calls)
+        if [ -n "$OPENAI_API_KEY" ]; then
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "Codex agent ready"
+        else
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          echo "::error::Codex validation failed - no API key"
+          exit 1
+        fi
+
+    - name: Create working directory
+      shell: bash
+      run: |
+        WORKDIR="${{ inputs.working_directory }}"
+        if [ "$WORKDIR" != "." ] && [ ! -d "$WORKDIR" ]; then
+          mkdir -p "$WORKDIR"
+          echo "Created working directory: $WORKDIR"
+        fi

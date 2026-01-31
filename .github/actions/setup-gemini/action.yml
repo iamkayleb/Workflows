@@ -1,0 +1,108 @@
+# Setup action for Gemini agent
+#
+# This action prepares the environment for running the Gemini CLI
+# via Google AI Platform. Called by reusable-agent-run.yml when
+# agent_type is 'gemini'.
+
+name: 'Setup Gemini Agent'
+description: 'Installs and configures the Gemini CLI for agent execution'
+
+inputs:
+  google_api_key:
+    description: 'Google API key for Gemini authentication'
+    required: true
+  gemini_model:
+    description: 'Gemini model to use'
+    required: false
+    default: 'gemini-pro'
+  working_directory:
+    description: 'Working directory for the agent'
+    required: false
+    default: '.'
+  node_version:
+    description: 'Node.js version to use'
+    required: false
+    default: '20'
+
+outputs:
+  cli_path:
+    description: 'Path to the Gemini CLI executable'
+    value: ${{ steps.install.outputs.cli_path }}
+  version:
+    description: 'Installed Gemini CLI version'
+    value: ${{ steps.install.outputs.version }}
+  ready:
+    description: 'Whether the agent is ready to execute'
+    value: ${{ steps.validate.outputs.ready }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    - name: Install Gemini CLI
+      id: install
+      shell: bash
+      run: |
+        echo "Installing Gemini CLI..."
+
+        # Try npm install
+        npm install -g @google/gemini-cli 2>/dev/null || {
+          echo "::warning::Gemini CLI not available via npm"
+        }
+
+        CLI_PATH=$(which gemini 2>/dev/null || echo "gemini")
+        VERSION=$(gemini --version 2>/dev/null || echo "unknown")
+
+        echo "cli_path=${CLI_PATH}" >> "$GITHUB_OUTPUT"
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "Gemini CLI: ${CLI_PATH} (${VERSION})"
+
+    - name: Configure authentication
+      shell: bash
+      env:
+        GOOGLE_API_KEY: ${{ inputs.google_api_key }}
+        GEMINI_MODEL: ${{ inputs.gemini_model }}
+      run: |
+        if [ -z "$GOOGLE_API_KEY" ]; then
+          echo "::error::GOOGLE_API_KEY is required but not set"
+          exit 1
+        fi
+
+        # Mask the API key in logs
+        echo "::add-mask::${GOOGLE_API_KEY}"
+
+        # Export for subsequent steps
+        echo "GOOGLE_API_KEY=${GOOGLE_API_KEY}" >> "$GITHUB_ENV"
+        echo "GEMINI_MODEL=${GEMINI_MODEL}" >> "$GITHUB_ENV"
+
+        echo "Authentication configured for model: ${GEMINI_MODEL}"
+
+    - name: Validate setup
+      id: validate
+      shell: bash
+      env:
+        GOOGLE_API_KEY: ${{ inputs.google_api_key }}
+      run: |
+        echo "Validating Gemini setup..."
+
+        if [ -n "$GOOGLE_API_KEY" ]; then
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "Gemini agent ready"
+        else
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          echo "::error::Gemini validation failed - no API key"
+          exit 1
+        fi
+
+    - name: Create working directory
+      shell: bash
+      run: |
+        WORKDIR="${{ inputs.working_directory }}"
+        if [ "$WORKDIR" != "." ] && [ ! -d "$WORKDIR" ]; then
+          mkdir -p "$WORKDIR"
+          echo "Created working directory: $WORKDIR"
+        fi

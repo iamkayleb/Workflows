@@ -1,0 +1,173 @@
+# Setup action for Claude agent
+#
+# This action prepares the environment for running the Claude CLI
+# via Amazon Bedrock. Called by reusable-agent-run.yml when
+# agent_type is 'claude'.
+
+name: 'Setup Claude Agent'
+description: 'Installs and configures the Claude CLI for agent execution via Bedrock'
+
+inputs:
+  aws_access_key_id:
+    description: 'AWS Access Key ID for Bedrock authentication'
+    required: true
+  aws_secret_access_key:
+    description: 'AWS Secret Access Key for Bedrock authentication'
+    required: true
+  aws_region:
+    description: 'AWS Region for Bedrock (e.g., us-east-1)'
+    required: false
+    default: 'us-east-1'
+  anthropic_model:
+    description: 'Claude model to use'
+    required: false
+    default: 'claude-sonnet-4-20250514'
+  working_directory:
+    description: 'Working directory for the agent'
+    required: false
+    default: '.'
+  node_version:
+    description: 'Node.js version to use'
+    required: false
+    default: '20'
+
+outputs:
+  cli_path:
+    description: 'Path to the Claude CLI executable'
+    value: ${{ steps.install.outputs.cli_path }}
+  version:
+    description: 'Installed Claude CLI version'
+    value: ${{ steps.install.outputs.version }}
+  ready:
+    description: 'Whether the agent is ready to execute'
+    value: ${{ steps.validate.outputs.ready }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node_version }}
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws_access_key_id }}
+        aws-secret-access-key: ${{ inputs.aws_secret_access_key }}
+        aws-region: ${{ inputs.aws_region }}
+
+    - name: Install Claude CLI
+      id: install
+      shell: bash
+      run: |
+        echo "Installing Claude CLI..."
+
+        # Try npm install first
+        npm install -g @anthropic-ai/claude-code 2>/dev/null || {
+          echo "::warning::Claude CLI not available via npm, trying alternative..."
+
+          # Alternative: Install via pip if available
+          if command -v pip &> /dev/null; then
+            pip install claude-cli 2>/dev/null || true
+          fi
+        }
+
+        # Check if installed
+        CLI_PATH=$(which claude 2>/dev/null || echo "")
+        if [ -z "$CLI_PATH" ]; then
+          echo "::warning::Claude CLI not found, will attempt direct execution"
+          CLI_PATH="claude"
+        fi
+
+        VERSION=$(claude --version 2>/dev/null || echo "unknown")
+
+        echo "cli_path=${CLI_PATH}" >> "$GITHUB_OUTPUT"
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "Claude CLI: ${CLI_PATH} (${VERSION})"
+
+    - name: Configure authentication
+      shell: bash
+      env:
+        AWS_ACCESS_KEY_ID: ${{ inputs.aws_access_key_id }}
+        AWS_SECRET_ACCESS_KEY: ${{ inputs.aws_secret_access_key }}
+        AWS_REGION: ${{ inputs.aws_region }}
+        ANTHROPIC_MODEL: ${{ inputs.anthropic_model }}
+      run: |
+        # Validate required credentials
+        if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+          echo "::error::AWS credentials are required but not set"
+          exit 1
+        fi
+
+        # Mask secrets in logs
+        echo "::add-mask::${AWS_ACCESS_KEY_ID}"
+        echo "::add-mask::${AWS_SECRET_ACCESS_KEY}"
+
+        # Export for subsequent steps
+        echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}" >> "$GITHUB_ENV"
+        echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}" >> "$GITHUB_ENV"
+        echo "AWS_REGION=${AWS_REGION}" >> "$GITHUB_ENV"
+        echo "ANTHROPIC_MODEL=${ANTHROPIC_MODEL}" >> "$GITHUB_ENV"
+
+        # Configure Claude to use Bedrock
+        echo "CLAUDE_CODE_USE_BEDROCK=1" >> "$GITHUB_ENV"
+
+        echo "Authentication configured for region: ${AWS_REGION}"
+        echo "Model: ${ANTHROPIC_MODEL}"
+
+    - name: Validate AWS Bedrock access
+      id: validate
+      shell: bash
+      env:
+        AWS_REGION: ${{ inputs.aws_region }}
+      run: |
+        echo "Validating Bedrock access..."
+
+        # Check AWS CLI is available
+        if ! command -v aws &> /dev/null; then
+          echo "::warning::AWS CLI not found, installing..."
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip -q awscliv2.zip
+          sudo ./aws/install --update
+          rm -rf awscliv2.zip aws/
+        fi
+
+        # Verify credentials work
+        if aws sts get-caller-identity &> /dev/null; then
+          echo "AWS credentials valid"
+        else
+          echo "::error::AWS credentials validation failed"
+          echo "ready=false" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        # Check Bedrock access (list available models)
+        if aws bedrock list-foundation-models --region "${AWS_REGION}" --query 'modelSummaries[?contains(modelId, `claude`)].modelId' --output text &> /dev/null; then
+          echo "Bedrock access confirmed"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "::warning::Could not verify Bedrock access, proceeding anyway"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Create working directory
+      shell: bash
+      run: |
+        WORKDIR="${{ inputs.working_directory }}"
+        if [ "$WORKDIR" != "." ] && [ ! -d "$WORKDIR" ]; then
+          mkdir -p "$WORKDIR"
+          echo "Created working directory: $WORKDIR"
+        fi
+
+    - name: Summary
+      shell: bash
+      run: |
+        echo "### Claude Agent Setup Complete" >> "$GITHUB_STEP_SUMMARY"
+        echo "" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Setting | Value |" >> "$GITHUB_STEP_SUMMARY"
+        echo "|---------|-------|" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Region | ${{ inputs.aws_region }} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Model | ${{ inputs.anthropic_model }} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| CLI Version | ${{ steps.install.outputs.version }} |" >> "$GITHUB_STEP_SUMMARY"
+        echo "| Ready | ${{ steps.validate.outputs.ready }} |" >> "$GITHUB_STEP_SUMMARY"
