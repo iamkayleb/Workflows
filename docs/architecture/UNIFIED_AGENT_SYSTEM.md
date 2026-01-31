@@ -332,3 +332,132 @@ Or override with custom file:
 with:
   prompt_file: "path/to/custom_prompt.md"
 ```
+
+## Making Workflows Dynamic (Registry-Driven)
+
+When workflows are hardcoded for specific agents, they need updating every time you add a new agent. The solution is to make them **registry-driven**.
+
+### Pattern: Dynamic Label Detection
+
+Instead of:
+```yaml
+# ❌ HARDCODED - needs update for each new agent
+jobs:
+  my-job:
+    if: github.event.label.name == 'agent:codex'
+```
+
+Use this pattern:
+```yaml
+# ✅ DYNAMIC - reads from registry
+jobs:
+  check-agent-label:
+    runs-on: ubuntu-latest
+    outputs:
+      is_agent_label: ${{ steps.check.outputs.is_agent_label }}
+      agent_id: ${{ steps.check.outputs.agent_id }}
+      agent_name: ${{ steps.check.outputs.agent_name }}
+      agent_label: ${{ steps.check.outputs.agent_label }}
+    steps:
+      - name: Checkout for registry
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: .github/agents/registry.yml
+
+      - name: Check if label is an agent label
+        id: check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const yaml = require('js-yaml');
+
+            const labelName = context.payload.label?.name || '';
+
+            // Load registry
+            const content = fs.readFileSync('.github/agents/registry.yml', 'utf8');
+            const registry = yaml.load(content);
+
+            // Check if label matches any agent
+            for (const [agentId, config] of Object.entries(registry.agents)) {
+              if (config.label === labelName) {
+                core.setOutput('is_agent_label', 'true');
+                core.setOutput('agent_id', agentId);
+                core.setOutput('agent_name', config.name);
+                core.setOutput('agent_label', labelName);
+                return;
+              }
+            }
+
+            core.setOutput('is_agent_label', 'false');
+
+  main-job:
+    needs: check-agent-label
+    if: needs.check-agent-label.outputs.is_agent_label == 'true'
+    # Now use outputs: ${{ needs.check-agent-label.outputs.agent_id }}
+```
+
+### Pattern: Dynamic Label Removal
+
+Instead of:
+```yaml
+# ❌ HARDCODED
+- name: Remove label
+  run: gh issue edit $NUMBER --remove-label "agent:codex"
+```
+
+Use:
+```yaml
+# ✅ DYNAMIC
+- name: Remove label
+  env:
+    AGENT_LABEL: ${{ needs.check-agent-label.outputs.agent_label }}
+  run: gh issue edit $NUMBER --remove-label "$AGENT_LABEL"
+```
+
+### Pattern: Dynamic Comments
+
+Instead of:
+```yaml
+# ❌ HARDCODED
+body: "Codex cannot complete this issue"
+```
+
+Use:
+```yaml
+# ✅ DYNAMIC
+body: "${{ needs.check-agent-label.outputs.agent_name }} cannot complete this issue"
+```
+
+### Files Already Converted
+
+| File | Status |
+|------|--------|
+| `agents-capability-check.yml` | ✅ Dynamic |
+| `reusable-agent-run.yml` | ✅ Dynamic (new) |
+| `reusable-bot-comment-handler.yml` | ✅ Dynamic |
+
+### Files To Convert
+
+| File | Pattern Needed |
+|------|----------------|
+| `agents-autofix-loop.yml` | Label detection + agent routing |
+| `agents-auto-pilot.yml` | Label detection + agent routing |
+| `agents-71-belt-dispatcher.yml` | Label detection + agent routing |
+| `agents-keepalive-loop.yml` | Already uses evaluate job, add registry check |
+
+### Fallback Behavior
+
+The registry check includes a fallback for unknown agents:
+
+```javascript
+// If label has agent: prefix but isn't in registry, still process it
+if (labelName.startsWith('agent:')) {
+  const agentId = labelName.replace('agent:', '');
+  core.setOutput('is_agent_label', 'true');
+  core.setOutput('agent_id', agentId);
+  // ...
+}
+```
+
+This allows experimentation with new agents before formally adding them to the registry.

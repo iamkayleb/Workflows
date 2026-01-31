@@ -2,6 +2,9 @@ name: Capability Check
 
 # Pre-flight check before agent assignment to identify blockers
 # Uses capability_check.py to detect issues agents cannot complete
+#
+# DYNAMIC: Triggers on ANY agent label from registry.yml
+# No need to modify this workflow when adding new agents.
 
 on:
   issues:
@@ -17,10 +20,92 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  capability-check:
+  # First job: Check if the label is an agent label from registry
+  check-agent-label:
     runs-on: ubuntu-latest
-    # Trigger when agent:codex is added (pre-agent gate)
-    if: github.event.label.name == 'agent:codex'
+    outputs:
+      is_agent_label: ${{ steps.check.outputs.is_agent_label }}
+      agent_id: ${{ steps.check.outputs.agent_id }}
+      agent_name: ${{ steps.check.outputs.agent_name }}
+      agent_label: ${{ steps.check.outputs.agent_label }}
+    steps:
+      - name: Checkout for registry
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github/agents/registry.yml
+            .github/scripts/agent-router.js
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install js-yaml
+
+      - name: Check if label is an agent label
+        id: check
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const yaml = require('js-yaml');
+
+            const labelName = context.payload.label?.name || '';
+            console.log(`Label added: ${labelName}`);
+
+            // Load registry
+            let registry;
+            try {
+              const content = fs.readFileSync('.github/agents/registry.yml', 'utf8');
+              registry = yaml.load(content);
+            } catch (error) {
+              console.log(`Could not load registry: ${error.message}`);
+              // Fallback: check for known agent: prefix
+              if (labelName.startsWith('agent:')) {
+                core.setOutput('is_agent_label', 'true');
+                core.setOutput('agent_id', labelName.replace('agent:', ''));
+                core.setOutput('agent_name', labelName.replace('agent:', ''));
+                core.setOutput('agent_label', labelName);
+                return;
+              }
+              core.setOutput('is_agent_label', 'false');
+              return;
+            }
+
+            // Check if label matches any agent in registry
+            for (const [agentId, config] of Object.entries(registry.agents || {})) {
+              if (config.label === labelName) {
+                console.log(`Matched agent: ${agentId} (${config.name})`);
+                core.setOutput('is_agent_label', 'true');
+                core.setOutput('agent_id', agentId);
+                core.setOutput('agent_name', config.name || agentId);
+                core.setOutput('agent_label', labelName);
+                return;
+              }
+            }
+
+            // Also support generic agent: prefix for future agents
+            if (labelName.startsWith('agent:')) {
+              const agentId = labelName.replace('agent:', '');
+              console.log(`Unknown agent label, but has agent: prefix: ${agentId}`);
+              core.setOutput('is_agent_label', 'true');
+              core.setOutput('agent_id', agentId);
+              core.setOutput('agent_name', agentId);
+              core.setOutput('agent_label', labelName);
+              return;
+            }
+
+            console.log('Not an agent label');
+            core.setOutput('is_agent_label', 'false');
+
+  capability-check:
+    needs: check-agent-label
+    runs-on: ubuntu-latest
+    # Only run if an agent label was added
+    if: needs.check-agent-label.outputs.is_agent_label == 'true'
 
     steps:
       - name: Checkout repository
@@ -28,6 +113,7 @@ jobs:
         with:
           sparse-checkout: |
             .github/scripts/github-api-with-retry.js
+            .github/agents/registry.yml
           sparse-checkout-cone-mode: false
 
       - name: Set up Python
@@ -109,6 +195,9 @@ jobs:
       - name: Add needs-human label if blocked
         if: steps.check.outputs.recommendation == 'BLOCKED'
         uses: actions/github-script@v8
+        env:
+          AGENT_LABEL: ${{ needs.check-agent-label.outputs.agent_label }}
+          AGENT_NAME: ${{ needs.check-agent-label.outputs.agent_name }}
         with:
           script: |
             const fs = require('fs');
@@ -122,6 +211,9 @@ jobs:
                 };
             const { withRetry } = retryHelpers;
 
+            const agentLabel = process.env.AGENT_LABEL;
+            const agentName = process.env.AGENT_NAME;
+
             await withRetry(() => github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -129,16 +221,18 @@ jobs:
               labels: ['needs-human']
             }));
 
-            // Remove agent:codex since agent can't complete this
+            // Remove the agent label since agent can't complete this
+            // DYNAMIC: Uses detected agent label from registry
             try {
               await withRetry(() => github.rest.issues.removeLabel({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                name: 'agent:codex'
+                name: agentLabel
               }));
+              core.info(`Removed ${agentLabel} - ${agentName} cannot complete this issue`);
             } catch (e) {
-              core.warning('Could not remove agent:codex label');
+              core.warning(`Could not remove ${agentLabel} label: ${e.message}`);
             }
 
       - name: Post capability report
@@ -147,6 +241,9 @@ jobs:
         env:
           RESULT_JSON: ${{ steps.check.outputs.result_json }}
           RECOMMENDATION: ${{ steps.check.outputs.recommendation }}
+          AGENT_ID: ${{ needs.check-agent-label.outputs.agent_id }}
+          AGENT_NAME: ${{ needs.check-agent-label.outputs.agent_name }}
+          AGENT_LABEL: ${{ needs.check-agent-label.outputs.agent_label }}
         with:
           script: |
             const fs = require('fs');
@@ -162,18 +259,21 @@ jobs:
 
             const result = JSON.parse(process.env.RESULT_JSON || '{}');
             const recommendation = process.env.RECOMMENDATION || 'UNKNOWN';
+            const agentName = process.env.AGENT_NAME || 'Agent';
+            const agentLabel = process.env.AGENT_LABEL || 'agent:unknown';
 
             let emoji = '✅';
-            let status = 'Agent can proceed';
+            let status = `${agentName} can proceed`;
             if (recommendation === 'BLOCKED') {
               emoji = '🚫';
-              status = 'Agent cannot complete this issue';
+              status = `${agentName} cannot complete this issue`;
             } else if (recommendation === 'REVIEW_NEEDED') {
               emoji = '⚠️';
               status = 'Some tasks may need human assistance';
             }
 
             let body = `### ${emoji} Capability Check: ${status}\n\n`;
+            body += `**Agent:** ${agentName} (\`${agentLabel}\`)\n`;
             body += `**Recommendation:** ${recommendation}\n\n`;
 
             if (result.actionable_tasks && result.actionable_tasks.length > 0) {
