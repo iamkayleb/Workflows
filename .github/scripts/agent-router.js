@@ -8,11 +8,44 @@
  * Usage in GitHub Actions:
  *   const { detectAgent, getAgentConfig, validateSecrets } = require('./agent-router.js');
  *   const agent = await detectAgent(github, context, prNumber);
+ *
+ * Note: Requires js-yaml package. In GitHub Actions, install with:
+ *   npm install js-yaml
  */
 
 const fs = require('fs');
 const path = require('path');
-const yaml = require('js-yaml');
+
+// Try to load js-yaml, provide fallback for environments without it
+let yaml;
+try {
+  yaml = require('js-yaml');
+} catch {
+  // Fallback: simple YAML parser for basic registry structure
+  yaml = {
+    load: (content) => {
+      // Basic parser for our registry format
+      // This is a minimal fallback - use js-yaml in production
+      console.warn('js-yaml not found, using basic parser');
+      const lines = content.split('\n');
+      const result = { agents: {} };
+      let currentAgent = null;
+
+      for (const line of lines) {
+        if (line.match(/^default_agent:\s*(\w+)/)) {
+          result.default_agent = line.match(/^default_agent:\s*(\w+)/)[1];
+        } else if (line.match(/^\s{2}(\w+):$/)) {
+          currentAgent = line.match(/^\s{2}(\w+):$/)[1];
+          result.agents[currentAgent] = {};
+        } else if (currentAgent && line.match(/^\s{4}(\w+):\s*"?([^"]+)"?/)) {
+          const match = line.match(/^\s{4}(\w+):\s*"?([^"]+)"?/);
+          result.agents[currentAgent][match[1]] = match[2].trim();
+        }
+      }
+      return result;
+    },
+  };
+}
 
 // Default registry path
 const REGISTRY_PATH = '.github/agents/registry.yml';
