@@ -1,5 +1,9 @@
 name: Agents Autofix Loop
 
+# Pluggable agent architecture: Detects agent from PR labels via registry.yml
+# Supports any agent defined in .github/agents/registry.yml
+# No code changes needed when adding new agents.
+
 on:
   workflow_run:
     workflows:
@@ -40,15 +44,17 @@ jobs:
       gate_run_id: ${{ steps.evaluate.outputs.gate_run_id }}
       has_high_privilege: ${{ steps.evaluate.outputs.has_high_privilege }}
       agent_type: ${{ steps.evaluate.outputs.agent_type }}
+      agent_name: ${{ steps.evaluate.outputs.agent_name }}
       security_blocked: ${{ steps.security_gate.outputs.blocked }}
       security_reason: ${{ steps.security_gate.outputs.reason }}
     steps:
-      - name: Checkout (for security gate)
+      - name: Checkout (for security gate and registry)
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
             .github/scripts/prompt_injection_guard.js
             .github/scripts/github-api-with-retry.js
+            .github/agents/registry.yml
           sparse-checkout-cone-mode: false
 
       - name: Security gate - prompt injection guard
@@ -114,6 +120,14 @@ jobs:
             if (result.blocked) {
               core.setFailed(`Security gate blocked: ${result.reason}`);
             }
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install js-yaml for registry parsing
+        run: npm install js-yaml
 
       - name: Evaluate workflow_run
         id: evaluate
@@ -206,13 +220,53 @@ jobs:
                   .map((label) => (label?.name || '').toLowerCase())
                   .filter(Boolean)
               : [];
-            const hasCodexLabel = labels.includes('agent:codex');
-            const hasClaudeLabel = labels.includes('agent:claude');
-            const hasAgentLabel = hasCodexLabel || hasClaudeLabel;
+
+            // Dynamic agent detection from registry
+            // Load registry to get all supported agent labels
+            const fs = require('fs');
+            const yaml = require('js-yaml');
+            let registeredAgents = {};
+            try {
+              const registryContent = fs.readFileSync('.github/agents/registry.yml', 'utf8');
+              const registry = yaml.load(registryContent);
+              registeredAgents = registry?.agents || {};
+            } catch (regError) {
+              core.warning(`Could not load agent registry: ${regError.message}`);
+              // Fallback to known agents
+              registeredAgents = {
+                codex: { label: 'agent:codex', name: 'Codex' },
+                claude: { label: 'agent:claude', name: 'Claude' }
+              };
+            }
+
+            // Find which agent label is present on the PR
+            let detectedAgent = null;
+            let detectedAgentId = null;
+            for (const [agentId, config] of Object.entries(registeredAgents)) {
+              const agentLabel = (config.label || `agent:${agentId}`).toLowerCase();
+              if (labels.includes(agentLabel)) {
+                detectedAgent = config;
+                detectedAgentId = agentId;
+                core.info(`Detected agent from registry: ${agentId} (${config.name || agentId})`);
+                break;
+              }
+            }
+
+            // Also check for generic agent: prefix labels not in registry
+            if (!detectedAgentId) {
+              const agentPrefixLabel = labels.find(l => l.startsWith('agent:'));
+              if (agentPrefixLabel) {
+                detectedAgentId = agentPrefixLabel.replace('agent:', '');
+                detectedAgent = { label: agentPrefixLabel, name: detectedAgentId };
+                core.info(`Detected agent from label prefix: ${detectedAgentId}`);
+              }
+            }
+
+            const hasAgentLabel = Boolean(detectedAgentId);
             const hasHighPrivilege = labels.includes('agent-high-privilege');
             outputs.has_high_privilege = String(hasHighPrivilege);
-            // Determine which agent to use (Claude takes precedence if both are present)
-            outputs.agent_type = hasClaudeLabel ? 'claude' : 'codex';
+            outputs.agent_type = detectedAgentId || 'codex';
+            outputs.agent_name = detectedAgent?.name || detectedAgentId || 'Codex';
 
             const body = prData.body || '';
             const configMatch = body.match(/autofix\s*:\s*(true|false)/i);
@@ -371,42 +425,22 @@ jobs:
               core.setOutput(key, value);
             }
 
-  autofix-codex:
+  # Unified autofix job - uses pluggable agent architecture
+  # Automatically routes to the correct agent based on PR labels
+  autofix:
     needs: prepare
-    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.agent_type == 'codex'
-    name: Run Codex autofix
-    uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@main
+    if: needs.prepare.outputs.should_run == 'true'
+    name: Run ${{ needs.prepare.outputs.agent_name || 'Agent' }} autofix
+    uses: stranske/Workflows/.github/workflows/reusable-agent-run.yml@main
     with:
+      agent_type: ${{ needs.prepare.outputs.agent_type }}
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
       pr_number: ${{ needs.prepare.outputs.pr_number }}
       pr_ref: ${{ needs.prepare.outputs.head_ref }}
       appendix: ${{ needs.prepare.outputs.appendix }}
       environment: ${{ needs.prepare.outputs.has_high_privilege == 'true' && 'agent-high-privilege' || 'agent-standard' }}
-    secrets:
-      CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-      WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
-      WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
-
-  autofix-claude:
-    needs: prepare
-    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.agent_type == 'claude'
-    name: Run Claude autofix
-    uses: stranske/Workflows/.github/workflows/reusable-claude-run.yml@main
-    with:
-      prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
-      mode: autofix
-      pr_number: ${{ needs.prepare.outputs.pr_number }}
-      pr_ref: ${{ needs.prepare.outputs.head_ref }}
-      appendix: ${{ needs.prepare.outputs.appendix }}
-      environment: ${{ needs.prepare.outputs.has_high_privilege == 'true' && 'agent-high-privilege' || 'agent-standard' }}
-    secrets:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_REGION: ${{ secrets.AWS_REGION }}
-      ANTHROPIC_MODEL: ${{ secrets.ANTHROPIC_MODEL }}
-      WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
-      WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+    secrets: inherit
 
   needs-human:
     needs: prepare

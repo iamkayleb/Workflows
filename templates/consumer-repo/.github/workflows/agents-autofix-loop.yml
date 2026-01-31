@@ -1,5 +1,9 @@
 name: Agents Autofix Loop
 
+# Pluggable agent architecture: Detects agent from PR labels via registry.yml
+# Supports any agent defined in .github/agents/registry.yml
+# No code changes needed when adding new agents.
+
 on:
   workflow_run:
     workflows:
@@ -44,6 +48,7 @@ jobs:
       trigger_step: ${{ steps.evaluate.outputs.trigger_step }}
       gate_conclusion: ${{ steps.evaluate.outputs.gate_conclusion }}
       gate_run_id: ${{ steps.evaluate.outputs.gate_run_id }}
+      agent_type: ${{ steps.evaluate.outputs.agent_type }}
       security_blocked: ${{ steps.security_gate.outputs.blocked }}
       security_reason: ${{ steps.security_gate.outputs.reason }}
     steps:
@@ -209,9 +214,12 @@ jobs:
                   .map((label) => (label?.name || '').toLowerCase())
                   .filter(Boolean)
               : [];
-            const hasCodexLabel = labels.includes('agent:codex');
-            const hasClaudeLabel = labels.includes('agent:claude');
-            const hasAgentLabel = hasCodexLabel || hasClaudeLabel;
+
+            // Dynamic agent detection - supports any agent:* label
+            const agentLabel = labels.find(l => l.startsWith('agent:'));
+            const hasAgentLabel = Boolean(agentLabel);
+            const agentType = agentLabel ? agentLabel.replace('agent:', '') : 'codex';
+            outputs.agent_type = agentType;
 
             const body = prData.body || '';
             const configMatch = body.match(/autofix\s*:\s*(true|false)/i);
@@ -219,10 +227,10 @@ jobs:
               ? configMatch[1].toLowerCase() === 'true'
               : hasAgentLabel;
 
-            // Auto-escalation: Escalate to Codex CLI when Gate fails
+            // Auto-escalation: Escalate to agent CLI when Gate fails
             // Triggers if: (1) basic autofix ran but insufficient, OR (2) no basic autofix applied
-            // Note: We do NOT add agent:codex label here because that triggers external Codex UI
-            // which would conflict with our internal Codex CLI run. Only add autofix:escalated.
+            // Note: We do NOT add agent label here because that triggers external agent UI
+            // which would conflict with our internal CLI run. Only add autofix:escalated.
             if (!autofixEnabled && !configMatch) {
                 const hasAutofixLabel =
                   labels.includes('autofix:applied') || labels.includes('autofix');
@@ -384,21 +392,21 @@ jobs:
               core.setOutput(key, value);
             }
 
+  # Unified autofix job - uses pluggable agent architecture
+  # Automatically routes to the correct agent based on PR labels
   autofix:
     needs: prepare
     if: needs.prepare.outputs.should_run == 'true'
-    name: Run Codex autofix
-    uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@main
+    name: Run ${{ needs.prepare.outputs.agent_type || 'codex' }} autofix
+    uses: stranske/Workflows/.github/workflows/reusable-agent-run.yml@main
     with:
+      agent_type: ${{ needs.prepare.outputs.agent_type || 'codex' }}
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
       pr_number: ${{ needs.prepare.outputs.pr_number }}
       pr_ref: ${{ needs.prepare.outputs.head_ref }}
       appendix: ${{ needs.prepare.outputs.appendix }}
-    secrets:
-      CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-      WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
-      WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+    secrets: inherit
 
   needs-human:
     needs: prepare
