@@ -180,16 +180,14 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const fs = require('fs');
-            const retryHelperPath = './.github/scripts/github-api-with-retry.js';
-            const retryHelpers = fs.existsSync(retryHelperPath)
-              ? require(retryHelperPath)
-              : {
-                  withRetry: (fn) => fn(),
-                  paginateWithRetry: (githubInstance, method, params) =>
-                    githubInstance.paginate(method, params),
-                };
-            const { withRetry } = retryHelpers;
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'bootstrap-find-issues',
+              capabilities: ['issues:read', 'contents:read']
+            });
             const { owner, repo } = context.repo;
             const { data: issue } = await withRetry(() => github.rest.issues.create({ owner, repo, title: '[readiness] probe', body: 'temp' }));
             core.setOutput('num', String(issue.number));
@@ -329,18 +327,32 @@ jobs:
           echo "Tokens present: GITHUB_TOKEN=${GITHUB_TOKEN:+yes} SERVICE_BOT_PAT=${SERVICE_BOT_PAT:+yes}"
       - name: Attempt branch create
         if: inputs.diagnostic_attempt_branch == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          base=$(git rev-parse HEAD)
-            ts=$(date -u +%Y%m%d%H%M%S)
-            target="diagnostic/codex-${ts}"
-            echo "Creating $target from $base"
-            curl -s -o /tmp/create.json -w '%{http_code}' -X POST \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H 'Accept: application/vnd.github+json' \
-              https://api.github.com/repos/${{ github.repository }}/git/refs \
-              -d '{"ref":"refs/heads/'"$target"'","sha":"'"$base"'"}' || true
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'reusable-agents-diagnostic-branch',
+              capabilities: ['contents:write']
+            });
+            const base = context.sha;
+            const ts = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+            const target = `diagnostic/codex-${ts}`;
+            core.info(`Creating ${target} from ${base}`);
+            try {
+              await withRetry((client) => client.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/heads/${target}`,
+                sha: base
+              }));
+              core.notice(`Created ${target}`);
+            } catch (error) {
+              core.warning(`Failed to create ${target}: ${error?.message || error}`);
+            }
 
   verify_issue:
     if: inputs.enable_verify_issue == 'true' && inputs.verify_issue_number != ''
@@ -555,24 +567,31 @@ jobs:
             let scanned = 0;
             let truncated = false;
             const issues = [];
-            const issueIterator = github.paginate.iterator(
-              github.rest.issues.listForRepo,
-              {
+            let page = 1;
+            const perPage = 50;
+            const maxPages = Math.ceil(scanLimit / perPage) + 1;
+            while (page <= maxPages && issues.length < scanLimit) {
+              const { data } = await withRetry((client) => client.rest.issues.listForRepo({
                 owner,
                 repo,
                 state: 'open',
                 labels: label,
-                per_page: 50
-              }
-            );
-
-            for await (const response of issueIterator) {
-              issues.push(...response.data);
-              if (issues.length >= scanLimit) {
-                truncated = true;
-                core.warning(`Bootstrap issue scan truncated after ${scanLimit} records.`);
+                per_page: perPage,
+                page
+              }));
+              if (!data?.length) {
                 break;
               }
+              issues.push(...data);
+              if (data.length < perPage) {
+                break;
+              }
+              page += 1;
+            }
+
+            if (issues.length >= scanLimit) {
+              truncated = true;
+              core.warning(`Bootstrap issue scan truncated after ${scanLimit} records.`);
             }
 
             const limitedIssues = issues.slice(0, scanLimit);
@@ -689,10 +708,18 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const { data } = await github.rest.repos.get({
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'reusable-agents-resolve-workflows-ref',
+              capabilities: ['contents:read']
+            });
+            const { data } = await withRetry((client) => client.rest.repos.get({
               owner: 'stranske',
               repo: 'Workflows'
-            });
+            }));
             if (!data?.default_branch) {
               core.setFailed('Could not determine Workflows default branch');
               return;
