@@ -64,6 +64,15 @@ def extract_title_issue_number(title: str) -> int | None:
     return None
 
 
+def extract_head_ref_issue_numbers(head_ref: str) -> set[int]:
+    return extract_issue_numbers(head_ref or "", include_hash=False)
+
+
+def is_autofix_context(pr_title: str, head_ref: str) -> bool:
+    combined = f"{pr_title or ''}\n{head_ref or ''}".lower()
+    return "autofix" in combined or (head_ref or "").lower().startswith("autofix/")
+
+
 def _run_git(args: list[str]) -> str:
     result = subprocess.run(
         ["git", *args],
@@ -104,12 +113,40 @@ def collect_changed_files(
 
 def collect_header_issue_numbers(file_path: Path, max_lines: int) -> set[int]:
     numbers: set[int] = set()
+    in_docstring = False
+    docstring_delim = ""
+
+    def is_comment_line(line: str) -> bool:
+        stripped = line.lstrip()
+        return stripped.startswith(("#", "//", "/*", "*", "--", ";", "<!--"))
+
     try:
         with file_path.open("r", encoding="utf-8", errors="ignore") as handle:
             for _ in range(max_lines):
                 line = handle.readline()
                 if not line:
                     break
+                if in_docstring:
+                    if "issue" in line.lower():
+                        numbers.update(extract_issue_numbers(line, include_hash=True))
+                    if docstring_delim and docstring_delim in line:
+                        in_docstring = False
+                        docstring_delim = ""
+                    continue
+
+                stripped = line.lstrip()
+                if stripped.startswith(('"""', "'''")):
+                    docstring_delim = stripped[:3]
+                    in_docstring = True
+                    if "issue" in line.lower():
+                        numbers.update(extract_issue_numbers(line, include_hash=True))
+                    if stripped.count(docstring_delim) >= 2:
+                        in_docstring = False
+                        docstring_delim = ""
+                    continue
+
+                if not is_comment_line(line):
+                    continue
                 if "issue" not in line.lower():
                     continue
                 numbers.update(extract_issue_numbers(line, include_hash=True))
@@ -143,6 +180,11 @@ def main() -> int:
         help="Pull request title (defaults to PR_TITLE env).",
     )
     parser.add_argument(
+        "--head-ref",
+        default=os.environ.get("HEAD_REF") or os.environ.get("GITHUB_HEAD_REF", ""),
+        help="Pull request head ref (defaults to HEAD_REF or GITHUB_HEAD_REF env).",
+    )
+    parser.add_argument(
         "--header-lines",
         type=int,
         default=40,
@@ -152,8 +194,22 @@ def main() -> int:
 
     pr_issue = extract_title_issue_number(args.pr_title)
     if not pr_issue:
-        print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
-        return 1
+        head_numbers = extract_head_ref_issue_numbers(args.head_ref)
+        if len(head_numbers) == 1:
+            pr_issue = next(iter(head_numbers))
+        elif len(head_numbers) > 1:
+            print(
+                "Error: Multiple issue numbers detected in head ref:",
+                sorted(head_numbers),
+                file=sys.stderr,
+            )
+            return 1
+        elif is_autofix_context(args.pr_title, args.head_ref):
+            print("Skipping issue consistency check: autofix context with no issue number.")
+            return 0
+        else:
+            print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
+            return 1
 
     base_sha = (args.base_sha or "").strip() or None
     base_remote = (args.base_remote or "origin").strip() or "origin"
