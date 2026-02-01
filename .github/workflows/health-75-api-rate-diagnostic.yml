@@ -1140,7 +1140,7 @@ jobs:
             console.error(error);
             process.exit(1);
           });
-          NODE
+            NODE
 
   check-consumer-repos:
     name: Check Consumer Repo Activity

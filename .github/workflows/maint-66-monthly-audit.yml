@@ -34,6 +34,9 @@ jobs:
       - name: Export load-balancer tokens
         uses: ./.github/actions/export-load-balancer-tokens
 
+      - name: Install GitHub API dependencies
+        run: npm install --no-save --no-package-lock @octokit/rest @octokit/auth-app
+
       - name: Collect workflow statistics
         id: stats
         env:
@@ -49,7 +52,7 @@ jobs:
           export START_DATE="${start_date}"
 
           # Get all workflow runs
-          runs=$(node - <<'NODE'
+          runs=$(node - <<-'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
           const core = { info: () => {}, warning: console.warn, debug: () => {} };
