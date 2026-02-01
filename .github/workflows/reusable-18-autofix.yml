@@ -237,7 +237,14 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const fs = require('fs');
+            const retryHelperPath = './.github/scripts/github-api-with-retry.js';
+            const retryHelpers = fs.existsSync(retryHelperPath)
+              ? require(retryHelperPath)
+              : {
+                  createTokenAwareRetry: async () => ({ withRetry: (fn) => fn(github) })
+                };
+            const { createTokenAwareRetry } = retryHelpers;
             const { withRetry } = await createTokenAwareRetry({
               github,
               core,
@@ -1075,11 +1082,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           mkdir -p ci/autofix
           rm -f ci/autofix/history.json
           artifact_name="autofix-history-pr-${TARGET_PR}"
           echo "[history] Attempting to restore ${artifact_name} from previous runs"
           set +e
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           response=$(node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -1121,6 +1130,7 @@ jobs:
           artifact_id=${latest%%$'\t'*}
           tmpdir=$(mktemp -d)
           echo "[history] Downloading artifact id ${artifact_id}"
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           if ! TARGET_REPO="${TARGET_REPO}" ARTIFACT_ID="${artifact_id}" TARGET_ZIP="$tmpdir/artifact.zip" node - <<'NODE'; then
           const fs = require('fs');
           const { Octokit } = require('@octokit/rest');

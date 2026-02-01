@@ -40,9 +40,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           mkdir -p artifacts
 
           # Get artifact IDs and names
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           node - <<'NODE' |
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -73,11 +75,12 @@ jobs:
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           while IFS=$'\t' read -r id name; do
             echo "Downloading artifact $id ($name)"
             mkdir -p "artifacts/$name"
-            if ! ARTIFACT_ID="$id" ARTIFACT_DIR="artifacts/$name" ARTIFACT_ZIP="artifacts/$name/$id.zip" node - <<'NODE'; then
+            # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+            if ! ARTIFACT_ID="$id" ARTIFACT_DIR="artifacts/$name" ARTIFACT_ZIP="artifacts/$name/$id.zip" node - <<'NODE'
             const fs = require('fs');
             const { Octokit } = require('@octokit/rest');
             const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -109,7 +112,7 @@ NODE
               console.error(error);
               process.exit(1);
             });
-NODE
+            NODE
             then
               echo "Warning: Could not download artifact $id ($name)"
               continue

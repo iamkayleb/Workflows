@@ -94,8 +94,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::GITHUB_TOKEN Rate Limits"
 
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           rate_data=$(node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -115,7 +117,7 @@ jobs:
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
@@ -199,8 +201,10 @@ NODE
           GH_TOKEN: ${{ env.CODESPACES_WORKFLOWS }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::PAT Rate Limits"
 
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           rate_data=$(node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -220,7 +224,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
@@ -301,8 +305,10 @@ NODE
           GH_TOKEN: ${{ env.SERVICE_BOT_PAT }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::SERVICE_BOT_PAT Rate Limits"
 
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           rate_data=$(node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -322,7 +328,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
@@ -411,8 +417,10 @@ NODE
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::GitHub App Rate Limits"
 
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           rate_data=$(node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -432,7 +440,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
@@ -524,8 +532,10 @@ NODE
           GH_TOKEN: ${{ steps.keepalive_app_token.outputs.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::KEEPALIVE_APP Rate Limits"
 
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           rate_data=$(node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -545,7 +555,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
@@ -636,8 +646,10 @@ NODE
           GH_TOKEN: ${{ steps.gh_app_token.outputs.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::GH_APP Rate Limits"
 
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           rate_data=$(node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -657,7 +669,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
@@ -739,6 +751,7 @@ NODE
           KEEPALIVE_APP_TOKEN: ${{ steps.keepalive_app_token.outputs.token || '' }}
           GH_APP_TOKEN: ${{ steps.gh_app_token.outputs.token || '' }}
         run: |
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -804,7 +817,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
 
       - name: Aggregate and analyze results
         id: aggregate
@@ -957,6 +970,7 @@ NODE
       - name: Install load balancer dependencies
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           npm install --no-save --no-package-lock @octokit/rest @octokit/auth-app
 
       - name: Export load balancer tokens
@@ -986,6 +1000,7 @@ NODE
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           node <<'NODE'
           (async () => {
@@ -1139,6 +1154,32 @@ NODE
       CODESPACES_WORKFLOWS: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Export load balancer tokens
+        if: ${{ env.CODESPACES_WORKFLOWS != '' }}
+        uses: ./.github/actions/export-load-balancer-tokens
+        with:
+          github_token: ${{ github.token }}
+          service_bot_pat: ${{ secrets.SERVICE_BOT_PAT }}
+          actions_bot_pat: ${{ secrets.ACTIONS_BOT_PAT }}
+          codespaces_workflows: ${{ secrets.CODESPACES_WORKFLOWS }}
+          owner_pr_pat: ${{ secrets.OWNER_PR_PAT }}
+          agents_automation_pat: ${{ secrets.AGENTS_AUTOMATION_PAT }}
+          workflows_app_id: ${{ secrets.WORKFLOWS_APP_ID }}
+          workflows_app_private_key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+          keepalive_app_id: ${{ secrets.KEEPALIVE_APP_ID }}
+          keepalive_app_private_key: ${{ secrets.KEEPALIVE_APP_PRIVATE_KEY }}
+          gh_app_id: ${{ secrets.GH_APP_ID }}
+          gh_app_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          app_1_id: ${{ secrets.APP_1_ID }}
+          app_1_private_key: ${{ secrets.APP_1_PRIVATE_KEY }}
+          app_2_id: ${{ secrets.APP_2_ID }}
+          app_2_private_key: ${{ secrets.APP_2_PRIVATE_KEY }}
+          token_rotation_json: ${{ secrets.TOKEN_ROTATION_JSON }}
+          token_rotation_env_keys: ${{ vars.TOKEN_ROTATION_ENV_KEYS }}
+
       - name: Check recent workflow runs across consumer repos
         id: activity
         if: ${{ env.CODESPACES_WORKFLOWS != '' }}
@@ -1154,6 +1195,7 @@ NODE
             stranske/Collab-Admin
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::Consumer Repo Activity"
 
           activity_json='[]'
@@ -1167,6 +1209,7 @@ NODE
             # Get recent workflow runs (last hour)
             since=$(date -u -d '1 hour ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+            # shellcheck disable=SC1009,SC1073,SC1039,SC1072
             runs_data=$(REPO="$repo" SINCE="$since" node - <<'NODE' 2>/dev/null || echo '{"workflow_runs":[]}')
             const { Octokit } = require('@octokit/rest');
             const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -1193,7 +1236,7 @@ NODE
               console.error(error);
               process.exit(1);
             });
-NODE
+            NODE
 
             total_runs=$(echo "$runs_data" | jq '.total_count // 0')
             in_progress=$(echo "$runs_data" | jq '[.workflow_runs[] | select(.status == "in_progress")] | length')
@@ -1246,6 +1289,7 @@ NODE
         id: report
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           echo "# 📊 API Rate Limit Diagnostic Report" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -1474,6 +1518,7 @@ NODE
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -1541,7 +1586,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
 
   alert-on-repeat-failure:
     name: Alert on Repeated Failure
@@ -1560,6 +1605,7 @@ NODE
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -1664,7 +1710,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
 
   # Historical report job - runs when report_mode is 'historical'
   generate-historical-report:
@@ -1681,6 +1727,7 @@ NODE
         id: dates
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           START_INPUT="${{ inputs.start_date }}"
           END_INPUT="${{ inputs.end_date }}"
@@ -1771,6 +1818,7 @@ NODE
           END_DATE: ${{ steps.dates.outputs.end_date }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           echo "Fetching Health 75 workflow runs from $START_DATE to $END_DATE"
 
@@ -1783,6 +1831,7 @@ NODE
           fi
 
           # Get workflow ID for Health 75 (direct path lookup avoids pagination limits)
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           workflow_meta=$(PRIMARY_TOKEN="$primary_token" FALLBACK_TOKEN="$FALLBACK_GH_TOKEN" node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -1830,7 +1879,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
           workflow_id=$(echo "$workflow_meta" | jq -r '.workflow_id // empty')
           token_used=$(echo "$workflow_meta" | jq -r '.token_used // "primary"')
@@ -1848,6 +1897,7 @@ NODE
 
           # Fetch runs in date range (GitHub API uses created filter)
           # Note: Use query params instead of -F flags to keep this a GET request
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           runs=$(TOKEN_TO_USE="$token_to_use" WORKFLOW_ID="$workflow_id" START_DATE="$START_DATE" node - <<'NODE'
           const { Octokit } = require('@octokit/rest');
           const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
@@ -1889,7 +1939,7 @@ NODE
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
 
           # Normalize END_DATE to an ISO 8601 end-of-day timestamp
@@ -1914,6 +1964,7 @@ NODE
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           # Read runs from previous step
           runs=$(cat /tmp/runs.json)
@@ -1939,6 +1990,7 @@ NODE
           RUN_COUNT: ${{ steps.history.outputs.run_count }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           echo "# 📊 Historical API Rate Limit Report" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"

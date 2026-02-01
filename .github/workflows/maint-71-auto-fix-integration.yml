@@ -57,6 +57,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           RUN_ID="${{ steps.extract.outputs.run_id }}"
 
           if [ -z "$RUN_ID" ]; then
@@ -90,7 +91,7 @@ jobs:
             console.error(error);
             process.exit(1);
           });
-NODE
+          NODE
           )
 
           if [ -z "$RUN_DATA" ]; then

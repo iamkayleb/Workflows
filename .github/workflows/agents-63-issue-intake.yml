@@ -1342,6 +1342,28 @@ jobs:
           set -euo pipefail
           npm install --no-save --no-package-lock @octokit/rest @octokit/auth-app
 
+      - name: Export load balancer tokens
+        uses: ./.github/actions/export-load-balancer-tokens
+        with:
+          github_token: ${{ github.token }}
+          service_bot_pat: ${{ secrets.SERVICE_BOT_PAT }}
+          actions_bot_pat: ${{ secrets.ACTIONS_BOT_PAT }}
+          codespaces_workflows: ${{ secrets.CODESPACES_WORKFLOWS }}
+          owner_pr_pat: ${{ secrets.OWNER_PR_PAT }}
+          agents_automation_pat: ${{ secrets.AGENTS_AUTOMATION_PAT }}
+          workflows_app_id: ${{ secrets.WORKFLOWS_APP_ID }}
+          workflows_app_private_key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+          keepalive_app_id: ${{ secrets.KEEPALIVE_APP_ID }}
+          keepalive_app_private_key: ${{ secrets.KEEPALIVE_APP_PRIVATE_KEY }}
+          gh_app_id: ${{ secrets.GH_APP_ID }}
+          gh_app_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          app_1_id: ${{ secrets.APP_1_ID }}
+          app_1_private_key: ${{ secrets.APP_1_PRIVATE_KEY }}
+          app_2_id: ${{ secrets.APP_2_ID }}
+          app_2_private_key: ${{ secrets.APP_2_PRIVATE_KEY }}
+          token_rotation_json: ${{ secrets.TOKEN_ROTATION_JSON }}
+          token_rotation_env_keys: ${{ vars.TOKEN_ROTATION_ENV_KEYS }}
+
       - name: Format issues
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1349,6 +1371,7 @@ jobs:
           CREATED_ISSUES: ${{ needs.chatgpt_sync.outputs.created_issue_numbers }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           echo "Created issue numbers: $CREATED_ISSUES"
 
@@ -1364,6 +1387,7 @@ jobs:
             echo "=== Formatting issue #${issue_num} ==="
 
             # Get issue body
+            # shellcheck disable=SC1009,SC1073,SC1039,SC1072
             if ! ISSUE_NUMBER="$issue_num" node - <<'NODE'
             const fs = require('fs');
             const { Octokit } = require('@octokit/rest');
@@ -1424,6 +1448,7 @@ jobs:
 
             # Update issue
             echo "  💾 Updating issue body..."
+            # shellcheck disable=SC1009,SC1073,SC1039,SC1072
             if ! ISSUE_NUMBER="$issue_num" node - <<'NODE'
             const fs = require('fs');
             const { Octokit } = require('@octokit/rest');
@@ -1466,6 +1491,7 @@ jobs:
 
             # Add formatted label
             echo "  🏷️  Adding 'agents:formatted' label..."
+            # shellcheck disable=SC1009,SC1073,SC1039,SC1072
             if ! ISSUE_NUMBER="$issue_num" node - <<'NODE'
             const { Octokit } = require('@octokit/rest');
             const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');

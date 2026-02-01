@@ -30,7 +30,8 @@ def _should_retry(response: requests.Response) -> bool:
         return True
     if response.status_code != 403:
         return False
-    remaining = response.headers.get("x-ratelimit-remaining")
+    headers = getattr(response, "headers", {}) or {}
+    remaining = headers.get("x-ratelimit-remaining")
     if remaining is not None:
         try:
             return int(remaining) <= 0
@@ -47,7 +48,8 @@ def _should_retry(response: requests.Response) -> bool:
 
 
 def _retry_delay(response: requests.Response, attempt: int) -> float:
-    reset = response.headers.get("x-ratelimit-reset")
+    headers = getattr(response, "headers", {}) or {}
+    reset = headers.get("x-ratelimit-reset")
     if reset:
         try:
             reset_epoch = int(reset)
@@ -55,7 +57,7 @@ def _retry_delay(response: requests.Response, attempt: int) -> float:
             return min(delay, 60.0)
         except ValueError:
             pass
-    return min(2 ** attempt, 30)
+    return min(2**attempt, 30)
 
 
 def _request_with_retry(
@@ -88,8 +90,10 @@ def _request_with_retry(
             last_exc = exc
             if attempt >= max_retries:
                 raise
-            time.sleep(min(2 ** attempt, 30))
+            time.sleep(min(2**attempt, 30))
             continue
+        if not hasattr(response, "headers"):
+            return response
         if not _should_retry(response):
             return response
         if attempt >= max_retries:
