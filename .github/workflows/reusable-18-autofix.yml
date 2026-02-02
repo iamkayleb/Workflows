@@ -1166,7 +1166,6 @@ jobs:
             process.exit(1);
           });
           NODE
-          then
             echo "[history] Failed to download artifact ${artifact_id}"
             exit 0
           fi
