@@ -926,7 +926,7 @@ jobs:
             // Each agent has its own belt dispatcher workflow
             const dispatcherWorkflow = agentType === 'claude'
               ? 'agents-71-claude-belt-dispatcher.yml'
-              : 'agents-71-codex-belt-dispatcher.yml';
+              : 'agents-71-belt-dispatcher.yml';
 
             try {
               await github.rest.actions.createWorkflowDispatch({

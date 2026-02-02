@@ -1,10 +1,15 @@
-# Automates selection of ready Codex issues and primes a codex/issue-<n> branch
-# before handing control to the Codex belt worker.
-name: Agents 71 Codex Belt Dispatcher
+# Automates selection of ready agent issues and primes an agent/issue-<n> branch
+# before handing control to the belt worker. Supports all agents defined in registry.yml.
+name: Agents 71 Belt Dispatcher
 
 on:
   workflow_call:
     inputs:
+      agent_type:
+        description: 'Agent to dispatch (codex, claude, gemini). If empty, uses first available from queue.'
+        required: false
+        default: ''
+        type: string
       force_issue:
         description: 'Optional issue number to dispatch immediately'
         required: false
@@ -27,7 +32,7 @@ on:
         description: 'Issue selected for dispatch'
         value: ${{ jobs.dispatch.outputs.issue }}
       branch:
-        description: 'Codex branch tied to the selected issue'
+        description: 'Agent branch tied to the selected issue'
         value: ${{ jobs.dispatch.outputs.branch }}
       base:
         description: 'Base branch used for the automation PR'
@@ -35,11 +40,25 @@ on:
       reason:
         description: 'Reason the dispatcher selected the issue'
         value: ${{ jobs.dispatch.outputs.reason }}
+      agent_type:
+        description: 'Agent type detected or selected'
+        value: ${{ jobs.dispatch.outputs.agent_type }}
+      agent_name:
+        description: 'Agent display name'
+        value: ${{ jobs.dispatch.outputs.agent_name }}
+      agent_label:
+        description: 'Agent label used for search'
+        value: ${{ jobs.dispatch.outputs.agent_label }}
       dry_run:
         description: 'Dispatcher dry-run mode flag'
         value: ${{ jobs.dispatch.outputs.dry_run }}
   workflow_dispatch:
     inputs:
+      agent_type:
+        description: 'Agent to dispatch (codex, claude, gemini). If empty, uses first available from queue.'
+        required: false
+        default: ''
+        type: string
       force_issue:
         description: 'Optional issue number to dispatch immediately'
         required: false
@@ -57,18 +76,21 @@ permissions:
   actions: write
 
 concurrency:
-  group: codex-belt-dispatcher
+  group: agent-belt-dispatcher
   cancel-in-progress: false
 
 jobs:
   dispatch:
-    name: Select next Codex issue
+    name: Select next agent issue
     runs-on: ubuntu-latest
     outputs:
       issue: ${{ steps.pick.outputs.issue || '' }}
       branch: ${{ steps.pick.outputs.branch || '' }}
       base: ${{ steps.pick.outputs.base || '' }}
       reason: ${{ steps.pick.outputs.reason || '' }}
+      agent_type: ${{ steps.pick.outputs.agent_type || 'codex' }}
+      agent_name: ${{ steps.pick.outputs.agent_name || 'Codex' }}
+      agent_label: ${{ steps.pick.outputs.agent_label || 'agent:codex' }}
       dry_run: ${{ steps.mode.outputs.dry_run || 'false' }}
     env:
       ACTIONS_BOT_PAT: ${{ secrets.ACTIONS_BOT_PAT || '' }}
@@ -177,42 +199,102 @@ jobs:
             }
             core.setOutput('ref', data.default_branch);
 
-      - name: Checkout (for retry helpers)
+      - name: Checkout (for retry helpers and registry)
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             .github/scripts/github-api-with-retry.js
+            .github/agents/registry.yml
           sparse-checkout-cone-mode: false
+
+      - name: Setup Node.js for registry parsing
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install js-yaml
+        run: npm install js-yaml
 
       - name: Resolve candidate issue
         id: pick
         uses: actions/github-script@v8
+        env:
+          AGENT_TYPE_INPUT: ${{ inputs.agent_type }}
         with:
           github-token: ${{ env.GH_DISPATCH_TOKEN }}
           script: |
+            const fs = require('fs');
+            const yaml = require('js-yaml');
             const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
             const forced = '${{ inputs.force_issue }}';
+            const agentTypeInput = (process.env.AGENT_TYPE_INPUT || '').trim().toLowerCase();
             const { owner, repo } = context.repo;
 
+            // Load agent registry
+            let registry = { agents: {}, default_agent: 'codex' };
+            try {
+              const registryContent = fs.readFileSync('.github/agents/registry.yml', 'utf8');
+              registry = yaml.load(registryContent);
+            } catch (regError) {
+              core.warning(`Could not load agent registry: ${regError.message}`);
+              registry = {
+                default_agent: 'codex',
+                agents: {
+                  codex: { label: 'agent:codex', name: 'Codex' },
+                  claude: { label: 'agent:claude', name: 'Claude' },
+                  gemini: { label: 'agent:gemini', name: 'Gemini' }
+                }
+              };
+            }
+
+            // Determine agent to use
+            let agentId = agentTypeInput || registry.default_agent || 'codex';
+            let agentConfig = registry.agents[agentId];
+            if (!agentConfig) {
+              core.warning(`Agent '${agentId}' not found in registry, using default`);
+              agentId = registry.default_agent || 'codex';
+              agentConfig = registry.agents[agentId];
+            }
+
+            const agentLabel = agentConfig?.label || `agent:${agentId}`;
+            const agentName = agentConfig?.name || agentId;
+
             const summary = core.summary;
-            summary.addHeading('Codex Belt Dispatcher');
+            summary.addHeading(`${agentName} Belt Dispatcher`);
 
             let issueNumber = null;
             let reason = '';
 
+            // If forced issue, detect agent from its labels
             if (forced && String(forced).trim()) {
               issueNumber = Number(String(forced).trim());
               reason = 'manual-dispatch';
+
+              // Fetch issue to verify agent label matches
+              try {
+                const { data: issue } = await withRetry(() => github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number: issueNumber
+                }));
+                const labels = issue.labels.map(l => l.name.toLowerCase());
+                if (!labels.includes(agentLabel.toLowerCase())) {
+                  core.warning(`Forced issue #${issueNumber} doesn't have ${agentLabel} label, but proceeding anyway`);
+                }
+              } catch (error) {
+                core.warning(`Could not verify forced issue #${issueNumber}: ${error.message}`);
+              }
             }
 
+            // Search for issues with the agent label
             if (!issueNumber) {
               const { data: issues } = await withRetry(() => github.rest.issues.listForRepo({
                 owner,
                 repo,
                 state: 'open',
-                labels: 'agent:codex,status:ready',
+                labels: `${agentLabel},status:ready`,
                 sort: 'created',
                 direction: 'asc',
                 per_page: 30,
@@ -225,19 +307,24 @@ jobs:
             }
 
             if (!issueNumber) {
-              summary.addRaw('No open issues with labels `agent:codex` and `status:ready` were found.').write();
+              summary.addRaw(`No open issues with labels \`${agentLabel}\` and \`status:ready\` were found.`).write();
               core.setOutput('issue', '');
               core.setOutput('reason', 'empty');
+              core.setOutput('agent_type', agentId);
+              core.setOutput('agent_name', agentName);
+              core.setOutput('agent_label', agentLabel);
               return;
             }
 
             summary.addTable([
               [
                 { data: 'Issue', header: true },
+                { data: 'Agent', header: true },
                 { data: 'Reason', header: true }
               ],
               [
                 `#${issueNumber}`,
+                agentName,
                 reason || '(unspecified)'
               ]
             ]);
@@ -248,12 +335,15 @@ jobs:
               core.setFailed('Repository default branch not available');
               return;
             }
-            const branch = `codex/issue-${issueNumber}`;
+            const branch = `${agentId}/issue-${issueNumber}`;
 
             core.setOutput('issue', String(issueNumber));
             core.setOutput('branch', branch);
             core.setOutput('base', base);
             core.setOutput('reason', reason || '');
+            core.setOutput('agent_type', agentId);
+            core.setOutput('agent_name', agentName);
+            core.setOutput('agent_label', agentLabel);
             summary.addRaw(`Selected issue #${issueNumber} → branch \`${branch}\` on base \`${base}\`.`).write();
 
       - name: Stop when queue is empty
@@ -310,12 +400,13 @@ jobs:
             } catch (error) {
               core.warning(`Failed to add status:in-progress: ${error.message}`);
             }
+            const agentName = '${{ steps.pick.outputs.agent_name }}';
             try {
               await withRetry(() => github.rest.issues.createComment({
                 owner,
                 repo,
                 issue_number: issue,
-                body: `Codex belt dispatcher queued this issue and created branch \`${branch}\`.`
+                body: `${agentName} belt dispatcher queued this issue and created branch \`${branch}\`.`
               }));
             } catch (error) {
               core.warning(`Failed to comment on issue #${issue}: ${error.message}`);

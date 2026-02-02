@@ -1121,10 +1121,10 @@ jobs:
           fi
 
   belt-dispatch:
-    name: Codex Belt Dispatcher
+    name: Agent Belt Dispatcher
     needs:
       - keepalive-guard
-    uses: ./.github/workflows/agents-71-codex-belt-dispatcher.yml
+    uses: ./.github/workflows/agents-71-belt-dispatcher.yml
     with:
       force_issue: ${{ inputs.dispatcher_force_issue }}
       dry_run: ${{ inputs.dry_run == 'true' }}
