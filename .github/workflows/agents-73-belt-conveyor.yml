@@ -1,16 +1,17 @@
-# Closes the loop: merge successful Codex belt PRs, tidy branches and issues,
+# Closes the loop: merge successful agent belt PRs, tidy branches and issues,
 # and immediately nudge the dispatcher for the next item in the queue.
-name: Agents 73 Codex Belt Conveyor
+# Supports all agents defined in registry.yml (codex, claude, gemini, etc.)
+name: Agents 73 Belt Conveyor
 
 on:
   workflow_call:
     inputs:
       issue:
-        description: 'Source issue number for the Codex belt PR'
+        description: 'Source issue number for the agent belt PR'
         required: true
         type: number
       branch:
-        description: 'Branch associated with the Codex belt PR (codex/issue-<n>)'
+        description: 'Branch associated with the agent belt PR (agent/issue-<n>)'
         required: true
         type: string
       pr_number:
@@ -42,12 +43,12 @@ permissions:
   actions: write
 
 concurrency:
-  group: codex-belt-conveyor-${{ inputs.branch || format('issue-{0}', inputs.issue) || github.run_id }}
+  group: agent-belt-conveyor-${{ inputs.branch || format('issue-{0}', inputs.issue) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   promote:
-    name: Promote merged Codex belt PR
+    name: Promote merged agent belt PR
     runs-on: ubuntu-latest
     outputs:
       merged: ${{ steps.merge.outputs.merged || 'false' }}
@@ -175,7 +176,7 @@ jobs:
             const modeDisplay = dryRun ? 'Preview (dry run)' : 'Live (merge ready)';
             const runId = context.runId;
             const concurrencyKey = branch || issueNumber || runId;
-            const concurrencyGroup = concurrencyKey ? `codex-belt-conveyor-${concurrencyKey}` : '';
+            const concurrencyGroup = concurrencyKey ? `agent-belt-conveyor-${concurrencyKey}` : '';
             if (!concurrencyGroup) {
               core.setFailed('Unable to determine conveyor concurrency group.');
               return;
@@ -183,7 +184,7 @@ jobs:
             const issueDisplay = issueNumber ? `#${issueNumber}` : 'Unknown';
             const branchDisplay = branch || '(unspecified)';
             summary
-              .addHeading('Codex Belt Conveyor')
+              .addHeading('Agent Belt Conveyor')
               .addTable([
                 [
                   { data: 'Issue', header: true },
@@ -252,12 +253,14 @@ jobs:
               core.setFailed(`PR #${prNumber} is running on ${headBranch} instead of ${branch}.`);
               return;
             }
-            const match = headBranch.match(/^codex\/issue-(\d+)$/);
+            // Match agent belt branch pattern: agent/issue-N (e.g., codex/issue-123, claude/issue-456)
+            const match = headBranch.match(/^([a-z]+)\/issue-(\d+)$/);
             if (!match) {
-              core.setFailed(`Branch ${headBranch} is not a codex belt branch.`);
+              core.setFailed(`Branch ${headBranch} is not a valid agent belt branch (expected format: agent/issue-N).`);
               return;
             }
-            const inferredIssue = Number(match[1]);
+            const agentName = match[1];
+            const inferredIssue = Number(match[2]);
             if (expectedIssue && inferredIssue !== expectedIssue) {
               core.warning(`Expected issue #${expectedIssue} but branch implies #${inferredIssue}. Using branch hint.`);
             }
@@ -265,6 +268,7 @@ jobs:
             core.setOutput('issue', String(inferredIssue || expectedIssue || ''));
             core.setOutput('head_sha', data.head && data.head.sha ? data.head.sha : '');
             core.setOutput('base', data.base && data.base.ref ? data.base.ref : '');
+            core.setOutput('agent_name', agentName);
 
       - name: Ensure Gate succeeded
         id: gate
@@ -322,9 +326,10 @@ jobs:
               per_page: 100,
             });
 
+            // Match bootstrap files for the detected agent: agents/{agentName}-{issueN}.md
             const placeholderPattern = inferredIssue
-              ? new RegExp(`^agents/codex-${inferredIssue}\\.md$`)
-              : /^agents\/codex-\d+\.md$/;
+              ? new RegExp(`^agents/${agentName}-${inferredIssue}\\.md$`)
+              : new RegExp(`^agents/${agentName}-\\d+\\.md$`);
 
             let bootstrapOnly = files.length > 0;
             for (const file of files) {
@@ -353,7 +358,7 @@ jobs:
                 break;
               }
               const expectedLine = inferredIssue
-                ? `<!-- bootstrap for codex on issue #${inferredIssue} -->`
+                ? `<!-- bootstrap for ${agentName} on issue #${inferredIssue} -->`
                 : null;
               if (expectedLine && addedLines[0] !== expectedLine) {
                 bootstrapOnly = false;
@@ -363,7 +368,7 @@ jobs:
 
             const summary = core.summary;
             if (bootstrapOnly) {
-              summary.addRaw('Detected bootstrap-only Codex PR; merge deferred until real changes are present.').addEOL();
+              summary.addRaw(`Detected bootstrap-only ${agentName} PR; merge deferred until real changes are present.`).addEOL();
             }
             await summary.write();
 
@@ -453,8 +458,10 @@ jobs:
                 core.warning(`Failed to remove status:in-progress: ${error.message}`);
               }
             }
+            const agentName = '${{ steps.mode.outputs.agent_name }}' || 'agent';
+            const agentDisplay = agentName.charAt(0).toUpperCase() + agentName.slice(1);
             try {
-              await withRetry(() => github.rest.issues.createComment({ owner, repo, issue_number: issue, body: 'Merged via Codex Belt Conveyor after Gate success.' }));
+              await withRetry(() => github.rest.issues.createComment({ owner, repo, issue_number: issue, body: `Merged via ${agentDisplay} Belt Conveyor after Gate success.` }));
             } catch (error) {
               core.warning(`Failed to comment on issue #${issue}: ${error.message}`);
             }

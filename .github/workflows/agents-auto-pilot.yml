@@ -1402,7 +1402,7 @@ jobs:
                 // Each agent has its own belt worker dispatch workflow
                 const workerDispatchWorkflow = agentType === 'claude'
                   ? 'agents-72-claude-belt-worker-dispatch.yml'
-                  : 'agents-72-codex-belt-worker-dispatch.yml';
+                  : 'agents-72-belt-worker-dispatch.yml';
                 const workerDisplayName = agentType === 'claude' ? 'Claude' : 'Codex';
 
                 try {

@@ -1365,7 +1365,7 @@ jobs:
             - Belt worker workflow failed silently
 
             **To investigate:**
-            1. Check recent workflow runs for \`agents-72-codex-belt-worker\` failures
+            1. Check recent workflow runs for \`agents-72-belt-worker\` failures
             2. Review the issue requirements for clarity
             3. Check the Codex session logs if available
 
@@ -1407,7 +1407,7 @@ jobs:
                   await github.rest.actions.createWorkflowDispatch({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
-                    workflow_id: 'agents-72-codex-belt-worker-dispatch.yml',
+                    workflow_id: 'agents-72-belt-worker-dispatch.yml',
                     ref: baseBranch,
                     inputs: {
                       issue: issueNumber.toString(),
@@ -1442,7 +1442,7 @@ jobs:
                     `Error: \`${errorDetail}\``,
                     '',
                     '**Troubleshooting:**',
-                    '- Check if `agents-72-codex-belt-worker-dispatch.yml` exists',
+                    '- Check if `agents-72-belt-worker-dispatch.yml` exists',
                     '- Verify workflow permissions allow `actions: write`',
                     '- Check workflow runs in the Actions tab for errors'
                   ].join('\n');

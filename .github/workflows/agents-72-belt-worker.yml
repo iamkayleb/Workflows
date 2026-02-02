@@ -1,16 +1,22 @@
-# Executes the Codex belt worker: validates the queued issue, ensures the
-# codex/issue-<n> branch exists, and opens or refreshes the automation PR.
-name: Agents 72 Codex Belt Worker
+# Executes the agent belt worker: validates the queued issue, ensures the
+# agent/issue-<n> branch exists, and opens or refreshes the automation PR.
+# Supports all agents defined in registry.yml (codex, claude, gemini, etc.)
+name: Agents 72 Belt Worker
 
 on:
   workflow_call:
     inputs:
+      agent_type:
+        description: 'Agent type (codex, claude, gemini). Auto-detected from issue if not provided.'
+        required: false
+        default: ''
+        type: string
       issue:
         description: 'Issue number'
         required: true
         type: string
       branch:
-        description: 'Branch to prepare (codex/issue-<n>)'
+        description: 'Branch to prepare (agent/issue-<n>)'
         required: true
         type: string
       base:
@@ -86,12 +92,12 @@ permissions:
   actions: write
 
 concurrency:
-  group: codex-belt-${{ inputs.branch || format('issue-{0}', inputs.issue) || github.run_id }}
+  group: agent-belt-${{ inputs.branch || format('issue-{0}', inputs.issue) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   bootstrap:
-    name: Prepare Codex automation PR
+    name: Prepare agent automation PR
     runs-on: ubuntu-latest
     outputs:
       issue: ${{ steps.ctx.outputs.issue || '' }}
@@ -309,13 +315,14 @@ jobs:
             }
             core.setOutput('ref', data.default_branch);
 
-      - name: Checkout Workflows scripts
+      - name: Checkout Workflows scripts and registry
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             .github/scripts
+            .github/agents/registry.yml
           sparse-checkout-cone-mode: false
           fetch-depth: 1
           path: workflows-lib
@@ -326,6 +333,18 @@ jobs:
             mkdir -p .github
             ln -s "${GITHUB_WORKSPACE}/workflows-lib/.github/scripts" ".github/scripts"
           fi
+          if [ ! -d ".github/agents" ]; then
+            mkdir -p .github/agents
+            ln -s "${GITHUB_WORKSPACE}/workflows-lib/.github/agents/registry.yml" ".github/agents/registry.yml"
+          fi
+
+      - name: Setup Node.js for registry parsing
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install js-yaml
+        run: npm install js-yaml
 
       - name: Determine default branch
         id: base
@@ -363,7 +382,7 @@ jobs:
             }
 
             const { owner, repo } = context.repo;
-            const workflowId = 'agents-72-codex-belt-worker.yml';
+            const workflowId = 'agents-72-belt-worker.yml';
             const { data } = await withRetry(() =>
               github.rest.actions.listWorkflowRuns({
                 owner,
@@ -525,9 +544,13 @@ jobs:
         if: ${{ steps.parallel.outputs.allowed == 'true' && (inputs.keepalive != true || steps.keepalive_gate.outputs.action != 'skip') }}
         id: verify
         uses: actions/github-script@v8
+        env:
+          AGENT_TYPE_INPUT: ${{ inputs.agent_type }}
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
+            const fs = require('fs');
+            const yaml = require('js-yaml');
             const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             const { owner, repo } = context.repo;
@@ -535,16 +558,71 @@ jobs:
               github.rest.issues.get({ owner, repo, issue_number: issue })
             );
 
+            // Load agent registry
+            let registry = { agents: {}, default_agent: 'codex' };
+            try {
+              const registryContent = fs.readFileSync('.github/agents/registry.yml', 'utf8');
+              registry = yaml.load(registryContent);
+            } catch (regError) {
+              core.warning(`Could not load agent registry: ${regError.message}`);
+              registry = {
+                default_agent: 'codex',
+                agents: {
+                  codex: { label: 'agent:codex', name: 'Codex' },
+                  claude: { label: 'agent:claude', name: 'Claude' },
+                  gemini: { label: 'agent:gemini', name: 'Gemini' }
+                }
+              };
+            }
+
             const labelNames = Array.isArray(data.labels) ? data.labels.map((l) => String(l.name || '')) : [];
-            const hasCodex = labelNames.some((name) => name === 'agent:codex');
-            if (!hasCodex) {
-              core.setFailed(`Issue #${issue} no longer carries the agent:codex label.`);
+
+            // Determine expected agent from input or detect from labels
+            const agentTypeInput = (process.env.AGENT_TYPE_INPUT || '').trim().toLowerCase();
+            let expectedAgentLabel = null;
+            let expectedAgentName = null;
+
+            if (agentTypeInput) {
+              const agentConfig = registry.agents[agentTypeInput];
+              if (agentConfig) {
+                expectedAgentLabel = agentConfig.label;
+                expectedAgentName = agentConfig.name || agentTypeInput;
+              }
+            }
+
+            // If no input provided, detect from issue labels
+            if (!expectedAgentLabel) {
+              for (const [agentId, config] of Object.entries(registry.agents || {})) {
+                const agentLabel = config.label || `agent:${agentId}`;
+                if (labelNames.includes(agentLabel)) {
+                  expectedAgentLabel = agentLabel;
+                  expectedAgentName = config.name || agentId;
+                  break;
+                }
+              }
+            }
+
+            // Fall back to default
+            if (!expectedAgentLabel) {
+              const defaultAgentId = registry.default_agent || 'codex';
+              const defaultConfig = registry.agents[defaultAgentId];
+              expectedAgentLabel = defaultConfig?.label || 'agent:codex';
+              expectedAgentName = defaultConfig?.name || 'Codex';
+            }
+
+            // Verify the issue has the expected agent label
+            const hasAgentLabel = labelNames.includes(expectedAgentLabel);
+            if (!hasAgentLabel) {
+              core.setFailed(`Issue #${issue} no longer carries the ${expectedAgentLabel} label.`);
               return;
             }
+
             const hasReady = labelNames.some((name) => name === 'status:ready');
             const hasInProgress = labelNames.some((name) => name === 'status:in-progress');
             core.setOutput('has_ready', hasReady ? 'true' : 'false');
             core.setOutput('has_in_progress', hasInProgress ? 'true' : 'false');
+            core.setOutput('agent_label', expectedAgentLabel);
+            core.setOutput('agent_name', expectedAgentName);
 
       - name: Checkout branch
         if: ${{ steps.parallel.outputs.allowed == 'true' && (inputs.keepalive != true || steps.keepalive_gate.outputs.action != 'skip') }}
@@ -983,9 +1061,10 @@ jobs:
               core.warning(`Unable to read issue #${issue}: ${error.message}`);
             }
 
+            const agentName = '${{ steps.verify.outputs.agent_name }}' || 'Codex';
             const header = `### Source Issue #${issue}: ${issueTitle}`;
             const quoted = (issueBody || '').split('\n').map((line) => `> ${line}`).join('\n');
-            const body = `${header}\n\nSource: ${issueUrl}\n\n${quoted}\n\n—\nPR created automatically to engage Codex.`;
+            const body = `${header}\n\nSource: ${issueUrl}\n\n${quoted}\n\n—\nPR created automatically to engage ${agentName}.`;
 
             // Attempt to reuse an existing PR first
             let prNumber = null;
@@ -1007,7 +1086,7 @@ jobs:
             if (!prNumber) {
               try {
                 const { data: pr } = await withRetry(() =>
-                  github.rest.pulls.create({ owner, repo, head: branch, base, title: `Codex belt for #${issue}`, body })
+                  github.rest.pulls.create({ owner, repo, head: branch, base, title: `${agentName} belt for #${issue}`, body })
                 );
                 prNumber = pr.number;
               } catch (error) {
@@ -1063,7 +1142,10 @@ jobs:
             const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
             const prNumber = Number('${{ steps.pr.outputs.number }}');
             const { owner, repo } = context.repo;
-            const labels = ['agent:codex', 'autofix', 'from:codex'];
+            const agentLabel = '${{ steps.verify.outputs.agent_label }}' || 'agent:codex';
+            const agentName = '${{ steps.verify.outputs.agent_name }}' || 'codex';
+            const fromLabel = `from:${agentName.toLowerCase()}`;
+            const labels = [agentLabel, 'autofix', fromLabel];
             try {
               await withRetry(() =>
                 github.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels })

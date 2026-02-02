@@ -1,15 +1,21 @@
-# Wrapper workflow to allow workflow_dispatch for the Codex belt worker.
-name: Agents 72 Codex Belt Worker Dispatch
+# Wrapper workflow to allow workflow_dispatch for the agent belt worker.
+# Supports all agents defined in registry.yml (codex, claude, gemini, etc.)
+name: Agents 72 Belt Worker Dispatch
 
 on:
   workflow_dispatch:
     inputs:
+      agent_type:
+        description: 'Agent type (codex, claude, gemini). Auto-detected from issue if not provided.'
+        required: false
+        default: ''
+        type: string
       issue:
         description: 'Issue number'
         required: true
         type: string
       branch:
-        description: 'Branch to prepare (codex/issue-<n>)'
+        description: 'Branch to prepare (agent/issue-<n>)'
         required: true
         type: string
       base:
@@ -51,9 +57,10 @@ permissions:
 
 jobs:
   run-worker:
-    name: Run Codex belt worker
-    uses: ./.github/workflows/agents-72-codex-belt-worker.yml
+    name: Run agent belt worker
+    uses: ./.github/workflows/agents-72-belt-worker.yml
     with:
+      agent_type: ${{ inputs.agent_type }}
       issue: ${{ inputs.issue }}
       branch: ${{ inputs.branch }}
       base: ${{ inputs.base }}

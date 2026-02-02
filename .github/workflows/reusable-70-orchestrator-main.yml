@@ -1226,8 +1226,9 @@ jobs:
         needs.belt-check-existing-pr.outputs.pr_exists != 'true' ||
         inputs.enable_keepalive == 'true'
       )
-    uses: ./.github/workflows/agents-72-codex-belt-worker.yml
+    uses: ./.github/workflows/agents-72-belt-worker.yml
     with:
+      agent_type: ${{ needs.belt-dispatch.outputs.agent_type }}
       issue: ${{ needs.belt-dispatch.outputs.issue }}
       branch: ${{ needs.belt-dispatch.outputs.branch }}
       base: ${{ needs.belt-dispatch.outputs.base }}
@@ -2713,7 +2714,7 @@ jobs:
     strategy:
       matrix:
         pr: ${{ fromJson(needs.belt-scan-ready-prs.outputs.items) }}
-    uses: ./.github/workflows/agents-73-codex-belt-conveyor.yml
+    uses: ./.github/workflows/agents-73-belt-conveyor.yml
     with:
       issue: ${{ matrix.pr.issue || 0 }}
       branch: ${{ matrix.pr.branch }}
