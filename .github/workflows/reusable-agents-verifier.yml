@@ -51,6 +51,10 @@ on:
       OPENAI_API_KEY:
         required: false
         description: 'OpenAI API key for evaluate/compare modes (enables model selection beyond GitHub Models)'
+      workflows_app_id:
+        required: false
+      workflows_app_private_key:
+        required: false
 
 permissions:
   contents: read
@@ -68,9 +72,21 @@ jobs:
     name: Run post-merge verifier
     runs-on: ubuntu-latest
     steps:
+      # Mint GitHub App token early to use for API calls (avoids rate limits)
+      - name: Mint GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
+          owner: ${{ github.repository_owner }}
+
       - name: Checkout caller repository
         uses: actions/checkout@v6
         with:
+
+          token: ${{ steps.app_token.outputs.token || github.token }}
           fetch-depth: 0
 
       - name: Setup API client
@@ -101,6 +117,8 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
+
+          token: ${{ steps.app_token.outputs.token || github.token }}
           repository: stranske/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
@@ -603,7 +621,7 @@ jobs:
       # Use verify:create-issue label on PRs with CONCERNS to manually create follow-up issues
       - name: Open follow-up issue on verifier failure
         id: failure_issue
-        if: false  # Disabled - use agents-verify-to-issue-v2.yml with verify:create-issue label instead
+        # Disabled - use agents-verify-to-issue-v2.yml with verify:create-issue label instead
         uses: actions/github-script@v8
         env:
           PR_URL: ${{ steps.context.outputs.pr_html_url }}
