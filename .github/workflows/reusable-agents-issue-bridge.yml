@@ -300,6 +300,10 @@ jobs:
         run: |
           echo "::error::Missing issue number for workflow_dispatch. Provide an issue number when manually running this workflow." && exit 1
 
+      # Disable sparse checkout from earlier step to get full repo contents
+      - name: Disable sparse checkout
+        run: git sparse-checkout disable || true
+
       - name: Checkout default
         uses: actions/checkout@v6
         with:
