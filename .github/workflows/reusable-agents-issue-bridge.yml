@@ -101,15 +101,13 @@ jobs:
           app-id: ${{ secrets.workflows_app_id }}
           private-key: ${{ secrets.workflows_app_private_key }}
 
-      - name: Checkout retry helpers
+      # Full checkout from the start - sparse checkout causes issues with file visibility
+      # in subsequent steps even after disabling it
+      - name: Checkout repository
         uses: actions/checkout@v6
         with:
-          sparse-checkout: |
-            .github/actions/setup-api-client
-            .github/scripts/github-api-with-retry.js
-            .github/scripts/github-rate-limited-wrapper.js
-            .github/scripts/issue_pr_locator.js
-          sparse-checkout-cone-mode: false
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Setup API client
         uses: ./.github/actions/setup-api-client
@@ -300,24 +298,17 @@ jobs:
         run: |
           echo "::error::Missing issue number for workflow_dispatch. Provide an issue number when manually running this workflow." && exit 1
 
-      # Full checkout - need to explicitly clear sparse checkout state from earlier step
-      # by setting sparse-checkout to empty string and using clean: true
-      - name: Checkout default (full)
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ steps.refs.outputs.base }}
-          fetch-depth: 0
-          persist-credentials: true
-          clean: true
-          sparse-checkout: ''
-
-      # Force restore any files that sparse checkout might have excluded
-      - name: Restore all files
+      # Switch to the target base branch if different from current checkout
+      - name: Checkout target base
         run: |
-          git sparse-checkout disable 2>/dev/null || true
-          git checkout HEAD -- . 2>/dev/null || true
-          echo "Scripts directory contents:"
-          ls -la .github/scripts/ | head -20
+          TARGET_BASE="${{ steps.refs.outputs.base }}"
+          CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+          if [ "$TARGET_BASE" != "$CURRENT_BRANCH" ]; then
+            git fetch origin "$TARGET_BASE" --depth=0 || true
+            git checkout "$TARGET_BASE" || git checkout -b "$TARGET_BASE" "origin/$TARGET_BASE"
+          fi
+          echo "Scripts available:"
+          ls .github/scripts/ | head -10
 
       - name: Select PR mode
         id: mode
