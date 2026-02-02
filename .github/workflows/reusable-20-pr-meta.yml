@@ -268,6 +268,7 @@ jobs:
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             .github/scripts
+            .github/actions/setup-api-client
           sparse-checkout-cone-mode: false
           path: workflows-lib
           fetch-depth: 1
@@ -275,6 +276,12 @@ jobs:
       - name: Set scripts path
         run: |
           echo "WORKFLOWS_SCRIPTS_PATH=${GITHUB_WORKSPACE}/workflows-lib" >> "$GITHUB_ENV"
+
+      - name: Setup API client
+        uses: ./workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
 
       - name: Mint GitHub App token (preferred)
         id: app_token
@@ -331,6 +338,7 @@ jobs:
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             .github/scripts
+            .github/actions/setup-api-client
           sparse-checkout-cone-mode: false
           path: workflows-lib
           fetch-depth: 1
@@ -338,6 +346,12 @@ jobs:
       - name: Set scripts path
         run: |
           echo "WORKFLOWS_SCRIPTS_PATH=${GITHUB_WORKSPACE}/workflows-lib" >> "$GITHUB_ENV"
+
+      - name: Setup API client
+        uses: ./workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
 
       - name: Evaluate keepalive gate
         id: gate
@@ -464,6 +478,7 @@ jobs:
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             .github/scripts
+            .github/actions/setup-api-client
           sparse-checkout-cone-mode: false
           path: workflows-lib
           fetch-depth: 1
@@ -471,6 +486,12 @@ jobs:
       - name: Set scripts path
         run: |
           echo "WORKFLOWS_SCRIPTS_PATH=${GITHUB_WORKSPACE}/workflows-lib" >> "$GITHUB_ENV"
+
+      - name: Setup API client
+        uses: ./workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
 
       - name: Upsert PR body sections
         uses: actions/github-script@v8
