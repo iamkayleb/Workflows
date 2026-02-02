@@ -311,6 +311,14 @@ jobs:
           clean: true
           sparse-checkout: ''
 
+      # Force restore any files that sparse checkout might have excluded
+      - name: Restore all files
+        run: |
+          git sparse-checkout disable 2>/dev/null || true
+          git checkout HEAD -- . 2>/dev/null || true
+          echo "Scripts directory contents:"
+          ls -la .github/scripts/ | head -20
+
       - name: Select PR mode
         id: mode
         uses: actions/github-script@v8
