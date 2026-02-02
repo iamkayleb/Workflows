@@ -7,7 +7,7 @@
 # POLICY: Any file intended for consumer repos MUST be listed here.
 # Files not listed will NOT be synced, even if they exist in templates/consumer-repo/.
 #
-# Last sync trigger: 2026-01-27T06:05:00Z - fix removals manifest entry (issue-1123)
+# Last sync trigger: 2026-01-27T06:05:00Z - fix removals manifest entry
 #
 # Categories:
 #   workflows: Thin caller workflows that consumers run directly
@@ -437,9 +437,13 @@ templates:
 
 # Actions required by reusable workflows
 actions:
+  - source: .github/actions/setup-api-client/
+    is_directory: true
+    description: "Unified API client setup - installs @octokit deps and exports all load balancer tokens"
+
   - source: .github/actions/export-load-balancer-tokens/
     is_directory: true
-    description: "Export load balancer tokens action - required by reusable-10-ci-python.yml"
+    description: "Export load balancer tokens action - required by reusable-10-ci-python.yml (deprecated, use setup-api-client)"
 
 # Documentation synced to consumer repos
 docs:

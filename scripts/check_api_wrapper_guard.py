@@ -37,12 +37,15 @@ API_CALL_PATTERNS = [
 ]
 
 WRAPPER_HINTS = (
+    "ensureRateLimitWrapped",
+    "github-rate-limited-wrapper.js",
     "createTokenAwareRetry",
     "paginateWithRetry",
     "github-api-with-retry.js",
 )
 
-LOAD_BALANCER_HINT = "export-load-balancer-tokens"
+# Accept either the old or new action name
+LOAD_BALANCER_HINTS = {"export-load-balancer-tokens", "setup-api-client"}
 
 
 def _run_git(args: list[str], allow_exit_codes: set[int] | None = None) -> str:
@@ -114,12 +117,18 @@ def _collect_all_files() -> list[Path]:
         if not directory.exists():
             continue
         for path in directory.rglob("*"):
+            # Skip node_modules directories (dependencies, not project code)
+            if "node_modules" in path.parts:
+                continue
             if path.is_file():
                 files.append(path)
     return files
 
 
 def _is_target_file(path: Path) -> bool:
+    # Skip node_modules directories (dependencies, not project code)
+    if "node_modules" in path.parts:
+        return False
     return path not in SKIP_FILES and path.suffix.lower() in {
         ".yml",
         ".yaml",
@@ -154,9 +163,11 @@ def _scan_file(path: Path) -> list[str]:
     if (
         path.suffix.lower() in {".yml", ".yaml"}
         and has_api_calls
-        and LOAD_BALANCER_HINT not in content
+        and not any(hint in content for hint in LOAD_BALANCER_HINTS)
     ):
-        violations.append(f"{path.relative_to(ROOT)}: missing export-load-balancer-tokens step")
+        violations.append(
+            f"{path.relative_to(ROOT)}: missing export-load-balancer-tokens or setup-api-client step"
+        )
 
     return violations
 
