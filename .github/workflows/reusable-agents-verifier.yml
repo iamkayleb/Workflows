@@ -63,8 +63,11 @@ permissions:
   actions: read
   models: read  # Required for GitHub Models API access
 
+# Use PR number in concurrency group to avoid cancelling runs for different PRs.
+# pull_request_target uses base branch for github.ref, so without PR number
+# all verifier runs targeting the same branch would share a concurrency group.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-pr-${{ inputs.pr_number || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
