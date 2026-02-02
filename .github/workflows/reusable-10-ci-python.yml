@@ -322,18 +322,27 @@ jobs:
     outputs:
       format_outcome: ${{ steps.finalize.outputs.outcome || steps.black.outcome || 'skipped' }}
     steps:
+      - name: Checkout Workflows repo for actions
+        uses: actions/checkout@v6
+        with:
+          repository: stranske/Workflows
+          path: .workflows-lib
+          sparse-checkout: |
+            .github/actions/setup-api-client
+          sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
       - name: Checkout repository
         if: ${{ inputs['working-directory'] == '' || inputs['working-directory'] == '.' }}
         uses: actions/checkout@v6
         with:
           submodules: false
           fetch-depth: 1
-      - name: Setup API client
-        if: ${{ inputs['working-directory'] == '' || inputs['working-directory'] == '.' }}
-        uses: ./.github/actions/setup-api-client
-        with:
-          secrets: ${{ toJSON(secrets) }}
-          github_token: ${{ github.token }}
 
       - name: Checkout repository (sparse)
         if: ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' }}
@@ -342,20 +351,12 @@ jobs:
           submodules: false
           fetch-depth: 1
           sparse-checkout: |
-            .github/actions/setup-api-client
             .github/workflows
             scripts
             tools
             config
             ${{ inputs['working-directory'] }}
           sparse-checkout-cone-mode: true
-
-      - name: Setup API client
-        if: ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' }}
-        uses: ./.github/actions/setup-api-client
-        with:
-          secrets: ${{ toJSON(secrets) }}
-          github_token: ${{ github.token }}
 
 
       # Inlined from .github/actions/python-ci-setup for external repo compatibility
@@ -635,7 +636,6 @@ jobs:
           submodules: false
           fetch-depth: 1
           sparse-checkout: |
-            .github/actions/setup-api-client
             .github/workflows
             scripts
             tools
@@ -921,7 +921,6 @@ jobs:
           submodules: false
           fetch-depth: 1
           sparse-checkout: |
-            .github/actions/setup-api-client
             .github/workflows
             scripts
             tools
@@ -2068,10 +2067,11 @@ jobs:
           private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
           owner: ${{ github.repository_owner }}
 
-      - name: Checkout (for setup-api-client)
+      - name: Checkout Workflows repo for actions
         uses: actions/checkout@v6
         with:
-
+          repository: stranske/Workflows
+          path: .workflows-lib
           token: ${{ steps.app_token.outputs.token || github.token }}
           sparse-checkout: |
             .github/actions/setup-api-client
@@ -2081,7 +2081,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Setup API client
-        uses: ./.github/actions/setup-api-client
+        uses: ./.workflows-lib/.github/actions/setup-api-client
         with:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
