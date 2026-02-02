@@ -300,16 +300,16 @@ jobs:
         run: |
           echo "::error::Missing issue number for workflow_dispatch. Provide an issue number when manually running this workflow." && exit 1
 
-      # Disable sparse checkout from earlier step to get full repo contents
-      - name: Disable sparse checkout
-        run: git sparse-checkout disable || true
-
-      - name: Checkout default
+      # Full checkout - need to explicitly clear sparse checkout state from earlier step
+      # by setting sparse-checkout to empty string and using clean: true
+      - name: Checkout default (full)
         uses: actions/checkout@v6
         with:
           ref: ${{ steps.refs.outputs.base }}
           fetch-depth: 0
           persist-credentials: true
+          clean: true
+          sparse-checkout: ''
 
       - name: Select PR mode
         id: mode
