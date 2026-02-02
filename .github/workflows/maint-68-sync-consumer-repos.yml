@@ -259,7 +259,7 @@ jobs:
         env:
           GH_TOKEN: ${{ env.REPO_TOKEN }}
         run: |
-          gh repo clone ${{ matrix.repo }} consumer -- --depth=1
+          gh repo clone ${{ matrix.repo }} consumer -- --depth=1 --no-recurse-submodules
 
       - name: Download manifest
         uses: actions/download-artifact@v7
