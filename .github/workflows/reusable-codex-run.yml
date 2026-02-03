@@ -67,11 +67,6 @@ on:
         required: false
         default: ''
         type: string
-      base_ref:
-        description: 'Base branch/ref to use when surfacing merge conflicts.'
-        required: false
-        default: ''
-        type: string
       environment:
         description: 'GitHub environment to run in (agent-standard or agent-high-privilege).'
         required: false
