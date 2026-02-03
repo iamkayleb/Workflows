@@ -51,6 +51,9 @@ inputs:
     required: false
   app_2_private_key:
     required: false
+  install_dir:
+    description: 'Override install directory for node dependencies (defaults to $GITHUB_WORKSPACE/.github/scripts)'
+    required: false
   # Configuration options
   skip_deps:
     description: 'Skip npm install (if deps already installed in a prior step)'
@@ -79,7 +82,10 @@ runs:
         set -euo pipefail
 
         # Use dedicated scripts dir, create if needed
-        INSTALL_DIR="${GITHUB_WORKSPACE}/.github/scripts"
+        INSTALL_DIR="${{ inputs.install_dir }}"
+        if [ -z "$INSTALL_DIR" ]; then
+          INSTALL_DIR="${GITHUB_WORKSPACE}/.github/scripts"
+        fi
         mkdir -p "$INSTALL_DIR"
 
         echo "📦 Installing @octokit dependencies in $INSTALL_DIR..."
@@ -116,7 +122,10 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        INSTALL_DIR="${GITHUB_WORKSPACE}/.github/scripts"
+        INSTALL_DIR="${{ inputs.install_dir }}"
+        if [ -z "$INSTALL_DIR" ]; then
+          INSTALL_DIR="${GITHUB_WORKSPACE}/.github/scripts"
+        fi
         if [ -d "${INSTALL_DIR}/node_modules" ]; then
           if [ -n "${NODE_PATH:-}" ]; then
             echo "NODE_PATH=${INSTALL_DIR}/node_modules:${NODE_PATH}" >> "$GITHUB_ENV"

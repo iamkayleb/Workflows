@@ -406,6 +406,11 @@ async function runScenario(scenario) {
     }
     env[key] = String(value);
   }
+  if (clearTokenDefaults) {
+    for (const key of tokenEnvKeys) {
+      delete env[key];
+    }
+  }
 
   const originalNow = Date.now;
   if (scenario.now) {

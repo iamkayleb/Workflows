@@ -12,8 +12,10 @@ on:
       - '.github/codex/prompts/keepalive*.md'
 
 permissions:
-  contents: read
-  pull-requests: read
+  contents: write
+  pull-requests: write
+  actions: write
+  models: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -111,11 +113,11 @@ jobs:
             const counts = countCheckboxes(prBody);
             console.log('Checkbox counts:', counts);
 
-            if (counts.total !== 3) {
-              throw new Error(`Expected 3 total checkboxes, got ${counts.total}`);
+            if (counts.total !== 4) {
+              throw new Error(`Expected 4 total checkboxes, got ${counts.total}`);
             }
-            if (counts.unchecked !== 2) {
-              throw new Error(`Expected 2 unchecked, got ${counts.unchecked}`);
+            if (counts.unchecked !== 3) {
+              throw new Error(`Expected 3 unchecked, got ${counts.unchecked}`);
             }
 
             // Test 2: parseConfig with various formats
@@ -140,7 +142,7 @@ jobs:
 
           github-token: ${{ steps.app_token.outputs.token || github.token }}
           script: |
-            const { loadKeepaliveState, formatStateComment, parseStateFromComment } = require('./.github/scripts/keepalive_state.js');
+            const { loadKeepaliveState, formatStateComment, parseStateComment } = require('./.github/scripts/keepalive_state.js');
 
             // Test state serialization round-trip
             const testState = {
@@ -158,13 +160,16 @@ jobs:
             }
 
             // Parse it back
-            const parsed = parseStateFromComment(comment);
+            const parsed = parseStateComment(comment);
             console.log('Parsed state:', parsed);
 
-            if (parsed.iteration !== 3) {
-              throw new Error(`State round-trip failed: iteration ${parsed.iteration} != 3`);
+            if (!parsed || !parsed.data) {
+              throw new Error('State round-trip failed: missing parsed data');
             }
-            if (parsed.trace !== 'test-trace-123') {
+            if (parsed.data.iteration !== 3) {
+              throw new Error(`State round-trip failed: iteration ${parsed.data.iteration} != 3`);
+            }
+            if (parsed.data.trace !== 'test-trace-123') {
               throw new Error('State round-trip failed: trace mismatch');
             }
 
