@@ -27,6 +27,11 @@ on:
         required: false
         default: ''
         type: string
+      base_ref:
+        description: 'Optional base branch/ref for conflict surfacing (e.g., phase-3).'
+        required: false
+        default: ''
+        type: string
       workflows_ref:
         description: 'The ref of the Workflows repo to checkout for scripts. Defaults to main.'
         required: false
@@ -59,11 +64,6 @@ on:
         type: string
       iteration:
         description: 'Current iteration number (for tracking in completion comments).'
-        required: false
-        default: ''
-        type: string
-      base_ref:
-        description: 'Base branch/ref to use when surfacing merge conflicts.'
         required: false
         default: ''
         type: string
