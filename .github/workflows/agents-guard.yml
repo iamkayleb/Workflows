@@ -50,6 +50,7 @@ jobs:
             .github/actions/setup-api-client
             .github/scripts/agents-guard.js
             .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
             .github/workflows/agents-guard.yml
 
       - name: Setup API client
@@ -83,6 +84,7 @@ jobs:
             .github/actions/setup-api-client
             .github/scripts/agents-guard.js
             .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
             .github/workflows/agents-guard.yml
 
       - name: Setup API client
