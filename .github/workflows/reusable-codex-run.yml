@@ -27,6 +27,11 @@ on:
         required: false
         default: ''
         type: string
+      base_ref:
+        description: 'Optional base branch/ref for conflict surfacing (e.g., phase-3).'
+        required: false
+        default: ''
+        type: string
       workflows_ref:
         description: 'The ref of the Workflows repo to checkout for scripts. Defaults to main.'
         required: false
