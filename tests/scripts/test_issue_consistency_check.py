@@ -95,5 +95,5 @@ def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
 
     result = check_issue_consistency._run_git_with_fallback(["log"], ["log", "-n", "1"])
 
-    assert result == "ok"
+    assert result == ("ok", True)
     assert calls == [["log"], ["log", "-n", "1"]]
