@@ -1189,7 +1189,6 @@ jobs:
 
             try {
               const comments = await paginateWithRetry(
-                retryGithub,
                 retryGithub.rest.issues.listComments,
                 {
                   owner,

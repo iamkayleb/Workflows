@@ -110,11 +110,29 @@ def _run_git(args: list[str]) -> str:
     return result.stdout
 
 
+def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
+    try:
+        return _run_git(primary)
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        if fallback and ("no merge base" in message or "bad object" in message):
+            return _run_git(fallback)
+        raise
+
+
 def collect_commit_messages(
     base_ref: str | None, base_sha: str | None, base_remote: str
 ) -> list[str]:
     if base_sha:
-        output = _run_git(["log", "--format=%s", f"{base_sha}..HEAD"])
+        fallback = None
+        if base_ref:
+            fallback = ["log", "--format=%s", f"{base_remote}/{base_ref}..HEAD"]
+        else:
+            fallback = ["log", "--format=%s", "-n", "20"]
+        output = _run_git_with_fallback(
+            ["log", "--format=%s", f"{base_sha}..HEAD"],
+            fallback,
+        )
     elif base_ref:
         range_spec = f"{base_remote}/{base_ref}..HEAD"
         output = _run_git(["log", "--format=%s", range_spec])
@@ -127,7 +145,15 @@ def collect_changed_files(
     base_ref: str | None, base_sha: str | None, base_remote: str
 ) -> list[Path]:
     if base_sha:
-        output = _run_git(["diff", "--name-only", f"{base_sha}...HEAD"])
+        fallback = None
+        if base_ref:
+            fallback = ["diff", "--name-only", f"{base_remote}/{base_ref}...HEAD"]
+        else:
+            fallback = ["diff", "--name-only", "HEAD~1..HEAD"]
+        output = _run_git_with_fallback(
+            ["diff", "--name-only", f"{base_sha}...HEAD"],
+            fallback,
+        )
     elif base_ref:
         range_spec = f"{base_remote}/{base_ref}...HEAD"
         output = _run_git(["diff", "--name-only", range_spec])
