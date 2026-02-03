@@ -199,7 +199,13 @@ def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> tu
         return _run_git(primary), False
     except RuntimeError as exc:
         message = str(exc).lower()
-        if fallback and ("no merge base" in message or "bad object" in message):
+        if fallback and (
+            "no merge base" in message
+            or "bad object" in message
+            or "ambiguous argument" in message
+            or "unknown revision" in message
+            or "not in the working tree" in message
+        ):
             return _run_git(fallback), True
         raise
 
@@ -407,18 +413,14 @@ def main() -> int:
                 print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
                 return 1
 
-    commit_messages, commit_fallback = collect_commit_messages(
-        args.base_ref, base_sha, base_remote
-    )
+    commit_messages, commit_fallback = collect_commit_messages(args.base_ref, base_sha, base_remote)
     commit_issue_numbers: set[int] = set()
     for message in commit_messages:
         # Commit subjects often include PR numbers in parentheses (#1234).
         # Avoid treating those as issue references unless "issue" is explicit.
         commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
 
-    changed_files, file_fallback = collect_changed_files(
-        args.base_ref, base_sha, base_remote
-    )
+    changed_files, file_fallback = collect_changed_files(args.base_ref, base_sha, base_remote)
     fallback_used = commit_fallback or file_fallback
     if fallback_used:
         print(
