@@ -78,3 +78,22 @@ def test_resolve_pr_context_falls_back_to_workflow_run(tmp_path: Path) -> None:
 
     assert title == ""
     assert head_ref == "autofix/ci-branch"
+
+
+def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
+    calls = []
+
+    def fake_run_git(args: list[str]) -> str:
+        calls.append(args)
+        if args == ["log"]:
+            raise RuntimeError(
+                "fatal: ambiguous argument 'deadbeef..HEAD': unknown revision or path not in the working tree."
+            )
+        return "ok"
+
+    monkeypatch.setattr(check_issue_consistency, "_run_git", fake_run_git)
+
+    result = check_issue_consistency._run_git_with_fallback(["log"], ["log", "-n", "1"])
+
+    assert result == "ok"
+    assert calls == [["log"], ["log", "-n", "1"]]
