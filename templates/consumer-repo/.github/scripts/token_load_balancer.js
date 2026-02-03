@@ -114,6 +114,7 @@ const TOKEN_SPECIALIZATIONS = {
 const CAPABILITY_ALIASES = {
   'issues:read': ['read-repo'],
   'issues:write': ['write-repo', 'comments', 'labels'],
+  'pull-requests:read': ['read-repo'],
   'pulls:read': ['read-repo'],
   'pull-requests:write': ['pr-update'],
   'contents:read': ['read-repo'],
