@@ -353,11 +353,37 @@ async function runScenario(scenario) {
     },
   };
 
+  const scenarioEnv = scenario.env || {};
+  const explicitTokenKeys = [
+    'ACTIONS_BOT_PAT',
+    'actions_bot_pat',
+    'SERVICE_BOT_PAT',
+    'service_bot_pat',
+    'GH_TOKEN',
+    'gh_token',
+    'GITHUB_TOKEN',
+    'github_token',
+    'KEEPALIVE_DISPATCH_TOKEN',
+    'keepalive_dispatch_token',
+    'KEEPALIVE_DISPATCH_PAT',
+    'keepalive_dispatch_pat',
+    'GH_DISPATCH_TOKEN',
+    'gh_dispatch_token',
+  ];
+  const explicitTokenValues = explicitTokenKeys
+    .filter((key) => Object.prototype.hasOwnProperty.call(scenarioEnv, key))
+    .map((key) => scenarioEnv[key]);
+  const hasExplicitTokens = explicitTokenValues.length > 0;
+  const allExplicitTokensBlank =
+    hasExplicitTokens &&
+    explicitTokenValues.every((value) => String(value ?? '').trim() === '');
+
   const clearTokenDefaults =
     Boolean(scenario.clear_token_defaults) ||
     Boolean(scenario.clearTokenDefaults) ||
-    Boolean(scenario.env?.CLEAR_TOKEN_DEFAULTS) ||
-    Boolean(scenario.env?.clear_token_defaults);
+    Boolean(scenarioEnv.CLEAR_TOKEN_DEFAULTS) ||
+    Boolean(scenarioEnv.clear_token_defaults) ||
+    allExplicitTokensBlank;
 
   const envOverrides = {
     ACTIONS_BOT_PAT: clearTokenDefaults ? '' : 'dummy-token',
@@ -365,7 +391,7 @@ async function runScenario(scenario) {
     GH_TOKEN: '',
     gh_token: '',
     actions_bot_pat: '',
-    ...(scenario.env || {}),
+    ...scenarioEnv,
   };
   const tokenEnvKeys = [
     'ACTIONS_BOT_PAT',
