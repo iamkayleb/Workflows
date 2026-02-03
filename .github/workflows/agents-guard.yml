@@ -146,7 +146,7 @@ jobs:
             const guardRelativePath = '.github/scripts/agents-guard.js';
             const guardPath = path.resolve(workspace, guardRelativePath);
             const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
-            const { withRetry, paginateWithRetry } = await createTokenAwareRetry({
+            const { github: api, withRetry, paginateWithRetry } = await createTokenAwareRetry({
               github,
               core,
               env: process.env,
@@ -251,7 +251,7 @@ jobs:
               );
               try {
                 const response = await withApiRetry(
-                  () => github.rest.repos.getContent({
+                  (client) => client.rest.repos.getContent({
                   owner,
                   repo,
                   path: guardRelativePath,
@@ -305,7 +305,7 @@ jobs:
 
             const files = await safePaginate(
               'listing pull request files',
-              github.rest.pulls.listFiles,
+              api.rest.pulls.listFiles,
               {
               owner,
               repo,
@@ -316,7 +316,7 @@ jobs:
 
             const labels = await safePaginate(
               'enumerating labels on the pull request',
-              github.rest.issues.listLabelsOnIssue,
+              api.rest.issues.listLabelsOnIssue,
               {
               owner,
               repo,
@@ -327,7 +327,7 @@ jobs:
 
             const reviews = await safePaginate(
               'enumerating reviews',
-              github.rest.pulls.listReviews,
+              api.rest.pulls.listReviews,
               {
               owner,
               repo,
@@ -339,7 +339,7 @@ jobs:
             let codeownersContent = '';
             try {
               const response = await withApiRetry(
-                () => github.rest.repos.getContent({
+                (client) => client.rest.repos.getContent({
                   owner,
                   repo,
                   path: '.github/CODEOWNERS',
