@@ -249,11 +249,11 @@ jobs:
               try {
                 const response = await withApiRetry(
                   (client) => client.rest.repos.getContent({
-                  owner,
-                  repo,
-                  path: guardRelativePath,
-                  ref: baseRef,
-                }),
+                    owner,
+                    repo,
+                    path: guardRelativePath,
+                    ref: baseRef,
+                  }),
                 { label: `load ${guardRelativePath}` },
                 );
 
