@@ -343,11 +343,15 @@ def main() -> int:
                     collect_header_issue_numbers(file_path, args.header_lines)
                 )
 
-            if not (commit_issue_numbers or header_issue_numbers):
+            combined_issue_numbers = commit_issue_numbers | header_issue_numbers
+            if len(combined_issue_numbers) == 1:
+                pr_issue = next(iter(combined_issue_numbers))
+            elif not combined_issue_numbers:
                 print("Skipping issue consistency check: no issue references found.")
                 return 0
-            print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
-            return 1
+            else:
+                print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
+                return 1
 
     commit_messages = collect_commit_messages(args.base_ref, base_sha, base_remote)
     commit_issue_numbers: set[int] = set()
