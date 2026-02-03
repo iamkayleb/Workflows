@@ -194,18 +194,38 @@ def _find_remote_with_ref(base_remote: str, base_ref: str) -> str | None:
     return None
 
 
-def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> tuple[str, bool]:
+def _should_use_fallback(message: str, fallback: list[str] | None) -> bool:
+    if not fallback:
+        return False
+    lowered = message.lower()
+    return any(
+        snippet in lowered
+        for snippet in (
+            "no merge base",
+            "bad object",
+            "ambiguous argument",
+            "unknown revision",
+            "not in the working tree",
+        )
+    )
+
+
+def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
+    try:
+        return _run_git(primary)
+    except RuntimeError as exc:
+        if _should_use_fallback(str(exc), fallback):
+            return _run_git(fallback)
+        raise
+
+
+def _run_git_with_fallback_and_flag(
+    primary: list[str], fallback: list[str] | None
+) -> tuple[str, bool]:
     try:
         return _run_git(primary), False
     except RuntimeError as exc:
-        message = str(exc).lower()
-        if fallback and (
-            "no merge base" in message
-            or "bad object" in message
-            or "ambiguous argument" in message
-            or "unknown revision" in message
-            or "not in the working tree" in message
-        ):
+        if _should_use_fallback(str(exc), fallback):
             return _run_git(fallback), True
         raise
 
@@ -226,7 +246,7 @@ def collect_commit_messages(
                 fallback = ["log", "--format=%s", "-n", "20"]
         else:
             fallback = ["log", "--format=%s", "-n", "20"]
-        output, used_fallback = _run_git_with_fallback(
+        output, used_fallback = _run_git_with_fallback_and_flag(
             ["log", "--format=%s", f"{base_sha}..HEAD"],
             fallback,
         )
@@ -259,7 +279,7 @@ def collect_changed_files(
                 fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
         else:
             fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
-        output, used_fallback = _run_git_with_fallback(
+        output, used_fallback = _run_git_with_fallback_and_flag(
             ["diff", "--name-only", f"{base_sha}...HEAD"],
             fallback,
         )
