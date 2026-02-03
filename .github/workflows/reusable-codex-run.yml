@@ -253,6 +253,29 @@ jobs:
           path: .workflows-lib
           token: ${{ steps.auth_token.outputs.checkout_token }}
 
+      - name: Setup Workflows API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+          install_dir: ${{ github.workspace }}/.workflows-lib/.github/scripts
+
+      - name: Validate workflows tooling
+        run: |
+          set -euo pipefail
+          if [ ! -d ".workflows-lib" ]; then
+            echo "::error::.workflows-lib checkout missing; Workflows scripts unavailable."
+            exit 1
+          fi
+          if [ ! -f ".workflows-lib/tools/codex_jsonl_parser.py" ]; then
+            echo "::error::Missing .workflows-lib/tools/codex_jsonl_parser.py; session parser unavailable."
+            exit 1
+          fi
+          if [ ! -d ".workflows-lib/.github/scripts/node_modules" ]; then
+            echo "::error::Missing .workflows-lib/.github/scripts/node_modules; API client deps not installed."
+            exit 1
+          fi
+
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -465,6 +488,14 @@ jobs:
             fi
           fi
 
+          # Hide node_modules created by setup-api-client
+          if ! grep -q "^\.github/scripts/node_modules" .git/info/exclude 2>/dev/null; then
+            echo ".github/scripts/node_modules" >> .git/info/exclude 2>/dev/null || true
+          fi
+          if ! grep -q "^\.workflows-lib/\.github/scripts/node_modules" .git/info/exclude 2>/dev/null; then
+            echo ".workflows-lib/.github/scripts/node_modules" >> .git/info/exclude 2>/dev/null || true
+          fi
+
           # Remove old codex session/output files that may be untracked
           # NOTE: Do NOT delete codex-prompt*.md - that's the input file we just created!
           # These are workflow artifacts, not user code
@@ -476,10 +507,10 @@ jobs:
           git status --short || true
 
           # Check if any meaningful changes remain
-          # Exclude: untracked .workflows-lib, .gitignore, codex-*, autofix* artifacts
+          # Exclude: untracked .workflows-lib, .gitignore, node_modules, codex-*, autofix* artifacts
           # Use grep -c for count; if grep finds nothing it returns 1
           # Strip whitespace to ensure clean integer (avoids "integer expression expected" errors)
-          REMAINING=$(git status --porcelain | grep -cvE '^\?\? (\.(workflows-lib|gitignore)|codex-.*|autofix.*)' 2>/dev/null || echo "0")
+          REMAINING=$(git status --porcelain | grep -cvE '^\?\? (\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|codex-.*|autofix.*)' 2>/dev/null || echo "0")
           REMAINING=$(printf '%s' "$REMAINING" | tr -d '[:space:]')
           REMAINING=${REMAINING:-0}
           echo "remaining-changes=${REMAINING}" >> "$GITHUB_OUTPUT"
@@ -874,7 +905,7 @@ jobs:
           # - poetry.lock: Defense against wrong package manager
           # - .workflows-lib: Separate checkout (git treats as submodule)
           # This may unstage all changes if only artifacts were modified.
-          git reset HEAD -- codex-output*.md codex-prompt*.md codex-session-*.jsonl codex-analysis-*.json .coverage .workflows-lib coverage.xml pr_body.md autofix_report_enriched.json poetry.lock 2>/dev/null || true
+          git reset HEAD -- codex-output*.md codex-prompt*.md codex-session-*.jsonl codex-analysis-*.json .coverage .workflows-lib .github/scripts/node_modules .workflows-lib/.github/scripts/node_modules coverage.xml pr_body.md autofix_report_enriched.json poetry.lock 2>/dev/null || true
 
           # Check if there are any staged changes remaining after reset
           if git diff --cached --quiet; then
