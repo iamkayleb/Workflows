@@ -246,9 +246,9 @@ def collect_changed_files(
             if resolved_remote:
                 fallback = ["diff", "--name-only", f"{resolved_remote}/{base_ref}...HEAD"]
             else:
-                fallback = ["diff", "--name-only", "HEAD~1..HEAD"]
+                fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
         else:
-            fallback = ["diff", "--name-only", "HEAD~1..HEAD"]
+            fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
         output = _run_git_with_fallback(
             ["diff", "--name-only", f"{base_sha}...HEAD"],
             fallback,
@@ -258,9 +258,9 @@ def collect_changed_files(
             range_spec = f"{resolved_remote}/{base_ref}...HEAD"
             output = _run_git(["diff", "--name-only", range_spec])
         else:
-            output = _run_git(["diff", "--name-only", "HEAD~1..HEAD"])
+            output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
     else:
-        output = _run_git(["diff", "--name-only", "HEAD~1..HEAD"])
+        output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
     return [Path(line.strip()) for line in output.splitlines() if line.strip()]
 
 

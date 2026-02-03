@@ -174,7 +174,7 @@ jobs:
             ) {
               for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
                 try {
-                  return await withRetry(fn);
+                    return await withRetry((client) => fn(client));
                 } catch (error) {
                   const status = error?.status || error?.response?.status;
                   const headers = error?.response?.headers || {};
