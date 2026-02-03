@@ -27,6 +27,11 @@ on:
         required: false
         default: ''
         type: string
+      base_ref:
+        description: 'Optional base branch/ref for conflict surfacing (e.g., phase-3).'
+        required: false
+        default: ''
+        type: string
       workflows_ref:
         description: 'The ref of the Workflows repo to checkout for scripts. Defaults to main.'
         required: false
@@ -497,7 +502,7 @@ jobs:
       - name: Surface merge conflicts
         if: inputs.prompt_file == '.github/codex/prompts/fix_merge_conflicts.md'
         env:
-          WORKFLOW_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+          WORKFLOW_BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.ref || '' }}
         run: |
           set -euo pipefail
 

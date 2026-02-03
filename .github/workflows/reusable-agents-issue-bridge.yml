@@ -115,8 +115,6 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
 
-
-
       - name: Resolve issue number
         id: ctx
         uses: actions/github-script@v8

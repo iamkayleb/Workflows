@@ -367,6 +367,31 @@ async function runScenario(scenario) {
     actions_bot_pat: '',
     ...(scenario.env || {}),
   };
+  const tokenEnvKeys = [
+    'ACTIONS_BOT_PAT',
+    'actions_bot_pat',
+    'SERVICE_BOT_PAT',
+    'service_bot_pat',
+    'GH_TOKEN',
+    'gh_token',
+    'GITHUB_TOKEN',
+    'github_token',
+    'KEEPALIVE_DISPATCH_TOKEN',
+    'keepalive_dispatch_token',
+    'KEEPALIVE_DISPATCH_PAT',
+    'keepalive_dispatch_pat',
+    'GH_DISPATCH_TOKEN',
+    'gh_dispatch_token',
+  ];
+  const originalProcessEnv = {};
+  if (clearTokenDefaults) {
+    for (const key of tokenEnvKeys) {
+      if (Object.prototype.hasOwnProperty.call(process.env, key)) {
+        originalProcessEnv[key] = process.env[key];
+        delete process.env[key];
+      }
+    }
+  }
   const tokenKeys = new Set([
     'ACTIONS_BOT_PAT',
     'SERVICE_BOT_PAT',
@@ -392,6 +417,11 @@ async function runScenario(scenario) {
     const { runKeepalive } = loadKeepaliveRunner();
     await runKeepalive({ core, github, context, env });
   } finally {
+    if (clearTokenDefaults) {
+      for (const [key, value] of Object.entries(originalProcessEnv)) {
+        process.env[key] = value;
+      }
+    }
     Date.now = originalNow;
   }
 

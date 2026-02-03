@@ -72,15 +72,38 @@ def extract_head_ref_issue_numbers(head_ref: str) -> set[int]:
 AUTO_FIX_PATTERN = re.compile(r"auto[\s-]?fix", re.IGNORECASE)
 
 
-def _has_autofix_label(event_path: str | None) -> bool:
+def _load_event_payload(event_path: str | None) -> dict:
     if not event_path:
-        return False
+        return {}
     try:
         with open(event_path, encoding="utf-8") as handle:
             payload = json.load(handle)
     except (OSError, json.JSONDecodeError):
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
+def _extract_pull_request(payload: dict) -> dict:
+    pull_request = payload.get("pull_request")
+    if isinstance(pull_request, dict):
+        return pull_request
+    pull_requests = payload.get("pull_requests")
+    if isinstance(pull_requests, list) and pull_requests:
+        first = pull_requests[0]
+        if isinstance(first, dict):
+            return first
+    return {}
+
+
+def _has_autofix_label(event_path: str | None) -> bool:
+    payload = _load_event_payload(event_path)
+    if not payload:
         return False
-    pull_request = payload.get("pull_request") or {}
+    pull_request = _extract_pull_request(payload)
+    if not pull_request:
+        return False
     labels = pull_request.get("labels") or []
     for label in labels:
         name = label.get("name", "") if isinstance(label, dict) else str(label)
@@ -98,6 +121,28 @@ def is_autofix_context(pr_title: str, head_ref: str, event_path: str | None = No
     return _has_autofix_label(event_path)
 
 
+def resolve_pr_context(
+    pr_title: str, head_ref: str, event_path: str | None = None
+) -> tuple[str, str]:
+    title = pr_title or ""
+    head = head_ref or ""
+    if event_path is None:
+        event_path = os.environ.get("GITHUB_EVENT_PATH")
+    payload = _load_event_payload(event_path)
+    pull_request = _extract_pull_request(payload)
+    if not title and pull_request:
+        title = str(pull_request.get("title", "") or "")
+    if not head and pull_request:
+        head_payload = pull_request.get("head")
+        if isinstance(head_payload, dict):
+            head = str(head_payload.get("ref", "") or "")
+    if not head:
+        workflow_run = payload.get("workflow_run")
+        if isinstance(workflow_run, dict):
+            head = str(workflow_run.get("head_branch", "") or "")
+    return title, head
+
+
 def _run_git(args: list[str]) -> str:
     result = subprocess.run(
         ["git", *args],
@@ -110,12 +155,57 @@ def _run_git(args: list[str]) -> str:
     return result.stdout
 
 
+def _remote_exists(name: str) -> bool:
+    if not name:
+        return False
+    try:
+        _run_git(["remote", "get-url", name])
+    except RuntimeError:
+        return False
+    return True
+
+
+def _resolve_base_remote(base_remote: str | None) -> str:
+    candidate = (base_remote or "origin").strip() or "origin"
+    if _remote_exists(candidate):
+        return candidate
+    for fallback in ("origin", "upstream"):
+        if fallback != candidate and _remote_exists(fallback):
+            return fallback
+    return candidate
+
+
+def _remote_ref_exists(remote: str, ref: str) -> bool:
+    if not remote or not ref:
+        return False
+    result = subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/remotes/{remote}/{ref}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _find_remote_with_ref(base_remote: str, base_ref: str) -> str | None:
+    for candidate in (base_remote, "origin", "upstream"):
+        if candidate and _remote_ref_exists(candidate, base_ref):
+            return candidate
+    return None
+
+
 def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
     try:
         return _run_git(primary)
     except RuntimeError as exc:
         message = str(exc).lower()
-        if fallback and ("no merge base" in message or "bad object" in message):
+        if fallback and (
+            "no merge base" in message
+            or "bad object" in message
+            or "ambiguous argument" in message
+            or "unknown revision" in message
+            or "not in the working tree" in message
+        ):
             return _run_git(fallback)
         raise
 
@@ -123,10 +213,16 @@ def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> st
 def collect_commit_messages(
     base_ref: str | None, base_sha: str | None, base_remote: str
 ) -> list[str]:
+    resolved_remote = None
+    if base_ref:
+        resolved_remote = _find_remote_with_ref(base_remote, base_ref)
     if base_sha:
         fallback = None
         if base_ref:
-            fallback = ["log", "--format=%s", f"{base_remote}/{base_ref}..HEAD"]
+            if resolved_remote:
+                fallback = ["log", "--format=%s", f"{resolved_remote}/{base_ref}..HEAD"]
+            else:
+                fallback = ["log", "--format=%s", "-n", "20"]
         else:
             fallback = ["log", "--format=%s", "-n", "20"]
         output = _run_git_with_fallback(
@@ -134,8 +230,11 @@ def collect_commit_messages(
             fallback,
         )
     elif base_ref:
-        range_spec = f"{base_remote}/{base_ref}..HEAD"
-        output = _run_git(["log", "--format=%s", range_spec])
+        if resolved_remote:
+            range_spec = f"{resolved_remote}/{base_ref}..HEAD"
+            output = _run_git(["log", "--format=%s", range_spec])
+        else:
+            output = _run_git(["log", "--format=%s", "-n", "20"])
     else:
         output = _run_git(["log", "--format=%s", "-n", "20"])
     return [line.strip() for line in output.splitlines() if line.strip()]
@@ -144,21 +243,30 @@ def collect_commit_messages(
 def collect_changed_files(
     base_ref: str | None, base_sha: str | None, base_remote: str
 ) -> list[Path]:
+    resolved_remote = None
+    if base_ref:
+        resolved_remote = _find_remote_with_ref(base_remote, base_ref)
     if base_sha:
         fallback = None
         if base_ref:
-            fallback = ["diff", "--name-only", f"{base_remote}/{base_ref}...HEAD"]
+            if resolved_remote:
+                fallback = ["diff", "--name-only", f"{resolved_remote}/{base_ref}...HEAD"]
+            else:
+                fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
         else:
-            fallback = ["diff", "--name-only", "HEAD~1..HEAD"]
+            fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
         output = _run_git_with_fallback(
             ["diff", "--name-only", f"{base_sha}...HEAD"],
             fallback,
         )
     elif base_ref:
-        range_spec = f"{base_remote}/{base_ref}...HEAD"
-        output = _run_git(["diff", "--name-only", range_spec])
+        if resolved_remote:
+            range_spec = f"{resolved_remote}/{base_ref}...HEAD"
+            output = _run_git(["diff", "--name-only", range_spec])
+        else:
+            output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
     else:
-        output = _run_git(["diff", "--name-only", "HEAD~1..HEAD"])
+        output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
     return [Path(line.strip()) for line in output.splitlines() if line.strip()]
 
 
@@ -244,10 +352,11 @@ def main() -> int:
     args = parser.parse_args()
 
     base_sha = (args.base_sha or "").strip() or None
-    base_remote = (args.base_remote or "origin").strip() or "origin"
-    pr_issue = extract_title_issue_number(args.pr_title)
+    base_remote = _resolve_base_remote(args.base_remote)
+    pr_title, head_ref = resolve_pr_context(args.pr_title, args.head_ref)
+    pr_issue = extract_title_issue_number(pr_title)
     if not pr_issue:
-        head_numbers = extract_head_ref_issue_numbers(args.head_ref)
+        head_numbers = extract_head_ref_issue_numbers(head_ref)
         if len(head_numbers) == 1:
             pr_issue = next(iter(head_numbers))
         elif len(head_numbers) > 1:
@@ -257,7 +366,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        elif is_autofix_context(args.pr_title, args.head_ref):
+        elif is_autofix_context(pr_title, head_ref):
             print("Skipping issue consistency check: autofix context with no issue number.")
             return 0
         else:
@@ -277,11 +386,15 @@ def main() -> int:
                     collect_header_issue_numbers(file_path, args.header_lines)
                 )
 
-            if not (commit_issue_numbers or header_issue_numbers):
+            combined_issue_numbers = commit_issue_numbers | header_issue_numbers
+            if len(combined_issue_numbers) == 1:
+                pr_issue = next(iter(combined_issue_numbers))
+            elif not combined_issue_numbers:
                 print("Skipping issue consistency check: no issue references found.")
                 return 0
-            print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
-            return 1
+            else:
+                print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
+                return 1
 
     commit_messages = collect_commit_messages(args.base_ref, base_sha, base_remote)
     commit_issue_numbers: set[int] = set()

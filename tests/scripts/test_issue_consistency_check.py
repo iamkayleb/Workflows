@@ -51,3 +51,49 @@ def test_is_autofix_context_reads_event_labels(tmp_path: Path, monkeypatch) -> N
 
 def test_is_autofix_context_detects_hyphenated_title() -> None:
     assert check_issue_consistency.is_autofix_context("Auto-fix from CI failure", "") is True
+
+
+def test_resolve_pr_context_reads_event_payload(tmp_path: Path) -> None:
+    payload = {
+        "pull_request": {
+            "title": "Fix issue #4242",
+            "head": {"ref": "codex/issue-4242"},
+        }
+    }
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    title, head_ref = check_issue_consistency.resolve_pr_context("", "", str(event_path))
+
+    assert title == "Fix issue #4242"
+    assert head_ref == "codex/issue-4242"
+
+
+def test_resolve_pr_context_falls_back_to_workflow_run(tmp_path: Path) -> None:
+    payload = {"workflow_run": {"head_branch": "autofix/ci-branch"}}
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    title, head_ref = check_issue_consistency.resolve_pr_context("", "", str(event_path))
+
+    assert title == ""
+    assert head_ref == "autofix/ci-branch"
+
+
+def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
+    calls = []
+
+    def fake_run_git(args: list[str]) -> str:
+        calls.append(args)
+        if args == ["log"]:
+            raise RuntimeError(
+                "fatal: ambiguous argument 'deadbeef..HEAD': unknown revision or path not in the working tree."
+            )
+        return "ok"
+
+    monkeypatch.setattr(check_issue_consistency, "_run_git", fake_run_git)
+
+    result = check_issue_consistency._run_git_with_fallback(["log"], ["log", "-n", "1"])
+
+    assert result == "ok"
+    assert calls == [["log"], ["log", "-n", "1"]]

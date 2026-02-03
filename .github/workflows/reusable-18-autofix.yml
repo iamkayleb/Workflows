@@ -483,6 +483,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -f node_modules/.package-lock.json ]; then
+            rm -f node_modules/.package-lock.json
+          fi
           echo "[autofix-clean] Running clean cosmetic sweep"
           # === Dynamic Python Target Detection ===
           # shellcheck disable=SC2016 # Single quotes intentional - literal regex pattern
@@ -570,6 +573,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ -f node_modules/.package-lock.json ]; then
+            rm -f node_modules/.package-lock.json
+          fi
           : "${ALLOWED_FILE_GLOBS:=}"
           mapfile -t changed_paths < <(git diff --name-only --diff-filter=ACMRTUXB || true)
           changed_flag=false
@@ -647,7 +653,16 @@ jobs:
               }
               exit 1
             fi
-            file_list_payload=$(printf '%s\n' "${changed_paths[@]}" | sort -u)
+            filtered_paths=()
+            for path in "${changed_paths[@]}"; do
+              if [[ "$path" == node_modules/* ]] || [[ "$path" == */node_modules/* ]]; then
+                continue
+              fi
+              filtered_paths+=("$path")
+            done
+            if [ ${#filtered_paths[@]} -gt 0 ]; then
+              file_list_payload=$(printf '%s\n' "${filtered_paths[@]}" | sort -u)
+            fi
           fi
 
           AUTOFIX_TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
