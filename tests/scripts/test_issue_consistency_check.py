@@ -93,7 +93,11 @@ def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
 
     monkeypatch.setattr(check_issue_consistency, "_run_git", fake_run_git)
 
-    result = check_issue_consistency._run_git_with_fallback(["log"], ["log", "-n", "1"])
+    output, used_fallback = check_issue_consistency._run_git_with_fallback_and_flag(
+        ["log"],
+        ["log", "-n", "1"],
+    )
 
-    assert result == ("ok", True)
+    assert output == "ok"
+    assert used_fallback is True
     assert calls == [["log"], ["log", "-n", "1"]]

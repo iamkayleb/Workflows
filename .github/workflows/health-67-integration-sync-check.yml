@@ -42,7 +42,7 @@ jobs:
           path: workflows
 
       - name: Setup API client
-        uses: ./.github/actions/setup-api-client
+        uses: ./workflows/.github/actions/setup-api-client
         with:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
