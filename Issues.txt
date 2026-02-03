@@ -1,184 +1,295 @@
-Issue 1 — Enhanced User Profile Management
-
+1. [LangChain] Propagate SessionQualityContext through LLM provider chain (fix BS detector drop)
+labels: [agent:codex, bug]
+body:
 ## Why
-Users need more control over their profile settings and preferences. Currently, the profile page lacks key customization options that users frequently request.
+
+The keepalive session analyzer computes a SessionQualityContext, but the default fallback provider path does not reliably pass it through. This weakens confidence sanity checks and increases false confidence.
 
 ## Scope
-- Add profile picture upload functionality
-- Implement notification preferences
-- Create privacy settings section
+
+Thread SessionQualityContext through the LLM provider abstraction so that confidence adjustments reliably apply even when using the fallback chain provider.
 
 ## Non-Goals
-- Social media integration
-- Account deletion from profile
+
+This does not change the heuristics themselves beyond ensuring they run.
+This does not add a new provider.
 
 ## Tasks
-- [ ] Design profile settings UI mockup
-- [ ] Implement image upload component
-- [ ] Create notification preferences API endpoint
-- [ ] Build privacy settings form
+
+- [ ] Extend the LLMProvider interface to accept an optional quality_context parameter (default None) while maintaining backwards compatibility.
+- [ ] Update FallbackChainProvider to pass quality_context through to underlying providers that support it.
+- [ ] Update codex_session_analyzer.analyze_session to always pass quality_context when available, including when using the fallback chain.
+- [ ] Add regression tests proving confidence capping is applied in the fallback-chain path.
 
 ## Acceptance Criteria
-- Users can upload and crop profile pictures
-- Notification preferences are saved per user
-- Privacy settings are accessible from profile page
 
----
+- [ ] Unit tests demonstrate that quality_context reaches the active provider even when wrapped by FallbackChainProvider.
+- [ ] Regression tests demonstrate confidence is capped when analysis_text_length is very short and has_work_evidence is true.
+- [ ] No existing callers break due to signature changes (CI passes).
 
-Issue 2 — Performance Optimization for Dashboard
+## Implementation Notes
 
+Primary files:
+`tools/llm_provider.py`
+`tools/codex_session_analyzer.py`
+`tests/tools/test_llm_provider.py`
+`tests/scripts/test_analyze_codex_session.py`
+
+
+2. [LangChain] Centralize Chat model/client creation for scripts (single source of truth)
+labels: [agent:codex, enhancement]
+body:
 ## Why
-Dashboard load times have increased as data volume grows. Users report delays of 3-5 seconds which impacts productivity.
+
+Multiple scripts implement ad-hoc LLM client construction with different defaults (timeouts, provider preference, retry behavior). This increases drift and makes the same workflow produce different results over time.
 
 ## Scope
-- Implement lazy loading for widgets
-- Add server-side pagination
-- Cache frequently accessed data
+
+Introduce a single utility module for constructing LangChain chat clients and refactor a small set of core scripts to use it (start with formatter/optimizer/verifier). Keep behavior-compatible defaults.
+
+## Non-Goals
+
+This does not refactor every script in one PR.
+This does not change workflow triggers, labels, or the automation state machine.
 
 ## Tasks
-- [ ] Profile current dashboard performance
-- [ ] Implement lazy loading for widget components
-- [ ] Add pagination to data tables
-- [ ] Configure Redis caching layer
+
+- [ ] Create a shared utility module (e.g., `tools/langchain_client.py`) that builds chat clients with standardized timeouts, retries, and provider selection (GitHub Models then OpenAI fallback).
+- [ ] Refactor `scripts/langchain/issue_formatter.py` and `scripts/langchain/issue_optimizer.py` to use the shared utility (remove duplicated client code).
+- [ ] Refactor `scripts/langchain/pr_verifier.py` to use the shared utility for client construction in both single-provider and compare modes.
+- [ ] Add unit tests for the utility module covering provider selection and env override behavior.
 
 ## Acceptance Criteria
-- Dashboard loads under 1 second
-- Data tables support pagination
-- Cached data refreshes every 5 minutes
 
----
+- [ ] issue_formatter, issue_optimizer, and pr_verifier continue to run with no behavioral regressions (existing tests pass).
+- [ ] Provider selection behavior is consistent across the refactored scripts (documented and test-covered).
+- [ ] The new utility has tests covering: GitHub Models path, OpenAI fallback path, and env overrides for model/provider.
 
-Issue 3 — API Rate Limiting Implementation
+## Implementation Notes
 
+Primary files:
+`tools/langchain_client.py` (new)
+`scripts/langchain/issue_formatter.py`
+`scripts/langchain/issue_optimizer.py`
+`scripts/langchain/pr_verifier.py`
+
+
+3. [LangChain] Structured output + single-repair retry for JSON-returning scripts
+labels: [agent:codex, enhancement]
+body:
 ## Why
-Protect backend services from abuse and ensure fair resource allocation across all API consumers.
+
+Several scripts rely on brittle JSON extraction from LLM output. When the model emits preamble text, markdown wrappers, or partial JSON, automation becomes flaky.
 
 ## Scope
-- Implement token bucket rate limiting
-- Add rate limit headers to responses
-- Create admin dashboard for monitoring
+
+Add strict structured-output parsing (Pydantic models + validation) and a single repair retry that feeds validation errors back to the model for:
+- `scripts/langchain/issue_optimizer.py` (analysis JSON)
+- `scripts/langchain/pr_verifier.py` (evaluation JSON)
+
+## Non-Goals
+
+This does not rewrite prompts end-to-end.
+This does not introduce multi-retry loops (one repair retry only).
 
 ## Tasks
-- [ ] Design rate limiting strategy
-- [ ] Implement middleware for rate limiting
-- [ ] Add X-RateLimit headers to responses
-- [ ] Build monitoring dashboard
+
+- [ ] Use strict Pydantic validation as the primary parsing path in issue_optimizer (avoid regex JSON extraction as primary).
+- [ ] Use strict Pydantic validation as the primary parsing path in pr_verifier (evaluate + compare).
+- [ ] Implement a single repair retry that includes schema plus the validation error message when parsing fails.
+- [ ] Add tests with malformed outputs (preamble text, markdown fences, trailing commas) and confirm repair produces valid JSON.
 
 ## Acceptance Criteria
-- Rate limits are enforced per API key
-- Responses include rate limit headers
-- Admins can view rate limit statistics
 
----
+- [ ] For invalid model output, scripts perform exactly one repair attempt and then either succeed with valid structured output or fail with an explicit parsing error.
+- [ ] Tests cover at least three malformed output patterns per script.
+- [ ] Existing behavior remains compatible for valid outputs (tests pass).
 
-Issue 4 — Mobile Responsive Design Improvements
+## Implementation Notes
 
+Primary files:
+`scripts/langchain/issue_optimizer.py`
+`scripts/langchain/pr_verifier.py`
+
+
+4. [Embeddings] Provider-agnostic embedding pool with selection criteria (OpenAI + Anthropic + fallbacks)
+labels: [agent:codex, enhancement]
+body:
 ## Why
-Mobile traffic accounts for 60% of users but the current design has usability issues on smaller screens.
+
+Semantic features (label matching, deduplication) need embeddings, but the current behavior is effectively tied to a single provider path. You plan to add Anthropic soon and want embeddings to be provider/agent agnostic with criteria-based selection.
 
 ## Scope
-- Refactor navigation for mobile
-- Optimize forms for touch input
-- Improve table scrolling on mobile
+
+Create a provider-agnostic embeddings registry that selects from a pool of available embedding providers based on criteria (availability, cost/latency preference, configured credentials, capability). Update semantic_matcher and downstream consumers to use this pool, with safe fallbacks when embeddings are unavailable.
+
+## Non-Goals
+
+This does not require embeddings to be enabled everywhere.
+This does not change similarity math beyond provider selection and fallbacks.
 
 ## Tasks
-- [ ] Audit current mobile experience
-- [ ] Redesign navigation menu
-- [ ] Update form components for touch
-- [ ] Implement horizontal scrolling for tables
+
+- [ ] Add an embedding provider abstraction + registry (e.g., `tools/embedding_provider.py`) with deterministic selection based on criteria.
+- [ ] Implement providers: OpenAI embeddings (existing behavior), Anthropic embeddings (gated by env var; documented), and at least one non-LLM fallback (keyword/TF-IDF) to keep workflows functional when no embedding credentials exist.
+- [ ] Refactor `scripts/langchain/semantic_matcher.py` to request embeddings via the provider pool and return provider/model metadata.
+- [ ] Update `scripts/langchain/label_matcher.py` and `scripts/langchain/issue_dedup.py` to use updated semantic_matcher behavior and degrade gracefully when embeddings are unavailable.
+- [ ] Add tests using mock providers to validate deterministic selection and fallback ordering.
 
 ## Acceptance Criteria
-- Navigation works on screens 320px and wider
-- Forms are usable with touch input
-- Tables scroll horizontally on mobile
 
----
+- [ ] When multiple embedding providers are configured, selection is deterministic and respects criteria (test-covered).
+- [ ] When no embedding providers are configured, semantic workflows still run using a fallback path (no crashes; behavior documented).
+- [ ] Provider/model used is surfaced in outputs for observability (test-covered).
 
-Issue 5 — Automated Testing Infrastructure
+## Implementation Notes
 
+Primary files:
+`tools/embedding_provider.py` (new)
+`scripts/langchain/semantic_matcher.py`
+`scripts/langchain/label_matcher.py`
+`scripts/langchain/issue_dedup.py`
+
+
+5. [Security] Add prompt-injection guardrails for issue rewrite + follow-up generation paths
+labels: [agent:codex, enhancement]
+body:
 ## Why
-Manual testing is slowing down releases. An automated testing pipeline will increase confidence and speed up deployments.
+
+Automation steps ingest user-controlled markdown (issues/PR bodies/comments) and can rewrite issues or generate follow-up issues/PRs. A conservative injection guard reduces the risk of instruction smuggling and unintended actions.
 
 ## Scope
-- Set up CI/CD pipeline with tests
-- Implement unit test coverage requirements
-- Add end-to-end testing for critical paths
+
+Add a lightweight prompt-injection detector and wire it into scripts that rewrite issue content or generate follow-up issues. If triggered, fail safe (no rewrite) and clearly signal needs-human.
+
+## Non-Goals
+
+This does not aim for perfect detection.
+This does not attempt to block every jailbreak; it targets high-signal patterns.
 
 ## Tasks
-- [ ] Configure GitHub Actions for testing
-- [ ] Write unit tests for core modules
-- [ ] Implement Playwright for E2E tests
-- [ ] Set up coverage reporting
+
+- [ ] Implement a small reusable injection guard utility (Python) usable by langchain scripts.
+- [ ] Integrate the guard into `scripts/langchain/issue_formatter.py`, `scripts/langchain/issue_optimizer.py`, and `scripts/langchain/followup_issue_generator.py` (skip LLM call and/or skip applying changes when flagged).
+- [ ] Update workflows/templates to apply a safe label/comment when the guard blocks execution (e.g., add needs-human and a short explanation).
+- [ ] Add tests with representative injected inputs confirming the guard blocks and outputs clearly signal the block.
 
 ## Acceptance Criteria
-- All PRs require passing tests
-- Code coverage is above 80%
-- E2E tests cover login, dashboard, and checkout flows
 
----
+- [ ] Injected inputs cause a safe block: no issue body rewrite occurs and the workflow signals needs-human with a clear message.
+- [ ] Non-injected inputs proceed as before (existing tests pass).
+- [ ] The guard is unit-tested with multiple injection patterns and at least one false-positive control.
 
-Issue 6 — App crashes on login
+## Implementation Notes
 
+Primary files:
+`scripts/langchain/issue_formatter.py`
+`scripts/langchain/issue_optimizer.py`
+`scripts/langchain/followup_issue_generator.py`
+
+
+6. [LangSmith] Fix env wiring + standardize trace metadata for Workflows LLM calls
+labels: [agent:codex, enhancement]
+body:
 ## Why
-Users report the app terminates when submitting valid credentials, blocking access to core features.
+
+Tracing is only useful if it is consistent and queryable. Some paths set LANGSMITH_API_KEY but not LANGCHAIN_API_KEY, and metadata tags are not consistently attached to runs.
 
 ## Scope
-- Capture crash logs on login failure
-- Identify the regression window
-- Implement and verify the fix
+
+Ensure LangSmith tracing is enabled consistently when LANGSMITH_API_KEY is present, and add standardized metadata (repo, workflow, run id, issue/PR number, step name) to LLM calls.
+
+## Non-Goals
+
+This does not add a dashboard.
+This does not change core prompts or evaluation logic.
 
 ## Tasks
-- [ ] Reproduce crash on the login flow
-- [ ] Inspect recent auth/session changes for regressions
-- [ ] Add guardrails around null session handling
-- [ ] Verify fix across supported platforms
+
+- [ ] Update `tools/llm_provider.py` to set LANGCHAIN_API_KEY when LANGSMITH_API_KEY is present and ensure LANGCHAIN_TRACING_V2 is enabled.
+- [ ] Standardize metadata tagging for LLM calls in pr_verifier and followup_issue_generator (repo + run id + issue/pr number + operation at minimum).
+- [ ] Add a unit test that verifies env wiring behavior when LANGSMITH_API_KEY is set/unset.
 
 ## Acceptance Criteria
-- Login no longer crashes on valid credentials
-- Crash logs show no login-related stack traces
-- Regression tests cover the login flow
 
----
+- [ ] With LANGSMITH_API_KEY set, LANGCHAIN_TRACING_V2 and LANGCHAIN_API_KEY are configured (test-covered).
+- [ ] At least two key operations emit traces with standardized metadata fields (documented).
+- [ ] With no LANGSMITH_API_KEY, tracing remains off and code paths still run.
 
-Issue 7 — Add dark mode support
+## Implementation Notes
 
+Primary files:
+`tools/llm_provider.py`
+`scripts/langchain/pr_verifier.py`
+`scripts/langchain/followup_issue_generator.py`
+
+
+7. [CI] Pin LangChain dependencies + add pip caching in workflows that install at runtime
+labels: [agent:codex, enhancement]
+body:
 ## Why
-Users in low-light environments want a darker UI to reduce eye strain.
+
+Workflows that pip install langchain dependencies at runtime without pinning are vulnerable to drift and slow cold starts. Pinning + caching reduces both flakiness and cycle time.
 
 ## Scope
-- Provide a dark theme for core screens
-- Respect OS-level theme preferences
-- Add a manual toggle in settings
+
+Introduce a pinned requirements file for workflow-installed LLM dependencies and update key workflows to install from it with pip cache enabled.
+
+## Non-Goals
+
+This does not migrate to Poetry or lockfiles repo-wide.
+This does not change the automation flow.
 
 ## Tasks
-- [ ] Design dark theme color palette
-- [ ] Implement theme switcher logic
-- [ ] Update core screens for dark mode
-- [ ] Add settings toggle with persistence
+
+- [ ] Add a pinned requirements file for LLM workflow deps (e.g., `tools/requirements-llm.txt` or `.github/llm/requirements.txt`).
+- [ ] Update workflows that install langchain packages (auto-pilot, verifier, verify-to-new-pr) to install from the pinned file.
+- [ ] Add actions/cache for pip keyed on python version + requirements hash.
+- [ ] Log installed versions in workflow output for debugging.
 
 ## Acceptance Criteria
-- Users can enable dark mode from settings
-- OS theme preference is respected by default
-- Core screens render correctly in dark mode
 
----
+- [ ] Updated workflows install from the pinned requirements file (no floating installs).
+- [ ] Pip cache is configured and keyed correctly (visible in workflow logs).
+- [ ] CI passes with pinned versions.
 
-Issue 8 — Bug in docs examples
+## Implementation Notes
 
+Candidate workflows:
+`.github/workflows/agents-auto-pilot.yml`
+`.github/workflows/reusable-agents-verifier.yml`
+`.github/workflows/agents-verify-to-new-pr.yml`
+
+
+8. [New capability] CI failure triage assistant for keepalive/autofix (actionable next-step generation)
+labels: [agent:codex, enhancement]
+body:
 ## Why
-Documentation examples currently fail when copied, leading to user confusion and support requests.
+
+When CI fails repeatedly, humans and agents waste cycles re-reading logs. A constrained triage assistant that summarizes root cause and proposes concrete fix tasks extends system capacity without auto-editing code.
 
 ## Scope
-- Identify broken examples in docs
-- Fix example code and outputs
-- Add validation for docs snippets
+
+Create a script that ingests a CI failure log snippet (or GitHub job summary) and produces structured, actionable fix guidance. Integrate it into keepalive or autofix workflows to post a helpful comment after repeated failures.
+
+## Non-Goals
+
+This does not auto-apply fixes.
+This does not replace existing autofix or verifier logic.
 
 ## Tasks
-- [ ] Audit docs examples for correctness
-- [ ] Update broken examples and expected output
-- [ ] Add a quick docs validation check
+
+- [ ] Implement `scripts/langchain/ci_failure_triage.py` that outputs JSON: error_category, likely_root_cause, suggested_commands, likely_files, and 3–6 concrete tasks.
+- [ ] Add an integration hook: when a PR hits N consecutive failures, post a triage comment (or enrich the keepalive prompt) using the script output.
+- [ ] Add tests using canned CI log fixtures verifying stable categorization and task extraction.
 
 ## Acceptance Criteria
-- Docs examples run without errors
-- Updated snippets match current API behavior
-- Validation covers the critical docs examples
+
+- [ ] Given representative fixtures (ruff failure, pytest failure, mypy failure), the script outputs structured JSON with sensible categories and concrete tasks (test-covered).
+- [ ] Workflow integration posts triage only after repeated failures (no spam).
+- [ ] Triage output is sanitized and never includes secrets or raw environment values.
+
+## Implementation Notes
+
+Primary file:
+`scripts/langchain/ci_failure_triage.py` (new)
