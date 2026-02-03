@@ -46,7 +46,7 @@ docformatter==1.7.7
     # via workflows (pyproject.toml)
 execnet==2.1.2
     # via pytest-xdist
-faiss-cpu==1.8.0
+faiss-cpu==1.8.0.post1
     # via workflows (pyproject.toml)
 filelock==3.20.3
     # via virtualenv
