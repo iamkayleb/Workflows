@@ -155,6 +155,26 @@ def _run_git(args: list[str]) -> str:
     return result.stdout
 
 
+def _remote_exists(name: str) -> bool:
+    if not name:
+        return False
+    try:
+        _run_git(["remote", "get-url", name])
+    except RuntimeError:
+        return False
+    return True
+
+
+def _resolve_base_remote(base_remote: str | None) -> str:
+    candidate = (base_remote or "origin").strip() or "origin"
+    if _remote_exists(candidate):
+        return candidate
+    for fallback in ("origin", "upstream"):
+        if fallback != candidate and _remote_exists(fallback):
+            return fallback
+    return candidate
+
+
 def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
     try:
         return _run_git(primary)
@@ -289,7 +309,7 @@ def main() -> int:
     args = parser.parse_args()
 
     base_sha = (args.base_sha or "").strip() or None
-    base_remote = (args.base_remote or "origin").strip() or "origin"
+    base_remote = _resolve_base_remote(args.base_remote)
     pr_title, head_ref = resolve_pr_context(args.pr_title, args.head_ref)
     pr_issue = extract_title_issue_number(pr_title)
     if not pr_issue:
