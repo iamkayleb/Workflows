@@ -72,15 +72,38 @@ def extract_head_ref_issue_numbers(head_ref: str) -> set[int]:
 AUTO_FIX_PATTERN = re.compile(r"auto[\s-]?fix", re.IGNORECASE)
 
 
-def _has_autofix_label(event_path: str | None) -> bool:
+def _load_event_payload(event_path: str | None) -> dict:
     if not event_path:
-        return False
+        return {}
     try:
         with open(event_path, encoding="utf-8") as handle:
             payload = json.load(handle)
     except (OSError, json.JSONDecodeError):
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
+def _extract_pull_request(payload: dict) -> dict:
+    pull_request = payload.get("pull_request")
+    if isinstance(pull_request, dict):
+        return pull_request
+    pull_requests = payload.get("pull_requests")
+    if isinstance(pull_requests, list) and pull_requests:
+        first = pull_requests[0]
+        if isinstance(first, dict):
+            return first
+    return {}
+
+
+def _has_autofix_label(event_path: str | None) -> bool:
+    payload = _load_event_payload(event_path)
+    if not payload:
         return False
-    pull_request = payload.get("pull_request") or {}
+    pull_request = _extract_pull_request(payload)
+    if not pull_request:
+        return False
     labels = pull_request.get("labels") or []
     for label in labels:
         name = label.get("name", "") if isinstance(label, dict) else str(label)
@@ -98,6 +121,28 @@ def is_autofix_context(pr_title: str, head_ref: str, event_path: str | None = No
     return _has_autofix_label(event_path)
 
 
+def resolve_pr_context(
+    pr_title: str, head_ref: str, event_path: str | None = None
+) -> tuple[str, str]:
+    title = pr_title or ""
+    head = head_ref or ""
+    if event_path is None:
+        event_path = os.environ.get("GITHUB_EVENT_PATH")
+    payload = _load_event_payload(event_path)
+    pull_request = _extract_pull_request(payload)
+    if not title and pull_request:
+        title = str(pull_request.get("title", "") or "")
+    if not head and pull_request:
+        head_payload = pull_request.get("head")
+        if isinstance(head_payload, dict):
+            head = str(head_payload.get("ref", "") or "")
+    if not head:
+        workflow_run = payload.get("workflow_run")
+        if isinstance(workflow_run, dict):
+            head = str(workflow_run.get("head_branch", "") or "")
+    return title, head
+
+
 def _run_git(args: list[str]) -> str:
     result = subprocess.run(
         ["git", *args],
@@ -108,6 +153,26 @@ def _run_git(args: list[str]) -> str:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "git command failed")
     return result.stdout
+
+
+def _remote_exists(name: str) -> bool:
+    if not name:
+        return False
+    try:
+        _run_git(["remote", "get-url", name])
+    except RuntimeError:
+        return False
+    return True
+
+
+def _resolve_base_remote(base_remote: str | None) -> str:
+    candidate = (base_remote or "origin").strip() or "origin"
+    if _remote_exists(candidate):
+        return candidate
+    for fallback in ("origin", "upstream"):
+        if fallback != candidate and _remote_exists(fallback):
+            return fallback
+    return candidate
 
 
 def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
@@ -244,10 +309,11 @@ def main() -> int:
     args = parser.parse_args()
 
     base_sha = (args.base_sha or "").strip() or None
-    base_remote = (args.base_remote or "origin").strip() or "origin"
-    pr_issue = extract_title_issue_number(args.pr_title)
+    base_remote = _resolve_base_remote(args.base_remote)
+    pr_title, head_ref = resolve_pr_context(args.pr_title, args.head_ref)
+    pr_issue = extract_title_issue_number(pr_title)
     if not pr_issue:
-        head_numbers = extract_head_ref_issue_numbers(args.head_ref)
+        head_numbers = extract_head_ref_issue_numbers(head_ref)
         if len(head_numbers) == 1:
             pr_issue = next(iter(head_numbers))
         elif len(head_numbers) > 1:
@@ -257,7 +323,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-        elif is_autofix_context(args.pr_title, args.head_ref):
+        elif is_autofix_context(pr_title, head_ref):
             print("Skipping issue consistency check: autofix context with no issue number.")
             return 0
         else:
