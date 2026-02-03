@@ -112,6 +112,23 @@ runs:
           echo "✅ @octokit dependencies installed"
         fi
 
+
+    - name: Export API client NODE_PATH
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        INSTALL_DIR="${GITHUB_WORKSPACE}/.github/scripts"
+        NODE_MODULES_DIR="${INSTALL_DIR}/node_modules"
+
+        if [ -d "${NODE_MODULES_DIR}" ]; then
+          echo "NODE_PATH=${NODE_MODULES_DIR}" >>"${GITHUB_ENV}"
+          echo "✅ NODE_PATH set to ${NODE_MODULES_DIR}"
+        else
+          echo "::warning::NODE_PATH not set; ${NODE_MODULES_DIR} missing"
+        fi
+
+
     - name: Export load balancer tokens
       id: export-tokens
       shell: bash
