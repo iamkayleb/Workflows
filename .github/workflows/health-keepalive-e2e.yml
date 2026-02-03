@@ -163,10 +163,13 @@ jobs:
             const parsed = parseStateComment(comment);
             console.log('Parsed state:', parsed);
 
-            if (parsed.iteration !== 3) {
-              throw new Error(`State round-trip failed: iteration ${parsed.iteration} != 3`);
+            if (!parsed || !parsed.data) {
+              throw new Error('State round-trip failed: missing parsed data');
             }
-            if (parsed.trace !== 'test-trace-123') {
+            if (parsed.data.iteration !== 3) {
+              throw new Error(`State round-trip failed: iteration ${parsed.data.iteration} != 3`);
+            }
+            if (parsed.data.trace !== 'test-trace-123') {
               throw new Error('State round-trip failed: trace mismatch');
             }
 
