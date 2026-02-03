@@ -175,6 +175,25 @@ def _resolve_base_remote(base_remote: str | None) -> str:
     return candidate
 
 
+def _remote_ref_exists(remote: str, ref: str) -> bool:
+    if not remote or not ref:
+        return False
+    result = subprocess.run(
+        ["git", "show-ref", "--verify", "--quiet", f"refs/remotes/{remote}/{ref}"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def _find_remote_with_ref(base_remote: str, base_ref: str) -> str | None:
+    for candidate in (base_remote, "origin", "upstream"):
+        if candidate and _remote_ref_exists(candidate, base_ref):
+            return candidate
+    return None
+
+
 def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
     try:
         return _run_git(primary)
@@ -188,10 +207,16 @@ def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> st
 def collect_commit_messages(
     base_ref: str | None, base_sha: str | None, base_remote: str
 ) -> list[str]:
+    resolved_remote = None
+    if base_ref:
+        resolved_remote = _find_remote_with_ref(base_remote, base_ref)
     if base_sha:
         fallback = None
         if base_ref:
-            fallback = ["log", "--format=%s", f"{base_remote}/{base_ref}..HEAD"]
+            if resolved_remote:
+                fallback = ["log", "--format=%s", f"{resolved_remote}/{base_ref}..HEAD"]
+            else:
+                fallback = ["log", "--format=%s", "-n", "20"]
         else:
             fallback = ["log", "--format=%s", "-n", "20"]
         output = _run_git_with_fallback(
@@ -199,8 +224,11 @@ def collect_commit_messages(
             fallback,
         )
     elif base_ref:
-        range_spec = f"{base_remote}/{base_ref}..HEAD"
-        output = _run_git(["log", "--format=%s", range_spec])
+        if resolved_remote:
+            range_spec = f"{resolved_remote}/{base_ref}..HEAD"
+            output = _run_git(["log", "--format=%s", range_spec])
+        else:
+            output = _run_git(["log", "--format=%s", "-n", "20"])
     else:
         output = _run_git(["log", "--format=%s", "-n", "20"])
     return [line.strip() for line in output.splitlines() if line.strip()]
@@ -209,10 +237,16 @@ def collect_commit_messages(
 def collect_changed_files(
     base_ref: str | None, base_sha: str | None, base_remote: str
 ) -> list[Path]:
+    resolved_remote = None
+    if base_ref:
+        resolved_remote = _find_remote_with_ref(base_remote, base_ref)
     if base_sha:
         fallback = None
         if base_ref:
-            fallback = ["diff", "--name-only", f"{base_remote}/{base_ref}...HEAD"]
+            if resolved_remote:
+                fallback = ["diff", "--name-only", f"{resolved_remote}/{base_ref}...HEAD"]
+            else:
+                fallback = ["diff", "--name-only", "HEAD~1..HEAD"]
         else:
             fallback = ["diff", "--name-only", "HEAD~1..HEAD"]
         output = _run_git_with_fallback(
@@ -220,8 +254,11 @@ def collect_changed_files(
             fallback,
         )
     elif base_ref:
-        range_spec = f"{base_remote}/{base_ref}...HEAD"
-        output = _run_git(["diff", "--name-only", range_spec])
+        if resolved_remote:
+            range_spec = f"{resolved_remote}/{base_ref}...HEAD"
+            output = _run_git(["diff", "--name-only", range_spec])
+        else:
+            output = _run_git(["diff", "--name-only", "HEAD~1..HEAD"])
     else:
         output = _run_git(["diff", "--name-only", "HEAD~1..HEAD"])
     return [Path(line.strip()) for line in output.splitlines() if line.strip()]
