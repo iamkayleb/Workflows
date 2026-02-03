@@ -64,6 +64,12 @@ jobs:
             .github/scripts/agents-guard.js
             .github/workflows/agents-guard.yml
 
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
       - name: Evaluate protected file changes
         id: evaluate
         uses: actions/github-script@v8

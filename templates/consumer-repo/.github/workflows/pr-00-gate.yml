@@ -71,6 +71,12 @@ jobs:
             .github/scripts
           sparse-checkout-cone-mode: false
 
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
       - name: Summarize results
         id: summarize
         env:
@@ -123,7 +129,8 @@ jobs:
         env:
           STATE: ${{ steps.summarize.outputs.state || 'pending' }}
           DESCRIPTION: ${{ steps.summarize.outputs.description || 'Gate status pending' }}
-          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TARGET_URL: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           # Pass both tokens so script can fallback if App lacks permission
           APP_TOKEN: ${{ steps.app_token.outputs.token || '' }}
           GITHUB_TOKEN_FALLBACK: ${{ github.token }}
@@ -174,7 +181,7 @@ jobs:
                 core.warning('App token lacks statuses permission, falling back to GITHUB_TOKEN');
                 const { getOctokit } = require('@actions/github');
                 const fallbackOctokit = getOctokit(process.env.GITHUB_TOKEN_FALLBACK);
-                
+
                 try {
                   await createStatus(fallbackOctokit, 'GITHUB_TOKEN');
                 } catch (fallbackError) {

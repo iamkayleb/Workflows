@@ -19,6 +19,12 @@ jobs:
     if: false && github.event.label.name == 'verify:create-issue'
     runs-on: ubuntu-latest
     steps:
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
       - name: Check PR is merged
         id: check-merged
         uses: actions/github-script@v8

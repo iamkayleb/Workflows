@@ -14,12 +14,12 @@ agents-64-verify-agent-assignment.yml,,,Unknown,Needs Review,Unverified,,,Added 
 agents-71-codex-belt-dispatcher.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
 agents-72-codex-belt-worker.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
 agents-73-codex-belt-conveyor.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
-agents-auto-label.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
+agents-auto-label.yml,auto-label,,Yes,Covered,Fixed,,2026-02-03,Added setup-api-client to template workflow
 agents-auto-pilot.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
-agents-capability-check.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
-agents-decompose.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
-agents-dedup.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
-agents-guard.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
+agents-capability-check.yml,capability-check,,Yes,Covered,Fixed,,2026-02-03,Added setup-api-client to template workflow
+agents-decompose.yml,decompose,,Yes,Covered,Fixed,,2026-02-03,Added setup-api-client to template workflow
+agents-dedup.yml,dedup,,Yes,Covered,Fixed,,2026-02-03,Added setup-api-client to template workflow
+agents-guard.yml,guard,,Yes,Covered,Fixed,,2026-02-03,Added setup-api-client to template workflow
 agents-issue-optimizer.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
 agents-keepalive-dispatch-handler.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
 agents-keepalive-loop.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
@@ -51,7 +51,7 @@ maint-71-merge-sync-prs.yml,,,Unknown,Needs Review,Unverified,,,Added from high-
 maint-72-fix-pr-body-conflicts.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
 maint-74-ledger-base-sync.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
 maint-coverage-guard.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
-pr-00-gate.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
+pr-00-gate.yml,summary,,Yes,Covered,Fixed,,2026-02-03,Added setup-api-client to template workflow
 reusable-18-autofix.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
 reusable-70-orchestrator-init.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
 reusable-70-orchestrator-main.yml,,,Unknown,Needs Review,Unverified,,,Added from high-volume audit list; coverage not yet verified
