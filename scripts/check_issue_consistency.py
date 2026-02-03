@@ -194,9 +194,9 @@ def _find_remote_with_ref(base_remote: str, base_ref: str) -> str | None:
     return None
 
 
-def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
+def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> tuple[str, bool]:
     try:
-        return _run_git(primary)
+        return _run_git(primary), False
     except RuntimeError as exc:
         message = str(exc).lower()
         if fallback and (
@@ -206,14 +206,15 @@ def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> st
             or "unknown revision" in message
             or "not in the working tree" in message
         ):
-            return _run_git(fallback)
+            return _run_git(fallback), True
         raise
 
 
 def collect_commit_messages(
     base_ref: str | None, base_sha: str | None, base_remote: str
-) -> list[str]:
+) -> tuple[list[str], bool]:
     resolved_remote = None
+    used_fallback = False
     if base_ref:
         resolved_remote = _find_remote_with_ref(base_remote, base_ref)
     if base_sha:
@@ -225,7 +226,7 @@ def collect_commit_messages(
                 fallback = ["log", "--format=%s", "-n", "20"]
         else:
             fallback = ["log", "--format=%s", "-n", "20"]
-        output = _run_git_with_fallback(
+        output, used_fallback = _run_git_with_fallback(
             ["log", "--format=%s", f"{base_sha}..HEAD"],
             fallback,
         )
@@ -235,15 +236,18 @@ def collect_commit_messages(
             output = _run_git(["log", "--format=%s", range_spec])
         else:
             output = _run_git(["log", "--format=%s", "-n", "20"])
+            used_fallback = True
     else:
         output = _run_git(["log", "--format=%s", "-n", "20"])
-    return [line.strip() for line in output.splitlines() if line.strip()]
+        used_fallback = True
+    return [line.strip() for line in output.splitlines() if line.strip()], used_fallback
 
 
 def collect_changed_files(
     base_ref: str | None, base_sha: str | None, base_remote: str
-) -> list[Path]:
+) -> tuple[list[Path], bool]:
     resolved_remote = None
+    used_fallback = False
     if base_ref:
         resolved_remote = _find_remote_with_ref(base_remote, base_ref)
     if base_sha:
@@ -255,7 +259,7 @@ def collect_changed_files(
                 fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
         else:
             fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
-        output = _run_git_with_fallback(
+        output, used_fallback = _run_git_with_fallback(
             ["diff", "--name-only", f"{base_sha}...HEAD"],
             fallback,
         )
@@ -265,9 +269,11 @@ def collect_changed_files(
             output = _run_git(["diff", "--name-only", range_spec])
         else:
             output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
+            used_fallback = True
     else:
         output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
-    return [Path(line.strip()) for line in output.splitlines() if line.strip()]
+        used_fallback = True
+    return [Path(line.strip()) for line in output.splitlines() if line.strip()], used_fallback
 
 
 def collect_header_issue_numbers(file_path: Path, max_lines: int) -> set[int]:
@@ -370,14 +376,18 @@ def main() -> int:
             print("Skipping issue consistency check: autofix context with no issue number.")
             return 0
         else:
-            commit_messages = collect_commit_messages(args.base_ref, base_sha, base_remote)
+            commit_messages, commit_fallback = collect_commit_messages(
+                args.base_ref, base_sha, base_remote
+            )
             commit_issue_numbers: set[int] = set()
             for message in commit_messages:
                 # Commit subjects often include PR numbers in parentheses (#1234).
                 # Avoid treating those as issue references unless "issue" is explicit.
                 commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
 
-            changed_files = collect_changed_files(args.base_ref, base_sha, base_remote)
+            changed_files, file_fallback = collect_changed_files(
+                args.base_ref, base_sha, base_remote
+            )
             header_issue_numbers: set[int] = set()
             for file_path in changed_files:
                 if not file_path.exists() or not file_path.is_file():
@@ -387,21 +397,36 @@ def main() -> int:
                 )
 
             combined_issue_numbers = commit_issue_numbers | header_issue_numbers
+            fallback_used = commit_fallback or file_fallback
             if len(combined_issue_numbers) == 1:
                 pr_issue = next(iter(combined_issue_numbers))
             elif not combined_issue_numbers:
                 print("Skipping issue consistency check: no issue references found.")
                 return 0
             else:
+                if fallback_used:
+                    print(
+                        "Skipping issue consistency check: "
+                        "unable to determine issue number from PR title with fallback diff range."
+                    )
+                    return 0
                 print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
                 return 1
 
-    commit_messages = collect_commit_messages(args.base_ref, base_sha, base_remote)
+    commit_messages, commit_fallback = collect_commit_messages(args.base_ref, base_sha, base_remote)
     commit_issue_numbers: set[int] = set()
     for message in commit_messages:
         # Commit subjects often include PR numbers in parentheses (#1234).
         # Avoid treating those as issue references unless "issue" is explicit.
         commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
+
+    changed_files, file_fallback = collect_changed_files(args.base_ref, base_sha, base_remote)
+    fallback_used = commit_fallback or file_fallback
+    if fallback_used:
+        print(
+            "Skipping issue consistency check: base reference unavailable for reliable comparison."
+        )
+        return 0
 
     mismatched_commits = sorted(num for num in commit_issue_numbers if num != pr_issue)
     if mismatched_commits:
@@ -412,7 +437,6 @@ def main() -> int:
         )
         return 1
 
-    changed_files = collect_changed_files(args.base_ref, base_sha, base_remote)
     header_issue_numbers: set[int] = set()
     mismatched_files: list[str] = []
     for file_path in changed_files:
