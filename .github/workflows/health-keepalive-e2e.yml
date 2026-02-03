@@ -113,11 +113,11 @@ jobs:
             const counts = countCheckboxes(prBody);
             console.log('Checkbox counts:', counts);
 
-            if (counts.total !== 3) {
-              throw new Error(`Expected 3 total checkboxes, got ${counts.total}`);
+            if (counts.total !== 4) {
+              throw new Error(`Expected 4 total checkboxes, got ${counts.total}`);
             }
-            if (counts.unchecked !== 2) {
-              throw new Error(`Expected 2 unchecked, got ${counts.unchecked}`);
+            if (counts.unchecked !== 3) {
+              throw new Error(`Expected 3 unchecked, got ${counts.unchecked}`);
             }
 
             // Test 2: parseConfig with various formats
