@@ -199,7 +199,13 @@ def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> st
         return _run_git(primary)
     except RuntimeError as exc:
         message = str(exc).lower()
-        if fallback and ("no merge base" in message or "bad object" in message):
+        if fallback and (
+            "no merge base" in message
+            or "bad object" in message
+            or "ambiguous argument" in message
+            or "unknown revision" in message
+            or "not in the working tree" in message
+        ):
             return _run_git(fallback)
         raise
 
