@@ -238,7 +238,9 @@ def main() -> int:
             commit_messages = collect_commit_messages(args.base_ref, base_sha, base_remote)
             commit_issue_numbers: set[int] = set()
             for message in commit_messages:
-                commit_issue_numbers.update(extract_issue_numbers(message, include_hash=True))
+                # Commit subjects often include PR numbers in parentheses (#1234).
+                # Avoid treating those as issue references unless "issue" is explicit.
+                commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
 
             changed_files = collect_changed_files(args.base_ref, base_sha, base_remote)
             header_issue_numbers: set[int] = set()
@@ -258,7 +260,9 @@ def main() -> int:
     commit_messages = collect_commit_messages(args.base_ref, base_sha, base_remote)
     commit_issue_numbers: set[int] = set()
     for message in commit_messages:
-        commit_issue_numbers.update(extract_issue_numbers(message, include_hash=True))
+        # Commit subjects often include PR numbers in parentheses (#1234).
+        # Avoid treating those as issue references unless "issue" is explicit.
+        commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
 
     mismatched_commits = sorted(num for num in commit_issue_numbers if num != pr_issue)
     if mismatched_commits:
