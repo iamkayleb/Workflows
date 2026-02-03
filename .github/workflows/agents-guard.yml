@@ -252,12 +252,12 @@ jobs:
               try {
                 const response = await withApiRetry(
                   (client) => client.rest.repos.getContent({
-                  owner,
-                  repo,
-                  path: guardRelativePath,
-                  ref: baseRef,
-                }),
-                { label: `load ${guardRelativePath}` },
+                    owner,
+                    repo,
+                    path: guardRelativePath,
+                    ref: baseRef,
+                  }),
+                  { label: `load ${guardRelativePath}` },
                 );
 
                 if (Array.isArray(response.data) || response.data.type !== 'file') {

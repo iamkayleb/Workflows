@@ -254,7 +254,7 @@ jobs:
                     path: guardRelativePath,
                     ref: baseRef,
                   }),
-                { label: `load ${guardRelativePath}` },
+                  { label: `load ${guardRelativePath}` },
                 );
 
                 if (Array.isArray(response.data) || response.data.type !== 'file') {
