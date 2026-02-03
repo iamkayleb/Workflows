@@ -246,9 +246,9 @@ def collect_changed_files(
             if resolved_remote:
                 fallback = ["diff", "--name-only", f"{resolved_remote}/{base_ref}...HEAD"]
             else:
-                fallback = ["diff", "--name-only", "HEAD~1..HEAD"]
+                fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
         else:
-            fallback = ["diff", "--name-only", "HEAD~1..HEAD"]
+            fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
         output = _run_git_with_fallback(
             ["diff", "--name-only", f"{base_sha}...HEAD"],
             fallback,
@@ -258,9 +258,9 @@ def collect_changed_files(
             range_spec = f"{resolved_remote}/{base_ref}...HEAD"
             output = _run_git(["diff", "--name-only", range_spec])
         else:
-            output = _run_git(["diff", "--name-only", "HEAD~1..HEAD"])
+            output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
     else:
-        output = _run_git(["diff", "--name-only", "HEAD~1..HEAD"])
+        output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
     return [Path(line.strip()) for line in output.splitlines() if line.strip()]
 
 
@@ -380,11 +380,15 @@ def main() -> int:
                     collect_header_issue_numbers(file_path, args.header_lines)
                 )
 
-            if not (commit_issue_numbers or header_issue_numbers):
+            combined_issue_numbers = commit_issue_numbers | header_issue_numbers
+            if len(combined_issue_numbers) == 1:
+                pr_issue = next(iter(combined_issue_numbers))
+            elif not combined_issue_numbers:
                 print("Skipping issue consistency check: no issue references found.")
                 return 0
-            print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
-            return 1
+            else:
+                print("Error: Unable to determine issue number from PR title.", file=sys.stderr)
+                return 1
 
     commit_messages = collect_commit_messages(args.base_ref, base_sha, base_remote)
     commit_issue_numbers: set[int] = set()
