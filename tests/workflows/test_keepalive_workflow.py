@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -13,6 +14,28 @@ HARNESS = FIXTURES_DIR / "harness.js"
 def _require_node() -> None:
     if shutil.which("node") is None:
         pytest.skip("Node.js is required for keepalive harness tests")
+
+
+def _clean_token_env(env: dict[str, str]) -> dict[str, str]:
+    token_keys = {
+        "ACTIONS_BOT_PAT",
+        "actions_bot_pat",
+        "SERVICE_BOT_PAT",
+        "service_bot_pat",
+        "GH_TOKEN",
+        "gh_token",
+        "GITHUB_TOKEN",
+        "github_token",
+        "KEEPALIVE_DISPATCH_TOKEN",
+        "keepalive_dispatch_token",
+        "KEEPALIVE_DISPATCH_PAT",
+        "keepalive_dispatch_pat",
+        "GH_DISPATCH_TOKEN",
+        "gh_dispatch_token",
+    }
+    for key in token_keys:
+        env.pop(key, None)
+    return env
 
 
 def _run_scenario(name: str) -> dict:
@@ -540,7 +563,8 @@ def test_keepalive_requires_instruction_token() -> None:
     scenario_path = FIXTURES_DIR / "missing_dispatch_token.json"
     assert scenario_path.exists(), "Scenario fixture missing"
     command = ["node", str(HARNESS), str(scenario_path)]
-    result = subprocess.run(command, capture_output=True, text=True)
+    env = _clean_token_env(os.environ.copy())
+    result = subprocess.run(command, capture_output=True, text=True, env=env)
     assert result.returncode != 0, "Expected harness to fail without dispatch token"
     combined_output = (result.stderr or "") + (result.stdout or "")
     assert "GitHub token is required to author keepalive instructions" in combined_output
