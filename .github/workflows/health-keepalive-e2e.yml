@@ -12,8 +12,10 @@ on:
       - '.github/codex/prompts/keepalive*.md'
 
 permissions:
-  contents: read
-  pull-requests: read
+  contents: write
+  pull-requests: write
+  actions: write
+  models: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
