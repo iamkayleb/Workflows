@@ -142,7 +142,7 @@ jobs:
 
           github-token: ${{ steps.app_token.outputs.token || github.token }}
           script: |
-            const { loadKeepaliveState, formatStateComment, parseStateFromComment } = require('./.github/scripts/keepalive_state.js');
+            const { loadKeepaliveState, formatStateComment, parseStateComment } = require('./.github/scripts/keepalive_state.js');
 
             // Test state serialization round-trip
             const testState = {
@@ -160,7 +160,7 @@ jobs:
             }
 
             // Parse it back
-            const parsed = parseStateFromComment(comment);
+            const parsed = parseStateComment(comment);
             console.log('Parsed state:', parsed);
 
             if (parsed.iteration !== 3) {
