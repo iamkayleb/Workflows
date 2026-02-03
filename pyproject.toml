@@ -27,6 +27,7 @@ Repository = "https://github.com/stranske/Workflows"
 Issues = "https://github.com/stranske/Workflows/issues"
 
 [project.optional-dependencies]
+app = []
 dev = [
     "pre-commit==4.5.1",
     "black==26.1.0",
