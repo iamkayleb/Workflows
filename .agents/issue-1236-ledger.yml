@@ -6,10 +6,10 @@ tasks:
   - id: task-01
     title: Update `FallbackChainProvider` to pass `quality_context` through to underlying
       providers that support it.
-    status: doing
+    status: done
     started_at: '2026-02-04T16:18:36Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-02-04T16:18:46Z'
+    commit: 4d3a12801be5869ce56801b179ad7a8ff80ed859
     notes: []
   - id: task-02
     title: 'Identify providers that support `quality_context`. (verify: confirm completion
