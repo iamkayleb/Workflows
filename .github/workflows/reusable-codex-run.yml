@@ -311,6 +311,26 @@ jobs:
             fi
           fi
 
+          if [ ! -d ".workflows-lib/.github/scripts/node_modules" ] && command -v npm >/dev/null 2>&1; then
+            echo "Retrying @octokit install with npm init in .workflows-lib/.github/scripts..."
+            mkdir -p ".workflows-lib/.github/scripts"
+            pushd ".workflows-lib/.github/scripts" >/dev/null
+            if [ ! -f package.json ]; then
+              npm init -y >/dev/null
+            fi
+            npm install --no-save --location=project \
+              @octokit/rest@20.0.2 \
+              @octokit/plugin-retry@6.0.1 \
+              @octokit/plugin-paginate-rest@9.1.5 \
+              @octokit/auth-app@6.0.3 || \
+            npm install --no-save --legacy-peer-deps --location=project \
+              @octokit/rest@20.0.2 \
+              @octokit/plugin-retry@6.0.1 \
+              @octokit/plugin-paginate-rest@9.1.5 \
+              @octokit/auth-app@6.0.3
+            popd >/dev/null
+          fi
+
       - name: Validate workflows tooling
         run: |
           set -euo pipefail
