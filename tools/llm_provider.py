@@ -743,6 +743,16 @@ def check_providers() -> dict[str, bool]:
     }
 
 
+def get_quality_context_capable_providers() -> list[str]:
+    """List providers that support quality_context."""
+    providers = [
+        GitHubModelsProvider(),
+        OpenAIProvider(),
+        RegexFallbackProvider(),
+    ]
+    return [provider.name for provider in providers if provider.supports_quality_context()]
+
+
 if __name__ == "__main__":
     import sys
 
