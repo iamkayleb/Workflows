@@ -258,7 +258,7 @@ jobs:
       mode: e2e-test
       skip: false
       max_runtime_minutes: 5
-      sandbox: workspace-read
+      sandbox: read-only
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
       WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
