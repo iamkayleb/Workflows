@@ -452,6 +452,9 @@ class OpenAIProvider(LLMProvider):
                 confidence=result.confidence,
                 reasoning=result.reasoning,
                 provider_used=self.name,
+                raw_confidence=result.raw_confidence,
+                confidence_adjusted=result.confidence_adjusted,
+                quality_warnings=result.quality_warnings,
             )
         except Exception as e:
             logger.error(f"OpenAI API error: {e}")
