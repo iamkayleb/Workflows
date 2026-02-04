@@ -268,11 +268,22 @@ jobs:
       - name: Ensure Workflows script deps
         run: |
           set -euo pipefail
-          if [ ! -d ".workflows-lib/.github/scripts/node_modules" ] && \
-            [ -d ".github/scripts/node_modules" ]; then
-            mkdir -p ".workflows-lib/.github/scripts"
-            ln -s "${GITHUB_WORKSPACE}/.github/scripts/node_modules" \
-              ".workflows-lib/.github/scripts/node_modules"
+          if [ ! -d ".workflows-lib/.github/scripts/node_modules" ]; then
+            if [ -d ".github/scripts/node_modules" ]; then
+              mkdir -p ".workflows-lib/.github/scripts"
+              ln -s "${GITHUB_WORKSPACE}/.github/scripts/node_modules" \
+                ".workflows-lib/.github/scripts/node_modules"
+            else
+              mkdir -p ".workflows-lib/.github/scripts"
+              echo "Installing fallback @octokit deps for .workflows-lib..."
+              pushd ".workflows-lib/.github/scripts" >/dev/null
+              npm install --no-save \
+                @octokit/rest@20.0.2 \
+                @octokit/plugin-retry@6.0.1 \
+                @octokit/plugin-paginate-rest@9.1.5 \
+                @octokit/auth-app@6.0.3
+              popd >/dev/null
+            fi
           fi
 
       - name: Validate workflows tooling
