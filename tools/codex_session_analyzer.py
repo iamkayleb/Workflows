@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from tools.codex_jsonl_parser import CodexSession, parse_codex_jsonl
-from tools.llm_provider import CompletionAnalysis, get_llm_provider
+from tools.llm_provider import CompletionAnalysis, SessionQualityContext, get_llm_provider
 
 logger = logging.getLogger(__name__)
 
@@ -166,8 +166,6 @@ def analyze_session(
 
             # Build quality context for BS detection
             quality_metrics = session.get_quality_metrics()
-            from tools.llm_provider import SessionQualityContext
-
             quality_context = SessionQualityContext(
                 has_agent_messages=quality_metrics["has_agent_messages"],
                 has_work_evidence=quality_metrics["has_work_evidence"],
@@ -188,6 +186,17 @@ def analyze_session(
             logger.warning(f"Failed to parse as JSONL, falling back to summary: {e}")
             data_source = "summary"
             analysis_text = content
+
+    if quality_context is None:
+        quality_context = SessionQualityContext(
+            has_agent_messages=False,
+            has_work_evidence=False,
+            file_change_count=0,
+            successful_command_count=0,
+            estimated_effort_score=0,
+            data_quality="unknown",
+            analysis_text_length=len(analysis_text),
+        )
 
     # Get LLM provider and analyze
     provider = get_llm_provider(force_provider=force_provider)
