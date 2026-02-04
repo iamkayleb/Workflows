@@ -11,6 +11,7 @@ from tools.llm_provider import (
     GitHubModelsProvider,
     OpenAIProvider,
     RegexFallbackProvider,
+    SessionQualityContext,
     check_providers,
     get_llm_provider,
 )
@@ -132,6 +133,45 @@ class TestFallbackChainProvider:
         mock_provider2.analyze_completion.assert_called()
         assert result.provider_used == "mock2"
 
+    def test_passes_quality_context(self):
+        """Chain forwards quality context to providers."""
+        mock_provider = MagicMock()
+        mock_provider.name = "mock"
+        mock_provider.is_available.return_value = True
+        mock_provider.analyze_completion.return_value = CompletionAnalysis(
+            completed_tasks=[],
+            in_progress_tasks=[],
+            blocked_tasks=[],
+            confidence=0.5,
+            reasoning="ok",
+            provider_used="mock",
+        )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=True,
+            file_change_count=1,
+            successful_command_count=0,
+            estimated_effort_score=10,
+            data_quality="low",
+            analysis_text_length=120,
+        )
+
+        chain = FallbackChainProvider([mock_provider])
+        chain.analyze_completion(
+            "output",
+            ["task1"],
+            context="ctx",
+            quality_context=quality_context,
+        )
+
+        mock_provider.analyze_completion.assert_called_with(
+            session_output="output",
+            tasks=["task1"],
+            context="ctx",
+            quality_context=quality_context,
+        )
+
     def test_falls_back_on_error(self):
         """Chain falls back when provider raises error."""
         mock_provider1 = MagicMock()
@@ -167,6 +207,70 @@ class TestFallbackChainProvider:
 
         with pytest.raises(RuntimeError, match="All providers failed"):
             chain.analyze_completion("output", ["task1"])
+
+    def test_confidence_capped_for_short_analysis_text(self):
+        """Confidence is capped when quality context flags short analysis text."""
+
+        class QualityAwareProvider(GitHubModelsProvider):
+            @property
+            def name(self) -> str:
+                return "quality-aware"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                response = """
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.9,
+    "reasoning": "Short analysis."
+}
+"""
+                parsed = self._parse_response(
+                    response,
+                    tasks,
+                    quality_context=quality_context,
+                )
+                return CompletionAnalysis(
+                    completed_tasks=parsed.completed_tasks,
+                    in_progress_tasks=parsed.in_progress_tasks,
+                    blocked_tasks=parsed.blocked_tasks,
+                    confidence=parsed.confidence,
+                    reasoning=parsed.reasoning,
+                    provider_used=self.name,
+                    raw_confidence=parsed.raw_confidence,
+                    confidence_adjusted=parsed.confidence_adjusted,
+                    quality_warnings=parsed.quality_warnings,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=False,
+            has_work_evidence=True,
+            file_change_count=1,
+            successful_command_count=0,
+            estimated_effort_score=5,
+            data_quality="high",
+            analysis_text_length=50,
+        )
+
+        chain = FallbackChainProvider([QualityAwareProvider()])
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            quality_context=quality_context,
+        )
+
+        assert result.confidence <= 0.4
+        assert result.confidence_adjusted is True
 
 
 class TestGetLLMProvider:

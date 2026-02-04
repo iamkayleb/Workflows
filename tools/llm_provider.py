@@ -122,6 +122,7 @@ class LLMProvider(ABC):
         session_output: str,
         tasks: list[str],
         context: str | None = None,
+        quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         """
         Analyze session output to determine task completion status.
@@ -130,6 +131,7 @@ class LLMProvider(ABC):
             session_output: Codex session output (summary or JSONL events)
             tasks: List of task descriptions from PR checkboxes
             context: Optional additional context (PR description, etc.)
+            quality_context: Optional session quality context for confidence checks
 
         Returns:
             CompletionAnalysis with task status breakdown
@@ -408,6 +410,7 @@ class OpenAIProvider(LLMProvider):
         session_output: str,
         tasks: list[str],
         context: str | None = None,
+        quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         client = self._get_client()
         if not client:
@@ -419,7 +422,11 @@ class OpenAIProvider(LLMProvider):
 
         try:
             response = client.invoke(prompt)
-            result = github_provider._parse_response(response.content, tasks)
+            result = github_provider._parse_response(
+                response.content,
+                tasks,
+                quality_context=quality_context,
+            )
             # Override provider name
             return CompletionAnalysis(
                 completed_tasks=result.completed_tasks,
@@ -469,6 +476,7 @@ class RegexFallbackProvider(LLMProvider):
         session_output: str,
         tasks: list[str],
         _context: str | None = None,
+        _quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         output_lower = session_output.lower()
         completed = []
@@ -550,6 +558,7 @@ class FallbackChainProvider(LLMProvider):
         session_output: str,
         tasks: list[str],
         context: str | None = None,
+        quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         last_error = None
 
@@ -561,7 +570,12 @@ class FallbackChainProvider(LLMProvider):
             try:
                 logger.info(f"Attempting analysis with {provider.name}")
                 self._active_provider = provider
-                result = provider.analyze_completion(session_output, tasks, context)
+                result = provider.analyze_completion(
+                    session_output=session_output,
+                    tasks=tasks,
+                    context=context,
+                    quality_context=quality_context,
+                )
                 logger.info(f"Successfully analyzed with {provider.name}")
                 return result
             except Exception as e:

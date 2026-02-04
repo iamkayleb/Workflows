@@ -193,27 +193,11 @@ def analyze_session(
     provider = get_llm_provider(force_provider=force_provider)
 
     try:
-        # Pass quality context if provider supports it
-        if hasattr(provider, "_active_provider"):
-            # FallbackChainProvider - let internal provider handle it
-            completion = provider.analyze_completion(
-                session_output=analysis_text,
-                tasks=tasks,
-                context=context,
-            )
-        else:
-            completion = provider.analyze_completion(
-                session_output=analysis_text,
-                tasks=tasks,
-                context=context,
-                quality_context=quality_context,
-            )
-    except TypeError:
-        # Provider doesn't support quality_context parameter
         completion = provider.analyze_completion(
             session_output=analysis_text,
             tasks=tasks,
             context=context,
+            quality_context=quality_context,
         )
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
