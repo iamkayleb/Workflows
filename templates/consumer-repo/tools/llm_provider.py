@@ -150,6 +150,21 @@ class LLMProvider(ABC):
         )
 
 
+def _supports_quality_context(provider: LLMProvider) -> bool:
+    supports = getattr(provider, "supports_quality_context", None)
+    if callable(supports):
+        return bool(supports())
+    if supports is not None:
+        return bool(supports)
+    try:
+        parameters = inspect.signature(provider.analyze_completion).parameters
+    except (TypeError, ValueError):
+        return False
+    return "quality_context" in parameters or any(
+        param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
+    )
+
+
 class GitHubModelsProvider(LLMProvider):
     """LLM provider using GitHub Models API (OpenAI-compatible)."""
 
@@ -629,18 +644,7 @@ class FallbackChainProvider(LLMProvider):
 
     @staticmethod
     def _provider_supports_quality_context(provider: LLMProvider) -> bool:
-        supports = getattr(provider, "supports_quality_context", None)
-        if callable(supports):
-            return bool(supports())
-        if supports is not None:
-            return bool(supports)
-        try:
-            parameters = inspect.signature(provider.analyze_completion).parameters
-        except (TypeError, ValueError):
-            return False
-        return "quality_context" in parameters or any(
-            param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
-        )
+        return _supports_quality_context(provider)
 
     def _partition_providers_by_quality_context(
         self,
@@ -750,7 +754,7 @@ def get_quality_context_capable_providers() -> list[str]:
         OpenAIProvider(),
         RegexFallbackProvider(),
     ]
-    return [provider.name for provider in providers if provider.supports_quality_context()]
+    return [provider.name for provider in providers if _supports_quality_context(provider)]
 
 
 if __name__ == "__main__":
