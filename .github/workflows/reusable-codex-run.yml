@@ -268,7 +268,23 @@ jobs:
       - name: Ensure Workflows script deps
         run: |
           set -euo pipefail
+          if [ ! -f ".workflows-lib/tools/codex_jsonl_parser.py" ] && \
+            [ -f "tools/codex_jsonl_parser.py" ]; then
+            mkdir -p ".workflows-lib/tools"
+            cp "tools/codex_jsonl_parser.py" ".workflows-lib/tools/codex_jsonl_parser.py"
+          fi
           if [ ! -d ".workflows-lib/.github/scripts/node_modules" ]; then
+            if [ ! -d ".github/scripts/node_modules" ]; then
+              mkdir -p ".github/scripts"
+              echo "Installing fallback @octokit deps for workspace scripts..."
+              pushd ".github/scripts" >/dev/null
+              npm install --no-save --location=project \
+                @octokit/rest@20.0.2 \
+                @octokit/plugin-retry@6.0.1 \
+                @octokit/plugin-paginate-rest@9.1.5 \
+                @octokit/auth-app@6.0.3
+              popd >/dev/null
+            fi
             if [ -d ".github/scripts/node_modules" ]; then
               mkdir -p ".workflows-lib/.github/scripts"
               ln -s "${GITHUB_WORKSPACE}/.github/scripts/node_modules" \
