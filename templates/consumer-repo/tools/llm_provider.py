@@ -573,8 +573,19 @@ class FallbackChainProvider(LLMProvider):
         quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         last_error = None
+        providers = self._providers
 
-        for provider in self._providers:
+        if quality_context is not None:
+            quality_aware: list[LLMProvider] = []
+            legacy: list[LLMProvider] = []
+            for provider in self._providers:
+                if self._provider_supports_quality_context(provider):
+                    quality_aware.append(provider)
+                else:
+                    legacy.append(provider)
+            providers = quality_aware + legacy
+
+        for provider in providers:
             if not provider.is_available():
                 logger.debug(f"Provider {provider.name} not available, skipping")
                 continue

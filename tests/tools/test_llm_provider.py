@@ -219,6 +219,75 @@ class TestFallbackChainProvider:
 
         assert result.completed_tasks == ["task1"]
 
+    def test_prefers_quality_context_provider(self):
+        """Chain prefers providers that support quality_context when available."""
+
+        class LegacyProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "legacy"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+            ) -> CompletionAnalysis:
+                return CompletionAnalysis(
+                    completed_tasks=["legacy"],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.6,
+                    reasoning="legacy",
+                    provider_used=self.name,
+                )
+
+        class QualityAwareProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "quality-aware"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                return CompletionAnalysis(
+                    completed_tasks=["quality-aware"],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.7,
+                    reasoning="quality-aware",
+                    provider_used=self.name,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=True,
+            file_change_count=1,
+            successful_command_count=1,
+            estimated_effort_score=10,
+            data_quality="medium",
+            analysis_text_length=250,
+        )
+
+        chain = FallbackChainProvider([LegacyProvider(), QualityAwareProvider()])
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            quality_context=quality_context,
+        )
+
+        assert result.provider_used == "quality-aware"
+
     def test_falls_back_on_error(self):
         """Chain falls back when provider raises error."""
         mock_provider1 = MagicMock()
