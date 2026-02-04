@@ -181,6 +181,41 @@ class TestFallbackChainProvider:
             quality_context=quality_context,
         )
 
+    def test_quality_context_capable_providers_list(self):
+        """Chain reports providers that support quality_context."""
+
+        class LegacyProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "legacy"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+            ) -> CompletionAnalysis:
+                _ = session_output
+                _ = tasks
+                _ = context
+                return CompletionAnalysis(
+                    completed_tasks=[],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.0,
+                    reasoning="legacy",
+                    provider_used=self.name,
+                )
+
+        chain = FallbackChainProvider(
+            [LegacyProvider(), RegexFallbackProvider(), GitHubModelsProvider()]
+        )
+
+        assert chain.quality_context_capable_providers() == ["github-models"]
+
     def test_passes_quality_context_for_attribute_support_provider(self):
         """Chain forwards quality context when provider uses attribute flag."""
 
