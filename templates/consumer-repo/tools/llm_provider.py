@@ -21,6 +21,7 @@ LangSmith Tracing:
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
@@ -122,6 +123,7 @@ class LLMProvider(ABC):
         session_output: str,
         tasks: list[str],
         context: str | None = None,
+        quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         """
         Analyze session output to determine task completion status.
@@ -130,6 +132,7 @@ class LLMProvider(ABC):
             session_output: Codex session output (summary or JSONL events)
             tasks: List of task descriptions from PR checkboxes
             context: Optional additional context (PR description, etc.)
+            quality_context: Optional session quality context for confidence checks
 
         Returns:
             CompletionAnalysis with task status breakdown
@@ -408,6 +411,7 @@ class OpenAIProvider(LLMProvider):
         session_output: str,
         tasks: list[str],
         context: str | None = None,
+        quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         client = self._get_client()
         if not client:
@@ -419,7 +423,11 @@ class OpenAIProvider(LLMProvider):
 
         try:
             response = client.invoke(prompt)
-            result = github_provider._parse_response(response.content, tasks)
+            result = github_provider._parse_response(
+                response.content,
+                tasks,
+                quality_context=quality_context,
+            )
             # Override provider name
             return CompletionAnalysis(
                 completed_tasks=result.completed_tasks,
@@ -469,6 +477,7 @@ class RegexFallbackProvider(LLMProvider):
         session_output: str,
         tasks: list[str],
         _context: str | None = None,
+        _quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         output_lower = session_output.lower()
         completed = []
@@ -550,6 +559,7 @@ class FallbackChainProvider(LLMProvider):
         session_output: str,
         tasks: list[str],
         context: str | None = None,
+        quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         last_error = None
 
@@ -561,7 +571,13 @@ class FallbackChainProvider(LLMProvider):
             try:
                 logger.info(f"Attempting analysis with {provider.name}")
                 self._active_provider = provider
-                result = provider.analyze_completion(session_output, tasks, context)
+                result = self._analyze_with_provider(
+                    provider,
+                    session_output=session_output,
+                    tasks=tasks,
+                    context=context,
+                    quality_context=quality_context,
+                )
                 logger.info(f"Successfully analyzed with {provider.name}")
                 return result
             except Exception as e:
@@ -572,6 +588,39 @@ class FallbackChainProvider(LLMProvider):
         if last_error:
             raise RuntimeError(f"All providers failed. Last error: {last_error}")
         raise RuntimeError("No providers available")
+
+    @staticmethod
+    def _provider_supports_quality_context(provider: LLMProvider) -> bool:
+        try:
+            parameters = inspect.signature(provider.analyze_completion).parameters
+        except (TypeError, ValueError):
+            return False
+        return "quality_context" in parameters or any(
+            param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
+        )
+
+    def _analyze_with_provider(
+        self,
+        provider: LLMProvider,
+        *,
+        session_output: str,
+        tasks: list[str],
+        context: str | None,
+        quality_context: SessionQualityContext | None,
+    ) -> CompletionAnalysis:
+        if self._provider_supports_quality_context(provider):
+            return provider.analyze_completion(
+                session_output=session_output,
+                tasks=tasks,
+                context=context,
+                quality_context=quality_context,
+            )
+
+        return provider.analyze_completion(
+            session_output=session_output,
+            tasks=tasks,
+            context=context,
+        )
 
 
 def get_llm_provider(force_provider: str | None = None) -> LLMProvider:
