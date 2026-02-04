@@ -256,6 +256,9 @@ jobs:
           # Use the workflows_ref input which should match the @ref in the uses: line
           ref: ${{ inputs.workflows_ref }}
           path: .workflows-lib
+          sparse-checkout: |
+            .github
+            tools
           token: ${{ steps.auth_token.outputs.checkout_token }}
 
       - name: Setup Workflows API client
