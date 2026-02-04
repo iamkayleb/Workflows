@@ -664,18 +664,31 @@ class FallbackChainProvider(LLMProvider):
         quality_context: SessionQualityContext | None,
     ) -> CompletionAnalysis:
         if self._provider_supports_quality_context(provider):
-            return provider.analyze_completion(
-                session_output=session_output,
-                tasks=tasks,
-                context=context,
-                quality_context=quality_context,
-            )
+            try:
+                return provider.analyze_completion(
+                    session_output=session_output,
+                    tasks=tasks,
+                    context=context,
+                    quality_context=quality_context,
+                )
+            except TypeError as exc:
+                if not self._is_quality_context_type_error(exc):
+                    raise
+                logger.debug(
+                    "Provider %s rejected quality_context, retrying without it",
+                    provider.name,
+                )
 
         return provider.analyze_completion(
             session_output=session_output,
             tasks=tasks,
             context=context,
         )
+
+    @staticmethod
+    def _is_quality_context_type_error(error: TypeError) -> bool:
+        message = str(error)
+        return "quality_context" in message and "unexpected keyword argument" in message
 
 
 def get_llm_provider(force_provider: str | None = None) -> LLMProvider:
