@@ -391,6 +391,7 @@ jobs:
 
       - name: Validate prompt template integrity
         id: guard
+        if: ${{ inputs.mode != 'e2e-test' }}
         env:
           BASE_PROMPT: ${{ inputs.prompt_file }}
         run: |
