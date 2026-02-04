@@ -458,6 +458,8 @@ Update these workflows to use the new action:
 4. `agents-70-orchestrator.yml` - ALL jobs
 5. `reusable-70-orchestrator-main.yml` - ALL jobs
 
+**2026-02-04 update:** `reusable-codex-run.yml` now sets up Node.js before `setup-api-client` to ensure npm installs run for `.workflows-lib/.github/scripts` and NODE_PATH is exported consistently.
+
 ### Phase C: Fix Status Reporting (Priority: High)
 
 #### Task C.1: Update keepalive state reporting
@@ -501,6 +503,8 @@ With when rate-limited:
 #### Task E.2: Add verbose logging (failure-only)
 
 Only log token selection details when an API call fails.
+
+**2026-02-04 validation:** keepalive + API-rate-limit unit coverage executed (keepalive workflow, PR meta, guard utils, post work, metrics integration, keepalive loop rate-limit, and GitHub API retry standard) — all passing locally.
 
 ### Phase F: Maintenance Workflows (Priority: Medium)
 
