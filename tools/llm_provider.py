@@ -139,6 +139,16 @@ class LLMProvider(ABC):
         """
         pass
 
+    def supports_quality_context(self) -> bool:
+        """Return True if analyze_completion accepts a quality_context parameter."""
+        try:
+            parameters = inspect.signature(self.analyze_completion).parameters
+        except (TypeError, ValueError):
+            return False
+        return "quality_context" in parameters or any(
+            param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
+        )
+
 
 class GitHubModelsProvider(LLMProvider):
     """LLM provider using GitHub Models API (OpenAI-compatible)."""
@@ -591,6 +601,9 @@ class FallbackChainProvider(LLMProvider):
 
     @staticmethod
     def _provider_supports_quality_context(provider: LLMProvider) -> bool:
+        supports = getattr(provider, "supports_quality_context", None)
+        if callable(supports):
+            return bool(supports())
         try:
             parameters = inspect.signature(provider.analyze_completion).parameters
         except (TypeError, ValueError):
