@@ -55,3 +55,46 @@ def test_analyze_session_passes_quality_context_through_fallback_chain():
 
     assert provider.received_quality_context is not None
     assert provider.received_quality_context.analysis_text_length == len(summary_text)
+
+
+def test_analyze_session_skips_quality_context_for_legacy_provider():
+    """Analyze session skips quality_context when provider doesn't support it."""
+
+    class LegacyProvider(LLMProvider):
+        def __init__(self) -> None:
+            self.called = False
+
+        @property
+        def name(self) -> str:
+            return "legacy"
+
+        def is_available(self) -> bool:
+            return True
+
+        def analyze_completion(
+            self,
+            session_output: str,
+            tasks: list[str],
+            context: str | None = None,
+        ) -> CompletionAnalysis:
+            self.called = True
+            _ = session_output
+            _ = tasks
+            _ = context
+            return CompletionAnalysis(
+                completed_tasks=[],
+                in_progress_tasks=[],
+                blocked_tasks=[],
+                confidence=0.2,
+                reasoning="legacy",
+                provider_used=self.name,
+            )
+
+    provider = LegacyProvider()
+    summary_text = "Summary of work completed."
+
+    with patch("tools.codex_session_analyzer.get_llm_provider", return_value=provider):
+        result = analyze_session(summary_text, ["task1"], data_source="summary")
+
+    assert provider.called is True
+    assert result.completion.provider_used == "legacy"

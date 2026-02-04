@@ -165,6 +165,11 @@ def _supports_quality_context(provider: LLMProvider) -> bool:
     )
 
 
+def supports_quality_context(provider: LLMProvider) -> bool:
+    """Return True if provider supports a quality_context parameter."""
+    return _supports_quality_context(provider)
+
+
 class GitHubModelsProvider(LLMProvider):
     """LLM provider using GitHub Models API (OpenAI-compatible)."""
 

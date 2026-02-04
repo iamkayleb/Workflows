@@ -24,7 +24,12 @@ from dataclasses import dataclass
 from typing import Literal
 
 from tools.codex_jsonl_parser import CodexSession, parse_codex_jsonl
-from tools.llm_provider import CompletionAnalysis, SessionQualityContext, get_llm_provider
+from tools.llm_provider import (
+    CompletionAnalysis,
+    SessionQualityContext,
+    get_llm_provider,
+    supports_quality_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -202,12 +207,19 @@ def analyze_session(
     provider = get_llm_provider(force_provider=force_provider)
 
     try:
-        completion = provider.analyze_completion(
-            session_output=analysis_text,
-            tasks=tasks,
-            context=context,
-            quality_context=quality_context,
-        )
+        if quality_context is not None and supports_quality_context(provider):
+            completion = provider.analyze_completion(
+                session_output=analysis_text,
+                tasks=tasks,
+                context=context,
+                quality_context=quality_context,
+            )
+        else:
+            completion = provider.analyze_completion(
+                session_output=analysis_text,
+                tasks=tasks,
+                context=context,
+            )
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
         # Return empty result on failure
