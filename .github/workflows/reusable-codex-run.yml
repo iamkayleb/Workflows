@@ -284,6 +284,12 @@ jobs:
                 @octokit/auth-app@6.0.3
               popd >/dev/null
             fi
+            if [ ! -d ".workflows-lib/.github/scripts/node_modules" ] && command -v npm >/dev/null 2>&1; then
+              global_root=$(npm root -g || true)
+              if [ -n "$global_root" ] && [ -d "$global_root/@octokit" ]; then
+                ln -s "$global_root" ".workflows-lib/.github/scripts/node_modules"
+              fi
+            fi
           fi
 
       - name: Validate workflows tooling
