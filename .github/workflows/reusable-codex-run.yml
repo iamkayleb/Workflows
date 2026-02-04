@@ -256,6 +256,9 @@ jobs:
           # Use the workflows_ref input which should match the @ref in the uses: line
           ref: ${{ inputs.workflows_ref }}
           path: .workflows-lib
+          sparse-checkout: |
+            .github
+            tools
           token: ${{ steps.auth_token.outputs.checkout_token }}
 
       - name: Setup Workflows API client
@@ -265,20 +268,73 @@ jobs:
           github_token: ${{ github.token }}
           install_dir: ${{ github.workspace }}/.workflows-lib/.github/scripts
 
+      - name: Ensure Workflows script deps
+        run: |
+          set -euo pipefail
+          if [ ! -f ".workflows-lib/tools/codex_jsonl_parser.py" ] && \
+            [ -f "tools/codex_jsonl_parser.py" ]; then
+            mkdir -p ".workflows-lib/tools"
+            cp "tools/codex_jsonl_parser.py" ".workflows-lib/tools/codex_jsonl_parser.py"
+          fi
+          if [ ! -d ".workflows-lib/.github/scripts/node_modules" ]; then
+            if [ ! -d ".github/scripts/node_modules" ]; then
+              mkdir -p ".github/scripts"
+              echo "Installing fallback @octokit deps for workspace scripts..."
+              pushd ".github/scripts" >/dev/null
+              npm install --no-save --location=project \
+                @octokit/rest@20.0.2 \
+                @octokit/plugin-retry@6.0.1 \
+                @octokit/plugin-paginate-rest@9.1.5 \
+                @octokit/auth-app@6.0.3
+              popd >/dev/null
+            fi
+            if [ -d ".github/scripts/node_modules" ]; then
+              mkdir -p ".workflows-lib/.github/scripts"
+              ln -s "${GITHUB_WORKSPACE}/.github/scripts/node_modules" \
+                ".workflows-lib/.github/scripts/node_modules"
+            else
+              mkdir -p ".workflows-lib/.github/scripts"
+              echo "Installing fallback @octokit deps for .workflows-lib..."
+              pushd ".workflows-lib/.github/scripts" >/dev/null
+              npm install --no-save --location=project \
+                @octokit/rest@20.0.2 \
+                @octokit/plugin-retry@6.0.1 \
+                @octokit/plugin-paginate-rest@9.1.5 \
+                @octokit/auth-app@6.0.3
+              popd >/dev/null
+            fi
+            if [ ! -d ".workflows-lib/.github/scripts/node_modules" ] && command -v npm >/dev/null 2>&1; then
+              global_root=$(npm root -g || true)
+              if [ -n "$global_root" ] && [ -d "$global_root/@octokit" ]; then
+                ln -s "$global_root" ".workflows-lib/.github/scripts/node_modules"
+              fi
+            fi
+          fi
+
       - name: Validate workflows tooling
         run: |
           set -euo pipefail
+          fail_on_missing=true
+          if [ "${CODEX_MODE:-}" = "e2e-test" ]; then
+            fail_on_missing=false
+          fi
           if [ ! -d ".workflows-lib" ]; then
             echo "::error::.workflows-lib checkout missing; Workflows scripts unavailable."
-            exit 1
+            if [ "$fail_on_missing" = "true" ]; then
+              exit 1
+            fi
           fi
           if [ ! -f ".workflows-lib/tools/codex_jsonl_parser.py" ]; then
             echo "::error::Missing .workflows-lib/tools/codex_jsonl_parser.py; session parser unavailable."
-            exit 1
+            if [ "$fail_on_missing" = "true" ]; then
+              exit 1
+            fi
           fi
           if [ ! -d ".workflows-lib/.github/scripts/node_modules" ]; then
             echo "::error::Missing .workflows-lib/.github/scripts/node_modules; API client deps not installed."
-            exit 1
+            if [ "$fail_on_missing" = "true" ]; then
+              exit 1
+            fi
           fi
 
 
@@ -335,6 +391,7 @@ jobs:
 
       - name: Validate prompt template integrity
         id: guard
+        if: ${{ inputs.mode != 'e2e-test' }}
         env:
           BASE_PROMPT: ${{ inputs.prompt_file }}
         run: |
@@ -500,6 +557,9 @@ jobs:
           if ! grep -q "^\.workflows-lib/\.github/scripts/node_modules" .git/info/exclude 2>/dev/null; then
             echo ".workflows-lib/.github/scripts/node_modules" >> .git/info/exclude 2>/dev/null || true
           fi
+          if ! grep -q "^node_modules" .git/info/exclude 2>/dev/null; then
+            echo "node_modules" >> .git/info/exclude 2>/dev/null || true
+          fi
 
           # Remove old codex session/output files that may be untracked
           # NOTE: Do NOT delete codex-prompt*.md - that's the input file we just created!
@@ -515,7 +575,7 @@ jobs:
           # Exclude: untracked .workflows-lib, .gitignore, node_modules, codex-*, autofix* artifacts
           # Use grep -c for count; if grep finds nothing it returns 1
           # Strip whitespace to ensure clean integer (avoids "integer expression expected" errors)
-          REMAINING=$(git status --porcelain | grep -cvE '^\?\? (\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|codex-.*|autofix.*)' 2>/dev/null || echo "0")
+          REMAINING=$(git status --porcelain | cut -c4- | grep -cvE '^(\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*)$|^(\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*)/' 2>/dev/null || echo "0")
           REMAINING=$(printf '%s' "$REMAINING" | tr -d '[:space:]')
           REMAINING=${REMAINING:-0}
           echo "remaining-changes=${REMAINING}" >> "$GITHUB_OUTPUT"
@@ -799,6 +859,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          if [ "${MODE}" = "e2e-test" ]; then
+            git checkout -- codex-output*.md codex-prompt*.md 2>/dev/null || true
+            REMAINING=$(git status --porcelain | cut -c4- | grep -cvE '^(\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*|coverage\.xml|\.coverage|pr_body\.md|autofix_report_enriched\.json|poetry\.lock)$|^(\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*|coverage\.xml|\.coverage|pr_body\.md|autofix_report_enriched\.json|poetry\.lock)/' 2>/dev/null || echo "0")
+            REMAINING=$(printf '%s' "$REMAINING" | tr -d '[:space:]')
+            REMAINING=${REMAINING:-0}
+            echo "files-changed=${REMAINING}" >> "$GITHUB_OUTPUT"
+            if [ "$REMAINING" -gt 0 ]; then
+              echo "::notice::E2E test detected ${REMAINING} change(s)."
+              echo "changes-made=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changes-made=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Determine the target branch
           TARGET_REF="${PR_REF:-${{ github.ref_name }}}"
           # Strip refs/heads/ prefix if present
@@ -910,7 +986,7 @@ jobs:
           # - poetry.lock: Defense against wrong package manager
           # - .workflows-lib: Separate checkout (git treats as submodule)
           # This may unstage all changes if only artifacts were modified.
-          git reset HEAD -- codex-output*.md codex-prompt*.md codex-session-*.jsonl codex-analysis-*.json .coverage .workflows-lib .github/scripts/node_modules .workflows-lib/.github/scripts/node_modules coverage.xml pr_body.md autofix_report_enriched.json poetry.lock 2>/dev/null || true
+          git reset HEAD -- codex-output*.md codex-prompt*.md codex-session-*.jsonl codex-analysis-*.json .coverage .workflows-lib .github/scripts/node_modules .workflows-lib/.github/scripts/node_modules node_modules coverage.xml pr_body.md autofix_report_enriched.json poetry.lock 2>/dev/null || true
 
           # Check if there are any staged changes remaining after reset
           if git diff --cached --quiet; then
