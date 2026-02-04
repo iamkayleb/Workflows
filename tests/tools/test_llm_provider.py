@@ -273,6 +273,29 @@ class TestFallbackChainProvider:
 
         assert result.completed_tasks == ["task1"]
 
+    def test_regex_fallback_accepts_context_kwargs(self):
+        """Regex fallback handles context keyword via fallback chain."""
+        chain = FallbackChainProvider([RegexFallbackProvider()])
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=False,
+            has_work_evidence=False,
+            file_change_count=0,
+            successful_command_count=0,
+            estimated_effort_score=0,
+            data_quality="minimal",
+            analysis_text_length=80,
+        )
+
+        result = chain.analyze_completion(
+            "No task updates yet.",
+            ["task1"],
+            context="ctx",
+            quality_context=quality_context,
+        )
+
+        assert result.provider_used == "regex-fallback"
+
     def test_prefers_quality_context_provider(self):
         """Chain prefers providers that support quality_context when available."""
 
