@@ -9,6 +9,7 @@ from tools.llm_provider import (
     CompletionAnalysis,
     FallbackChainProvider,
     GitHubModelsProvider,
+    LLMProvider,
     OpenAIProvider,
     RegexFallbackProvider,
     SessionQualityContext,
@@ -171,6 +172,52 @@ class TestFallbackChainProvider:
             context="ctx",
             quality_context=quality_context,
         )
+
+    def test_skips_quality_context_for_legacy_provider(self):
+        """Chain avoids passing quality context to legacy providers."""
+
+        class LegacyProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "legacy"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+            ) -> CompletionAnalysis:
+                return CompletionAnalysis(
+                    completed_tasks=["task1"],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.6,
+                    reasoning="legacy",
+                    provider_used=self.name,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=True,
+            file_change_count=2,
+            successful_command_count=1,
+            estimated_effort_score=12,
+            data_quality="medium",
+            analysis_text_length=150,
+        )
+
+        chain = FallbackChainProvider([LegacyProvider()])
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            context="ctx",
+            quality_context=quality_context,
+        )
+
+        assert result.completed_tasks == ["task1"]
 
     def test_falls_back_on_error(self):
         """Chain falls back when provider raises error."""
