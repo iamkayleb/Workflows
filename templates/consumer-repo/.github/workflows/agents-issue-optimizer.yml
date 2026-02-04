@@ -355,7 +355,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.token.outputs.token || github.token }}
           ISSUE_NUMBER: ${{ steps.check.outputs.issue_number }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RUN_URL: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -n "${ISSUE_NUMBER}" ]; then
             body=$(cat <<'COMMENT'
