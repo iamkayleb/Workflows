@@ -628,6 +628,8 @@ class FallbackChainProvider(LLMProvider):
         supports = getattr(provider, "supports_quality_context", None)
         if callable(supports):
             return bool(supports())
+        if supports is not None:
+            return bool(supports)
         try:
             parameters = inspect.signature(provider.analyze_completion).parameters
         except (TypeError, ValueError):
