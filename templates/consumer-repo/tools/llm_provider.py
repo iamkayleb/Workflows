@@ -588,13 +588,12 @@ class FallbackChainProvider(LLMProvider):
         providers = self._providers
 
         if quality_context is not None:
-            quality_aware: list[LLMProvider] = []
-            legacy: list[LLMProvider] = []
-            for provider in self._providers:
-                if self._provider_supports_quality_context(provider):
-                    quality_aware.append(provider)
-                else:
-                    legacy.append(provider)
+            quality_aware, legacy = self._partition_providers_by_quality_context()
+            if quality_aware:
+                logger.debug(
+                    "Quality context available; preferring providers: %s",
+                    [provider.name for provider in quality_aware],
+                )
             providers = quality_aware + legacy
 
         for provider in providers:
@@ -637,6 +636,18 @@ class FallbackChainProvider(LLMProvider):
         return "quality_context" in parameters or any(
             param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters.values()
         )
+
+    def _partition_providers_by_quality_context(
+        self,
+    ) -> tuple[list[LLMProvider], list[LLMProvider]]:
+        quality_aware: list[LLMProvider] = []
+        legacy: list[LLMProvider] = []
+        for provider in self._providers:
+            if self._provider_supports_quality_context(provider):
+                quality_aware.append(provider)
+            else:
+                legacy.append(provider)
+        return quality_aware, legacy
 
     def _analyze_with_provider(
         self,
