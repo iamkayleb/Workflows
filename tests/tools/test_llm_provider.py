@@ -316,6 +316,49 @@ class TestFallbackChainProvider:
 
         assert result.completed_tasks == ["task1"]
 
+    def test_retries_without_quality_context_on_type_error(self):
+        """Chain retries without quality_context when provider rejects it."""
+        mock_provider = MagicMock()
+        mock_provider.name = "misleading"
+        mock_provider.is_available.return_value = True
+        mock_provider.supports_quality_context = True
+        mock_provider.analyze_completion.side_effect = [
+            TypeError("analyze_completion() got an unexpected keyword argument 'quality_context'"),
+            CompletionAnalysis(
+                completed_tasks=["task1"],
+                in_progress_tasks=[],
+                blocked_tasks=[],
+                confidence=0.6,
+                reasoning="retry",
+                provider_used="misleading",
+            ),
+        ]
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=False,
+            file_change_count=0,
+            successful_command_count=0,
+            estimated_effort_score=1,
+            data_quality="low",
+            analysis_text_length=90,
+        )
+
+        chain = FallbackChainProvider([mock_provider])
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            context="ctx",
+            quality_context=quality_context,
+        )
+
+        assert result.provider_used == "misleading"
+        assert len(mock_provider.analyze_completion.call_args_list) == 2
+        first_call = mock_provider.analyze_completion.call_args_list[0]
+        assert "quality_context" in first_call.kwargs
+        second_call = mock_provider.analyze_completion.call_args_list[1]
+        assert "quality_context" not in second_call.kwargs
+
     def test_regex_fallback_accepts_context_kwargs(self):
         """Regex fallback handles context keyword via fallback chain."""
         chain = FallbackChainProvider([RegexFallbackProvider()])
