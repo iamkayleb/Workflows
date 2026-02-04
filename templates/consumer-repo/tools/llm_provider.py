@@ -160,6 +160,9 @@ class GitHubModelsProvider(LLMProvider):
     def is_available(self) -> bool:
         return bool(os.environ.get("GITHUB_TOKEN"))
 
+    def supports_quality_context(self) -> bool:
+        return True
+
     def _get_client(self):
         """Get LangChain ChatOpenAI client configured for GitHub Models."""
         try:
@@ -402,6 +405,9 @@ class OpenAIProvider(LLMProvider):
     def is_available(self) -> bool:
         return bool(os.environ.get("OPENAI_API_KEY"))
 
+    def supports_quality_context(self) -> bool:
+        return True
+
     def _get_client(self):
         """Get LangChain ChatOpenAI client."""
         try:
@@ -481,6 +487,9 @@ class RegexFallbackProvider(LLMProvider):
 
     def is_available(self) -> bool:
         return True  # Always available
+
+    def supports_quality_context(self) -> bool:
+        return False
 
     def analyze_completion(
         self,
