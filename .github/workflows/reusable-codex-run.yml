@@ -557,6 +557,9 @@ jobs:
           if ! grep -q "^\.workflows-lib/\.github/scripts/node_modules" .git/info/exclude 2>/dev/null; then
             echo ".workflows-lib/.github/scripts/node_modules" >> .git/info/exclude 2>/dev/null || true
           fi
+          if ! grep -q "^node_modules" .git/info/exclude 2>/dev/null; then
+            echo "node_modules" >> .git/info/exclude 2>/dev/null || true
+          fi
 
           # Remove old codex session/output files that may be untracked
           # NOTE: Do NOT delete codex-prompt*.md - that's the input file we just created!
@@ -572,7 +575,7 @@ jobs:
           # Exclude: untracked .workflows-lib, .gitignore, node_modules, codex-*, autofix* artifacts
           # Use grep -c for count; if grep finds nothing it returns 1
           # Strip whitespace to ensure clean integer (avoids "integer expression expected" errors)
-          REMAINING=$(git status --porcelain | grep -cvE '^\?\? (\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|codex-.*|autofix.*)' 2>/dev/null || echo "0")
+          REMAINING=$(git status --porcelain | grep -cvE '^\?\? (\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*)' 2>/dev/null || echo "0")
           REMAINING=$(printf '%s' "$REMAINING" | tr -d '[:space:]')
           REMAINING=${REMAINING:-0}
           echo "remaining-changes=${REMAINING}" >> "$GITHUB_OUTPUT"
@@ -856,6 +859,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          if [ "${MODE}" = "e2e-test" ]; then
+            git checkout -- codex-output*.md codex-prompt*.md 2>/dev/null || true
+            REMAINING=$(git status --porcelain | grep -cvE '^\?\? (\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*|coverage\.xml|\.coverage|pr_body\.md|autofix_report_enriched\.json|poetry\.lock)' 2>/dev/null || echo "0")
+            REMAINING=$(printf '%s' "$REMAINING" | tr -d '[:space:]')
+            REMAINING=${REMAINING:-0}
+            echo "files-changed=${REMAINING}" >> "$GITHUB_OUTPUT"
+            if [ "$REMAINING" -gt 0 ]; then
+              echo "::notice::E2E test detected ${REMAINING} change(s)."
+              echo "changes-made=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "changes-made=false" >> "$GITHUB_OUTPUT"
+            fi
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Determine the target branch
           TARGET_REF="${PR_REF:-${{ github.ref_name }}}"
           # Strip refs/heads/ prefix if present
@@ -967,7 +986,7 @@ jobs:
           # - poetry.lock: Defense against wrong package manager
           # - .workflows-lib: Separate checkout (git treats as submodule)
           # This may unstage all changes if only artifacts were modified.
-          git reset HEAD -- codex-output*.md codex-prompt*.md codex-session-*.jsonl codex-analysis-*.json .coverage .workflows-lib .github/scripts/node_modules .workflows-lib/.github/scripts/node_modules coverage.xml pr_body.md autofix_report_enriched.json poetry.lock 2>/dev/null || true
+          git reset HEAD -- codex-output*.md codex-prompt*.md codex-session-*.jsonl codex-analysis-*.json .coverage .workflows-lib .github/scripts/node_modules .workflows-lib/.github/scripts/node_modules node_modules coverage.xml pr_body.md autofix_report_enriched.json poetry.lock 2>/dev/null || true
 
           # Check if there are any staged changes remaining after reset
           if git diff --cached --quiet; then
