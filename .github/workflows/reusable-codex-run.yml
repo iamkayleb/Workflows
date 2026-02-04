@@ -277,7 +277,7 @@ jobs:
               mkdir -p ".workflows-lib/.github/scripts"
               echo "Installing fallback @octokit deps for .workflows-lib..."
               pushd ".workflows-lib/.github/scripts" >/dev/null
-              npm install --no-save \
+              npm install --no-save --location=project \
                 @octokit/rest@20.0.2 \
                 @octokit/plugin-retry@6.0.1 \
                 @octokit/plugin-paginate-rest@9.1.5 \
