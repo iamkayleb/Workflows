@@ -704,9 +704,7 @@ class FallbackChainProvider(LLMProvider):
             return False
         if "unexpected keyword argument" in message:
             return True
-        if "got multiple values for argument" in message:
-            return True
-        return False
+        return "got multiple values for argument" in message
 
 
 def get_llm_provider(force_provider: str | None = None) -> LLMProvider:
