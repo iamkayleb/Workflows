@@ -3,6 +3,7 @@ name: Keepalive E2E
 on:
   pull_request:
     paths:
+      - '.github/workflows/health-keepalive-e2e.yml'
       - '.github/workflows/agents-keepalive-loop.yml'
       - '.github/workflows/reusable-codex-run.yml'
       - '.github/scripts/keepalive_*.js'
@@ -10,6 +11,7 @@ on:
       - '.github/scripts/error_classifier.js'
       - '.github/scripts/failure_comment_formatter.js'
       - '.github/codex/prompts/keepalive*.md'
+      - '.github/codex/prompts/e2e-ping.md'
 
 permissions:
   contents: write
@@ -246,59 +248,10 @@ jobs:
 
   # Optional: Real Codex minimal ping - only with e2e:codex-ping label
   # Use when orchestration-only isn't catching real issues
-  # This job creates a minimal prompt, then calls the reusable workflow
-  codex-ping-setup:
-    name: Setup Codex Ping
-    needs: detect-mode
-    if: needs.detect-mode.outputs.mode == 'codex-ping'
-    runs-on: ubuntu-latest
-    outputs:
-      prompt_ready: ${{ steps.setup.outputs.ready }}
-    steps:
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ${{ steps.app_token.outputs.token || github.token }}
-      - name: Setup API client
-        uses: ./.github/actions/setup-api-client
-        with:
-          secrets: ${{ toJSON(secrets) }}
-          github_token: ${{ github.token }}
-
-
-
-
-      - name: Create minimal ping prompt
-        id: setup
-        run: |
-          # Create the ping prompt in the repo (will be available to reusable workflow)
-          mkdir -p .github/codex/prompts
-          cat > .github/codex/prompts/e2e-ping.md << 'EOF'
-          # E2E Ping Test
-
-          This is an automated E2E test. Do NOT make any file changes.
-
-          Simply respond with exactly: "keepalive-e2e-ping-ok"
-
-          Then exit immediately. Do not attempt any other actions.
-          EOF
-
-          echo "ready=true" >> "$GITHUB_OUTPUT"
-          echo "::notice::Ping prompt created at .github/codex/prompts/e2e-ping.md"
-
   codex-ping-run:
     name: Codex Ping E2E
-    needs: [detect-mode, codex-ping-setup]
-    if: needs.detect-mode.outputs.mode == 'codex-ping' && needs.codex-ping-setup.outputs.prompt_ready == 'true'
+    needs: detect-mode
+    if: needs.detect-mode.outputs.mode == 'codex-ping'
     uses: ./.github/workflows/reusable-codex-run.yml
     with:
       prompt_file: .github/codex/prompts/e2e-ping.md
