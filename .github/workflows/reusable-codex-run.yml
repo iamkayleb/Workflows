@@ -233,6 +233,11 @@ jobs:
           ref: ${{ inputs.pr_ref || github.ref }}
           token: ${{ steps.auth_token.outputs.checkout_token }}
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
       # Checkout Workflows repo scripts for post-completion, error handling, and LLM analysis
       # These scripts are in stranske/Workflows but need to be available when
       # this reusable workflow runs in consumer repos
