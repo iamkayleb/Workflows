@@ -342,6 +342,63 @@ class TestFallbackChainProvider:
 
         assert result.provider_used == "quality-aware"
 
+    def test_supports_quality_context_reflects_children(self):
+        """Chain reports quality context support only when a child supports it."""
+
+        class LegacyProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "legacy"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+            ) -> CompletionAnalysis:
+                return CompletionAnalysis(
+                    completed_tasks=[],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.4,
+                    reasoning="legacy",
+                    provider_used=self.name,
+                )
+
+        class QualityAwareProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "quality-aware"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                _ = quality_context
+                return CompletionAnalysis(
+                    completed_tasks=[],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.5,
+                    reasoning="quality-aware",
+                    provider_used=self.name,
+                )
+
+        legacy_chain = FallbackChainProvider([LegacyProvider()])
+        assert legacy_chain.supports_quality_context() is False
+
+        quality_chain = FallbackChainProvider([LegacyProvider(), QualityAwareProvider()])
+        assert quality_chain.supports_quality_context() is True
+
     def test_falls_back_on_error(self):
         """Chain falls back when provider raises error."""
         mock_provider1 = MagicMock()

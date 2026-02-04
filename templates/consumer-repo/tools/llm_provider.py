@@ -568,6 +568,10 @@ class FallbackChainProvider(LLMProvider):
         self._providers = providers
         self._active_provider: LLMProvider | None = None
 
+    def supports_quality_context(self) -> bool:
+        """Return True if any underlying provider supports quality_context."""
+        return any(self._provider_supports_quality_context(p) for p in self._providers)
+
     @property
     def name(self) -> str:
         if self._active_provider:
