@@ -138,6 +138,30 @@ function parseStateComment(body) {
   return { version, data: {} };
 }
 
+function isLoopState(data) {
+  if (!data || typeof data !== 'object') {
+    return false;
+  }
+  if (Number.isFinite(Number(data.iteration)) || Number.isFinite(Number(data.max_iterations))) {
+    return true;
+  }
+  if (data.tasks && typeof data.tasks === 'object') {
+    if (Number.isFinite(Number(data.tasks.total)) || Number.isFinite(Number(data.tasks.unchecked))) {
+      return true;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'keepalive_enabled')) {
+    return true;
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'autofix_enabled')) {
+    return true;
+  }
+  if (Object.prototype.hasOwnProperty.call(data, 'running')) {
+    return true;
+  }
+  return false;
+}
+
 function formatStateComment(data) {
   const payload = data && typeof data === 'object' ? { ...data } : {};
   const version = normalise(payload.version) || STATE_VERSION;
@@ -200,6 +224,8 @@ async function findStateComment({ github, owner, repo, prNumber, trace }) {
       if (candidateTrace !== traceNorm) {
         continue;
       }
+    } else if (!isLoopState(candidate)) {
+      continue;
     }
     return {
       comment,
