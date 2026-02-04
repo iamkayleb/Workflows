@@ -487,8 +487,9 @@ class RegexFallbackProvider(LLMProvider):
         session_output: str,
         tasks: list[str],
         _context: str | None = None,
-        _quality_context: SessionQualityContext | None = None,
+        quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
+        _ = quality_context
         output_lower = session_output.lower()
         completed = []
         in_progress = []
