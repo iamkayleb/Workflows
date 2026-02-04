@@ -575,7 +575,7 @@ jobs:
           # Exclude: untracked .workflows-lib, .gitignore, node_modules, codex-*, autofix* artifacts
           # Use grep -c for count; if grep finds nothing it returns 1
           # Strip whitespace to ensure clean integer (avoids "integer expression expected" errors)
-          REMAINING=$(git status --porcelain | grep -cvE '^\?\? (\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*)' 2>/dev/null || echo "0")
+          REMAINING=$(git status --porcelain | cut -c4- | grep -cvE '^(\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*)$|^(\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*)/' 2>/dev/null || echo "0")
           REMAINING=$(printf '%s' "$REMAINING" | tr -d '[:space:]')
           REMAINING=${REMAINING:-0}
           echo "remaining-changes=${REMAINING}" >> "$GITHUB_OUTPUT"
@@ -861,7 +861,7 @@ jobs:
 
           if [ "${MODE}" = "e2e-test" ]; then
             git checkout -- codex-output*.md codex-prompt*.md 2>/dev/null || true
-            REMAINING=$(git status --porcelain | grep -cvE '^\?\? (\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*|coverage\.xml|\.coverage|pr_body\.md|autofix_report_enriched\.json|poetry\.lock)' 2>/dev/null || echo "0")
+            REMAINING=$(git status --porcelain | cut -c4- | grep -cvE '^(\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*|coverage\.xml|\.coverage|pr_body\.md|autofix_report_enriched\.json|poetry\.lock)$|^(\.(workflows-lib|gitignore)|\.github/scripts/node_modules|\.workflows-lib/\.github/scripts/node_modules|node_modules|codex-.*|autofix.*|coverage\.xml|\.coverage|pr_body\.md|autofix_report_enriched\.json|poetry\.lock)/' 2>/dev/null || echo "0")
             REMAINING=$(printf '%s' "$REMAINING" | tr -d '[:space:]')
             REMAINING=${REMAINING:-0}
             echo "files-changed=${REMAINING}" >> "$GITHUB_OUTPUT"
