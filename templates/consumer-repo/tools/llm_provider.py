@@ -700,7 +700,13 @@ class FallbackChainProvider(LLMProvider):
     @staticmethod
     def _is_quality_context_type_error(error: TypeError) -> bool:
         message = str(error)
-        return "quality_context" in message and "unexpected keyword argument" in message
+        if "quality_context" not in message:
+            return False
+        if "unexpected keyword argument" in message:
+            return True
+        if "got multiple values for argument" in message:
+            return True
+        return False
 
 
 def get_llm_provider(force_provider: str | None = None) -> LLMProvider:
