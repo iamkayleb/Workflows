@@ -265,6 +265,16 @@ jobs:
           github_token: ${{ github.token }}
           install_dir: ${{ github.workspace }}/.workflows-lib/.github/scripts
 
+      - name: Ensure Workflows script deps
+        run: |
+          set -euo pipefail
+          if [ ! -d ".workflows-lib/.github/scripts/node_modules" ] && \
+            [ -d ".github/scripts/node_modules" ]; then
+            mkdir -p ".workflows-lib/.github/scripts"
+            ln -s "${GITHUB_WORKSPACE}/.github/scripts/node_modules" \
+              ".workflows-lib/.github/scripts/node_modules"
+          fi
+
       - name: Validate workflows tooling
         run: |
           set -euo pipefail
