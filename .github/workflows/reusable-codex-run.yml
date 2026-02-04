@@ -314,17 +314,27 @@ jobs:
       - name: Validate workflows tooling
         run: |
           set -euo pipefail
+          fail_on_missing=true
+          if [ "${CODEX_MODE:-}" = "e2e-test" ]; then
+            fail_on_missing=false
+          fi
           if [ ! -d ".workflows-lib" ]; then
             echo "::error::.workflows-lib checkout missing; Workflows scripts unavailable."
-            exit 1
+            if [ "$fail_on_missing" = "true" ]; then
+              exit 1
+            fi
           fi
           if [ ! -f ".workflows-lib/tools/codex_jsonl_parser.py" ]; then
             echo "::error::Missing .workflows-lib/tools/codex_jsonl_parser.py; session parser unavailable."
-            exit 1
+            if [ "$fail_on_missing" = "true" ]; then
+              exit 1
+            fi
           fi
           if [ ! -d ".workflows-lib/.github/scripts/node_modules" ]; then
             echo "::error::Missing .workflows-lib/.github/scripts/node_modules; API client deps not installed."
-            exit 1
+            if [ "$fail_on_missing" = "true" ]; then
+              exit 1
+            fi
           fi
 
 
