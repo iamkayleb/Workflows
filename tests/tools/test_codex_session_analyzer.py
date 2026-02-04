@@ -51,7 +51,7 @@ def test_analyze_session_passes_quality_context_through_fallback_chain():
     summary_text = "Summary of work completed."
 
     with patch("tools.codex_session_analyzer.get_llm_provider", return_value=chain):
-        result = analyze_session(summary_text, ["task1"], data_source="summary")
+        analyze_session(summary_text, ["task1"], data_source="summary")
 
     assert provider.received_quality_context is not None
     assert provider.received_quality_context.analysis_text_length == len(summary_text)
