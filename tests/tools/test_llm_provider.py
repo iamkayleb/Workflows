@@ -15,6 +15,7 @@ from tools.llm_provider import (
     SessionQualityContext,
     check_providers,
     get_llm_provider,
+    get_quality_context_support_table,
     get_quality_context_capable_providers,
 )
 
@@ -68,6 +69,13 @@ class TestProviderAvailability:
         assert "github-models" in result
         assert "openai" in result
         assert "regex-fallback" not in result
+
+    def test_quality_context_support_table(self):
+        """Support table documents which built-ins accept quality_context."""
+        result = get_quality_context_support_table()
+        assert result["github-models"] is True
+        assert result["openai"] is True
+        assert result["regex-fallback"] is False
 
 
 class TestRegexFallbackProvider:
