@@ -111,6 +111,9 @@ def test_main_skips_on_multiple_head_ref_issue_numbers(monkeypatch, capsys) -> N
     def fake_collect_changed_files(base_ref, base_sha, base_remote):
         return [], False
 
+    # Ensure GITHUB_EVENT_PATH doesn't interfere with autofix detection
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
     monkeypatch.setattr(
         check_issue_consistency,
         "collect_commit_messages",
