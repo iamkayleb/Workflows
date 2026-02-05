@@ -25,6 +25,7 @@ from scripts import update_versions_from_pypi
 from scripts.update_versions_from_pypi import (
     PACKAGE_MAPPING,
     VersionInfo,
+    _is_outdated,
     _version_tuple,
     check_versions,
     get_latest_pypi_version,
@@ -202,6 +203,30 @@ class TestCheckVersions:
             results = check_versions(env_file)
 
         assert results["RUFF_VERSION"].is_outdated is False
+
+    def test_identifies_ahead_as_current(self, tmp_path: Path) -> None:
+        env_file = tmp_path / "test.env"
+        env_file.write_text("RUFF_VERSION=0.15.0\n")
+
+        with patch.object(
+            update_versions_from_pypi,
+            "get_latest_pypi_version",
+            return_value="0.14.10",
+        ):
+            results = check_versions(env_file)
+
+        assert results["RUFF_VERSION"].is_outdated is False
+
+
+class TestIsOutdated:
+    def test_returns_true_when_older(self) -> None:
+        assert _is_outdated("0.14.0", "0.14.10") is True
+
+    def test_returns_false_when_equal(self) -> None:
+        assert _is_outdated("1.2.3", "1.2.3") is False
+
+    def test_returns_false_when_newer(self) -> None:
+        assert _is_outdated("2.0.0", "1.9.9") is False
 
 
 class TestMain:
