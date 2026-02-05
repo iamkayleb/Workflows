@@ -58,6 +58,18 @@ def test_analyze_session_passes_quality_context_through_fallback_chain():
     assert provider.received_quality_context.analysis_text_length == len(summary_text)
 
 
+def test_analyze_session_reports_quality_context_capable_providers():
+    """Analysis result lists providers that support quality_context."""
+    provider = RecordingProvider()
+    chain = FallbackChainProvider([provider])
+    summary_text = "Summary of work completed."
+
+    with patch("tools.codex_session_analyzer.get_llm_provider", return_value=chain):
+        result = analyze_session(summary_text, ["task1"], data_source="summary")
+
+    assert result.quality_context_capable_providers == ["recording"]
+
+
 def test_analyze_session_passes_quality_context_from_jsonl():
     """JSONL parsing passes quality context derived from session evidence."""
     provider = RecordingProvider()

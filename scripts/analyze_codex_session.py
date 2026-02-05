@@ -231,6 +231,7 @@ def output_json(result: AnalysisResult, pretty: bool = False) -> None:
         # Quality metrics for keepalive integration
         "effort_score": result.effort_score,
         "data_quality": result.data_quality,
+        "quality_context_capable_providers": result.quality_context_capable_providers,
     }
 
     # BS detection fields
