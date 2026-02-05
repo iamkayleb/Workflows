@@ -8,6 +8,7 @@ from tools.codex_session_analyzer import analyze_session
 from tools.llm_provider import (
     CompletionAnalysis,
     FallbackChainProvider,
+    GitHubModelsProvider,
     LLMProvider,
     SessionQualityContext,
 )
@@ -118,3 +119,62 @@ def test_analyze_session_skips_quality_context_for_legacy_provider():
 
     assert provider.called is True
     assert result.completion.provider_used == "legacy"
+
+
+def test_analyze_session_caps_confidence_for_short_jsonl_analysis():
+    """Short JSONL analysis with work evidence caps confidence via quality context."""
+
+    class QualityAwareProvider(GitHubModelsProvider):
+        @property
+        def name(self) -> str:
+            return "quality-aware"
+
+        def is_available(self) -> bool:
+            return True
+
+        def analyze_completion(
+            self,
+            session_output: str,
+            tasks: list[str],
+            context: str | None = None,
+            quality_context: SessionQualityContext | None = None,
+        ) -> CompletionAnalysis:
+            response = """
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.9,
+    "reasoning": "Short analysis."
+}
+"""
+            parsed = self._parse_response(
+                response,
+                tasks,
+                quality_context=quality_context,
+            )
+            return CompletionAnalysis(
+                completed_tasks=parsed.completed_tasks,
+                in_progress_tasks=parsed.in_progress_tasks,
+                blocked_tasks=parsed.blocked_tasks,
+                confidence=parsed.confidence,
+                reasoning=parsed.reasoning,
+                provider_used=self.name,
+                raw_confidence=parsed.raw_confidence,
+                confidence_adjusted=parsed.confidence_adjusted,
+                quality_warnings=parsed.quality_warnings,
+            )
+
+    jsonl = "\n".join(
+        [
+            '{"type": "item.completed", "item": {"id": "msg_1", "type": "agent_message", "text": "Did work."}}',
+            '{"type": "item.completed", "item_type": "file_change", "path": "src/app.py", "change_type": "modified"}',
+        ]
+    )
+
+    chain = FallbackChainProvider([QualityAwareProvider()])
+    with patch("tools.codex_session_analyzer.get_llm_provider", return_value=chain):
+        result = analyze_session(jsonl, ["task1"], data_source="jsonl_filtered")
+
+    assert result.completion.confidence <= 0.4
+    assert result.completion.confidence_adjusted is True
