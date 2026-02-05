@@ -1,5 +1,6 @@
 """Tests for tools/llm_provider.py"""
 
+import inspect
 import os
 from unittest.mock import MagicMock, patch
 
@@ -76,6 +77,16 @@ class TestProviderAvailability:
         assert result["github-models"] is True
         assert result["openai"] is True
         assert result["regex-fallback"] is False
+
+
+class TestLLMProviderInterface:
+    """Test LLMProvider interface expectations."""
+
+    def test_analyze_completion_signature_includes_quality_context_default_none(self):
+        """Interface defines optional quality_context with default None."""
+        signature = inspect.signature(LLMProvider.analyze_completion)
+        assert "quality_context" in signature.parameters
+        assert signature.parameters["quality_context"].default is None
 
 
 class TestRegexFallbackProvider:
