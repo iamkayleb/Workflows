@@ -122,6 +122,43 @@ class TestLLMProviderInterface:
         provider = KwargsProvider()
         assert supports_quality_context(provider) is True
 
+    def test_supports_quality_context_falls_back_on_supports_error(self):
+        """supports_quality_context falls back to signature when helper errors."""
+
+        class ErroringSupportProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "erroring-support"
+
+            def is_available(self) -> bool:
+                return True
+
+            def supports_quality_context(self) -> bool:
+                raise RuntimeError("boom")
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                _ = session_output
+                _ = tasks
+                _ = context
+                _ = quality_context
+                return CompletionAnalysis(
+                    completed_tasks=[],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.5,
+                    reasoning="erroring support",
+                    provider_used=self.name,
+                )
+
+        provider = ErroringSupportProvider()
+        assert supports_quality_context(provider) is True
+
 
 class TestRegexFallbackProvider:
     """Test regex-based analysis."""

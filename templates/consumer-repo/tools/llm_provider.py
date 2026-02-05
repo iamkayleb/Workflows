@@ -153,7 +153,13 @@ class LLMProvider(ABC):
 def _supports_quality_context(provider: LLMProvider) -> bool:
     supports = getattr(provider, "supports_quality_context", None)
     if callable(supports):
-        return bool(supports())
+        try:
+            return bool(supports())
+        except Exception:
+            logger.debug(
+                "supports_quality_context raised for %s, falling back to signature",
+                getattr(provider, "name", provider.__class__.__name__),
+            )
     if supports is not None:
         return bool(supports)
     try:
