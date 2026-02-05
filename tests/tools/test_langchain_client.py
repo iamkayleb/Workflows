@@ -134,3 +134,36 @@ def test_build_chat_clients_env_provider_override(monkeypatch: pytest.MonkeyPatc
     ]
     assert [client.model for client in clients] == ["gpt-4o-mini", "gpt-4o"]
     assert all(isinstance(client.client, FakeChatOpenAI) for client in clients)
+
+
+def test_build_chat_clients_env_provider_override_github(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provider override env var should force GitHub Models when set."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_PROVIDER, "github-models")
+
+    clients = langchain_client.build_chat_clients(model1="gpt-4o-mini", model2="gpt-4o")
+
+    assert [client.provider for client in clients] == [
+        langchain_client.PROVIDER_GITHUB,
+        langchain_client.PROVIDER_GITHUB,
+    ]
+    assert [client.model for client in clients] == ["gpt-4o-mini", "gpt-4o"]
+    assert all(isinstance(client.client, FakeChatOpenAI) for client in clients)
+
+
+def test_build_chat_clients_env_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Model override env var should set both models when not provided."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_MODEL, "gpt-4o-mini")
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
+
+    clients = langchain_client.build_chat_clients()
+
+    assert [client.model for client in clients] == ["gpt-4o-mini", "gpt-4o-mini"]
+    assert all(isinstance(client.client, FakeChatOpenAI) for client in clients)
