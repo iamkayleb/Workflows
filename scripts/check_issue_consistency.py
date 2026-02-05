@@ -18,6 +18,7 @@ MERGE_COMMIT_PATTERN = re.compile(
     r"^merge\s+(?:pull request|branch|remote-tracking branch)\b",
     re.IGNORECASE,
 )
+IGNORE_COMMIT_PATTERNS = (re.compile(r"^chore\(ledger\)", re.IGNORECASE),)
 
 
 def _is_pr_marker_before_hash(prefix: str) -> bool:
@@ -46,6 +47,23 @@ def extract_issue_numbers(text: str, *, include_hash: bool = True) -> set[int]:
         numbers.add(int(match))
     if include_hash:
         numbers.update(_hash_mentions(text or ""))
+    return numbers
+
+
+def _is_ignored_commit_message(message: str) -> bool:
+    if not message:
+        return False
+    if MERGE_COMMIT_PATTERN.search(message):
+        return True
+    return any(pattern.search(message) for pattern in IGNORE_COMMIT_PATTERNS)
+
+
+def extract_commit_issue_numbers(messages: list[str]) -> set[int]:
+    numbers: set[int] = set()
+    for message in messages:
+        if _is_ignored_commit_message(message):
+            continue
+        numbers.update(extract_issue_numbers(message, include_hash=False))
     return numbers
 
 
@@ -80,22 +98,6 @@ def resolve_head_ref_issue_number(head_ref: str) -> tuple[int | None, bool]:
     if len(numbers) > 1:
         return None, True
     return None, False
-
-
-def _is_merge_commit_subject(message: str) -> bool:
-    return MERGE_COMMIT_PATTERN.search(message or "") is not None
-
-
-def extract_commit_issue_numbers(messages: list[str]) -> set[int]:
-    numbers: set[int] = set()
-    for message in messages:
-        # Merge commits often embed branch names like issue-1234, which are not PR issue references.
-        if _is_merge_commit_subject(message):
-            continue
-        # Commit subjects often include PR numbers in parentheses (#1234).
-        # Avoid treating those as issue references unless "issue" is explicit.
-        numbers.update(extract_issue_numbers(message, include_hash=False))
-    return numbers
 
 
 AUTO_FIX_PATTERN = re.compile(r"auto[\s-]?fix", re.IGNORECASE)
