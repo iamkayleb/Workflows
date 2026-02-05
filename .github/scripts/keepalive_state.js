@@ -138,15 +138,25 @@ function parseStateComment(body) {
   return { version, data: {} };
 }
 
+function hasFiniteNumericValue(value) {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value === 'string' && value.trim() === '') {
+    return false;
+  }
+  return Number.isFinite(Number(value));
+}
+
 function isLoopState(data) {
   if (!data || typeof data !== 'object') {
     return false;
   }
-  if (Number.isFinite(Number(data.iteration)) || Number.isFinite(Number(data.max_iterations))) {
+  if (hasFiniteNumericValue(data.iteration) || hasFiniteNumericValue(data.max_iterations)) {
     return true;
   }
   if (data.tasks && typeof data.tasks === 'object') {
-    if (Number.isFinite(Number(data.tasks.total)) || Number.isFinite(Number(data.tasks.unchecked))) {
+    if (hasFiniteNumericValue(data.tasks.total) || hasFiniteNumericValue(data.tasks.unchecked)) {
       return true;
     }
   }
@@ -221,6 +231,7 @@ async function findStateComment({ github, owner, repo, prNumber, trace }) {
     return null;
   }
   const traceNorm = normaliseLower(trace);
+  let fallback = null;
   for (let index = comments.length - 1; index >= 0; index -= 1) {
     const comment = comments[index];
     const parsed = parseStateComment(comment?.body);
@@ -234,6 +245,13 @@ async function findStateComment({ github, owner, repo, prNumber, trace }) {
         continue;
       }
     } else if (!isLoopState(candidate)) {
+      if (!fallback) {
+        fallback = {
+          comment,
+          state: candidate,
+          version: parsed.version,
+        };
+      }
       continue;
     }
     return {
@@ -242,7 +260,7 @@ async function findStateComment({ github, owner, repo, prNumber, trace }) {
       version: parsed.version,
     };
   }
-  return null;
+  return fallback;
 }
 
 async function createKeepaliveStateManager({ github: rawGithub, context, prNumber, trace, round }) {
