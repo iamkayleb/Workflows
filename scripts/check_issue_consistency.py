@@ -14,6 +14,10 @@ from pathlib import Path
 ISSUE_WORD_PATTERN = re.compile(r"issue\s*[:#-]?\s*(\d+)", re.IGNORECASE)
 ISSUE_SLUG_PATTERN = re.compile(r"issue[-_](\d+)", re.IGNORECASE)
 HASH_PATTERN = re.compile(r"#(\d+)")
+MERGE_COMMIT_PATTERN = re.compile(
+    r"^merge\s+(?:pull request|branch|remote-tracking branch)\b",
+    re.IGNORECASE,
+)
 
 
 def _is_pr_marker_before_hash(prefix: str) -> bool:
@@ -67,6 +71,22 @@ def extract_title_issue_number(title: str) -> int | None:
 
 def extract_head_ref_issue_numbers(head_ref: str) -> set[int]:
     return extract_issue_numbers(head_ref or "", include_hash=False)
+
+
+def _is_merge_commit_subject(message: str) -> bool:
+    return MERGE_COMMIT_PATTERN.search(message or "") is not None
+
+
+def extract_commit_issue_numbers(messages: list[str]) -> set[int]:
+    numbers: set[int] = set()
+    for message in messages:
+        # Merge commits often embed branch names like issue-1234, which are not PR issue references.
+        if _is_merge_commit_subject(message):
+            continue
+        # Commit subjects often include PR numbers in parentheses (#1234).
+        # Avoid treating those as issue references unless "issue" is explicit.
+        numbers.update(extract_issue_numbers(message, include_hash=False))
+    return numbers
 
 
 AUTO_FIX_PATTERN = re.compile(r"auto[\s-]?fix", re.IGNORECASE)
@@ -399,11 +419,7 @@ def main() -> int:
             commit_messages, commit_fallback = collect_commit_messages(
                 args.base_ref, base_sha, base_remote
             )
-            commit_issue_numbers: set[int] = set()
-            for message in commit_messages:
-                # Commit subjects often include PR numbers in parentheses (#1234).
-                # Avoid treating those as issue references unless "issue" is explicit.
-                commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
+            commit_issue_numbers = extract_commit_issue_numbers(commit_messages)
 
             changed_files, file_fallback = collect_changed_files(
                 args.base_ref, base_sha, base_remote
@@ -434,11 +450,7 @@ def main() -> int:
                 return 1
 
     commit_messages, commit_fallback = collect_commit_messages(args.base_ref, base_sha, base_remote)
-    commit_issue_numbers: set[int] = set()
-    for message in commit_messages:
-        # Commit subjects often include PR numbers in parentheses (#1234).
-        # Avoid treating those as issue references unless "issue" is explicit.
-        commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
+    commit_issue_numbers = extract_commit_issue_numbers(commit_messages)
 
     changed_files, file_fallback = collect_changed_files(args.base_ref, base_sha, base_remote)
     fallback_used = commit_fallback or file_fallback
