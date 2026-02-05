@@ -564,6 +564,8 @@ def test_keepalive_requires_instruction_token() -> None:
     assert scenario_path.exists(), "Scenario fixture missing"
     command = ["node", str(HARNESS), str(scenario_path)]
     env = _clean_token_env(os.environ.copy())
+    env["CLEAR_TOKEN_DEFAULTS"] = "true"
+    env["clear_token_defaults"] = "true"
     result = subprocess.run(command, capture_output=True, text=True, env=env)
     assert result.returncode != 0, "Expected harness to fail without dispatch token"
     combined_output = (result.stderr or "") + (result.stdout or "")

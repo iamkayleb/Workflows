@@ -1872,8 +1872,11 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
     const isProductive = productivityScore >= 20 && !hasRecentFailures;
 
     // Early detection: Check for diminishing returns pattern
-    // If we had activity before but now have none, might be naturally completing
+    // Only evaluate after a real agent run to avoid false stops on review/wait cycles.
+    const lastAction = normalise(state.last_action).toLowerCase();
+    const lastActionWasRun = lastAction === 'run' || lastAction === 'fix';
     const diminishingReturns =
+      lastActionWasRun &&
       iteration >= 2 &&
       prevFilesChanged > 0 &&
       lastFilesChanged === 0 &&

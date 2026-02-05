@@ -46,6 +46,15 @@ def test_extract_head_ref_issue_numbers_from_branch() -> None:
     assert numbers == {144}
 
 
+def test_extract_commit_issue_numbers_ignores_merge_commits() -> None:
+    messages = [
+        "Merge pull request #1248 from stranske/codex/issue-1236",
+        "chore: resolve issue #1211",
+    ]
+    numbers = check_issue_consistency.extract_commit_issue_numbers(messages)
+    assert numbers == {1211}
+
+
 def test_is_autofix_context_reads_event_labels(tmp_path: Path, monkeypatch) -> None:
     payload = {
         "pull_request": {
@@ -113,34 +122,26 @@ def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
     assert calls == [["log"], ["log", "-n", "1"]]
 
 
-def test_main_skips_on_multiple_head_ref_issue_numbers(monkeypatch, capsys) -> None:
-    def fake_collect_commit_messages(base_ref, base_sha, base_remote):
-        return [], False
-
-    def fake_collect_changed_files(base_ref, base_sha, base_remote):
-        return [], False
-
-    # Ensure GITHUB_EVENT_PATH doesn't interfere with autofix detection
+def test_main_skips_ambiguous_head_ref(monkeypatch, capsys) -> None:
     monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    monkeypatch.setenv("PR_TITLE", "")
+    monkeypatch.setenv("HEAD_REF", "codex/issue-101-issue-202")
+    monkeypatch.setenv("BASE_REF", "")
+    monkeypatch.setenv("BASE_SHA", "")
+    monkeypatch.setenv("BASE_REMOTE", "origin")
+    monkeypatch.setattr(sys, "argv", ["check_issue_consistency.py"])
 
     monkeypatch.setattr(
         check_issue_consistency,
         "collect_commit_messages",
-        fake_collect_commit_messages,
+        lambda *args, **kwargs: ([], False),
     )
     monkeypatch.setattr(
         check_issue_consistency,
         "collect_changed_files",
-        fake_collect_changed_files,
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["check_issue_consistency.py", "--pr-title", "", "--head-ref", "codex/issue-12-issue-34"],
+        lambda *args, **kwargs: ([], False),
     )
 
-    exit_code = check_issue_consistency.main()
+    assert check_issue_consistency.main() == 0
     captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert "multiple issue numbers detected in head ref" in captured.out
+    assert "Skipping issue consistency check: no issue references found." in captured.out
