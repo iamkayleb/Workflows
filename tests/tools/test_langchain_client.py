@@ -70,6 +70,24 @@ def test_build_chat_client_env_provider_override(monkeypatch: pytest.MonkeyPatch
     assert resolved.client.kwargs["api_key"] == "oa-token"
 
 
+def test_build_chat_client_env_provider_override_github(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provider override env var should force GitHub Models when set."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_PROVIDER, "github-models")
+
+    resolved = langchain_client.build_chat_client()
+
+    assert resolved is not None
+    assert resolved.provider == langchain_client.PROVIDER_GITHUB
+    assert isinstance(resolved.client, FakeChatOpenAI)
+    assert resolved.client.kwargs["api_key"] == "gh-token"
+    assert resolved.client.kwargs["base_url"] == langchain_client.GITHUB_MODELS_BASE_URL
+
+
 def test_build_chat_client_env_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """Model override env var should update the constructed model."""
     FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
