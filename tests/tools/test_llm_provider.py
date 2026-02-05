@@ -234,6 +234,61 @@ class TestFallbackChainProvider:
             quality_context=quality_context,
         )
 
+    def test_passes_quality_context_to_kwargs_provider(self):
+        """Chain forwards quality context to providers accepting **kwargs."""
+
+        class KwargsProvider(LLMProvider):
+            def __init__(self) -> None:
+                self.received_quality_context: SessionQualityContext | None = None
+
+            @property
+            def name(self) -> str:
+                return "kwargs-provider"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                **kwargs: object,
+            ) -> CompletionAnalysis:
+                _ = session_output
+                _ = tasks
+                _ = context
+                self.received_quality_context = kwargs.get("quality_context")
+                return CompletionAnalysis(
+                    completed_tasks=[],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.5,
+                    reasoning="kwargs",
+                    provider_used=self.name,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=True,
+            file_change_count=2,
+            successful_command_count=1,
+            estimated_effort_score=7,
+            data_quality="low",
+            analysis_text_length=120,
+        )
+
+        provider = KwargsProvider()
+        chain = FallbackChainProvider([provider])
+        chain.analyze_completion(
+            "output",
+            ["task1"],
+            context="ctx",
+            quality_context=quality_context,
+        )
+
+        assert provider.received_quality_context is quality_context
+
     def test_quality_context_capable_providers_list(self):
         """Chain reports providers that support quality_context."""
 
