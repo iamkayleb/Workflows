@@ -7,10 +7,10 @@ tasks:
     title: Create a shared utility module (e.g., `tools/langchain_client.py`) that
       builds chat clients with standardized timeouts, retries, and provider selection
       (GitHub Models then OpenAI fallback).
-    status: doing
+    status: done
     started_at: '2026-02-05T06:24:01Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-02-05T06:24:08Z'
+    commit: a6d8b8aafde90b9f3022fc89524f2a211cd0a5a5
     notes: []
   - id: task-02
     title: Refactor `scripts/langchain/issue_formatter.py` and `scripts/langchain/issue_optimizer.py`
