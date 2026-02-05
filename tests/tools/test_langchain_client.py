@@ -187,3 +187,31 @@ def test_build_chat_clients_env_model_override(monkeypatch: pytest.MonkeyPatch) 
 
     assert [client.model for client in clients] == ["gpt-4o-mini", "gpt-4o-mini"]
     assert all(isinstance(client.client, FakeChatOpenAI) for client in clients)
+
+
+def test_build_chat_clients_github_models_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GitHub Models path should be used when only GitHub token is set."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
+
+    clients = langchain_client.build_chat_clients()
+
+    assert [client.provider for client in clients] == [langchain_client.PROVIDER_GITHUB]
+    assert isinstance(clients[0].client, FakeChatOpenAI)
+    assert clients[0].client.kwargs["base_url"] == langchain_client.GITHUB_MODELS_BASE_URL
+
+
+def test_build_chat_clients_openai_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OpenAI fallback should be used when GitHub token is missing."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
+
+    clients = langchain_client.build_chat_clients()
+
+    assert [client.provider for client in clients] == [langchain_client.PROVIDER_OPENAI]
+    assert isinstance(clients[0].client, FakeChatOpenAI)
+    assert "base_url" not in clients[0].client.kwargs
