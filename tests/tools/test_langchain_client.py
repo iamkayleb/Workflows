@@ -189,6 +189,23 @@ def test_build_chat_clients_env_model_override(monkeypatch: pytest.MonkeyPatch) 
     assert all(isinstance(client.client, FakeChatOpenAI) for client in clients)
 
 
+def test_build_chat_clients_env_model_with_provider_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Model env override should apply when provider is explicitly set."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_PROVIDER, "openai")
+    monkeypatch.setenv(langchain_client.ENV_MODEL, "gpt-4o-mini")
+
+    clients = langchain_client.build_chat_clients()
+
+    assert [client.provider for client in clients] == [langchain_client.PROVIDER_OPENAI]
+    assert [client.model for client in clients] == ["gpt-4o-mini"]
+    assert all(isinstance(client.client, FakeChatOpenAI) for client in clients)
+
+
 def test_build_chat_clients_github_models_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """GitHub Models path should be used when only GitHub token is set."""
     FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
