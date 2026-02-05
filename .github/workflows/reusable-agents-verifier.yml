@@ -129,7 +129,6 @@ jobs:
             .github/scripts
             .github/codex/prompts
             scripts
-            scripts/langchain
             tools
           sparse-checkout-cone-mode: false
           path: .workflows-lib
