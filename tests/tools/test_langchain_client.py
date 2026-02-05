@@ -82,3 +82,19 @@ def test_build_chat_client_env_model_override(monkeypatch: pytest.MonkeyPatch) -
     assert resolved.model == "gpt-4o-mini"
     assert isinstance(resolved.client, FakeChatOpenAI)
     assert resolved.client.kwargs["model"] == "gpt-4o-mini"
+
+
+def test_build_chat_client_invalid_env_provider_falls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Invalid provider overrides should fall back to auto-selection."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_PROVIDER, "not-a-provider")
+
+    resolved = langchain_client.build_chat_client()
+
+    assert resolved is not None
+    assert resolved.provider == langchain_client.PROVIDER_GITHUB
+    assert isinstance(resolved.client, FakeChatOpenAI)
