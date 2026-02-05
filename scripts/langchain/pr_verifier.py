@@ -131,116 +131,26 @@ def _get_llm_client(
         Tuple of (client, provider_name) or None if no credentials available.
     """
     try:
-        from langchain_openai import ChatOpenAI
+        from tools.langchain_client import build_chat_client
     except ImportError:
         return None
 
-    github_token = os.environ.get("GITHUB_TOKEN")
-    openai_token = os.environ.get("OPENAI_API_KEY")
-    if not github_token and not openai_token:
+    resolved = build_chat_client(model=model, provider=provider)
+    if not resolved:
         return None
-
-    from tools.llm_provider import DEFAULT_MODEL, GITHUB_MODELS_BASE_URL
-
-    # Use the provided model or fall back to default
-    selected_model = model or DEFAULT_MODEL
-
-    # Explicit provider selection
-    if provider == "openai":
-        if not openai_token:
-            return None
-        return (
-            ChatOpenAI(
-                model=selected_model,
-                api_key=openai_token,
-                temperature=0.1,
-            ),
-            f"openai/{selected_model}",
-        )
-
-    if provider == "github-models":
-        if not github_token:
-            return None
-        return (
-            ChatOpenAI(
-                model=selected_model,
-                base_url=GITHUB_MODELS_BASE_URL,
-                api_key=github_token,
-                temperature=0.1,
-            ),
-            f"github-models/{selected_model}",
-        )
-
-    # Auto-select: If OPENAI_API_KEY is available and either a custom model is requested
-    # OR GITHUB_TOKEN is not available, prefer OpenAI for better model availability
-    if openai_token and (model or not github_token):
-        return (
-            ChatOpenAI(
-                model=selected_model,
-                api_key=openai_token,
-                temperature=0.1,
-            ),
-            f"openai/{selected_model}",
-        )
-
-    # Default: use GitHub Models with GITHUB_TOKEN
-    if github_token:
-        return (
-            ChatOpenAI(
-                model=selected_model,
-                base_url=GITHUB_MODELS_BASE_URL,
-                api_key=github_token,
-                temperature=0.1,
-            ),
-            f"github-models/{selected_model}",
-        )
+    return resolved.client, resolved.provider_label
 
 
 def _get_llm_clients(
     model1: str | None = None, model2: str | None = None
 ) -> list[tuple[object, str, str]]:
     try:
-        from langchain_openai import ChatOpenAI
+        from tools.langchain_client import build_chat_clients
     except ImportError:
         return []
 
-    github_token = os.environ.get("GITHUB_TOKEN")
-    openai_token = os.environ.get("OPENAI_API_KEY")
-    if not github_token and not openai_token:
-        return []
-
-    from tools.llm_provider import DEFAULT_MODEL, GITHUB_MODELS_BASE_URL
-
-    # Use provided models or fall back to DEFAULT_MODEL
-    first_model = model1 or DEFAULT_MODEL
-    second_model = model2 or model1 or DEFAULT_MODEL
-
-    clients: list[tuple[object, str, str]] = []
-    if github_token:
-        try:
-            client = ChatOpenAI(
-                model=first_model,
-                base_url=GITHUB_MODELS_BASE_URL,
-                api_key=github_token,
-                temperature=0.1,
-            )
-            clients.append((client, "github-models", first_model))
-        except Exception:
-            # GitHub Models client initialization failed (likely credential/permission issue)
-            # Skip this provider and continue with others
-            pass
-    if openai_token:
-        try:
-            client = ChatOpenAI(
-                model=second_model,
-                api_key=openai_token,
-                temperature=0.1,
-            )
-            clients.append((client, "openai", second_model))
-        except Exception:
-            # OpenAI client initialization failed
-            pass
-    return clients
+    clients = build_chat_clients(model1=model1, model2=model2)
+    return [(entry.client, entry.provider, entry.model) for entry in clients]
 
 
 @dataclass(frozen=True)

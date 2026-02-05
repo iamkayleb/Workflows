@@ -1,0 +1,84 @@
+"""Tests for tools/langchain_client.py."""
+
+from __future__ import annotations
+
+import sys
+import types
+
+import pytest
+
+from tools import langchain_client
+
+
+def _install_fake_langchain_openai(monkeypatch: pytest.MonkeyPatch):
+    fake_module = types.ModuleType("langchain_openai")
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module.ChatOpenAI = FakeChatOpenAI
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
+    return FakeChatOpenAI
+
+
+def test_build_chat_client_prefers_github_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GitHub Models should be preferred when both tokens are set."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
+    monkeypatch.delenv(langchain_client.ENV_MODEL, raising=False)
+
+    resolved = langchain_client.build_chat_client()
+
+    assert resolved is not None
+    assert resolved.provider == langchain_client.PROVIDER_GITHUB
+    assert isinstance(resolved.client, FakeChatOpenAI)
+    assert resolved.client.kwargs["api_key"] == "gh-token"
+
+
+def test_build_chat_client_openai_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OpenAI is used when GitHub token is missing."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
+
+    resolved = langchain_client.build_chat_client()
+
+    assert resolved is not None
+    assert resolved.provider == langchain_client.PROVIDER_OPENAI
+    assert isinstance(resolved.client, FakeChatOpenAI)
+    assert resolved.client.kwargs["api_key"] == "oa-token"
+
+
+def test_build_chat_client_env_provider_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provider override env var should force OpenAI when set."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_PROVIDER, "openai")
+
+    resolved = langchain_client.build_chat_client()
+
+    assert resolved is not None
+    assert resolved.provider == langchain_client.PROVIDER_OPENAI
+    assert isinstance(resolved.client, FakeChatOpenAI)
+    assert resolved.client.kwargs["api_key"] == "oa-token"
+
+
+def test_build_chat_client_env_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Model override env var should update the constructed model."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv(langchain_client.ENV_MODEL, "gpt-4o-mini")
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
+
+    resolved = langchain_client.build_chat_client()
+
+    assert resolved is not None
+    assert resolved.model == "gpt-4o-mini"
+    assert isinstance(resolved.client, FakeChatOpenAI)
+    assert resolved.client.kwargs["model"] == "gpt-4o-mini"
