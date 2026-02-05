@@ -40,6 +40,11 @@ on:
         required: false
         type: boolean
         default: true
+      ignored_paths:
+        description: 'Comma-separated list of path prefixes to ignore in bot review comments'
+        required: false
+        type: string
+        default: '.agents/'
     outputs:
       comments_found:
         description: 'Whether unresolved bot comments were found'
@@ -193,6 +198,10 @@ jobs:
             const prNumber = parseInt('${{ inputs.pr_number }}');
             const botAuthors = '${{ inputs.bot_authors }}'.split(',').map(s => s.trim());
             const skipIfHumanReplied = ${{ inputs.skip_if_human_replied }};
+            const ignoredPaths = '${{ inputs.ignored_paths }}'
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean);
 
             console.log(`Collecting comments for PR #${prNumber}`);
             console.log(`Bot authors: ${botAuthors.join(', ')}`);
@@ -212,6 +221,12 @@ jobs:
             for (const comment of comments) {
               // Skip if not from a known bot
               if (!botAuthors.some(bot => comment.user.login.toLowerCase() === bot.toLowerCase())) {
+                continue;
+              }
+
+              const commentPath = comment.path || '';
+              if (ignoredPaths.some(prefix => commentPath.startsWith(prefix))) {
+                console.log(`Skipping comment ${comment.id} in ignored path ${commentPath}`);
                 continue;
               }
 

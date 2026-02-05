@@ -13,12 +13,13 @@ import json
 import os
 import re
 import sys
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
+
+from scripts import api_client
 
 PR_EVALUATION_PROMPT = """
 You are reviewing a **merged** pull request to evaluate whether the code
@@ -289,20 +290,13 @@ def _create_followup_issue(
     if pr_number:
         title = f"LLM evaluation concerns for PR #{pr_number}"
 
-    payload = json.dumps({"title": title, "body": body, "labels": labels}).encode("utf-8")
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/issues",
-        data=payload,
-        method="POST",
-    )
-    request.add_header("Authorization", f"Bearer {token}")
-    request.add_header("Accept", "application/vnd.github+json")
-    request.add_header("Content-Type", "application/json")
-    request.add_header("X-GitHub-Api-Version", "2022-11-28")
+    try:
+        issue = api_client.create_issue(repo, token, title, body, labels)
+    except RuntimeError as exc:
+        print(f"pr_verifier: failed to create follow-up issue: {exc}", file=sys.stderr)
+        return None
 
-    with urllib.request.urlopen(request) as response:
-        data = json.loads(response.read().decode("utf-8"))
-    issue_number = data.get("number")
+    issue_number = issue.get("number")
     if isinstance(issue_number, int):
         return issue_number
     return None
