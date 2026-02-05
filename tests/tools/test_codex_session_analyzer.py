@@ -57,6 +57,26 @@ def test_analyze_session_passes_quality_context_through_fallback_chain():
     assert provider.received_quality_context.analysis_text_length == len(summary_text)
 
 
+def test_analyze_session_passes_quality_context_from_jsonl():
+    """JSONL parsing passes quality context derived from session evidence."""
+    provider = RecordingProvider()
+    chain = FallbackChainProvider([provider])
+    jsonl = "\n".join(
+        [
+            '{"type": "item.completed", "item": {"id": "msg_1", "type": "agent_message", "text": "Did work."}}',
+            '{"type": "item.completed", "item_type": "command_execution", "command": "pytest tests/", "exit_code": 0, "output": "1 passed"}',
+        ]
+    )
+
+    with patch("tools.codex_session_analyzer.get_llm_provider", return_value=chain):
+        analyze_session(jsonl, ["task1"], data_source="jsonl")
+
+    assert provider.received_quality_context is not None
+    assert provider.received_quality_context.has_work_evidence is True
+    assert provider.received_quality_context.successful_command_count == 1
+    assert provider.received_quality_context.analysis_text_length > 0
+
+
 def test_analyze_session_skips_quality_context_for_legacy_provider():
     """Analyze session skips quality_context when provider doesn't support it."""
 
