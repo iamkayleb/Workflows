@@ -538,8 +538,15 @@ jobs:
           # Run comparison (stderr to separate file to avoid corrupting JSON)
           python .workflows-lib/scripts/langchain/pr_verifier.py "${args[@]}" > comparison.json 2> comparison-stderr.log || true
 
+          # Display stderr if present (for debugging)
+          if [ -f comparison-stderr.log ] && [ -s comparison-stderr.log ]; then
+            echo "::group::Comparison stderr output"
+            cat comparison-stderr.log
+            echo "::endgroup::"
+          fi
+
           # Parse result
-          if [ -f comparison.json ]; then
+          if [ -f comparison.json ] && [ -s comparison.json ]; then
             # Extract consensus verdict from available (used_llm) results
             verdict=$(python3 - <<'PY'
           import json
@@ -584,6 +591,10 @@ jobs:
 
             cat comparison-comment.md
           else
+            echo "::warning::comparison.json is missing or empty"
+            if [ -f comparison-stderr.log ] && [ -s comparison-stderr.log ]; then
+              echo "::error::Comparison script failed. Check stderr output above."
+            fi
             echo "verdict=CONCERNS" >> "$GITHUB_OUTPUT"
             echo "has_results=false" >> "$GITHUB_OUTPUT"
             printf "%s\n" "## Multi-Provider Comparison" "" "Comparison could not run (missing output)." > comparison-comment.md
@@ -599,6 +610,18 @@ jobs:
           if [ -n "$pr_number" ] && [ -f "comparison-comment.md" ]; then
             gh pr comment "$pr_number" --body-file comparison-comment.md || echo "Warning: Could not post comment"
           fi
+
+      - name: Upload comparison artifacts
+        if: always() && steps.context.outputs.should_run == 'true' && inputs.mode == 'compare'
+        uses: actions/upload-artifact@v4
+        with:
+          name: comparison-results-${{ github.run_id }}
+          path: |
+            comparison.json
+            comparison-stderr.log
+            comparison-comment.md
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Set unified verdict
         id: unified_verdict

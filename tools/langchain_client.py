@@ -7,6 +7,7 @@ timeouts, retries, and environment overrides.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from dataclasses import dataclass
@@ -129,47 +130,58 @@ def build_chat_client(
     if selected_provider == PROVIDER_GITHUB:
         if not github_token:
             return None
-        client = _build_github_client(
-            ChatOpenAI,
-            model=selected_model,
-            token=github_token,
-            timeout=selected_timeout,
-            max_retries=selected_retries,
-        )
-        return ClientInfo(client=client, provider=PROVIDER_GITHUB, model=selected_model)
+        try:
+            client = _build_github_client(
+                ChatOpenAI,
+                model=selected_model,
+                token=github_token,
+                timeout=selected_timeout,
+                max_retries=selected_retries,
+            )
+            return ClientInfo(client=client, provider=PROVIDER_GITHUB, model=selected_model)
+        except Exception:
+            return None
 
     if selected_provider == PROVIDER_OPENAI:
         if not openai_token:
             return None
-        client = _build_openai_client(
-            ChatOpenAI,
-            model=selected_model,
-            token=openai_token,
-            timeout=selected_timeout,
-            max_retries=selected_retries,
-        )
-        return ClientInfo(client=client, provider=PROVIDER_OPENAI, model=selected_model)
+        try:
+            client = _build_openai_client(
+                ChatOpenAI,
+                model=selected_model,
+                token=openai_token,
+                timeout=selected_timeout,
+                max_retries=selected_retries,
+            )
+            return ClientInfo(client=client, provider=PROVIDER_OPENAI, model=selected_model)
+        except Exception:
+            return None
 
     # Auto-select: GitHub Models first, OpenAI fallback.
     if github_token:
-        client = _build_github_client(
-            ChatOpenAI,
-            model=selected_model,
-            token=github_token,
-            timeout=selected_timeout,
-            max_retries=selected_retries,
-        )
-        return ClientInfo(client=client, provider=PROVIDER_GITHUB, model=selected_model)
+        with contextlib.suppress(Exception):
+            # GitHub Models failed, try OpenAI fallback
+            client = _build_github_client(
+                ChatOpenAI,
+                model=selected_model,
+                token=github_token,
+                timeout=selected_timeout,
+                max_retries=selected_retries,
+            )
+            return ClientInfo(client=client, provider=PROVIDER_GITHUB, model=selected_model)
 
     if openai_token:
-        client = _build_openai_client(
-            ChatOpenAI,
-            model=selected_model,
-            token=openai_token,
-            timeout=selected_timeout,
-            max_retries=selected_retries,
-        )
-        return ClientInfo(client=client, provider=PROVIDER_OPENAI, model=selected_model)
+        try:
+            client = _build_openai_client(
+                ChatOpenAI,
+                model=selected_model,
+                token=openai_token,
+                timeout=selected_timeout,
+                max_retries=selected_retries,
+            )
+            return ClientInfo(client=client, provider=PROVIDER_OPENAI, model=selected_model)
+        except Exception:
+            return None
 
     return None
 
@@ -206,6 +218,74 @@ def build_chat_clients(
 
     if selected_provider:
         if selected_provider == PROVIDER_GITHUB and github_token:
+            # GitHub Models client initialization failed - skip this provider
+            with contextlib.suppress(Exception):
+                clients.append(
+                    ClientInfo(
+                        client=_build_github_client(
+                            ChatOpenAI,
+                            model=first_model,
+                            token=github_token,
+                            timeout=selected_timeout,
+                            max_retries=selected_retries,
+                        ),
+                        provider=PROVIDER_GITHUB,
+                        model=first_model,
+                    )
+                )
+            if second_model != first_model:
+                # GitHub Models client initialization failed - skip this provider
+                with contextlib.suppress(Exception):
+                    clients.append(
+                        ClientInfo(
+                            client=_build_github_client(
+                                ChatOpenAI,
+                                model=second_model,
+                                token=github_token,
+                                timeout=selected_timeout,
+                                max_retries=selected_retries,
+                            ),
+                            provider=PROVIDER_GITHUB,
+                            model=second_model,
+                        )
+                    )
+        if selected_provider == PROVIDER_OPENAI and openai_token:
+            # OpenAI client initialization failed - skip this provider
+            with contextlib.suppress(Exception):
+                clients.append(
+                    ClientInfo(
+                        client=_build_openai_client(
+                            ChatOpenAI,
+                            model=first_model,
+                            token=openai_token,
+                            timeout=selected_timeout,
+                            max_retries=selected_retries,
+                        ),
+                        provider=PROVIDER_OPENAI,
+                        model=first_model,
+                    )
+                )
+            if second_model != first_model:
+                # OpenAI client initialization failed - skip this provider
+                with contextlib.suppress(Exception):
+                    clients.append(
+                        ClientInfo(
+                            client=_build_openai_client(
+                                ChatOpenAI,
+                                model=second_model,
+                                token=openai_token,
+                                timeout=selected_timeout,
+                                max_retries=selected_retries,
+                            ),
+                            provider=PROVIDER_OPENAI,
+                            model=second_model,
+                        )
+                    )
+        return clients
+
+    if github_token:
+        # GitHub Models client initialization failed - skip this provider
+        with contextlib.suppress(Exception):
             clients.append(
                 ClientInfo(
                     client=_build_github_client(
@@ -219,78 +299,22 @@ def build_chat_clients(
                     model=first_model,
                 )
             )
-            if second_model != first_model:
-                clients.append(
-                    ClientInfo(
-                        client=_build_github_client(
-                            ChatOpenAI,
-                            model=second_model,
-                            token=github_token,
-                            timeout=selected_timeout,
-                            max_retries=selected_retries,
-                        ),
-                        provider=PROVIDER_GITHUB,
-                        model=second_model,
-                    )
-                )
-        if selected_provider == PROVIDER_OPENAI and openai_token:
+
+    if openai_token:
+        # OpenAI client initialization failed - skip this provider
+        with contextlib.suppress(Exception):
             clients.append(
                 ClientInfo(
                     client=_build_openai_client(
                         ChatOpenAI,
-                        model=first_model,
+                        model=second_model,
                         token=openai_token,
                         timeout=selected_timeout,
                         max_retries=selected_retries,
                     ),
                     provider=PROVIDER_OPENAI,
-                    model=first_model,
-                )
-            )
-            if second_model != first_model:
-                clients.append(
-                    ClientInfo(
-                        client=_build_openai_client(
-                            ChatOpenAI,
-                            model=second_model,
-                            token=openai_token,
-                            timeout=selected_timeout,
-                            max_retries=selected_retries,
-                        ),
-                        provider=PROVIDER_OPENAI,
-                        model=second_model,
-                    )
-                )
-        return clients
-
-    if github_token:
-        clients.append(
-            ClientInfo(
-                client=_build_github_client(
-                    ChatOpenAI,
-                    model=first_model,
-                    token=github_token,
-                    timeout=selected_timeout,
-                    max_retries=selected_retries,
-                ),
-                provider=PROVIDER_GITHUB,
-                model=first_model,
-            )
-        )
-
-    if openai_token:
-        clients.append(
-            ClientInfo(
-                client=_build_openai_client(
-                    ChatOpenAI,
                     model=second_model,
-                    token=openai_token,
-                    timeout=selected_timeout,
-                    max_retries=selected_retries,
-                ),
-                provider=PROVIDER_OPENAI,
-                model=second_model,
+                )
             )
-        )
 
     return clients
