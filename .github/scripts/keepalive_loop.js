@@ -1978,17 +1978,6 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
         action = 'stop';
         reason = 'tasks-complete';
       }
-    } else if (needsProgressReview) {
-      // Trigger LLM-based progress review when agent is active but not completing tasks
-      // This allows legitimate prep work while catching scope drift early
-      // Progress review is checked BEFORE hard stops to allow course correction
-      action = 'review';
-      reason = `progress-review-${roundsWithoutTaskCompletion}`;
-    } else if (shouldStopEarly) {
-      // Evidence-based early stopping: diminishing returns detected
-      // This is checked AFTER progress review to give LLM a chance to intervene
-      action = 'stop';
-      reason = 'diminishing-returns';
     } else if (shouldStopForMaxIterations && forceRetry && tasksRemaining) {
       action = 'run';
       reason = 'force-retry-max-iterations';
@@ -1996,6 +1985,16 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
     } else if (shouldStopForMaxIterations) {
       action = 'stop';
       reason = isProductive ? 'max-iterations' : 'max-iterations-unproductive';
+    } else if (needsProgressReview) {
+      // Trigger LLM-based progress review when agent is active but not completing tasks
+      // This allows legitimate prep work while catching scope drift early
+      // Checked after max-iteration handling to avoid trapping the loop in review-only mode
+      action = 'review';
+      reason = `progress-review-${roundsWithoutTaskCompletion}`;
+    } else if (shouldStopEarly) {
+      // Evidence-based early stopping: diminishing returns detected
+      action = 'stop';
+      reason = 'diminishing-returns';
     } else if (tasksRemaining) {
       action = 'run';
       reason = iteration >= maxIterations ? 'ready-extended' : 'ready';
