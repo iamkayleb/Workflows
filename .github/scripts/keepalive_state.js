@@ -175,9 +175,6 @@ function isLoopState(data) {
   if (data.last_instruction && typeof data.last_instruction === 'object') {
     return true;
   }
-  if (Object.prototype.hasOwnProperty.call(data, 'head_sha')) {
-    return true;
-  }
   return false;
 }
 
