@@ -173,6 +173,11 @@ def output_github_actions(result: AnalysisResult) -> None:
     # Print notices for visibility in logs
     print(f"::notice::Analysis completed with {result.completion.provider_used}")
     print(f"::notice::Confidence: {result.completion.confidence:.0%}")
+    if result.quality_context_capable_providers:
+        print(
+            "::notice::Quality context capable providers: "
+            + ", ".join(result.quality_context_capable_providers)
+        )
 
     if result.completion.completed_tasks:
         print(f"::notice::Completed tasks: {len(result.completion.completed_tasks)}")
@@ -214,6 +219,10 @@ def output_github_actions(result: AnalysisResult) -> None:
             # Encode completed tasks as JSON for downstream use
             completed_json = json.dumps(result.completion.completed_tasks)
             f.write(f"completed-tasks={completed_json}\n")
+
+            if result.quality_context_capable_providers:
+                providers_json = json.dumps(result.quality_context_capable_providers)
+                f.write(f"quality-context-capable-providers={providers_json}\n")
 
 
 def output_json(result: AnalysisResult, pretty: bool = False) -> None:
