@@ -403,19 +403,18 @@ def main() -> int:
     pr_issue = extract_title_issue_number(pr_title)
     if not pr_issue:
         head_numbers = extract_head_ref_issue_numbers(head_ref)
+        head_numbers_present = False
         if len(head_numbers) == 1:
             pr_issue = next(iter(head_numbers))
         elif len(head_numbers) > 1:
-            print(
-                "Error: Multiple issue numbers detected in head ref:",
-                sorted(head_numbers),
-                file=sys.stderr,
-            )
-            return 1
+            if is_autofix_context(pr_title, head_ref):
+                print("Skipping issue consistency check: autofix context with no issue number.")
+                return 0
+            head_numbers_present = True
         elif is_autofix_context(pr_title, head_ref):
             print("Skipping issue consistency check: autofix context with no issue number.")
             return 0
-        else:
+        if not pr_issue:
             commit_messages, commit_fallback = collect_commit_messages(
                 args.base_ref, base_sha, base_remote
             )
@@ -437,6 +436,12 @@ def main() -> int:
             if len(combined_issue_numbers) == 1:
                 pr_issue = next(iter(combined_issue_numbers))
             elif not combined_issue_numbers:
+                if head_numbers_present:
+                    print(
+                        "Skipping issue consistency check: multiple issue numbers detected in head ref "
+                        "without additional issue references."
+                    )
+                    return 0
                 print("Skipping issue consistency check: no issue references found.")
                 return 0
             else:

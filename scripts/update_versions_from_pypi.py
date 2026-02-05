@@ -97,6 +97,11 @@ def _version_tuple(version: str) -> tuple[int, ...]:
     return (0,)
 
 
+def _is_outdated(current: str, latest: str) -> bool:
+    """Return True when the current version is older than the latest version."""
+    return _version_tuple(current) < _version_tuple(latest)
+
+
 def parse_env_file(path: Path) -> dict[str, str]:
     """Parse the autofix-versions.env file into a dict of key=value pairs."""
     if not path.exists():
@@ -160,8 +165,13 @@ def check_versions(pin_file: Path) -> dict[str, VersionInfo]:
             print("failed to fetch")
             continue
 
-        is_outdated = current_version != latest_version
-        status = "OUTDATED" if is_outdated else "OK"
+        is_outdated = _is_outdated(current_version, latest_version)
+        if is_outdated:
+            status = "OUTDATED"
+        elif _version_tuple(current_version) > _version_tuple(latest_version):
+            status = "AHEAD"
+        else:
+            status = "OK"
         print(f"{current_version} -> {latest_version} [{status}]")
 
         results[env_key] = VersionInfo(

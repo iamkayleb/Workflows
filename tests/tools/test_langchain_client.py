@@ -251,3 +251,62 @@ def test_build_chat_clients_openai_fallback(monkeypatch: pytest.MonkeyPatch) -> 
     assert [client.provider for client in clients] == [langchain_client.PROVIDER_OPENAI]
     assert isinstance(clients[0].client, FakeChatOpenAI)
     assert "base_url" not in clients[0].client.kwargs
+
+
+def test_build_chat_client_handles_initialization_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When client initialization fails, fallback to other provider."""
+    fake_module = types.ModuleType("langchain_openai")
+
+    call_count = {"github": 0, "openai": 0}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            if "base_url" in kwargs:
+                call_count["github"] += 1
+                raise RuntimeError("GitHub Models API error")
+            call_count["openai"] += 1
+            self.kwargs = kwargs
+
+    fake_module.ChatOpenAI = FakeChatOpenAI
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
+
+    # Should fallback to OpenAI when GitHub Models fails
+    resolved = langchain_client.build_chat_client()
+
+    assert resolved is not None
+    assert resolved.provider == langchain_client.PROVIDER_OPENAI
+    assert isinstance(resolved.client, FakeChatOpenAI)
+    assert resolved.client.kwargs["api_key"] == "oa-token"
+    assert call_count["github"] == 1  # Tried GitHub first
+    assert call_count["openai"] == 1  # Fell back to OpenAI
+
+
+def test_build_chat_clients_handles_partial_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When one provider fails, others should still work."""
+    fake_module = types.ModuleType("langchain_openai")
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs):
+            if "base_url" in kwargs:
+                raise RuntimeError("GitHub Models API error")
+            self.kwargs = kwargs
+
+    fake_module.ChatOpenAI = FakeChatOpenAI
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
+
+    clients = langchain_client.build_chat_clients()
+
+    # Should only return OpenAI client since GitHub failed
+    assert len(clients) == 1
+    assert clients[0].provider == langchain_client.PROVIDER_OPENAI
+    assert isinstance(clients[0].client, FakeChatOpenAI)

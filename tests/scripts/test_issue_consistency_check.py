@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from scripts import check_issue_consistency
@@ -110,3 +111,36 @@ def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
     assert output == "ok"
     assert used_fallback is True
     assert calls == [["log"], ["log", "-n", "1"]]
+
+
+def test_main_skips_on_multiple_head_ref_issue_numbers(monkeypatch, capsys) -> None:
+    def fake_collect_commit_messages(base_ref, base_sha, base_remote):
+        return [], False
+
+    def fake_collect_changed_files(base_ref, base_sha, base_remote):
+        return [], False
+
+    # Ensure GITHUB_EVENT_PATH doesn't interfere with autofix detection
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_commit_messages",
+        fake_collect_commit_messages,
+    )
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_changed_files",
+        fake_collect_changed_files,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["check_issue_consistency.py", "--pr-title", "", "--head-ref", "codex/issue-12-issue-34"],
+    )
+
+    exit_code = check_issue_consistency.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "multiple issue numbers detected in head ref" in captured.out
