@@ -73,6 +73,15 @@ def extract_head_ref_issue_numbers(head_ref: str) -> set[int]:
     return extract_issue_numbers(head_ref or "", include_hash=False)
 
 
+def resolve_head_ref_issue_number(head_ref: str) -> tuple[int | None, bool]:
+    numbers = extract_head_ref_issue_numbers(head_ref)
+    if len(numbers) == 1:
+        return next(iter(numbers)), False
+    if len(numbers) > 1:
+        return None, True
+    return None, False
+
+
 def _is_merge_commit_subject(message: str) -> bool:
     return MERGE_COMMIT_PATTERN.search(message or "") is not None
 
@@ -402,19 +411,17 @@ def main() -> int:
     pr_title, head_ref = resolve_pr_context(args.pr_title, args.head_ref)
     pr_issue = extract_title_issue_number(pr_title)
     if not pr_issue:
-        head_numbers = extract_head_ref_issue_numbers(head_ref)
-        head_numbers_present = False
-        if len(head_numbers) == 1:
-            pr_issue = next(iter(head_numbers))
-        elif len(head_numbers) > 1:
+        pr_issue, head_ambiguous = resolve_head_ref_issue_number(head_ref)
+        if head_ambiguous:
+            print(
+                "Warning: Multiple issue numbers detected in head ref; "
+                "ignoring head ref and falling back to commits/headers.",
+                file=sys.stderr,
+            )
+        if not pr_issue:
             if is_autofix_context(pr_title, head_ref):
                 print("Skipping issue consistency check: autofix context with no issue number.")
                 return 0
-            head_numbers_present = True
-        elif is_autofix_context(pr_title, head_ref):
-            print("Skipping issue consistency check: autofix context with no issue number.")
-            return 0
-        if not pr_issue:
             commit_messages, commit_fallback = collect_commit_messages(
                 args.base_ref, base_sha, base_remote
             )
@@ -436,12 +443,6 @@ def main() -> int:
             if len(combined_issue_numbers) == 1:
                 pr_issue = next(iter(combined_issue_numbers))
             elif not combined_issue_numbers:
-                if head_numbers_present:
-                    print(
-                        "Skipping issue consistency check: multiple issue numbers detected in head ref "
-                        "without additional issue references."
-                    )
-                    return 0
                 print("Skipping issue consistency check: no issue references found.")
                 return 0
             else:
