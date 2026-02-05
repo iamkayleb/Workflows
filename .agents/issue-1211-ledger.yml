@@ -1,0 +1,332 @@
+version: 1
+issue: 1211
+base: main
+branch: codex/issue-1211
+tasks:
+  - id: task-01
+    title: Create a shared utility module (e.g., `tools/langchain_client.py`) that
+      builds chat clients with standardized timeouts, retries, and provider selection
+      (GitHub Models then OpenAI fallback).
+    status: done
+    started_at: '2026-02-05T06:24:01Z'
+    finished_at: '2026-02-05T06:24:08Z'
+    commit: a6d8b8aafde90b9f3022fc89524f2a211cd0a5a5
+    notes: []
+  - id: task-02
+    title: Refactor `scripts/langchain/issue_formatter.py` and `scripts/langchain/issue_optimizer.py`
+      to use the shared utility (remove duplicated client code).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'Define scope for: Refactor `scripts/langchain/issue_formatter.py` to use
+      the shared utility (remove duplicated client code). (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Implement focused slice for: Refactor `scripts/langchain/issue_formatter.py`
+      to use the shared utility (remove duplicated client code). (verify: formatter
+      passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Validate focused slice for: Refactor `scripts/langchain/issue_formatter.py`
+      to use the shared utility (remove duplicated client code). (verify: formatter
+      passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Define scope for: Refactor `scripts/langchain/issue_optimizer.py` to use
+      the shared utility (remove duplicated client code). (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: 'Implement focused slice for: Refactor `scripts/langchain/issue_optimizer.py`
+      to use the shared utility (remove duplicated client code). (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: 'Validate focused slice for: Refactor `scripts/langchain/issue_optimizer.py`
+      to use the shared utility (remove duplicated client code). (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: Refactor `scripts/langchain/pr_verifier.py` to use the shared utility for
+      client construction in both single-provider and compare modes.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: Add unit tests for the utility module covering provider selection and env
+      override behavior.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'Define scope for: Add unit tests for provider selection behavior in the
+      utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'Implement focused slice for: Add unit tests for provider selection behavior
+      in the utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'Validate focused slice for: Add unit tests for provider selection behavior
+      in the utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: 'Define scope for: Add unit tests for env override behavior in the utility
+      module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: 'Implement focused slice for: Add unit tests for env override behavior
+      in the utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'Validate focused slice for: Add unit tests for env override behavior in
+      the utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: Create a shared utility module (e.g., `tools/langchain_client.py`) that
+      builds chat clients with standardized timeouts, retries, and provider selection
+      (GitHub Models then OpenAI fallback).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: Refactor `scripts/langchain/issue_formatter.py` and `scripts/langchain/issue_optimizer.py`
+      to use the shared utility (remove duplicated client code).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: 'Define scope for: Refactor `scripts/langchain/issue_formatter.py` to use
+      the shared utility (remove duplicated client code). (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: 'Implement focused slice for: Refactor `scripts/langchain/issue_formatter.py`
+      to use the shared utility (remove duplicated client code). (verify: formatter
+      passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: 'Validate focused slice for: Refactor `scripts/langchain/issue_formatter.py`
+      to use the shared utility (remove duplicated client code). (verify: formatter
+      passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: 'Define scope for: Refactor `scripts/langchain/issue_optimizer.py` to use
+      the shared utility (remove duplicated client code). (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: 'Implement focused slice for: Refactor `scripts/langchain/issue_optimizer.py`
+      to use the shared utility (remove duplicated client code). (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: 'Validate focused slice for: Refactor `scripts/langchain/issue_optimizer.py`
+      to use the shared utility (remove duplicated client code). (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: Refactor `scripts/langchain/pr_verifier.py` to use the shared utility for
+      client construction in both single-provider and compare modes.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: Add unit tests for the utility module covering provider selection and env
+      override behavior.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: 'Define scope for: Add unit tests for provider selection behavior in the
+      utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: 'Implement focused slice for: Add unit tests for provider selection behavior
+      in the utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: 'Validate focused slice for: Add unit tests for provider selection behavior
+      in the utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: 'Define scope for: Add unit tests for env override behavior in the utility
+      module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: 'Implement focused slice for: Add unit tests for env override behavior
+      in the utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: 'Validate focused slice for: Add unit tests for env override behavior in
+      the utility module. (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-33
+    title: '`issue_formatter`, `issue_optimizer`, and `pr_verifier` continue to run
+      with no behavioral regressions (existing tests pass).'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-34
+    title: Provider selection behavior is consistent across the refactored scripts
+      (documented and test-covered).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-35
+    title: 'The new utility has tests covering: GitHub Models path, OpenAI fallback
+      path, and env overrides for model/provider.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-36
+    title: issue_formatter, issue_optimizer, and pr_verifier continue to run with
+      no behavioral regressions (existing tests pass).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-37
+    title: Provider selection behavior is consistent across the refactored scripts
+      (documented and test-covered).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-38
+    title: 'The new utility has tests covering: GitHub Models path, OpenAI fallback
+      path, and env overrides for model/provider.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-39
+    title: Add unit tests for the utility module covering provider selection and env
+      override behavior. (The agent cannot guarantee specific coverage percentages
+      or subjective test design decisions. | Provide specific test cases or scenarios
+      to implement, such as 'Test GitHub Models path with valid and invalid inputs'
+      or 'Test OpenAI fallback when GitHub Models are unavailable.')
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
