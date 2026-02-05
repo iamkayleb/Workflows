@@ -128,7 +128,7 @@ jobs:
             .github/actions/setup-api-client
             .github/scripts
             .github/codex/prompts
-            scripts/langchain
+            scripts
             tools
           sparse-checkout-cone-mode: false
           path: .workflows-lib

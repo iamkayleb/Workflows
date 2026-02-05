@@ -113,6 +113,27 @@ def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
     assert calls == [["log"], ["log", "-n", "1"]]
 
 
+def test_run_git_with_fallback_handles_invalid_object(monkeypatch) -> None:
+    calls = []
+
+    def fake_run_git(args: list[str]) -> str:
+        calls.append(args)
+        if args == ["log"]:
+            raise RuntimeError("fatal: invalid object name 'deadbeef'.")
+        return "ok"
+
+    monkeypatch.setattr(check_issue_consistency, "_run_git", fake_run_git)
+
+    output, used_fallback = check_issue_consistency._run_git_with_fallback_and_flag(
+        ["log"],
+        ["log", "-n", "1"],
+    )
+
+    assert output == "ok"
+    assert used_fallback is True
+    assert calls == [["log"], ["log", "-n", "1"]]
+
+
 def test_main_skips_ambiguous_head_ref(monkeypatch, capsys) -> None:
     monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
     monkeypatch.setenv("PR_TITLE", "")

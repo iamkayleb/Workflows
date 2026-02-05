@@ -232,6 +232,8 @@ def _should_use_fallback(message: str, fallback: list[str] | None) -> bool:
         for snippet in (
             "no merge base",
             "bad object",
+            "invalid object name",
+            "not a valid object name",
             "ambiguous argument",
             "unknown revision",
             "not in the working tree",
