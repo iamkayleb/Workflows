@@ -1873,9 +1873,17 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
 
     // Early detection: Check for diminishing returns pattern
     // If we had activity before but now have none, might be naturally completing
+    const diminishingReturns =
+      iteration >= 2 &&
+      prevFilesChanged > 0 &&
+      lastFilesChanged === 0 &&
+      tasksCompletedSinceLastRound === 0;
+
     // max_iterations is a "stuck detection" threshold, not a hard cap
     // Continue past max if productive work is happening
+    // But stop earlier if we detect diminishing returns pattern
     const shouldStopForMaxIterations = iteration >= maxIterations && !isProductive;
+    const shouldStopEarly = diminishingReturns && iteration >= Math.ceil(maxIterations * 0.6);
 
     // Build task appendix for the agent prompt (after state load for reconciliation info)
     const taskAppendix = buildTaskAppendix(normalisedSections, checkboxCounts, state, { prBody: pr.body });
@@ -1967,6 +1975,10 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
         action = 'stop';
         reason = 'tasks-complete';
       }
+    } else if (shouldStopEarly) {
+      // Evidence-based early stopping: diminishing returns detected
+      action = 'stop';
+      reason = 'diminishing-returns';
     } else if (shouldStopForMaxIterations && forceRetry && tasksRemaining) {
       action = 'run';
       reason = 'force-retry-max-iterations';
