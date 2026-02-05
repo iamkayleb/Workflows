@@ -36,6 +36,7 @@ def test_build_chat_client_prefers_github_models(monkeypatch: pytest.MonkeyPatch
     assert resolved.provider == langchain_client.PROVIDER_GITHUB
     assert isinstance(resolved.client, FakeChatOpenAI)
     assert resolved.client.kwargs["api_key"] == "gh-token"
+    assert resolved.client.kwargs["base_url"] == langchain_client.GITHUB_MODELS_BASE_URL
 
 
 def test_build_chat_client_openai_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -51,6 +52,7 @@ def test_build_chat_client_openai_fallback(monkeypatch: pytest.MonkeyPatch) -> N
     assert resolved.provider == langchain_client.PROVIDER_OPENAI
     assert isinstance(resolved.client, FakeChatOpenAI)
     assert resolved.client.kwargs["api_key"] == "oa-token"
+    assert "base_url" not in resolved.client.kwargs
 
 
 def test_build_chat_client_env_provider_override(monkeypatch: pytest.MonkeyPatch) -> None:
