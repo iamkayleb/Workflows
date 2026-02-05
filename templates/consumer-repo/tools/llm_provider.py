@@ -680,7 +680,7 @@ class FallbackChainProvider(LLMProvider):
         context: str | None,
         quality_context: SessionQualityContext | None,
     ) -> CompletionAnalysis:
-        if quality_context is not None and self._provider_supports_quality_context(provider):
+        if quality_context is not None:
             try:
                 return provider.analyze_completion(
                     session_output=session_output,
