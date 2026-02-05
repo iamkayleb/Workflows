@@ -36,6 +36,15 @@ def test_extract_head_ref_issue_numbers_from_branch() -> None:
     assert numbers == {144}
 
 
+def test_extract_commit_issue_numbers_ignores_merge_commits() -> None:
+    messages = [
+        "Merge pull request #1248 from stranske/codex/issue-1236",
+        "chore: resolve issue #1211",
+    ]
+    numbers = check_issue_consistency.extract_commit_issue_numbers(messages)
+    assert numbers == {1211}
+
+
 def test_is_autofix_context_reads_event_labels(tmp_path: Path, monkeypatch) -> None:
     payload = {
         "pull_request": {
