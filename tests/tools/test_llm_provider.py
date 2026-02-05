@@ -18,6 +18,7 @@ from tools.llm_provider import (
     get_llm_provider,
     get_quality_context_capable_providers,
     get_quality_context_support_table,
+    supports_quality_context,
 )
 
 
@@ -87,6 +88,39 @@ class TestLLMProviderInterface:
         signature = inspect.signature(LLMProvider.analyze_completion)
         assert "quality_context" in signature.parameters
         assert signature.parameters["quality_context"].default is None
+
+    def test_supports_quality_context_with_kwargs(self):
+        """supports_quality_context returns True for providers accepting **kwargs."""
+
+        class KwargsProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "kwargs-provider"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                **_kwargs: object,
+            ) -> CompletionAnalysis:
+                _ = session_output
+                _ = tasks
+                _ = context
+                return CompletionAnalysis(
+                    completed_tasks=[],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.5,
+                    reasoning="kwargs",
+                    provider_used=self.name,
+                )
+
+        provider = KwargsProvider()
+        assert supports_quality_context(provider) is True
 
 
 class TestRegexFallbackProvider:
