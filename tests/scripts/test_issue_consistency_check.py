@@ -34,6 +34,7 @@ def test_extract_issue_numbers_ignores_pr_hashes() -> None:
 def test_extract_commit_issue_numbers_ignores_merge_and_ledger() -> None:
     messages = [
         "Merge pull request #1248 from stranske/codex/issue-1236",
+        "Merge origin/main into codex/issue-1211",
         "chore(ledger): start task task-01 for issue #1211",
         "fix: resolve issue #1075 in parser",
     ]
