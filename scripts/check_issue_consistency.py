@@ -14,6 +14,10 @@ from pathlib import Path
 ISSUE_WORD_PATTERN = re.compile(r"issue\s*[:#-]?\s*(\d+)", re.IGNORECASE)
 ISSUE_SLUG_PATTERN = re.compile(r"issue[-_](\d+)", re.IGNORECASE)
 HASH_PATTERN = re.compile(r"#(\d+)")
+IGNORE_COMMIT_PATTERNS = (
+    re.compile(r"^merge pull request", re.IGNORECASE),
+    re.compile(r"^chore\(ledger\)", re.IGNORECASE),
+)
 
 
 def _is_pr_marker_before_hash(prefix: str) -> bool:
@@ -42,6 +46,21 @@ def extract_issue_numbers(text: str, *, include_hash: bool = True) -> set[int]:
         numbers.add(int(match))
     if include_hash:
         numbers.update(_hash_mentions(text or ""))
+    return numbers
+
+
+def _is_ignored_commit_message(message: str) -> bool:
+    if not message:
+        return False
+    return any(pattern.search(message) for pattern in IGNORE_COMMIT_PATTERNS)
+
+
+def extract_commit_issue_numbers(messages: list[str]) -> set[int]:
+    numbers: set[int] = set()
+    for message in messages:
+        if _is_ignored_commit_message(message):
+            continue
+        numbers.update(extract_issue_numbers(message, include_hash=False))
     return numbers
 
 
@@ -398,11 +417,7 @@ def main() -> int:
             commit_messages, commit_fallback = collect_commit_messages(
                 args.base_ref, base_sha, base_remote
             )
-            commit_issue_numbers: set[int] = set()
-            for message in commit_messages:
-                # Commit subjects often include PR numbers in parentheses (#1234).
-                # Avoid treating those as issue references unless "issue" is explicit.
-                commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
+            commit_issue_numbers = extract_commit_issue_numbers(commit_messages)
 
             changed_files, file_fallback = collect_changed_files(
                 args.base_ref, base_sha, base_remote
@@ -439,11 +454,7 @@ def main() -> int:
                 return 1
 
     commit_messages, commit_fallback = collect_commit_messages(args.base_ref, base_sha, base_remote)
-    commit_issue_numbers: set[int] = set()
-    for message in commit_messages:
-        # Commit subjects often include PR numbers in parentheses (#1234).
-        # Avoid treating those as issue references unless "issue" is explicit.
-        commit_issue_numbers.update(extract_issue_numbers(message, include_hash=False))
+    commit_issue_numbers = extract_commit_issue_numbers(commit_messages)
 
     changed_files, file_fallback = collect_changed_files(args.base_ref, base_sha, base_remote)
     fallback_used = commit_fallback or file_fallback

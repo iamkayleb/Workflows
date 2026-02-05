@@ -31,6 +31,15 @@ def test_extract_issue_numbers_ignores_pr_hashes() -> None:
     assert numbers == {1075}
 
 
+def test_extract_commit_issue_numbers_ignores_merge_and_ledger() -> None:
+    messages = [
+        "Merge pull request #1248 from stranske/codex/issue-1236",
+        "chore(ledger): start task task-01 for issue #1211",
+        "fix: resolve issue #1075 in parser",
+    ]
+    assert check_issue_consistency.extract_commit_issue_numbers(messages) == {1075}
+
+
 def test_extract_head_ref_issue_numbers_from_branch() -> None:
     head_ref = "codex/issue-144-keepalive"
     numbers = check_issue_consistency.extract_head_ref_issue_numbers(head_ref)
