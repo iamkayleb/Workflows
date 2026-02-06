@@ -413,7 +413,15 @@ def main() -> int:
     base_sha = (args.base_sha or "").strip() or None
     base_remote = _resolve_base_remote(args.base_remote)
     pr_title, head_ref = resolve_pr_context(args.pr_title, args.head_ref)
+    autofix_context = is_autofix_context(pr_title, head_ref)
     pr_issue = extract_title_issue_number(pr_title)
+    if (
+        autofix_context
+        and pr_issue is not None
+        and HASH_PATTERN.search(pr_title or "")
+        and not (ISSUE_WORD_PATTERN.search(pr_title or "") or ISSUE_SLUG_PATTERN.search(pr_title or ""))
+    ):
+        pr_issue = None
     if not pr_issue:
         pr_issue, head_ambiguous = resolve_head_ref_issue_number(head_ref)
         if head_ambiguous:
@@ -423,7 +431,7 @@ def main() -> int:
                 file=sys.stderr,
             )
         if not pr_issue:
-            if is_autofix_context(pr_title, head_ref):
+            if autofix_context:
                 print("Skipping issue consistency check: autofix context with no issue number.")
                 return 0
             commit_messages, commit_fallback = collect_commit_messages(
