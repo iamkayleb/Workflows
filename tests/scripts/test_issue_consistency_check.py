@@ -123,6 +123,20 @@ def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
     assert calls == [["log"], ["log", "-n", "1"]]
 
 
+def test_should_scan_header_file_excludes_known_dirs() -> None:
+    assert check_issue_consistency.should_scan_header_file(Path("src/app.py")) is True
+    assert (
+        check_issue_consistency.should_scan_header_file(
+            Path(".github/workflows/agents-auto-pilot.yml")
+        )
+        is False
+    )
+    assert (
+        check_issue_consistency.should_scan_header_file(Path("templates/consumer-repo/README.md"))
+        is False
+    )
+
+
 def test_run_git_with_fallback_handles_invalid_object(monkeypatch) -> None:
     calls = []
 
