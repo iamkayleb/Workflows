@@ -83,6 +83,54 @@ def test_comparison_runner_repairs_malformed_output() -> None:
     assert mock_client.invoke.call_count == 2
 
 
+def test_evaluate_pr_valid_output_no_repair(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = _valid_payload()
+    good = json.dumps(payload)
+
+    mock_client = mock.MagicMock()
+    mock_client.invoke.side_effect = [_response_with(good)]
+
+    monkeypatch.setattr(pr_verifier, "_prepare_prompt", lambda ctx, diff: "prompt")
+    monkeypatch.setattr(
+        pr_verifier,
+        "_get_llm_client",
+        lambda model=None, provider=None: (mock_client, "github-models"),
+    )
+
+    result = pr_verifier.evaluate_pr("context")
+    assert result.verdict == "PASS"
+    assert result.used_llm is True
+    assert mock_client.invoke.call_count == 1
+
+
+def test_evaluate_pr_repair_prompt_includes_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = _valid_payload()
+    bad = "Here you go:\n" + json.dumps(payload)
+    good = json.dumps(payload)
+
+    mock_client = mock.MagicMock()
+    mock_client.invoke.side_effect = [_response_with(bad), _response_with(good)]
+
+    monkeypatch.setattr(pr_verifier, "_prepare_prompt", lambda ctx, diff: "prompt")
+    monkeypatch.setattr(
+        pr_verifier,
+        "_get_llm_client",
+        lambda model=None, provider=None: (mock_client, "github-models"),
+    )
+
+    result = pr_verifier.evaluate_pr("context")
+    assert result.verdict == "PASS"
+    assert result.used_llm is True
+    assert mock_client.invoke.call_count == 2
+
+    repair_prompt = mock_client.invoke.call_args_list[1].args[0]
+    assert "Schema:" in repair_prompt
+    assert "Validation errors:" in repair_prompt
+    assert "Original response:" in repair_prompt
+    assert "Here you go:" in repair_prompt
+    assert "\"verdict\"" in repair_prompt
+
+
 def test_evaluate_pr_repairs_once_then_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _valid_payload()
     bad = "```json\n" + json.dumps(payload) + "\n```"
