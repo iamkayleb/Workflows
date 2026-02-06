@@ -567,6 +567,7 @@ def _normalize_result(
         provider_used=provider_used,
     )
 
+
 def _schema_json() -> str:
     return json.dumps(IssueOptimizationPayload.model_json_schema(), ensure_ascii=True, indent=2)
 

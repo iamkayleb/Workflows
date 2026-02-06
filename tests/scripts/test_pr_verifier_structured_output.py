@@ -42,9 +42,7 @@ def _valid_payload() -> dict[str, object]:
         ),
     ],
 )
-def test_evaluate_pr_repairs_malformed_output(
-    monkeypatch: pytest.MonkeyPatch, bad_content
-) -> None:
+def test_evaluate_pr_repairs_malformed_output(monkeypatch: pytest.MonkeyPatch, bad_content) -> None:
     payload = _valid_payload()
     bad = bad_content(payload)
     good = json.dumps(payload)
