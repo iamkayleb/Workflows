@@ -47,7 +47,10 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           LABEL_NAME: ${{ github.event.label.name }}
           DISPATCH_PHASE: ${{ inputs.phase }}
+          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
         run: |
+          set -euo pipefail
+
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             {
               echo "phase=$DISPATCH_PHASE"
@@ -55,23 +58,47 @@ jobs:
               echo "should_run=true"
             } >> "$GITHUB_OUTPUT"
           elif [[ "$LABEL_NAME" == "agents:optimize" ]]; then
-            {
-              echo "phase=analyze"
-              echo "issue_number=${{ github.event.issue.number }}"
-              echo "should_run=true"
-            } >> "$GITHUB_OUTPUT"
+            # Skip if auto-pilot label is present (auto-pilot runs optimizer inline)
+            # Use pipefail to ensure gh errors cause check to fail-closed
+            if gh issue view "${{ github.event.issue.number }}" --json labels \
+                --jq '.labels[].name' | grep -qx 'agents:auto-pilot'; then
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              echo "Skipping: auto-pilot label present (runs inline)"
+            else
+              {
+                echo "phase=analyze"
+                echo "issue_number=${{ github.event.issue.number }}"
+                echo "should_run=true"
+              } >> "$GITHUB_OUTPUT"
+            fi
           elif [[ "$LABEL_NAME" == "agents:apply-suggestions" ]]; then
-            {
-              echo "phase=apply"
-              echo "issue_number=${{ github.event.issue.number }}"
-              echo "should_run=true"
-            } >> "$GITHUB_OUTPUT"
+            # Skip if auto-pilot label is present (auto-pilot manages this label for state)
+            # Use pipefail to ensure gh errors cause check to fail-closed
+            if gh issue view "${{ github.event.issue.number }}" --json labels \
+                --jq '.labels[].name' | grep -qx 'agents:auto-pilot'; then
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              echo "Skipping: auto-pilot label present (manages apply inline)"
+            else
+              {
+                echo "phase=apply"
+                echo "issue_number=${{ github.event.issue.number }}"
+                echo "should_run=true"
+              } >> "$GITHUB_OUTPUT"
+            fi
           elif [[ "$LABEL_NAME" == "agents:format" ]]; then
-            {
-              echo "phase=format"
-              echo "issue_number=${{ github.event.issue.number }}"
-              echo "should_run=true"
-            } >> "$GITHUB_OUTPUT"
+            # Skip if auto-pilot label is present (auto-pilot runs format inline)
+            # Use pipefail to ensure gh errors cause check to fail-closed
+            if gh issue view "${{ github.event.issue.number }}" --json labels \
+                --jq '.labels[].name' | grep -qx 'agents:auto-pilot'; then
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              echo "Skipping: auto-pilot label present (runs inline)"
+            else
+              {
+                echo "phase=format"
+                echo "issue_number=${{ github.event.issue.number }}"
+                echo "should_run=true"
+              } >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "should_run=false" >> "$GITHUB_OUTPUT"
           fi
@@ -522,7 +549,7 @@ jobs:
           PHASE: ${{ steps.check.outputs.phase }}
         run: |
           if [[ "$PHASE" == "apply" ]]; then
-            # Remove both optimization labels and add formatted label
+            # Remove optimization label but keep apply-suggestions (used for state tracking)
             node - <<'NODE'
             (async () => {
               const { Octokit } = require('@octokit/rest');
@@ -538,7 +565,8 @@ jobs:
               });
               const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
               const issueNumber = Number(process.env.ISSUE_NUMBER);
-              const labelsToRemove = ['agents:optimize', 'agents:apply-suggestions'];
+              // Only remove agents:optimize, keep agents:apply-suggestions for next steps
+              const labelsToRemove = ['agents:optimize'];
               for (const label of labelsToRemove) {
                 try {
                   await withRetry((client) => client.rest.issues.removeLabel({
@@ -568,7 +596,7 @@ jobs:
               process.exit(1);
             });
           NODE
-            echo "Labels updated: removed optimize/apply-suggestions, added formatted"
+            echo "Labels updated: removed optimize, kept apply-suggestions for state tracking"
           elif [[ "$PHASE" == "format" ]]; then
             # Remove format trigger label and add formatted result label
             node - <<'NODE'
