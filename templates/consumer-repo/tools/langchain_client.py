@@ -434,10 +434,23 @@ def build_chat_clients(
         return clients
 
     slots = _resolve_slots()
-    model_overrides = [model1 or os.environ.get(ENV_MODEL), model2]
-    for idx, slot in enumerate(slots):
-        if len(clients) >= 2:
+    candidate_slots: list[SlotDefinition] = []
+    for slot in slots:
+        if any(
+            (
+                slot.provider == PROVIDER_OPENAI and openai_token,
+                slot.provider == PROVIDER_ANTHROPIC and anthropic_token and ChatAnthropic,
+                slot.provider == PROVIDER_GITHUB and github_token,
+            )
+        ):
+            candidate_slots.append(slot)
+        if len(candidate_slots) >= 2:
             break
+
+    primary_override = model1 or os.environ.get(ENV_MODEL)
+    secondary_override = model2 or model1
+    model_overrides = [primary_override, secondary_override]
+    for idx, slot in enumerate(candidate_slots):
         slot_model = model_overrides[idx] if idx < len(model_overrides) else None
         slot_model = slot_model or slot.model
         if slot.provider == PROVIDER_OPENAI and openai_token:
