@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from typing import Literal
@@ -282,11 +281,13 @@ def review_progress_with_llm(
         files_changed,
         rounds_without_completion,
     )
+    try:
+        from tools.langchain_client import build_chat_client
+    except ImportError:
+        build_chat_client = None
 
-    # Check for API key
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        # Fall back to heuristic-only
+    resolved = build_chat_client(model=model) if build_chat_client else None
+    if not resolved:
         score, aligned, unaligned = heuristic_alignment_check(
             acceptance_criteria, recent_commits, files_changed
         )
@@ -303,7 +304,7 @@ def review_progress_with_llm(
 
         return ProgressReviewResult(
             recommendation=rec,
-            confidence=0.5,  # Lower confidence without LLM
+            confidence=0.5,
             alignment_score=score,
             trajectory=traj,
             analysis=ProgressAnalysis(
@@ -313,26 +314,19 @@ def review_progress_with_llm(
             feedback_for_agent="Review your recent work against the acceptance criteria.",
             summary=f"Heuristic review: {len(aligned)}/{len(recent_commits)} commits appear aligned",
             used_llm=False,
-            error="OPENAI_API_KEY not set, using heuristic fallback",
+            error="LLM unavailable, using heuristic fallback",
         )
 
     try:
-        from langchain_openai import ChatOpenAI
-
-        llm = ChatOpenAI(
-            model=model,
-            temperature=0.1,  # Low temperature for consistent analysis
-            api_key=api_key,
-        )
-
+        llm = resolved.client
         response = llm.invoke(prompt)
         content = response.content if hasattr(response, "content") else str(response)
 
         result = parse_llm_response(content)
         if result:
             result.used_llm = True
-            result.provider_used = "openai"
-            result.model = model
+            result.provider_used = resolved.provider
+            result.model = resolved.model
             return result
 
         # Failed to parse, return error result
@@ -345,8 +339,8 @@ def review_progress_with_llm(
             feedback_for_agent="Unable to analyze progress. Please review acceptance criteria.",
             summary="LLM response parsing failed",
             used_llm=True,
-            provider_used="openai",
-            model=model,
+            provider_used=resolved.provider,
+            model=resolved.model,
             error="Failed to parse LLM response",
         )
 

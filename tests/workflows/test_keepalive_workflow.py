@@ -38,12 +38,21 @@ def _clean_token_env(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
+def _run_harness(
+    scenario_path: Path, *, extra_env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    env = _clean_token_env(os.environ.copy())
+    if extra_env:
+        env.update(extra_env)
+    command = ["node", str(HARNESS), str(scenario_path)]
+    return subprocess.run(command, capture_output=True, text=True, env=env)
+
+
 def _run_scenario(name: str) -> dict:
     _require_node()
     scenario_path = FIXTURES_DIR / f"{name}.json"
     assert scenario_path.exists(), f"Scenario fixture missing: {scenario_path}"
-    command = ["node", str(HARNESS), str(scenario_path)]
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = _run_harness(scenario_path)
     if result.returncode != 0:
         pytest.fail(
             f"Harness failed with code {result.returncode}:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
@@ -562,11 +571,10 @@ def test_keepalive_requires_instruction_token() -> None:
     _require_node()
     scenario_path = FIXTURES_DIR / "missing_dispatch_token.json"
     assert scenario_path.exists(), "Scenario fixture missing"
-    command = ["node", str(HARNESS), str(scenario_path)]
-    env = _clean_token_env(os.environ.copy())
-    env["CLEAR_TOKEN_DEFAULTS"] = "true"
-    env["clear_token_defaults"] = "true"
-    result = subprocess.run(command, capture_output=True, text=True, env=env)
+    result = _run_harness(
+        scenario_path,
+        extra_env={"CLEAR_TOKEN_DEFAULTS": "true", "clear_token_defaults": "true"},
+    )
     assert result.returncode != 0, "Expected harness to fail without dispatch token"
     combined_output = (result.stderr or "") + (result.stdout or "")
     assert "GitHub token is required to author keepalive instructions" in combined_output

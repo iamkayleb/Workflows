@@ -105,6 +105,10 @@ on:
         required: false
       owner_pr_pat:
         required: false
+      openai_api_key:
+        required: false
+      claude_api_stranske:
+        required: false
       workflows_app_id:
         required: false
       workflows_app_private_key:
@@ -374,7 +378,7 @@ jobs:
         if: needs.normalize_inputs.outputs.apply_langchain_formatting == 'true'
         run: |
           python -m pip install --upgrade pip
-          pip install langchain langchain-core langchain-openai langchain-community
+          pip install langchain langchain-core langchain-openai langchain-anthropic langchain-community
 
       - name: Checkout topic splitter from Workflows repo
         if: needs.normalize_inputs.outputs.apply_langchain_formatting == 'true'
@@ -391,6 +395,8 @@ jobs:
           ALLOW_SINGLE_TOPIC: '1'
           APPLY_LANGCHAIN: ${{ needs.normalize_inputs.outputs.apply_langchain_formatting }}
           GITHUB_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
         run: |
           set -euo pipefail
           echo '--- INPUT PREVIEW (first 200 chars) ---'

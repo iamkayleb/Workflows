@@ -30,17 +30,17 @@ on:
         type: string
         default: 'checkbox'
       model:
-        description: 'LLM model to use for evaluation (e.g., gpt-4o, gpt-5.2)'
+        description: 'LLM model override (default uses slot 1)'
         required: false
         type: string
-        default: 'gpt-4o'
+        default: ''
       provider:
-        description: 'LLM provider: github-models (default) or openai'
+        description: 'LLM provider override (auto uses slot order)'
         required: false
         type: string
-        default: 'github-models'
+        default: ''
       model2:
-        description: 'Second model for compare mode (defaults to model if not specified)'
+        description: 'Second model for compare mode (defaults to slot 2)'
         required: false
         type: string
         default: ''
@@ -51,6 +51,9 @@ on:
       OPENAI_API_KEY:
         required: false
         description: 'OpenAI API key for evaluate/compare modes (enables model selection beyond GitHub Models)'
+      CLAUDE_API_STRANSKE:
+        required: false
+        description: 'Anthropic API key for evaluate/compare modes (enables Claude slot)'
       workflows_app_id:
         required: false
       workflows_app_private_key:
@@ -368,30 +371,42 @@ jobs:
       - name: Install LLM evaluation dependencies
         if: steps.context.outputs.should_run == 'true' && inputs.mode == 'evaluate'
         run: |
-          pip install pydantic langchain-openai
+          pip install pydantic langchain-openai langchain-anthropic
 
-      - name: Check OPENAI_API_KEY
+      - name: Check provider secrets
         id: openai_key
         if: steps.context.outputs.should_run == 'true' && (inputs.mode == 'evaluate' || inputs.mode == 'compare')
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PROVIDER: ${{ inputs.provider }}
           MODE: ${{ inputs.mode }}
         run: |
           requires_openai=false
+          requires_claude=false
+
           if [ "${MODE}" = "evaluate" ] && [ "${PROVIDER}" = "openai" ]; then
             requires_openai=true
+          fi
+          if [ "${MODE}" = "evaluate" ] && [ "${PROVIDER}" = "anthropic" ]; then
+            requires_claude=true
           fi
 
           if [ "${requires_openai}" = "true" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
             echo "OPENAI_API_KEY is not set; skipping verifier LLM step that requires OpenAI." >> "$GITHUB_STEP_SUMMARY"
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          elif [ "${requires_claude}" = "true" ] && [ -z "${CLAUDE_API_STRANSKE:-}" ]; then
+            echo "CLAUDE_API_STRANSKE is not set; skipping verifier LLM step that requires Claude." >> "$GITHUB_STEP_SUMMARY"
             echo "available=false" >> "$GITHUB_OUTPUT"
           else
             echo "available=true" >> "$GITHUB_OUTPUT"
           fi
 
           if [ "${MODE}" = "compare" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "OPENAI_API_KEY is not set; compare will run with github-models only." >> "$GITHUB_STEP_SUMMARY"
+            echo "OPENAI_API_KEY is not set; compare will fall back to Claude/GitHub Models." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ "${MODE}" = "compare" ] && [ -z "${CLAUDE_API_STRANSKE:-}" ]; then
+            echo "CLAUDE_API_STRANSKE is not set; compare will fall back to OpenAI/GitHub Models." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Run LLM evaluation
@@ -401,6 +416,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PYTHONPATH: .workflows-lib
         run: |
           set -euo pipefail
@@ -411,6 +427,9 @@ jobs:
           fi
           model="${{ inputs.model }}"
           provider="${{ inputs.provider }}"
+          if [ "$provider" = "auto" ]; then
+            provider=""
+          fi
 
           # Build args array
           args=(--context-file "$context_file" --json)
@@ -506,7 +525,7 @@ jobs:
       - name: Install comparison dependencies
         if: steps.context.outputs.should_run == 'true' && inputs.mode == 'compare'
         run: |
-          pip install pydantic langchain-openai
+          pip install pydantic langchain-openai langchain-anthropic
 
       - name: Run multi-provider comparison
         id: llm_compare
@@ -515,6 +534,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PYTHONPATH: .workflows-lib
         run: |
           set -euo pipefail

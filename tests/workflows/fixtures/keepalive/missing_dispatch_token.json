@@ -5,6 +5,8 @@
   "env": {
     "OPTIONS_JSON": "{}",
     "DRY_RUN": "false",
+    "CLEAR_TOKEN_DEFAULTS": "true",
+    "clear_token_defaults": "true",
     "ACTIONS_BOT_PAT": "",
     "SERVICE_BOT_PAT": ""
   },

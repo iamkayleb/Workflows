@@ -122,7 +122,8 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           # Install langchain dependencies
-          pip install langchain langchain-core langchain-openai langchain-community
+          pip install langchain langchain-core langchain-openai \
+            langchain-anthropic langchain-community
 
       - name: Check optimizer recursion guard
         if: steps.check.outputs.should_run == 'true'
@@ -206,6 +207,7 @@ Auto-pilot has been paused. See [recovery procedures](https://github.com/${{ git
           ISSUE_NUMBER: ${{ steps.check.outputs.issue_number }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PYTHONPATH: ${{ github.workspace }}/workflows-scripts
         run: |
           echo "Running analysis on issue #${ISSUE_NUMBER}"
@@ -254,6 +256,7 @@ Auto-pilot has been paused. See [recovery procedures](https://github.com/${{ git
           ISSUE_NUMBER: ${{ steps.check.outputs.issue_number }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PYTHONPATH: ${{ github.workspace }}/workflows-scripts
         run: |
           echo "Checking for potential duplicate issues (advisory)"
@@ -429,6 +432,7 @@ Auto-pilot has been paused. See [recovery procedures](https://github.com/${{ git
           GH_TOKEN: ${{ steps.token.outputs.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PYTHONPATH: ${{ github.workspace }}/workflows-scripts
         run: |
           echo "Formatting issue #${ISSUE_NUMBER} into AGENT_ISSUE_TEMPLATE structure"

@@ -184,7 +184,8 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           # Install langchain dependencies for inline optimizer
-          pip install langchain langchain-core langchain-openai langchain-community
+          pip install langchain langchain-core langchain-openai \
+            langchain-anthropic langchain-community
 
       - name: Initialize auto-pilot metrics logs
         if: steps.check_enabled.outputs.enabled == 'true'
@@ -590,6 +591,7 @@ jobs:
           STEP_COUNT: ${{ steps.cycles.outputs.count }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
 
@@ -788,6 +790,7 @@ jobs:
           STEP_COUNT: ${{ steps.cycles.outputs.count }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
 

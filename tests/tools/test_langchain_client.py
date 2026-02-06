@@ -22,13 +22,42 @@ def _install_fake_langchain_openai(monkeypatch: pytest.MonkeyPatch):
     return FakeChatOpenAI
 
 
-def test_build_chat_client_prefers_github_models(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GitHub Models should be preferred when both tokens are set."""
+def _install_fake_langchain_anthropic(monkeypatch: pytest.MonkeyPatch):
+    fake_module = types.ModuleType("langchain_anthropic")
+
+    class FakeChatAnthropic:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+    fake_module.ChatAnthropic = FakeChatAnthropic
+    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_module)
+    return FakeChatAnthropic
+
+
+def test_build_chat_client_prefers_openai_slot(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Slot 1 (OpenAI) should be preferred when both tokens are set."""
     FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
     monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
     monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
     monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
     monkeypatch.delenv(langchain_client.ENV_MODEL, raising=False)
+
+    resolved = langchain_client.build_chat_client()
+
+    assert resolved is not None
+    assert resolved.provider == langchain_client.PROVIDER_OPENAI
+    assert isinstance(resolved.client, FakeChatOpenAI)
+    assert resolved.client.kwargs["api_key"] == "oa-token"
+    assert "base_url" not in resolved.client.kwargs
+
+
+def test_build_chat_client_github_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GitHub Models is used when OpenAI and Claude are unavailable."""
+    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv(langchain_client.ENV_ANTHROPIC_KEY, raising=False)
+    monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
 
     resolved = langchain_client.build_chat_client()
 
@@ -39,20 +68,20 @@ def test_build_chat_client_prefers_github_models(monkeypatch: pytest.MonkeyPatch
     assert resolved.client.kwargs["base_url"] == langchain_client.GITHUB_MODELS_BASE_URL
 
 
-def test_build_chat_client_openai_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """OpenAI is used when GitHub token is missing."""
-    FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+def test_build_chat_client_anthropic_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claude is used when OpenAI is unavailable and Claude is configured."""
+    FakeChatAnthropic = _install_fake_langchain_anthropic(monkeypatch)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_ANTHROPIC_KEY, "claude-token")
     monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
 
     resolved = langchain_client.build_chat_client()
 
     assert resolved is not None
-    assert resolved.provider == langchain_client.PROVIDER_OPENAI
-    assert isinstance(resolved.client, FakeChatOpenAI)
-    assert resolved.client.kwargs["api_key"] == "oa-token"
-    assert "base_url" not in resolved.client.kwargs
+    assert resolved.provider == langchain_client.PROVIDER_ANTHROPIC
+    assert isinstance(resolved.client, FakeChatAnthropic)
+    assert resolved.client.kwargs["anthropic_api_key"] == "claude-token"
 
 
 def test_build_chat_client_env_provider_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -135,27 +164,30 @@ def test_build_chat_client_invalid_env_provider_falls_back(
     resolved = langchain_client.build_chat_client()
 
     assert resolved is not None
-    assert resolved.provider == langchain_client.PROVIDER_GITHUB
+    assert resolved.provider == langchain_client.PROVIDER_OPENAI
     assert isinstance(resolved.client, FakeChatOpenAI)
 
 
-def test_build_chat_clients_auto_selects_github_then_openai(
+def test_build_chat_clients_auto_selects_openai_then_claude(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Auto selection returns GitHub then OpenAI when both tokens exist."""
+    """Auto selection returns OpenAI then Claude when configured."""
     FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
+    FakeChatAnthropic = _install_fake_langchain_anthropic(monkeypatch)
     monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
     monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_ANTHROPIC_KEY, "claude-token")
     monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
     monkeypatch.delenv(langchain_client.ENV_MODEL, raising=False)
 
     clients = langchain_client.build_chat_clients()
 
     assert [client.provider for client in clients] == [
-        langchain_client.PROVIDER_GITHUB,
         langchain_client.PROVIDER_OPENAI,
+        langchain_client.PROVIDER_ANTHROPIC,
     ]
-    assert all(isinstance(client.client, FakeChatOpenAI) for client in clients)
+    assert isinstance(clients[0].client, FakeChatOpenAI)
+    assert isinstance(clients[1].client, FakeChatAnthropic)
 
 
 def test_build_chat_clients_env_provider_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -204,8 +236,8 @@ def test_build_chat_clients_env_model_override(monkeypatch: pytest.MonkeyPatch) 
 
     clients = langchain_client.build_chat_clients()
 
-    assert [client.model for client in clients] == ["gpt-4o-mini", "gpt-4o-mini"]
-    assert all(isinstance(client.client, FakeChatOpenAI) for client in clients)
+    assert [client.model for client in clients] == ["gpt-4o-mini", "gpt-4o"]
+    assert isinstance(clients[0].client, FakeChatOpenAI)
 
 
 def test_build_chat_clients_env_model_with_provider_override(
@@ -257,56 +289,64 @@ def test_build_chat_client_handles_initialization_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When client initialization fails, fallback to other provider."""
-    fake_module = types.ModuleType("langchain_openai")
+    fake_openai = types.ModuleType("langchain_openai")
+    fake_anthropic = types.ModuleType("langchain_anthropic")
 
-    call_count = {"github": 0, "openai": 0}
+    call_count = {"openai": 0, "anthropic": 0}
 
     class FakeChatOpenAI:
         def __init__(self, **kwargs):
-            if "base_url" in kwargs:
-                call_count["github"] += 1
-                raise RuntimeError("GitHub Models API error")
             call_count["openai"] += 1
+            raise RuntimeError("OpenAI API error")
+
+    class FakeChatAnthropic:
+        def __init__(self, **kwargs):
+            call_count["anthropic"] += 1
             self.kwargs = kwargs
 
-    fake_module.ChatOpenAI = FakeChatOpenAI
-    monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
-    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    fake_openai.ChatOpenAI = FakeChatOpenAI
+    fake_anthropic.ChatAnthropic = FakeChatAnthropic
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_openai)
+    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_anthropic)
     monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_ANTHROPIC_KEY, "claude-token")
     monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
 
-    # Should fallback to OpenAI when GitHub Models fails
     resolved = langchain_client.build_chat_client()
 
     assert resolved is not None
-    assert resolved.provider == langchain_client.PROVIDER_OPENAI
-    assert isinstance(resolved.client, FakeChatOpenAI)
-    assert resolved.client.kwargs["api_key"] == "oa-token"
-    assert call_count["github"] == 1  # Tried GitHub first
-    assert call_count["openai"] == 1  # Fell back to OpenAI
+    assert resolved.provider == langchain_client.PROVIDER_ANTHROPIC
+    assert isinstance(resolved.client, FakeChatAnthropic)
+    assert resolved.client.kwargs["anthropic_api_key"] == "claude-token"
+    assert call_count["openai"] == 1
+    assert call_count["anthropic"] == 1
 
 
 def test_build_chat_clients_handles_partial_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When one provider fails, others should still work."""
-    fake_module = types.ModuleType("langchain_openai")
+    fake_openai = types.ModuleType("langchain_openai")
+    fake_anthropic = types.ModuleType("langchain_anthropic")
 
     class FakeChatOpenAI:
         def __init__(self, **kwargs):
-            if "base_url" in kwargs:
-                raise RuntimeError("GitHub Models API error")
             self.kwargs = kwargs
 
-    fake_module.ChatOpenAI = FakeChatOpenAI
-    monkeypatch.setitem(sys.modules, "langchain_openai", fake_module)
-    monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
+    class FakeChatAnthropic:
+        def __init__(self, **kwargs):
+            raise RuntimeError("Anthropic API error")
+
+    fake_openai.ChatOpenAI = FakeChatOpenAI
+    fake_anthropic.ChatAnthropic = FakeChatAnthropic
+    monkeypatch.setitem(sys.modules, "langchain_openai", fake_openai)
+    monkeypatch.setitem(sys.modules, "langchain_anthropic", fake_anthropic)
     monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
+    monkeypatch.setenv(langchain_client.ENV_ANTHROPIC_KEY, "claude-token")
     monkeypatch.delenv(langchain_client.ENV_PROVIDER, raising=False)
 
     clients = langchain_client.build_chat_clients()
 
-    # Should only return OpenAI client since GitHub failed
     assert len(clients) == 1
     assert clients[0].provider == langchain_client.PROVIDER_OPENAI
     assert isinstance(clients[0].client, FakeChatOpenAI)
