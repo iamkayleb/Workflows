@@ -134,6 +134,7 @@ jobs:
           # Check how many optimizer runs for this issue in last hour
           one_hour_ago=$(date -u -d '1 hour ago' '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -v-1H '+%Y-%m-%dT%H:%M:%SZ')
           
+          # shellcheck disable=SC2016
           count=$(gh run list \
             --workflow=agents-issue-optimizer.yml \
             --json conclusion,createdAt,displayTitle \
