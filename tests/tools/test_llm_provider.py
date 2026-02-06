@@ -160,6 +160,50 @@ class TestLLMProviderInterface:
         assert supports_quality_context(provider) is True
 
 
+class TestProviderLegacyBehavior:
+    """Integration checks for calling providers without quality_context."""
+
+    def test_github_models_analyze_completion_without_quality_context(self):
+        """GitHub Models provider works with default quality_context=None."""
+        provider = GitHubModelsProvider()
+        mock_client = MagicMock()
+        mock_client.invoke.return_value = MagicMock(content="""
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.9,
+    "reasoning": "Legacy call."
+}
+""")
+
+        with patch.object(provider, "_get_client", return_value=mock_client):
+            result = provider.analyze_completion("output", ["task1"])
+
+        assert result.provider_used == "github-models"
+        assert result.confidence == 0.9
+
+    def test_openai_analyze_completion_without_quality_context(self):
+        """OpenAI provider works with default quality_context=None."""
+        provider = OpenAIProvider()
+        mock_client = MagicMock()
+        mock_client.invoke.return_value = MagicMock(content="""
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.85,
+    "reasoning": "Legacy call."
+}
+""")
+
+        with patch.object(provider, "_get_client", return_value=mock_client):
+            result = provider.analyze_completion("output", ["task1"])
+
+        assert result.provider_used == "openai"
+        assert result.confidence == 0.85
+
+
 class TestRegexFallbackProvider:
     """Test regex-based analysis."""
 
@@ -270,6 +314,67 @@ class TestFallbackChainProvider:
             context="ctx",
             quality_context=quality_context,
         )
+
+    def test_reaches_target_provider_with_quality_context(self):
+        """Chain reaches the active provider and forwards quality context."""
+
+        class RecordingProvider(LLMProvider):
+            def __init__(self, name: str, available: bool) -> None:
+                self._name = name
+                self._available = available
+                self.received_quality_context: SessionQualityContext | None = None
+                self.called = False
+
+            @property
+            def name(self) -> str:
+                return self._name
+
+            def is_available(self) -> bool:
+                return self._available
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                self.called = True
+                self.received_quality_context = quality_context
+                return CompletionAnalysis(
+                    completed_tasks=[],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.4,
+                    reasoning="recorded",
+                    provider_used=self.name,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=True,
+            file_change_count=1,
+            successful_command_count=0,
+            estimated_effort_score=5,
+            data_quality="low",
+            analysis_text_length=120,
+        )
+
+        unavailable = RecordingProvider("unavailable", False)
+        target = RecordingProvider("target", True)
+        chain = FallbackChainProvider([unavailable, target])
+
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            context="ctx",
+            quality_context=quality_context,
+        )
+
+        assert unavailable.called is False
+        assert target.called is True
+        assert target.received_quality_context is quality_context
+        assert result.provider_used == "target"
 
     def test_passes_quality_context_to_kwargs_provider(self):
         """Chain forwards quality context to providers accepting **kwargs."""
@@ -715,6 +820,78 @@ class TestFallbackChainProvider:
         assert result.provider_used == "quality-aware"
         assert quality_provider.received_quality_context is quality_context
 
+    def test_quality_context_reaches_available_quality_provider(self):
+        """Chain forwards quality_context to the available quality-aware provider."""
+
+        class UnavailableProvider(LLMProvider):
+            supports_quality_context = True
+
+            @property
+            def name(self) -> str:
+                return "unavailable"
+
+            def is_available(self) -> bool:
+                return False
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                raise AssertionError("Unavailable provider should not be called")
+
+        class QualityAwareProvider(LLMProvider):
+            def __init__(self) -> None:
+                self.received_quality_context: SessionQualityContext | None = None
+
+            @property
+            def name(self) -> str:
+                return "quality-aware"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                self.received_quality_context = quality_context
+                return CompletionAnalysis(
+                    completed_tasks=["quality-aware"],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.7,
+                    reasoning="quality-aware",
+                    provider_used=self.name,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=True,
+            file_change_count=2,
+            successful_command_count=1,
+            estimated_effort_score=12,
+            data_quality="high",
+            analysis_text_length=300,
+        )
+
+        quality_provider = QualityAwareProvider()
+        chain = FallbackChainProvider([UnavailableProvider(), quality_provider])
+
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            quality_context=quality_context,
+        )
+
+        assert result.provider_used == "quality-aware"
+        assert quality_provider.received_quality_context is quality_context
+
     def test_supports_quality_context_reflects_children(self):
         """Chain reports quality context support only when a child supports it."""
 
@@ -871,6 +1048,200 @@ class TestFallbackChainProvider:
 
         assert result.confidence <= 0.4
         assert result.confidence_adjusted is True
+        assert any("suspiciously short" in warning for warning in result.quality_warnings)
+
+    def test_confidence_capped_for_very_short_analysis_text_with_evidence(self):
+        """Confidence is capped when analysis text is <50 chars with work evidence."""
+
+        class QualityAwareProvider(GitHubModelsProvider):
+            @property
+            def name(self) -> str:
+                return "quality-aware"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                response = """
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.9,
+    "reasoning": "Short analysis."
+}
+"""
+                parsed = self._parse_response(
+                    response,
+                    tasks,
+                    quality_context=quality_context,
+                )
+                return CompletionAnalysis(
+                    completed_tasks=parsed.completed_tasks,
+                    in_progress_tasks=parsed.in_progress_tasks,
+                    blocked_tasks=parsed.blocked_tasks,
+                    confidence=parsed.confidence,
+                    reasoning=parsed.reasoning,
+                    provider_used=self.name,
+                    raw_confidence=parsed.raw_confidence,
+                    confidence_adjusted=parsed.confidence_adjusted,
+                    quality_warnings=parsed.quality_warnings,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=False,
+            has_work_evidence=True,
+            file_change_count=2,
+            successful_command_count=1,
+            estimated_effort_score=6,
+            data_quality="high",
+            analysis_text_length=49,
+        )
+
+        chain = FallbackChainProvider([QualityAwareProvider()])
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            quality_context=quality_context,
+        )
+
+        assert result.confidence <= 0.4
+        assert result.confidence_adjusted is True
+
+    def test_confidence_capped_for_sub_50_analysis_text_with_work_evidence(self):
+        """Regression: sub-50 analysis text with work evidence never exceeds cap."""
+
+        class QualityAwareProvider(GitHubModelsProvider):
+            @property
+            def name(self) -> str:
+                return "quality-aware"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                response = """
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.95,
+    "reasoning": "Short analysis."
+}
+"""
+                parsed = self._parse_response(
+                    response,
+                    tasks,
+                    quality_context=quality_context,
+                )
+                return CompletionAnalysis(
+                    completed_tasks=parsed.completed_tasks,
+                    in_progress_tasks=parsed.in_progress_tasks,
+                    blocked_tasks=parsed.blocked_tasks,
+                    confidence=parsed.confidence,
+                    reasoning=parsed.reasoning,
+                    provider_used=self.name,
+                    raw_confidence=parsed.raw_confidence,
+                    confidence_adjusted=parsed.confidence_adjusted,
+                    quality_warnings=parsed.quality_warnings,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=False,
+            has_work_evidence=True,
+            file_change_count=3,
+            successful_command_count=2,
+            estimated_effort_score=9,
+            data_quality="high",
+            analysis_text_length=12,
+        )
+
+        chain = FallbackChainProvider([QualityAwareProvider()])
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            quality_context=quality_context,
+        )
+
+        assert result.confidence <= 0.4
+        assert result.confidence_adjusted is True
+
+    def test_confidence_capped_for_short_analysis_even_with_completed_tasks(self):
+        """Regression: <50 chars with work evidence caps confidence despite completions."""
+
+        class QualityAwareProvider(GitHubModelsProvider):
+            @property
+            def name(self) -> str:
+                return "quality-aware"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                response = """
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.99,
+    "reasoning": "Completed work."
+}
+"""
+                parsed = self._parse_response(
+                    response,
+                    tasks,
+                    quality_context=quality_context,
+                )
+                return CompletionAnalysis(
+                    completed_tasks=parsed.completed_tasks,
+                    in_progress_tasks=parsed.in_progress_tasks,
+                    blocked_tasks=parsed.blocked_tasks,
+                    confidence=parsed.confidence,
+                    reasoning=parsed.reasoning,
+                    provider_used=self.name,
+                    raw_confidence=parsed.raw_confidence,
+                    confidence_adjusted=parsed.confidence_adjusted,
+                    quality_warnings=parsed.quality_warnings,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=False,
+            has_work_evidence=True,
+            file_change_count=2,
+            successful_command_count=1,
+            estimated_effort_score=7,
+            data_quality="high",
+            analysis_text_length=40,
+        )
+
+        chain = FallbackChainProvider([QualityAwareProvider()])
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            quality_context=quality_context,
+        )
+
+        assert result.confidence <= 0.4
+        assert result.confidence_adjusted is True
+        assert any("suspiciously short" in warning for warning in result.quality_warnings)
 
     def test_confidence_capped_after_fallback(self):
         """Confidence capping still applies when falling back to a later provider."""

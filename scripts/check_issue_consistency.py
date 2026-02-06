@@ -226,9 +226,7 @@ def _find_remote_with_ref(base_remote: str, base_ref: str) -> str | None:
     return None
 
 
-def _should_use_fallback(message: str, fallback: list[str] | None) -> bool:
-    if not fallback:
-        return False
+def _is_fallback_error(message: str) -> bool:
     lowered = message.lower()
     return any(
         snippet in lowered
@@ -242,6 +240,12 @@ def _should_use_fallback(message: str, fallback: list[str] | None) -> bool:
             "not in the working tree",
         )
     )
+
+
+def _should_use_fallback(message: str, fallback: list[str] | None) -> bool:
+    if not fallback:
+        return False
+    return _is_fallback_error(message)
 
 
 def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
@@ -262,6 +266,30 @@ def _run_git_with_fallback_and_flag(
         if _should_use_fallback(str(exc), fallback):
             return _run_git(fallback), True
         raise
+
+
+def _run_git_with_fallbacks_and_flag(
+    primary: list[str], fallbacks: list[list[str]]
+) -> tuple[str, bool]:
+    try:
+        return _run_git(primary), False
+    except RuntimeError as exc:
+        if not _should_use_fallback(str(exc), fallbacks[0] if fallbacks else None):
+            raise
+        last_exc: RuntimeError = exc
+
+    if not fallbacks:
+        raise last_exc
+
+    for fallback in fallbacks:
+        try:
+            return _run_git(fallback), True
+        except RuntimeError as exc:
+            last_exc = exc
+            if not _is_fallback_error(str(exc)):
+                break
+
+    raise last_exc
 
 
 def collect_commit_messages(
@@ -305,22 +333,21 @@ def collect_changed_files(
     if base_ref:
         resolved_remote = _find_remote_with_ref(base_remote, base_ref)
     if base_sha:
-        fallback = None
-        if base_ref:
-            if resolved_remote:
-                fallback = ["diff", "--name-only", f"{resolved_remote}/{base_ref}...HEAD"]
-            else:
-                fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
-        else:
-            fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
-        output, used_fallback = _run_git_with_fallback_and_flag(
+        fallbacks: list[list[str]] = []
+        if base_ref and resolved_remote:
+            fallbacks.append(["diff", "--name-only", f"{resolved_remote}/{base_ref}...HEAD"])
+        fallbacks.append(["diff", "--name-only", "HEAD~20..HEAD"])
+        output, used_fallback = _run_git_with_fallbacks_and_flag(
             ["diff", "--name-only", f"{base_sha}...HEAD"],
-            fallback,
+            fallbacks,
         )
     elif base_ref:
         if resolved_remote:
             range_spec = f"{resolved_remote}/{base_ref}...HEAD"
-            output = _run_git(["diff", "--name-only", range_spec])
+            output, used_fallback = _run_git_with_fallbacks_and_flag(
+                ["diff", "--name-only", range_spec],
+                [["diff", "--name-only", "HEAD~20..HEAD"]],
+            )
         else:
             output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
             used_fallback = True
@@ -420,7 +447,29 @@ def main() -> int:
     base_sha = (args.base_sha or "").strip() or None
     base_remote = _resolve_base_remote(args.base_remote)
     pr_title, head_ref = resolve_pr_context(args.pr_title, args.head_ref)
+    autofix_context = is_autofix_context(pr_title, head_ref)
     pr_issue = extract_title_issue_number(pr_title)
+    title_has_bare_hash = bool(HASH_PATTERN.search(pr_title or "")) and not (
+        ISSUE_WORD_PATTERN.search(pr_title or "") or ISSUE_SLUG_PATTERN.search(pr_title or "")
+    )
+    if autofix_context and pr_issue is not None and title_has_bare_hash:
+        pr_issue = None
+    elif pr_issue is not None and title_has_bare_hash:
+        head_issue, head_ambiguous = resolve_head_ref_issue_number(head_ref)
+        if head_issue is not None:
+            if head_issue != pr_issue:
+                print(
+                    "Warning: PR title uses a bare # reference; "
+                    "using head ref issue number instead.",
+                    file=sys.stderr,
+                )
+            pr_issue = head_issue
+        elif head_ambiguous:
+            print(
+                "Warning: Multiple issue numbers detected in head ref; "
+                "retaining PR title issue reference.",
+                file=sys.stderr,
+            )
     if not pr_issue:
         pr_issue, head_ambiguous = resolve_head_ref_issue_number(head_ref)
         if head_ambiguous:
@@ -430,7 +479,7 @@ def main() -> int:
                 file=sys.stderr,
             )
         if not pr_issue:
-            if is_autofix_context(pr_title, head_ref):
+            if autofix_context:
                 print("Skipping issue consistency check: autofix context with no issue number.")
                 return 0
             commit_messages, commit_fallback = collect_commit_messages(
@@ -481,6 +530,11 @@ def main() -> int:
 
     mismatched_commits = sorted(num for num in commit_issue_numbers if num != pr_issue)
     if mismatched_commits:
+        if autofix_context:
+            print(
+                "Skipping issue consistency check: autofix context with mismatched commit issues."
+            )
+            return 0
         print(
             "Error: Commit messages reference issue numbers that do not match PR title:",
             mismatched_commits,
@@ -501,6 +555,9 @@ def main() -> int:
             mismatched_files.append(str(file_path))
 
     if mismatched_files:
+        if autofix_context:
+            print("Skipping issue consistency check: autofix context with mismatched file headers.")
+            return 0
         print(
             "Error: File headers reference issue numbers that do not match PR title:",
             ", ".join(sorted(mismatched_files)),

@@ -7,6 +7,7 @@ const {
   parseCheckboxStates,
   mergeCheckboxStates,
   ensureChecklist,
+  coalesceWrappedChecklist,
   extractBlock,
   fetchConnectorCheckboxStates,
   buildStatusBlock,
@@ -245,6 +246,30 @@ test('ensureChecklist preserves section headers without adding checkboxes', () =
   const result = ensureChecklist(text);
 
   assert.strictEqual(result, '## Tasks\n- [ ] Task one');
+});
+
+test('ensureChecklist preserves wrapped list item lines', () => {
+  const text = '- Task one with a long description\n  that continues here\n- [ ] Task two';
+  const result = ensureChecklist(text);
+
+  assert.strictEqual(result, '- [ ] Task one with a long description\n  that continues here\n- [ ] Task two');
+});
+
+test('coalesceWrappedChecklist merges continuation lines with joiners', () => {
+  const text = '- [ ] Add unit tests for FallbackChainProvider that pass quality_context and\n' +
+    '- [ ] assert it reaches the target provider.\n' +
+    '- [ ] Add regression tests for analysis_text_length < 50 with has_work_evidence\n' +
+    '- [ ] enabled so confidence does not exceed the cap.\n' +
+    '- [ ] Tests verify quality_context is passed to active providers in\n' +
+    '- [ ] FallbackChainProvider.';
+  const result = coalesceWrappedChecklist(text);
+
+  assert.strictEqual(
+    result,
+    '- [ ] Add unit tests for FallbackChainProvider that pass quality_context and assert it reaches the target provider.\n' +
+      '- [ ] Add regression tests for analysis_text_length < 50 with has_work_evidence enabled so confidence does not exceed the cap.\n' +
+      '- [ ] Tests verify quality_context is passed to active providers in FallbackChainProvider.'
+  );
 });
 
 test('ensureChecklist returns placeholder for empty input', () => {

@@ -190,3 +190,112 @@ def test_main_skips_ambiguous_head_ref(monkeypatch, capsys) -> None:
     assert check_issue_consistency.main() == 0
     captured = capsys.readouterr()
     assert "Skipping issue consistency check: no issue references found." in captured.out
+
+
+def test_main_autofix_title_hash_prefers_head_ref(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    monkeypatch.setenv("PR_TITLE", "Autofix #1234")
+    monkeypatch.setenv("HEAD_REF", "codex/issue-5678")
+    monkeypatch.setenv("BASE_REF", "")
+    monkeypatch.setenv("BASE_SHA", "")
+    monkeypatch.setenv("BASE_REMOTE", "origin")
+    monkeypatch.setattr(sys, "argv", ["check_issue_consistency.py"])
+
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_commit_messages",
+        lambda *args, **kwargs: ([], False),
+    )
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_changed_files",
+        lambda *args, **kwargs: ([], False),
+    )
+
+    assert check_issue_consistency.main() == 0
+    captured = capsys.readouterr()
+    assert "Issue consistency check passed for #5678." in captured.out
+
+
+def test_main_title_hash_prefers_head_ref(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    monkeypatch.setenv("PR_TITLE", "Update docs (#1234)")
+    monkeypatch.setenv("HEAD_REF", "codex/issue-5678")
+    monkeypatch.setenv("BASE_REF", "")
+    monkeypatch.setenv("BASE_SHA", "")
+    monkeypatch.setenv("BASE_REMOTE", "origin")
+    monkeypatch.setattr(sys, "argv", ["check_issue_consistency.py"])
+
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_commit_messages",
+        lambda *args, **kwargs: ([], False),
+    )
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_changed_files",
+        lambda *args, **kwargs: ([], False),
+    )
+
+    assert check_issue_consistency.main() == 0
+    captured = capsys.readouterr()
+    assert "Issue consistency check passed for #5678." in captured.out
+
+
+def test_main_autofix_skips_mismatched_commits(monkeypatch, capsys) -> None:
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    monkeypatch.setenv("PR_TITLE", "Autofix #1234")
+    monkeypatch.setenv("HEAD_REF", "codex/issue-5678")
+    monkeypatch.setenv("BASE_REF", "")
+    monkeypatch.setenv("BASE_SHA", "")
+    monkeypatch.setenv("BASE_REMOTE", "origin")
+    monkeypatch.setattr(sys, "argv", ["check_issue_consistency.py"])
+
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_commit_messages",
+        lambda *args, **kwargs: (["fix: issue 9999"], False),
+    )
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_changed_files",
+        lambda *args, **kwargs: ([], False),
+    )
+
+    assert check_issue_consistency.main() == 0
+    captured = capsys.readouterr()
+    assert (
+        "Skipping issue consistency check: autofix context with mismatched commit issues."
+        in captured.out
+    )
+
+
+def test_main_autofix_skips_mismatched_headers(monkeypatch, capsys, tmp_path: Path) -> None:
+    mismatch_file = tmp_path / "mismatch.py"
+    mismatch_file.write_text("# Issue: 9999\n", encoding="utf-8")
+
+    monkeypatch.delenv("GITHUB_EVENT_PATH", raising=False)
+    monkeypatch.setenv("PR_TITLE", "Autofix #1234")
+    monkeypatch.setenv("HEAD_REF", "codex/issue-5678")
+    monkeypatch.setenv("BASE_REF", "")
+    monkeypatch.setenv("BASE_SHA", "")
+    monkeypatch.setenv("BASE_REMOTE", "origin")
+    monkeypatch.setattr(sys, "argv", ["check_issue_consistency.py"])
+
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_commit_messages",
+        lambda *args, **kwargs: ([], False),
+    )
+    monkeypatch.setattr(
+        check_issue_consistency,
+        "collect_changed_files",
+        lambda *args, **kwargs: ([mismatch_file], False),
+    )
+
+    assert check_issue_consistency.main() == 0
+    captured = capsys.readouterr()
+    assert (
+        "Skipping issue consistency check: autofix context with mismatched file headers."
+        in captured.out
+    )
