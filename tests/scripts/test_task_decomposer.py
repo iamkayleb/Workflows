@@ -518,15 +518,15 @@ def test_get_llm_client_with_openai_token(monkeypatch) -> None:
     assert client.kwargs["temperature"] == 0.1
 
 
-def test_get_llm_client_prefers_github_token(monkeypatch) -> None:
-    """_get_llm_client prefers GitHub Models when both tokens exist."""
+def test_get_llm_client_prefers_openai_token(monkeypatch) -> None:
+    """_get_llm_client prefers OpenAI when both tokens exist."""
     FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
     monkeypatch.setenv("GITHUB_TOKEN", "token")
     monkeypatch.setenv("OPENAI_API_KEY", "openai-token")
     client_info = task_decomposer._get_llm_client()
     assert client_info is not None
     client, provider = client_info
-    assert provider == "github-models"
+    assert provider == "openai"
     assert isinstance(client, FakeChatOpenAI)
 
 

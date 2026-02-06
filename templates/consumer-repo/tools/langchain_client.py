@@ -262,9 +262,10 @@ def build_chat_client(
 
     # Auto-select: slot order (OpenAI -> Claude -> GitHub Models by default).
     slots = _resolve_slots()
-    model_override = model
-    for idx, slot in enumerate(slots):
-        slot_model = model_override if idx == 0 and model_override else slot.model
+    model_override = model or os.environ.get(ENV_MODEL)
+    used_override = False
+    for slot in slots:
+        slot_model = model_override if model_override and not used_override else slot.model
         if slot.provider == PROVIDER_OPENAI and openai_token:
             with contextlib.suppress(Exception):
                 client = _build_openai_client(
@@ -274,6 +275,7 @@ def build_chat_client(
                     timeout=selected_timeout,
                     max_retries=selected_retries,
                 )
+                used_override = True
                 return ClientInfo(client=client, provider=PROVIDER_OPENAI, model=slot_model)
         if slot.provider == PROVIDER_ANTHROPIC and anthropic_token and ChatAnthropic:
             with contextlib.suppress(Exception):
@@ -284,6 +286,7 @@ def build_chat_client(
                     timeout=selected_timeout,
                     max_retries=selected_retries,
                 )
+                used_override = True
                 return ClientInfo(client=client, provider=PROVIDER_ANTHROPIC, model=slot_model)
         if slot.provider == PROVIDER_GITHUB and github_token:
             with contextlib.suppress(Exception):
@@ -294,6 +297,7 @@ def build_chat_client(
                     timeout=selected_timeout,
                     max_retries=selected_retries,
                 )
+                used_override = True
                 return ClientInfo(client=client, provider=PROVIDER_GITHUB, model=slot_model)
 
     return None
@@ -426,4 +430,60 @@ def build_chat_clients(
                             model=second_model,
                         )
                     )
+
         return clients
+
+    slots = _resolve_slots()
+    model_overrides = [model1 or os.environ.get(ENV_MODEL), model2]
+    for idx, slot in enumerate(slots):
+        if len(clients) >= 2:
+            break
+        slot_model = model_overrides[idx] if idx < len(model_overrides) else None
+        slot_model = slot_model or slot.model
+        if slot.provider == PROVIDER_OPENAI and openai_token:
+            with contextlib.suppress(Exception):
+                clients.append(
+                    ClientInfo(
+                        client=_build_openai_client(
+                            ChatOpenAI,
+                            model=slot_model,
+                            token=openai_token,
+                            timeout=selected_timeout,
+                            max_retries=selected_retries,
+                        ),
+                        provider=PROVIDER_OPENAI,
+                        model=slot_model,
+                    )
+                )
+        if slot.provider == PROVIDER_ANTHROPIC and anthropic_token and ChatAnthropic:
+            with contextlib.suppress(Exception):
+                clients.append(
+                    ClientInfo(
+                        client=_build_anthropic_client(
+                            ChatAnthropic,
+                            model=slot_model,
+                            token=anthropic_token,
+                            timeout=selected_timeout,
+                            max_retries=selected_retries,
+                        ),
+                        provider=PROVIDER_ANTHROPIC,
+                        model=slot_model,
+                    )
+                )
+        if slot.provider == PROVIDER_GITHUB and github_token:
+            with contextlib.suppress(Exception):
+                clients.append(
+                    ClientInfo(
+                        client=_build_github_client(
+                            ChatOpenAI,
+                            model=slot_model,
+                            token=github_token,
+                            timeout=selected_timeout,
+                            max_retries=selected_retries,
+                        ),
+                        provider=PROVIDER_GITHUB,
+                        model=slot_model,
+                    )
+                )
+
+    return clients

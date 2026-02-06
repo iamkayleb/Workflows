@@ -263,8 +263,9 @@ def build_chat_client(
     # Auto-select: slot order (OpenAI -> Claude -> GitHub Models by default).
     slots = _resolve_slots()
     model_override = model or os.environ.get(ENV_MODEL)
+    used_override = False
     for slot in slots:
-        slot_model = model_override or slot.model
+        slot_model = model_override if model_override and not used_override else slot.model
         if slot.provider == PROVIDER_OPENAI and openai_token:
             with contextlib.suppress(Exception):
                 client = _build_openai_client(
@@ -274,6 +275,7 @@ def build_chat_client(
                     timeout=selected_timeout,
                     max_retries=selected_retries,
                 )
+                used_override = True
                 return ClientInfo(client=client, provider=PROVIDER_OPENAI, model=slot_model)
         if slot.provider == PROVIDER_ANTHROPIC and anthropic_token and ChatAnthropic:
             with contextlib.suppress(Exception):
@@ -284,6 +286,7 @@ def build_chat_client(
                     timeout=selected_timeout,
                     max_retries=selected_retries,
                 )
+                used_override = True
                 return ClientInfo(client=client, provider=PROVIDER_ANTHROPIC, model=slot_model)
         if slot.provider == PROVIDER_GITHUB and github_token:
             with contextlib.suppress(Exception):
@@ -294,6 +297,7 @@ def build_chat_client(
                     timeout=selected_timeout,
                     max_retries=selected_retries,
                 )
+                used_override = True
                 return ClientInfo(client=client, provider=PROVIDER_GITHUB, model=slot_model)
 
     return None
