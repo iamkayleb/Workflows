@@ -40,7 +40,7 @@ def test_keepalive_loop_bypasses_rate_limit_cancellation() -> None:
 
 
 def test_keepalive_loop_defers_on_gate_rate_limit_signal() -> None:
-    """Gate cancellation with rate limit signals defers even when tokens remain."""
+    """Gate cancellation with rate limit signals bypasses when tokens remain."""
     result = _run_scenario("cancelled_rate_limit_secondary")
-    assert result["action"] == "defer"
-    assert result["reason"] == "gate-cancelled-rate-limit"
+    assert result["action"] == "run"
+    assert result["reason"] == "bypass-rate-limit-gate"

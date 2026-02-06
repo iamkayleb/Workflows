@@ -124,6 +124,80 @@ function ensureChecklist(text) {
   return updated.join('\n');
 }
 
+function coalesceWrappedChecklist(text) {
+  const raw = String(text || '');
+  const lines = raw.split(/\r?\n/);
+  if (!lines.some((line) => line.trim())) {
+    return raw;
+  }
+
+  const updated = [];
+  let inCodeBlock = false;
+  let pendingIndex = null;
+  let pendingChecked = false;
+  let pendingText = '';
+  let pendingPrefix = '';
+
+  const joinerPattern = /\b(and|or|with|to|so|for|of|into|that)\s*$/i;
+
+  const parseCheckbox = (line) => {
+    const match = line.match(/^(\s*)([-*+]|\d+[.)])\s+\[(x|X| )\]\s+(.+)$/);
+    if (!match) {
+      return null;
+    }
+    return {
+      indent: match[1],
+      bullet: match[2],
+      checked: match[3].toLowerCase() === 'x',
+      text: match[4].trim(),
+    };
+  };
+
+  for (const line of lines) {
+    if (isCodeFenceLine(line)) {
+      inCodeBlock = !inCodeBlock;
+      updated.push(line);
+      pendingIndex = null;
+      continue;
+    }
+    if (inCodeBlock) {
+      updated.push(line);
+      pendingIndex = null;
+      continue;
+    }
+
+    const parsed = parseCheckbox(line);
+    if (!parsed) {
+      updated.push(line);
+      pendingIndex = null;
+      continue;
+    }
+
+    if (
+      pendingIndex !== null &&
+      /^[a-z]/.test(parsed.text) &&
+      (joinerPattern.test(pendingText) || !/[.!?]$/.test(pendingText))
+    ) {
+      const mergedText = `${pendingText} ${parsed.text}`.replace(/\s+/g, ' ').trim();
+      const mergedChecked = pendingChecked || parsed.checked;
+      const checkbox = mergedChecked ? '[x]' : '[ ]';
+      updated[pendingIndex] = `${pendingPrefix}${checkbox} ${mergedText}`;
+      pendingText = mergedText;
+      pendingChecked = mergedChecked;
+      continue;
+    }
+
+    const checkbox = parsed.checked ? '[x]' : '[ ]';
+    pendingPrefix = `${parsed.indent}${parsed.bullet} `;
+    pendingText = parsed.text;
+    pendingChecked = parsed.checked;
+    pendingIndex = updated.length;
+    updated.push(`${pendingPrefix}${checkbox} ${parsed.text}`);
+  }
+
+  return updated.join('\n');
+}
+
 function extractBlock(body, marker) {
   const start = `<!-- ${marker}:start -->`;
   const end = `<!-- ${marker}:end -->`;
@@ -739,13 +813,19 @@ function buildStatusBlock({scope, contextSection, tasks, acceptance, headSha, wo
   }
 
   statusLines.push('#### Tasks');
-  let tasksFormatted = tasks ? ensureChecklist(tasks) : fallbackChecklist('Tasks section missing from source issue.');
+  const tasksNormalized = tasks ? coalesceWrappedChecklist(tasks) : '';
+  let tasksFormatted = tasksNormalized
+    ? ensureChecklist(tasksNormalized)
+    : fallbackChecklist('Tasks section missing from source issue.');
   tasksFormatted = mergeCheckboxStates(tasksFormatted, mergedStates);
   statusLines.push(tasksFormatted);
   statusLines.push('');
 
   statusLines.push('#### Acceptance criteria');
-  let acceptanceFormatted = acceptance ? ensureChecklist(acceptance) : fallbackChecklist('Acceptance criteria section missing from source issue.');
+  const acceptanceNormalized = acceptance ? coalesceWrappedChecklist(acceptance) : '';
+  let acceptanceFormatted = acceptanceNormalized
+    ? ensureChecklist(acceptanceNormalized)
+    : fallbackChecklist('Acceptance criteria section missing from source issue.');
   acceptanceFormatted = mergeCheckboxStates(acceptanceFormatted, mergedStates);
   statusLines.push(acceptanceFormatted);
   statusLines.push('');
@@ -1150,6 +1230,7 @@ module.exports = {
   normalizeWhitespace,
   extractSection,
   ensureChecklist,
+  coalesceWrappedChecklist,
   extractBlock,
   extractContextSectionWithPython,
   extractIssueRefsFromText,

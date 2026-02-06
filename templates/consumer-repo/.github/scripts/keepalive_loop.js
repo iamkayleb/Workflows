@@ -1921,10 +1921,15 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
           core,
         });
         if (gateRateLimit) {
-          // Rate limits are infrastructure noise; proceed with work immediately.
-          action = 'run';
-          reason = 'bypass-rate-limit-gate';
-          if (core) core.info('Gate cancelled due to rate limits - bypassing Gate');
+          if (tasksRemaining && !rateLimitDefer) {
+            // Rate limits are infrastructure noise; proceed with work when tokens remain.
+            action = 'run';
+            reason = 'bypass-rate-limit-gate';
+            if (core) core.info('Gate cancelled due to rate limits - bypassing Gate');
+          } else {
+            action = rateLimitDefer ? 'defer' : 'wait';
+            reason = rateLimitDefer ? 'gate-cancelled-rate-limit' : 'gate-cancelled';
+          }
         } else if (forceRetry && tasksRemaining) {
           action = 'run';
           reason = 'force-retry-cancelled';
