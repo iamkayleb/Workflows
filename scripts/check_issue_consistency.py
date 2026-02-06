@@ -419,7 +419,9 @@ def main() -> int:
         autofix_context
         and pr_issue is not None
         and HASH_PATTERN.search(pr_title or "")
-        and not (ISSUE_WORD_PATTERN.search(pr_title or "") or ISSUE_SLUG_PATTERN.search(pr_title or ""))
+        and not (
+            ISSUE_WORD_PATTERN.search(pr_title or "") or ISSUE_SLUG_PATTERN.search(pr_title or "")
+        )
     ):
         pr_issue = None
     if not pr_issue:
