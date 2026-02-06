@@ -603,12 +603,14 @@ def _process_llm_response(
         content,
         IssueOptimizationPayload,
         repair=(
-            (lambda schema_json, validation_errors, raw_response: _attempt_repair(
-                client,
-                schema_json=schema_json,
-                validation_errors=validation_errors,
-                raw_response=raw_response,
-            ))
+            (
+                lambda schema_json, validation_errors, raw_response: _attempt_repair(
+                    client,
+                    schema_json=schema_json,
+                    validation_errors=validation_errors,
+                    raw_response=raw_response,
+                )
+            )
             if client is not None
             else None
         ),
