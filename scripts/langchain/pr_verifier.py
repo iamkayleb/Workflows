@@ -61,6 +61,21 @@ Respond in JSON with:
 }}
 """.strip()
 
+PR_EVALUATION_REPAIR_PROMPT = """
+The previous response did not match the required JSON schema.
+
+Schema:
+{schema_json}
+
+Validation errors:
+{validation_errors}
+
+Original response:
+{raw_response}
+
+Return ONLY valid JSON that matches the schema with no surrounding text.
+""".strip()
+
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "pr_evaluation.md"
 REQUIRED_EVALUATION_AREAS = (
     "correctness",
@@ -91,6 +106,15 @@ class EvaluationResult(BaseModel):
     used_llm: bool = False
     raw_content: str | None = None
     error: str | None = None
+
+
+class EvaluationPayload(BaseModel):
+    model_config = {"extra": "ignore"}
+    verdict: Literal["PASS", "CONCERNS", "FAIL"]
+    scores: EvaluationScores | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    concerns: list[str] = Field(default_factory=list)
+    summary: str | None = None
 
 
 def _ensure_prompt_rubric(prompt: str) -> str:
@@ -124,7 +148,7 @@ def _get_llm_client(
 
     Args:
         model: Optional model name override.
-        provider: Optional provider override ('openai', 'anthropic', or 'github-models').
+        provider: Optional provider override ('openai' or 'github-models').
                   If not specified, uses OpenAI if OPENAI_API_KEY is set and model
                   is specified, otherwise falls back to GitHub Models.
 
@@ -181,7 +205,7 @@ class ComparisonRunner:
             )
 
         content = getattr(response, "content", None) or str(response)
-        result = _parse_llm_response(content, provider)
+        result = _parse_llm_response(content, provider, client=client)
         result.model = model
         return result
 
@@ -317,16 +341,6 @@ def _fallback_evaluation(
     )
 
 
-def _extract_json_block(text: str) -> str | None:
-    match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    match = re.search(r"(\{.*\})", text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return None
-
-
 def _parse_verdict(text: str) -> Literal["PASS", "CONCERNS", "FAIL"]:
     match = re.search(r"\b(PASS|CONCERNS|FAIL)\b", text, re.IGNORECASE)
     if match:
@@ -334,40 +348,82 @@ def _parse_verdict(text: str) -> Literal["PASS", "CONCERNS", "FAIL"]:
     return "CONCERNS"
 
 
-def _parse_llm_response(content: str, provider: str) -> EvaluationResult:
-    json_block = _extract_json_block(content)
-    if json_block:
-        try:
-            payload = json.loads(json_block)
-            return EvaluationResult.model_validate(
-                {
-                    **payload,
-                    "provider_used": provider,
-                    "used_llm": True,
-                    "raw_content": content,
-                }
-            )
-        except (json.JSONDecodeError, ValidationError, TypeError) as exc:
-            return EvaluationResult(
-                verdict=_parse_verdict(content),
-                scores=None,
-                concerns=[],
-                summary=content,
-                provider_used=provider,
-                used_llm=True,
-                raw_content=content,
-                error=f"Failed to parse JSON response: {exc}",
-            )
+def _schema_json() -> str:
+    return json.dumps(EvaluationPayload.model_json_schema(), ensure_ascii=True, indent=2)
 
-    return EvaluationResult(
-        verdict=_parse_verdict(content),
-        scores=None,
-        concerns=[],
-        summary=content,
-        provider_used=provider,
-        used_llm=True,
-        raw_content=content,
+
+def _format_validation_errors(exc: ValidationError) -> str:
+    return json.dumps(exc.errors(), ensure_ascii=True, indent=2)
+
+
+def _attempt_repair(client: object, *, raw_response: str, validation_errors: str) -> str | None:
+    repair_prompt = PR_EVALUATION_REPAIR_PROMPT.format(
+        schema_json=_schema_json(),
+        validation_errors=validation_errors,
+        raw_response=raw_response,
     )
+    response = client.invoke(repair_prompt)
+    return getattr(response, "content", None) or str(response)
+
+
+def _parse_llm_response(
+    content: str, provider: str, *, client: object | None = None
+) -> EvaluationResult:
+    try:
+        payload = EvaluationPayload.model_validate_json(content)
+        return EvaluationResult(
+            verdict=payload.verdict,
+            scores=payload.scores,
+            confidence=payload.confidence,
+            concerns=payload.concerns,
+            summary=payload.summary,
+            provider_used=provider,
+            used_llm=True,
+            raw_content=content,
+        )
+    except ValidationError as exc:
+        error_detail = _format_validation_errors(exc)
+        if client is not None:
+            repaired = _attempt_repair(
+                client,
+                raw_response=content,
+                validation_errors=error_detail,
+            )
+            if repaired:
+                try:
+                    payload = EvaluationPayload.model_validate_json(repaired)
+                    return EvaluationResult(
+                        verdict=payload.verdict,
+                        scores=payload.scores,
+                        confidence=payload.confidence,
+                        concerns=payload.concerns,
+                        summary=payload.summary,
+                        provider_used=provider,
+                        used_llm=True,
+                        raw_content=repaired,
+                    )
+                except ValidationError as repair_exc:
+                    repair_detail = _format_validation_errors(repair_exc)
+                    return EvaluationResult(
+                        verdict=_parse_verdict(content),
+                        scores=None,
+                        concerns=[],
+                        summary=content,
+                        provider_used=provider,
+                        used_llm=True,
+                        raw_content=content,
+                        error=f"Failed to parse JSON response after repair: {repair_detail}",
+                    )
+        return EvaluationResult(
+            verdict=_parse_verdict(content),
+            scores=None,
+            concerns=[],
+            summary=content,
+            provider_used=provider,
+            used_llm=True,
+            raw_content=content,
+            error=f"Failed to parse JSON response: {error_detail}",
+        )
 
 
 def _is_auth_error(exc: Exception) -> bool:
@@ -391,7 +447,7 @@ def evaluate_pr(
         diff: Optional PR diff or summary
         model: Optional model name (e.g., 'gpt-4o', 'gpt-5.2', 'o1-mini').
             Uses default if not specified.
-        provider: Optional provider ('openai', 'anthropic', or 'github-models').
+        provider: Optional provider ('openai' or 'github-models').
             Auto-selects if not specified.
 
     Returns:
@@ -406,25 +462,19 @@ def evaluate_pr(
     try:
         response = client.invoke(prompt)
     except Exception as exc:  # pragma: no cover - exercised in integration
-        # If auth error and not explicitly requesting a provider, try fallbacks
+        # If auth error and not explicitly requesting a provider, try fallback
         if _is_auth_error(exc) and provider is None:
-            provider_order = ["openai", "anthropic", "github-models"]
-            base_provider = provider_name.split("/", 1)[0]
-            try:
-                current_index = provider_order.index(base_provider)
-            except ValueError:
-                current_index = -1
-            fallback_chain = provider_order[current_index + 1 :] + provider_order[:current_index]
-            fallback_errors: list[str] = []
-            for fallback_provider in fallback_chain:
-                fallback_resolved = _get_llm_client(model=model, provider=fallback_provider)
-                if fallback_resolved is None:
-                    continue
+            fallback_provider = "openai" if "github-models" in provider_name else "github-models"
+            fallback_resolved = _get_llm_client(model=model, provider=fallback_provider)
+            if fallback_resolved is not None:
                 fallback_client, fallback_provider_name = fallback_resolved
                 try:
                     response = fallback_client.invoke(prompt)
                     content = getattr(response, "content", None) or str(response)
-                    result = _parse_llm_response(content, fallback_provider_name)
+                    result = _parse_llm_response(
+                        content, fallback_provider_name, client=fallback_client
+                    )
+                    # Add note about fallback
                     if result.summary:
                         result = EvaluationResult(
                             verdict=result.verdict,
@@ -439,18 +489,14 @@ def evaluate_pr(
                         )
                     return result
                 except Exception as fallback_exc:
-                    fallback_errors.append(f"Fallback ({fallback_provider_name}): {fallback_exc}")
-                    continue
-            error_details = "; ".join(fallback_errors)
-            if error_details:
-                return _fallback_evaluation(f"Primary ({provider_name}): {exc}; {error_details}")
-            return _fallback_evaluation(
-                f"Primary ({provider_name}): {exc}; no fallback providers succeeded"
-            )
+                    return _fallback_evaluation(
+                        f"Primary ({provider_name}): {exc}; "
+                        f"Fallback ({fallback_provider_name}): {fallback_exc}"
+                    )
         return _fallback_evaluation(f"LLM invocation failed: {exc}")
 
     content = getattr(response, "content", None) or str(response)
-    return _parse_llm_response(content, provider_name)
+    return _parse_llm_response(content, provider_name, client=client)
 
 
 def evaluate_pr_multiple(
@@ -666,10 +712,9 @@ def main() -> None:
     )
     parser.add_argument(
         "--provider",
-        choices=["openai", "anthropic", "github-models"],
+        choices=["openai", "github-models"],
         help=(
-            "LLM provider: 'openai' (requires OPENAI_API_KEY), "
-            "'anthropic' (requires CLAUDE_API_STRANSKE), or "
+            "LLM provider: 'openai' (requires OPENAI_API_KEY) or "
             "'github-models' (uses GITHUB_TOKEN)."
         ),
     )
