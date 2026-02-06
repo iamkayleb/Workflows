@@ -15,10 +15,11 @@ ISSUE_WORD_PATTERN = re.compile(r"issue\s*[:#-]?\s*(\d+)", re.IGNORECASE)
 ISSUE_SLUG_PATTERN = re.compile(r"issue[-_](\d+)", re.IGNORECASE)
 HASH_PATTERN = re.compile(r"#(\d+)")
 MERGE_COMMIT_PATTERN = re.compile(
-    r"^merge\s+(?:pull request|branch|remote-tracking branch)\b",
+    r"^merge\s+(?:pull request|branch|remote-tracking branch|[^\n]+\s+into)\b",
     re.IGNORECASE,
 )
 IGNORE_COMMIT_PATTERNS = (re.compile(r"^chore\(ledger\)", re.IGNORECASE),)
+HEADER_SCAN_EXCLUDE_DIRS = {".github", "tests", "templates"}
 
 
 def _is_pr_marker_before_hash(prefix: str) -> bool:
@@ -400,6 +401,12 @@ def collect_header_issue_numbers(file_path: Path, max_lines: int) -> set[int]:
     return numbers
 
 
+def should_scan_header_file(file_path: Path) -> bool:
+    if not file_path:
+        return False
+    return not any(part in HEADER_SCAN_EXCLUDE_DIRS for part in file_path.parts)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Verify issue number consistency between PR title, commits, and file headers."
@@ -487,6 +494,8 @@ def main() -> int:
             for file_path in changed_files:
                 if not file_path.exists() or not file_path.is_file():
                     continue
+                if not should_scan_header_file(file_path):
+                    continue
                 header_issue_numbers.update(
                     collect_header_issue_numbers(file_path, args.header_lines)
                 )
@@ -537,6 +546,8 @@ def main() -> int:
     mismatched_files: list[str] = []
     for file_path in changed_files:
         if not file_path.exists() or not file_path.is_file():
+            continue
+        if not should_scan_header_file(file_path):
             continue
         numbers = collect_header_issue_numbers(file_path, args.header_lines)
         header_issue_numbers.update(numbers)

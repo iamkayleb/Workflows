@@ -732,7 +732,7 @@ jobs:
                 owner,
                 repo,
                 issue_number: issueNumber,
-                labels: ['agents:formatted', 'agents:apply-suggestions'],
+                labels: ['agents:formatted'],
               }));
             } catch (error) {
               console.warn(`Label update failed: ${error.message}`);
@@ -1240,7 +1240,7 @@ jobs:
                 owner,
                 repo,
                 issue_number: issueNumber,
-                labels: ['agents:formatted'],
+                labels: ['agents:formatted', 'agents:apply-suggestions'],
               }));
             } catch (error) {
               console.warn(`Label update failed: ${error.message}`);
