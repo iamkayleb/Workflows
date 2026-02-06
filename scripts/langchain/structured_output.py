@@ -61,6 +61,7 @@ def parse_structured_output(
     model: type[T],
     *,
     repair: Callable[[str, str, str], str | None] | None,
+    max_repair_attempts: int = 1,
 ) -> StructuredOutputResult[T]:
     try:
         payload = model.model_validate_json(content)
@@ -72,34 +73,42 @@ def parse_structured_output(
         )
     except ValidationError as exc:
         error_detail = format_validation_errors(exc)
-        if repair is None:
+        attempts = max(0, min(int(max_repair_attempts), 1))
+        if repair is None or attempts == 0:
             return StructuredOutputResult(
                 payload=None,
                 raw_content=None,
                 error_stage="validation",
                 error_detail=error_detail,
             )
-        repaired = repair(schema_json(model), error_detail, content)
-        if not repaired:
-            return StructuredOutputResult(
-                payload=None,
-                raw_content=None,
-                error_stage="repair_unavailable",
-                error_detail=error_detail,
-            )
-        try:
-            payload = model.model_validate_json(repaired)
-            return StructuredOutputResult(
-                payload=payload,
-                raw_content=repaired,
-                error_stage=None,
-                error_detail=None,
-            )
-        except ValidationError as repair_exc:
-            repair_detail = format_validation_errors(repair_exc)
-            return StructuredOutputResult(
-                payload=None,
-                raw_content=None,
-                error_stage="repair_validation",
-                error_detail=repair_detail,
-            )
+        for _ in range(attempts):
+            repaired = repair(schema_json(model), error_detail, content)
+            if not repaired:
+                return StructuredOutputResult(
+                    payload=None,
+                    raw_content=None,
+                    error_stage="repair_unavailable",
+                    error_detail=error_detail,
+                )
+            try:
+                payload = model.model_validate_json(repaired)
+                return StructuredOutputResult(
+                    payload=payload,
+                    raw_content=repaired,
+                    error_stage=None,
+                    error_detail=None,
+                )
+            except ValidationError as repair_exc:
+                repair_detail = format_validation_errors(repair_exc)
+                return StructuredOutputResult(
+                    payload=None,
+                    raw_content=None,
+                    error_stage="repair_validation",
+                    error_detail=repair_detail,
+                )
+        return StructuredOutputResult(
+            payload=None,
+            raw_content=None,
+            error_stage="repair_unavailable",
+            error_detail=error_detail,
+        )
