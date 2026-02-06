@@ -341,13 +341,6 @@ def _fallback_evaluation(
     )
 
 
-def _parse_verdict(text: str) -> Literal["PASS", "CONCERNS", "FAIL"]:
-    match = re.search(r"\b(PASS|CONCERNS|FAIL)\b", text, re.IGNORECASE)
-    if match:
-        return match.group(1).upper()  # type: ignore[return-value]
-    return "CONCERNS"
-
-
 def _schema_json() -> str:
     return json.dumps(EvaluationPayload.model_json_schema(), ensure_ascii=True, indent=2)
 
@@ -405,20 +398,20 @@ def _parse_llm_response(
                 except ValidationError as repair_exc:
                     repair_detail = _format_validation_errors(repair_exc)
                     return EvaluationResult(
-                        verdict=_parse_verdict(content),
+                        verdict="CONCERNS",
                         scores=None,
                         concerns=[],
-                        summary=content,
+                        summary=None,
                         provider_used=provider,
                         used_llm=True,
                         raw_content=content,
                         error=f"Failed to parse JSON response after repair: {repair_detail}",
                     )
         return EvaluationResult(
-            verdict=_parse_verdict(content),
+            verdict="CONCERNS",
             scores=None,
             concerns=[],
-            summary=content,
+            summary=None,
             provider_used=provider,
             used_llm=True,
             raw_content=content,
