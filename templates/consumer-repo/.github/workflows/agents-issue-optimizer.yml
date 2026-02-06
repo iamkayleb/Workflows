@@ -147,6 +147,7 @@ jobs:
             echo "recursion_detected=true" >> "$GITHUB_OUTPUT"
             
             # Post warning comment
+            REPO="${{ github.repository }}"
             printf '%s\n' \
               '## ⚠️ Optimizer Paused' \
               '' \
@@ -162,7 +163,7 @@ jobs:
               '3. If issue body is corrupted, close and recreate with clean body' \
               '4. Remove `agents:auto-pilot-pause` label to retry after fixing' \
               '' \
-              'Auto-pilot has been paused. See [recovery procedures](https://github.com/${{ github.repository }}/blob/phase-3/Agents.md#auto-pilot-recovery-procedures).' \
+              "Auto-pilot has been paused. See [recovery procedures](https://github.com/${REPO}/blob/phase-3/Agents.md#auto-pilot-recovery-procedures)." \
               > /tmp/recursion_guard_comment.md
             sed -i "s/__COUNT__/${count}/g" /tmp/recursion_guard_comment.md
             gh issue comment "$ISSUE_NUMBER" --body-file /tmp/recursion_guard_comment.md
