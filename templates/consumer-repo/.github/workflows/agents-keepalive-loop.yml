@@ -846,7 +846,8 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { updateKeepaliveLoopSummary } = require('./.github/scripts/keepalive_loop.js');
+            const { updateKeepaliveLoopSummary } =
+              require('./.github/scripts/keepalive_loop.js');
             const inputs = {
               pr_number: Number('${{ needs.evaluate.outputs.pr_number }}') || 0,
               action: '${{ needs.evaluate.outputs.action }}',
@@ -855,7 +856,8 @@ jobs:
               iteration: Number('${{ needs.evaluate.outputs.iteration }}') || 0,
               max_iterations: Number('${{ needs.evaluate.outputs.max_iterations }}') || 0,
               failure_threshold: Number('${{ needs.evaluate.outputs.failure_threshold }}') || 3,
-              rounds_without_task_completion: Number('${{ needs.evaluate.outputs.rounds_without_task_completion }}') || 0,
+              rounds_without_task_completion:
+                Number('${{ needs.evaluate.outputs.rounds_without_task_completion }}') || 0,
               tasks_total: Number('${{ needs.evaluate.outputs.tasks_total }}') || 0,
               tasks_unchecked: Number('${{ needs.evaluate.outputs.tasks_unchecked }}') || 0,
               keepalive_enabled: '${{ needs.evaluate.outputs.keepalive_enabled }}',
@@ -871,8 +873,10 @@ jobs:
               agent_files_changed: '${{ needs.run-codex.outputs.files-changed }}',
               agent_summary: process.env.CODEX_SUMMARY || '',
               // LLM analysis details for task completion reporting
-              llm_provider: '${{ needs.run-codex.outputs.llm-provider || '' }}',
-              llm_confidence: '${{ needs.run-codex.outputs.llm-confidence || '' }}',
+              llm_provider:
+                '${{ needs.run-codex.outputs.llm-provider || '' }}',
+              llm_confidence:
+                '${{ needs.run-codex.outputs.llm-confidence || '' }}',
               llm_analysis_run: '${{ needs.run-codex.outputs.llm-analysis-run }}' === 'true',
             };
             await updateKeepaliveLoopSummary({ github, context, core, inputs });
