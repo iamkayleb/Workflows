@@ -122,7 +122,7 @@ def _get_llm_client(
 
     Args:
         model: Optional model name override.
-        provider: Optional provider override ('openai' or 'github-models').
+        provider: Optional provider override ('openai', 'anthropic', or 'github-models').
                   If not specified, uses OpenAI if OPENAI_API_KEY is set and model
                   is specified, otherwise falls back to GitHub Models.
 
@@ -130,116 +130,26 @@ def _get_llm_client(
         Tuple of (client, provider_name) or None if no credentials available.
     """
     try:
-        from langchain_openai import ChatOpenAI
+        from tools.langchain_client import build_chat_client
     except ImportError:
         return None
 
-    github_token = os.environ.get("GITHUB_TOKEN")
-    openai_token = os.environ.get("OPENAI_API_KEY")
-    if not github_token and not openai_token:
+    resolved = build_chat_client(model=model, provider=provider)
+    if not resolved:
         return None
-
-    from tools.llm_provider import DEFAULT_MODEL, GITHUB_MODELS_BASE_URL
-
-    # Use the provided model or fall back to default
-    selected_model = model or DEFAULT_MODEL
-
-    # Explicit provider selection
-    if provider == "openai":
-        if not openai_token:
-            return None
-        return (
-            ChatOpenAI(
-                model=selected_model,
-                api_key=openai_token,
-                temperature=0.1,
-            ),
-            f"openai/{selected_model}",
-        )
-
-    if provider == "github-models":
-        if not github_token:
-            return None
-        return (
-            ChatOpenAI(
-                model=selected_model,
-                base_url=GITHUB_MODELS_BASE_URL,
-                api_key=github_token,
-                temperature=0.1,
-            ),
-            f"github-models/{selected_model}",
-        )
-
-    # Auto-select: If OPENAI_API_KEY is available and either a custom model is requested
-    # OR GITHUB_TOKEN is not available, prefer OpenAI for better model availability
-    if openai_token and (model or not github_token):
-        return (
-            ChatOpenAI(
-                model=selected_model,
-                api_key=openai_token,
-                temperature=0.1,
-            ),
-            f"openai/{selected_model}",
-        )
-
-    # Default: use GitHub Models with GITHUB_TOKEN
-    if github_token:
-        return (
-            ChatOpenAI(
-                model=selected_model,
-                base_url=GITHUB_MODELS_BASE_URL,
-                api_key=github_token,
-                temperature=0.1,
-            ),
-            f"github-models/{selected_model}",
-        )
+    return resolved.client, resolved.provider_label
 
 
 def _get_llm_clients(
     model1: str | None = None, model2: str | None = None
 ) -> list[tuple[object, str, str]]:
     try:
-        from langchain_openai import ChatOpenAI
+        from tools.langchain_client import build_chat_clients
     except ImportError:
         return []
 
-    github_token = os.environ.get("GITHUB_TOKEN")
-    openai_token = os.environ.get("OPENAI_API_KEY")
-    if not github_token and not openai_token:
-        return []
-
-    from tools.llm_provider import DEFAULT_MODEL, GITHUB_MODELS_BASE_URL
-
-    # Use provided models or fall back to DEFAULT_MODEL
-    first_model = model1 or DEFAULT_MODEL
-    second_model = model2 or model1 or DEFAULT_MODEL
-
-    clients: list[tuple[object, str, str]] = []
-    if github_token:
-        try:
-            client = ChatOpenAI(
-                model=first_model,
-                base_url=GITHUB_MODELS_BASE_URL,
-                api_key=github_token,
-                temperature=0.1,
-            )
-            clients.append((client, "github-models", first_model))
-        except Exception:
-            # GitHub Models client initialization failed (likely credential/permission issue)
-            # Skip this provider and continue with others
-            pass
-    if openai_token:
-        try:
-            client = ChatOpenAI(
-                model=second_model,
-                api_key=openai_token,
-                temperature=0.1,
-            )
-            clients.append((client, "openai", second_model))
-        except Exception:
-            # OpenAI client initialization failed
-            pass
-    return clients
+    clients = build_chat_clients(model1=model1, model2=model2)
+    return [(entry.client, entry.provider, entry.model) for entry in clients]
 
 
 @dataclass(frozen=True)
@@ -484,8 +394,10 @@ def evaluate_pr(
     Args:
         context: The PR context markdown (issue body, PR description, etc.)
         diff: Optional PR diff or summary
-        model: Optional model name (e.g., 'gpt-4o', 'gpt-5.2', 'o1-mini'). Uses default if not specified.
-        provider: Optional provider ('openai' or 'github-models'). Auto-selects if not specified.
+        model: Optional model name (e.g., 'gpt-4o', 'gpt-5.2', 'o1-mini').
+            Uses default if not specified.
+        provider: Optional provider ('openai', 'anthropic', or 'github-models').
+            Auto-selects if not specified.
 
     Returns:
         EvaluationResult with verdict, scores, and concerns.
@@ -499,17 +411,23 @@ def evaluate_pr(
     try:
         response = client.invoke(prompt)
     except Exception as exc:  # pragma: no cover - exercised in integration
-        # If auth error and not explicitly requesting a provider, try fallback
+        # If auth error and not explicitly requesting a provider, try fallbacks
         if _is_auth_error(exc) and provider is None:
-            fallback_provider = "openai" if "github-models" in provider_name else "github-models"
-            fallback_resolved = _get_llm_client(model=model, provider=fallback_provider)
-            if fallback_resolved is not None:
+            provider_order = ["openai", "anthropic", "github-models"]
+            try:
+                current_index = provider_order.index(provider_name)
+            except ValueError:
+                current_index = -1
+            fallback_chain = provider_order[current_index + 1 :]
+            for fallback_provider in fallback_chain:
+                fallback_resolved = _get_llm_client(model=model, provider=fallback_provider)
+                if fallback_resolved is None:
+                    continue
                 fallback_client, fallback_provider_name = fallback_resolved
                 try:
                     response = fallback_client.invoke(prompt)
                     content = getattr(response, "content", None) or str(response)
                     result = _parse_llm_response(content, fallback_provider_name)
-                    # Add note about fallback
                     if result.summary:
                         result = EvaluationResult(
                             verdict=result.verdict,
@@ -525,7 +443,8 @@ def evaluate_pr(
                     return result
                 except Exception as fallback_exc:
                     return _fallback_evaluation(
-                        f"Primary ({provider_name}): {exc}; Fallback ({fallback_provider_name}): {fallback_exc}"
+                        f"Primary ({provider_name}): {exc}; "
+                        f"Fallback ({fallback_provider_name}): {fallback_exc}"
                     )
         return _fallback_evaluation(f"LLM invocation failed: {exc}")
 
@@ -747,8 +666,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--provider",
-        choices=["openai", "github-models"],
-        help="LLM provider: 'openai' (requires OPENAI_API_KEY) or 'github-models' (uses GITHUB_TOKEN).",
+        choices=["openai", "anthropic", "github-models"],
+        help=(
+            "LLM provider: 'openai' (requires OPENAI_API_KEY), "
+            "'anthropic' (requires CLAUDE_API_STRANSKE), or "
+            "'github-models' (uses GITHUB_TOKEN)."
+        ),
     )
     parser.add_argument(
         "--model2",

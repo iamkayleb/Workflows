@@ -474,7 +474,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install pydantic langchain-openai
+        run: pip install pydantic langchain-openai langchain-anthropic
 
       - name: Get recent commits
         id: commits
@@ -548,6 +548,7 @@ jobs:
         id: review
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           CRITERIA: ${{ steps.criteria.outputs.criteria }}
           COMMITS: ${{ steps.commits.outputs.messages }}
           FILES: ${{ steps.commits.outputs.files }}
