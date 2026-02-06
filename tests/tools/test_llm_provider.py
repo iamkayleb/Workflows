@@ -160,6 +160,54 @@ class TestLLMProviderInterface:
         assert supports_quality_context(provider) is True
 
 
+class TestProviderLegacyBehavior:
+    """Integration checks for calling providers without quality_context."""
+
+    def test_github_models_analyze_completion_without_quality_context(self):
+        """GitHub Models provider works with default quality_context=None."""
+        provider = GitHubModelsProvider()
+        mock_client = MagicMock()
+        mock_client.invoke.return_value = MagicMock(
+            content="""
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.9,
+    "reasoning": "Legacy call."
+}
+"""
+        )
+
+        with patch.object(provider, "_get_client", return_value=mock_client):
+            result = provider.analyze_completion("output", ["task1"])
+
+        assert result.provider_used == "github-models"
+        assert result.confidence == 0.9
+
+    def test_openai_analyze_completion_without_quality_context(self):
+        """OpenAI provider works with default quality_context=None."""
+        provider = OpenAIProvider()
+        mock_client = MagicMock()
+        mock_client.invoke.return_value = MagicMock(
+            content="""
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.85,
+    "reasoning": "Legacy call."
+}
+"""
+        )
+
+        with patch.object(provider, "_get_client", return_value=mock_client):
+            result = provider.analyze_completion("output", ["task1"])
+
+        assert result.provider_used == "openai"
+        assert result.confidence == 0.85
+
+
 class TestRegexFallbackProvider:
     """Test regex-based analysis."""
 
