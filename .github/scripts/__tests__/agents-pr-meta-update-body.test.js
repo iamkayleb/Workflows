@@ -259,13 +259,16 @@ test('coalesceWrappedChecklist merges continuation lines with joiners', () => {
   const text = '- [ ] Add unit tests for FallbackChainProvider that pass quality_context and\n' +
     '- [ ] assert it reaches the target provider.\n' +
     '- [ ] Add regression tests for analysis_text_length < 50 with has_work_evidence\n' +
-    '- [ ] enabled so confidence does not exceed the cap.';
+    '- [ ] enabled so confidence does not exceed the cap.\n' +
+    '- [ ] Tests verify quality_context is passed to active providers in\n' +
+    '- [ ] FallbackChainProvider.';
   const result = coalesceWrappedChecklist(text);
 
   assert.strictEqual(
     result,
     '- [ ] Add unit tests for FallbackChainProvider that pass quality_context and assert it reaches the target provider.\n' +
-      '- [ ] Add regression tests for analysis_text_length < 50 with has_work_evidence enabled so confidence does not exceed the cap.'
+      '- [ ] Add regression tests for analysis_text_length < 50 with has_work_evidence enabled so confidence does not exceed the cap.\n' +
+      '- [ ] Tests verify quality_context is passed to active providers in FallbackChainProvider.'
   );
 });
 

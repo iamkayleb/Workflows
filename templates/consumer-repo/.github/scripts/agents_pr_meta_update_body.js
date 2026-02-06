@@ -138,7 +138,7 @@ function coalesceWrappedChecklist(text) {
   let pendingText = '';
   let pendingPrefix = '';
 
-  const joinerPattern = /\b(and|or|with|to|so|for|of|into|that)\s*$/i;
+  const joinerPattern = /\b(and|or|with|to|so|for|of|into|that|in)\s*$/i;
 
   const parseCheckbox = (line) => {
     const match = line.match(/^(\s*)([-*+]|\d+[.)])\s+\[(x|X| )\]\s+(.+)$/);
@@ -175,8 +175,8 @@ function coalesceWrappedChecklist(text) {
 
     if (
       pendingIndex !== null &&
-      /^[a-z]/.test(parsed.text) &&
-      (joinerPattern.test(pendingText) || !/[.!?]$/.test(pendingText))
+      (joinerPattern.test(pendingText)
+        || (/^[a-z]/.test(parsed.text) && !/[.!?]$/.test(pendingText)))
     ) {
       const mergedText = `${pendingText} ${parsed.text}`.replace(/\s+/g, ' ').trim();
       const mergedChecked = pendingChecked || parsed.checked;
