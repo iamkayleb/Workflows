@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -83,7 +84,17 @@ def _get_llm_client(force_openai: bool = False) -> tuple[object, str] | None:
     except ImportError:
         return None
 
-    resolved = build_chat_client(provider="openai" if force_openai else None)
+    provider = None
+    if force_openai:
+        provider = "openai"
+    else:
+        env_provider = os.environ.get("LANGCHAIN_PROVIDER")
+        if env_provider:
+            provider = env_provider
+        elif os.environ.get("GITHUB_TOKEN") and not os.environ.get("OPENAI_API_KEY"):
+            provider = "github-models"
+
+    resolved = build_chat_client(provider=provider)
     if not resolved:
         return None
     return resolved.client, resolved.provider

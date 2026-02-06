@@ -385,7 +385,7 @@ def evaluate_pr(
                 current_index = provider_order.index(base_provider)
             except ValueError:
                 current_index = -1
-            fallback_chain = provider_order[current_index + 1 :]
+            fallback_chain = provider_order[current_index + 1 :] + provider_order[:current_index]
             fallback_errors: list[str] = []
             for fallback_provider in fallback_chain:
                 fallback_resolved = _get_llm_client(model=model, provider=fallback_provider)

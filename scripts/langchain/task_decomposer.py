@@ -97,7 +97,9 @@ def _get_llm_client(force_openai: bool = False) -> tuple[object, str] | None:
         provider = "openai"
     else:
         env_provider = os.environ.get("LANGCHAIN_PROVIDER")
-        if not env_provider and os.environ.get("GITHUB_TOKEN"):
+        if env_provider:
+            provider = env_provider
+        elif os.environ.get("GITHUB_TOKEN") and not os.environ.get("OPENAI_API_KEY"):
             provider = "github-models"
 
     resolved = build_chat_client(provider=provider)
