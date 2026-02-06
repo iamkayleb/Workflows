@@ -167,8 +167,7 @@ class TestProviderLegacyBehavior:
         """GitHub Models provider works with default quality_context=None."""
         provider = GitHubModelsProvider()
         mock_client = MagicMock()
-        mock_client.invoke.return_value = MagicMock(
-            content="""
+        mock_client.invoke.return_value = MagicMock(content="""
 {
     "completed": ["task1"],
     "in_progress": [],
@@ -176,8 +175,7 @@ class TestProviderLegacyBehavior:
     "confidence": 0.9,
     "reasoning": "Legacy call."
 }
-"""
-        )
+""")
 
         with patch.object(provider, "_get_client", return_value=mock_client):
             result = provider.analyze_completion("output", ["task1"])
@@ -189,8 +187,7 @@ class TestProviderLegacyBehavior:
         """OpenAI provider works with default quality_context=None."""
         provider = OpenAIProvider()
         mock_client = MagicMock()
-        mock_client.invoke.return_value = MagicMock(
-            content="""
+        mock_client.invoke.return_value = MagicMock(content="""
 {
     "completed": ["task1"],
     "in_progress": [],
@@ -198,8 +195,7 @@ class TestProviderLegacyBehavior:
     "confidence": 0.85,
     "reasoning": "Legacy call."
 }
-"""
-        )
+""")
 
         with patch.object(provider, "_get_client", return_value=mock_client):
             result = provider.analyze_completion("output", ["task1"])
