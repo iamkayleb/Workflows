@@ -237,18 +237,131 @@ Belt dispatcher runs AGAIN → Still no PR → Loop for 6 hours
 
 ---
 
+## Critical Discovery: The "Manual" Path Never Existed
+
+### Belt Dispatcher Design Reality
+
+**Belt dispatcher has NO schedule trigger** - it only runs via `workflow_call` or manual `workflow_dispatch`.
+
+**From [agents-71-codex-belt-dispatcher.yml#L5](/.github/workflows/agents-71-codex-belt-dispatcher.yml#L5)**:
+```yaml
+on:
+  workflow_call:    # Called by auto-pilot
+  workflow_dispatch:  # Manual trigger only
+  # NO schedule: trigger!
+```
+
+**Historical verification**: Belt dispatcher created in Phase 4 (commit 8f5e139) without schedule trigger - **this was the original design**.
+
+### Belt Dispatcher Has TWO Code Paths (Not Two Triggers)
+
+**From [agents-71-codex-belt-dispatcher.yml#L220](/.github/workflows/agents-71-codex-belt-dispatcher.yml#L220)**:
+
+#### 1. Label Scan Path (Unreachable Code)
+```javascript
+const forced = '${{ inputs.force_issue }}';
+if (!forced) {
+  // Scan for issues with agent:codex + status:ready
+  const { data: issues } = await client.rest.issues.listForRepo({
+    labels: 'agent:codex,status:ready',
+  });
+}
+```
+- Only runs if `force_issue` is NOT provided
+- Requires **BOTH** `agent:codex` AND `status:ready` labels
+- **Usage**: 0 times (no schedule trigger exists to invoke it)
+
+#### 2. Force Dispatch Path (Only Path Used)  
+```javascript
+if (forced) {
+  issueNumber = Number(forced);
+  reason = 'manual-dispatch';
+}
+```
+- Triggered by auto-pilot at [line 1371](/.github/workflows/agents-auto-pilot.yml#L1371)
+- Bypasses all label requirements
+- Works on any issue number
+- **Usage**: 35 issues in Workflows repo, 400+ in consumer repos
+
+### Usage Across All Repositories
+
+| Repository | `agent:codex` issues | `agent:codex + status:ready` | Trigger method |
+|------------|---------------------|------------------------------|----------------|
+| **Workflows** | 35 | 0 | workflow_dispatch (force) |
+| Travel-Plan-Permission | 100+ | 0 | workflow_dispatch (force) |
+| Manager-Database | 100+ | 0 | workflow_dispatch (force) |
+| Portable-Alpha | 100+ | 0 | workflow_dispatch (force) |
+| Trend_Model | 100+ | 0 | workflow_dispatch (force) |
+| Template | 12 | 0 | workflow_dispatch (force) |
+| trip-planner | 8 | 0 | workflow_dispatch (force) |
+| Collab-Admin | 46 | 0 | workflow_dispatch (force) |
+
+**Belt dispatcher run history** (all repos):
+```bash
+$ gh api ".../workflows/agents-71-codex-belt-dispatcher.yml/runs" --jq '.workflow_runs[] | .event'
+workflow_dispatch  # 100% of runs
+workflow_dispatch
+workflow_dispatch
+# ... (no schedule triggers ever)
+```
+
+**Implication**: The label scanning logic (`agent:codex + status:ready`) is **unreachable dead code**. It exists in the implementation but has zero execution paths in production.
+
+---
+
 ## Conclusion
 
-**agent:codex label has TWO distinct successful patterns**:
-1. ✅ **PR-based** (original design) - Works excellently for manual PR creation + keepalive
-2. ⚠️ **Issue-based** (auto-pilot) - Works most of the time, but has timing vulnerability
+**agent:codex label has TWO patterns in production, ONE phantom pattern in code**:
 
-**Current problem**: Belt dispatcher PR creation is unreliable (issue #1212 took 6 hours).
+### ✅ Production Patterns (Work Well)
+1. **PR-based keepalive** (original design) 
+   - Manual PR creation → agent:codex label added → keepalive workflow
+   - 14+ successful completions Jan-Feb 2026
+   - Works excellently
 
-**Root cause**: Unknown - no obvious code changes between Feb 5 success and Feb 6 failure.
+2. **Issue-based via auto-pilot force-dispatch** 
+   - Auto-pilot → agent:codex label → force-dispatch belt → PR created → keepalive
+   - 400+ successful uses across all repos (35 in Workflows, 100+ each in consumer repos)
+   - Works most of the time, timing vulnerability on issue #1212
 
-**Next steps**:
-1. Investigate belt dispatcher/worker PR creation logic
-2. Add observability for PR creation success/failure
-3. Consider architectural decoupling of orchestration from label timing
+### ❌ Phantom Pattern (Dead Code)
+3. **Issue-based via label scanning**
+   - Documented as: "Add agent:codex + status:ready labels, belt dispatcher scans for it"
+   - **Reality**: Belt dispatcher has NO schedule trigger (never had one)
+   - Scanning logic exists at [line 225](/.github/workflows/agents-71-codex-belt-dispatcher.yml#L225) but is unreachable
+   - Would only execute if someone manually ran workflow_dispatch WITHOUT force_issue
+   - **Usage**: 0 times across ALL repos since Phase 4 inception
+   - **Status**: Unreachable dead code
+
+### Current Problems
+
+**Issue #1212** (Feb 6): Belt dispatcher ran 117 times over 6 hours before creating PR
+
+**Root causes identified**:
+1. ✅ **FIXED**: Optimizer interference (lack of protection) - addressed in [PR #1286](https://github.com/stranske/Workflows/pull/1286)
+2. ⚠️ **UNKNOWN**: Belt dispatcher PR creation delay - no code changes between Feb 5 success and Feb 6 failure
+
+### Recommendations
+
+#### Immediate (Issue #1212 Investigation)
+1. Investigate belt worker PR creation logic for workflow_dispatch trigger
+2. Add observability: distinguish "branch created" from "PR created" in logs
+3. Add timeout detection: alert if PR not created within N minutes of branch creation
+
+#### Documentation
+4. Update [GoalsAndPlumbing.md](../keepalive/GoalsAndPlumbing.md) to clarify:
+   - agent:codex on PR → keepalive (works great)
+   - agent:codex on issue → only works via auto-pilot force-dispatch
+   - Manual agent:codex requires auto-pilot to run OR manual workflow_dispatch with issue number
+5. Document that status:ready is NOT used for agent:codex (only agents:apply-suggestions uses it)
+
+#### Code Cleanup
+6. Consider removing unreachable label scanning code (lines 225-238 in belt dispatcher)
+7. OR add schedule trigger if manual label application workflow is desired
+8. Choose one: delete dead code OR make it reachable (don't leave it in limbo)
+
+#### Architecture
+9. Consider decoupling auto-pilot orchestration from label timing
+10. auto-pilot could wait for PR creation event instead of re-dispatching immediately
+11. Belt dispatcher could emit a custom event when PR is ready
 
