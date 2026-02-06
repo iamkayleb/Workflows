@@ -91,6 +91,11 @@ runs:
         echo "📦 Installing @octokit dependencies in $INSTALL_DIR..."
         cd "$INSTALL_DIR"
 
+        # Ensure package.json exists for npm install
+        if [ ! -f "package.json" ]; then
+          echo '{"private":true}' > package.json
+        fi
+
         # Check if already installed
         if [ -d "node_modules/@octokit/rest" ]; then
           echo "✅ @octokit/rest already installed"
