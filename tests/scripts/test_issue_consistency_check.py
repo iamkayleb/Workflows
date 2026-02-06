@@ -34,6 +34,7 @@ def test_extract_issue_numbers_ignores_pr_hashes() -> None:
 def test_extract_commit_issue_numbers_ignores_merge_and_ledger() -> None:
     messages = [
         "Merge pull request #1248 from stranske/codex/issue-1236",
+        "Merge origin/main into codex/issue-1211",
         "chore(ledger): start task task-01 for issue #1211",
         "fix: resolve issue #1075 in parser",
     ]
@@ -53,6 +54,15 @@ def test_extract_commit_issue_numbers_ignores_merge_commits() -> None:
     ]
     numbers = check_issue_consistency.extract_commit_issue_numbers(messages)
     assert numbers == {1211}
+
+
+def test_extract_commit_issue_numbers_keeps_merge_prefix_non_merge() -> None:
+    messages = [
+        "merge: resolve issue #1211",
+        "fix: resolve issue #1212",
+    ]
+    numbers = check_issue_consistency.extract_commit_issue_numbers(messages)
+    assert numbers == {1211, 1212}
 
 
 def test_is_autofix_context_reads_event_labels(tmp_path: Path, monkeypatch) -> None:
@@ -120,6 +130,20 @@ def test_run_git_with_fallback_handles_ambiguous_argument(monkeypatch) -> None:
     assert output == "ok"
     assert used_fallback is True
     assert calls == [["log"], ["log", "-n", "1"]]
+
+
+def test_should_scan_header_file_excludes_known_dirs() -> None:
+    assert check_issue_consistency.should_scan_header_file(Path("src/app.py")) is True
+    assert (
+        check_issue_consistency.should_scan_header_file(
+            Path(".github/workflows/agents-auto-pilot.yml")
+        )
+        is False
+    )
+    assert (
+        check_issue_consistency.should_scan_header_file(Path("templates/consumer-repo/README.md"))
+        is False
+    )
 
 
 def test_run_git_with_fallback_handles_invalid_object(monkeypatch) -> None:
