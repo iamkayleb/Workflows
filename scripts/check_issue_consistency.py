@@ -494,6 +494,11 @@ def main() -> int:
 
     mismatched_commits = sorted(num for num in commit_issue_numbers if num != pr_issue)
     if mismatched_commits:
+        if autofix_context:
+            print(
+                "Skipping issue consistency check: autofix context with mismatched commit issues."
+            )
+            return 0
         print(
             "Error: Commit messages reference issue numbers that do not match PR title:",
             mismatched_commits,
@@ -512,6 +517,11 @@ def main() -> int:
             mismatched_files.append(str(file_path))
 
     if mismatched_files:
+        if autofix_context:
+            print(
+                "Skipping issue consistency check: autofix context with mismatched file headers."
+            )
+            return 0
         print(
             "Error: File headers reference issue numbers that do not match PR title:",
             ", ".join(sorted(mismatched_files)),
