@@ -271,6 +271,67 @@ class TestFallbackChainProvider:
             quality_context=quality_context,
         )
 
+    def test_reaches_target_provider_with_quality_context(self):
+        """Chain reaches the active provider and forwards quality context."""
+
+        class RecordingProvider(LLMProvider):
+            def __init__(self, name: str, available: bool) -> None:
+                self._name = name
+                self._available = available
+                self.received_quality_context: SessionQualityContext | None = None
+                self.called = False
+
+            @property
+            def name(self) -> str:
+                return self._name
+
+            def is_available(self) -> bool:
+                return self._available
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                self.called = True
+                self.received_quality_context = quality_context
+                return CompletionAnalysis(
+                    completed_tasks=[],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.4,
+                    reasoning="recorded",
+                    provider_used=self.name,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=True,
+            file_change_count=1,
+            successful_command_count=0,
+            estimated_effort_score=5,
+            data_quality="low",
+            analysis_text_length=120,
+        )
+
+        unavailable = RecordingProvider("unavailable", False)
+        target = RecordingProvider("target", True)
+        chain = FallbackChainProvider([unavailable, target])
+
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            context="ctx",
+            quality_context=quality_context,
+        )
+
+        assert unavailable.called is False
+        assert target.called is True
+        assert target.received_quality_context is quality_context
+        assert result.provider_used == "target"
+
     def test_passes_quality_context_to_kwargs_provider(self):
         """Chain forwards quality context to providers accepting **kwargs."""
 
