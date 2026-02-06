@@ -14,7 +14,10 @@ from pathlib import Path
 ISSUE_WORD_PATTERN = re.compile(r"issue\s*[:#-]?\s*(\d+)", re.IGNORECASE)
 ISSUE_SLUG_PATTERN = re.compile(r"issue[-_](\d+)", re.IGNORECASE)
 HASH_PATTERN = re.compile(r"#(\d+)")
-MERGE_COMMIT_PATTERN = re.compile(r"^merge\b", re.IGNORECASE)
+MERGE_COMMIT_PATTERN = re.compile(
+    r"^merge\s+(?:pull request|branch|remote-tracking branch|[^\n]+\s+into)\b",
+    re.IGNORECASE,
+)
 IGNORE_COMMIT_PATTERNS = (re.compile(r"^chore\(ledger\)", re.IGNORECASE),)
 HEADER_SCAN_EXCLUDE_DIRS = {".github", "tests", "templates"}
 

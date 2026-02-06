@@ -56,6 +56,15 @@ def test_extract_commit_issue_numbers_ignores_merge_commits() -> None:
     assert numbers == {1211}
 
 
+def test_extract_commit_issue_numbers_keeps_merge_prefix_non_merge() -> None:
+    messages = [
+        "merge: resolve issue #1211",
+        "fix: resolve issue #1212",
+    ]
+    numbers = check_issue_consistency.extract_commit_issue_numbers(messages)
+    assert numbers == {1211, 1212}
+
+
 def test_is_autofix_context_reads_event_labels(tmp_path: Path, monkeypatch) -> None:
     payload = {
         "pull_request": {
