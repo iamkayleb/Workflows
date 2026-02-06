@@ -415,15 +415,27 @@ def main() -> int:
     pr_title, head_ref = resolve_pr_context(args.pr_title, args.head_ref)
     autofix_context = is_autofix_context(pr_title, head_ref)
     pr_issue = extract_title_issue_number(pr_title)
-    if (
-        autofix_context
-        and pr_issue is not None
-        and HASH_PATTERN.search(pr_title or "")
-        and not (
-            ISSUE_WORD_PATTERN.search(pr_title or "") or ISSUE_SLUG_PATTERN.search(pr_title or "")
-        )
-    ):
+    title_has_bare_hash = bool(HASH_PATTERN.search(pr_title or "")) and not (
+        ISSUE_WORD_PATTERN.search(pr_title or "") or ISSUE_SLUG_PATTERN.search(pr_title or "")
+    )
+    if autofix_context and pr_issue is not None and title_has_bare_hash:
         pr_issue = None
+    elif pr_issue is not None and title_has_bare_hash:
+        head_issue, head_ambiguous = resolve_head_ref_issue_number(head_ref)
+        if head_issue is not None:
+            if head_issue != pr_issue:
+                print(
+                    "Warning: PR title uses a bare # reference; "
+                    "using head ref issue number instead.",
+                    file=sys.stderr,
+                )
+            pr_issue = head_issue
+        elif head_ambiguous:
+            print(
+                "Warning: Multiple issue numbers detected in head ref; "
+                "retaining PR title issue reference.",
+                file=sys.stderr,
+            )
     if not pr_issue:
         pr_issue, head_ambiguous = resolve_head_ref_issue_number(head_ref)
         if head_ambiguous:
