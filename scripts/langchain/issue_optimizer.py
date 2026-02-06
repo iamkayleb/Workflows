@@ -16,7 +16,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field
+
+from scripts.langchain.structured_output import parse_structured_output
 
 AGENT_LIMITATIONS = [
     "Cannot modify .github/workflows/*.yml (protected)",
@@ -568,19 +570,12 @@ def _normalize_result(
     )
 
 
-def _schema_json() -> str:
-    return json.dumps(IssueOptimizationPayload.model_json_schema(), ensure_ascii=True, indent=2)
-
-
-def _format_validation_errors(exc: ValidationError) -> str:
-    return json.dumps(exc.errors(), ensure_ascii=True, indent=2)
-
-
 def _attempt_repair(
     client: object,
     *,
-    raw_response: str,
+    schema_json: str,
     validation_errors: str,
+    raw_response: str,
 ) -> str | None:
     try:
         from langchain_core.prompts import ChatPromptTemplate
@@ -591,7 +586,7 @@ def _attempt_repair(
     chain = template | client
     response = chain.invoke(
         {
-            "schema_json": _schema_json(),
+            "schema_json": schema_json,
             "validation_errors": validation_errors,
             "raw_response": raw_response,
         }
@@ -604,26 +599,28 @@ def _process_llm_response(
 ) -> tuple[IssueOptimizationResult | None, str | None]:
     """Process LLM response and return (result, error)."""
     content = getattr(response, "content", None) or str(response)
-    try:
-        payload = IssueOptimizationPayload.model_validate_json(content)
-    except ValidationError as exc:
-        error_detail = _format_validation_errors(exc)
-        if client is None:
-            return None, f"LLM output failed validation: {error_detail}"
-        repaired = _attempt_repair(
-            client,
-            raw_response=content,
-            validation_errors=error_detail,
-        )
-        if not repaired:
+    parsed = parse_structured_output(
+        content,
+        IssueOptimizationPayload,
+        repair=(
+            (lambda schema_json, validation_errors, raw_response: _attempt_repair(
+                client,
+                schema_json=schema_json,
+                validation_errors=validation_errors,
+                raw_response=raw_response,
+            ))
+            if client is not None
+            else None
+        ),
+    )
+    if parsed.payload is None:
+        if parsed.error_stage == "repair_unavailable":
             return None, "LLM output failed validation and could not be repaired."
-        try:
-            payload = IssueOptimizationPayload.model_validate_json(repaired)
-        except ValidationError as repair_exc:
-            repair_detail = _format_validation_errors(repair_exc)
-            return None, f"LLM repair failed validation: {repair_detail}"
+        if parsed.error_stage == "repair_validation":
+            return None, f"LLM repair failed validation: {parsed.error_detail}"
+        return None, f"LLM output failed validation: {parsed.error_detail}"
 
-    result = _normalize_result(payload.model_dump(), provider)
+    result = _normalize_result(parsed.payload.model_dump(), provider)
     result.task_splitting = _ensure_task_decomposition(result.task_splitting, use_llm=use_llm)
     return result, None
 

@@ -17,9 +17,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from scripts import api_client
+from scripts.langchain.structured_output import parse_structured_output
 
 PR_EVALUATION_PROMPT = """
 You are reviewing a **merged** pull request to evaluate whether the code
@@ -341,17 +342,11 @@ def _fallback_evaluation(
     )
 
 
-def _schema_json() -> str:
-    return json.dumps(EvaluationPayload.model_json_schema(), ensure_ascii=True, indent=2)
-
-
-def _format_validation_errors(exc: ValidationError) -> str:
-    return json.dumps(exc.errors(), ensure_ascii=True, indent=2)
-
-
-def _attempt_repair(client: object, *, raw_response: str, validation_errors: str) -> str | None:
+def _attempt_repair(
+    client: object, *, schema_json: str, raw_response: str, validation_errors: str
+) -> str | None:
     repair_prompt = PR_EVALUATION_REPAIR_PROMPT.format(
-        schema_json=_schema_json(),
+        schema_json=schema_json,
         validation_errors=validation_errors,
         raw_response=raw_response,
     )
@@ -362,51 +357,25 @@ def _attempt_repair(client: object, *, raw_response: str, validation_errors: str
 def _parse_llm_response(
     content: str, provider: str, *, client: object | None = None
 ) -> EvaluationResult:
-    try:
-        payload = EvaluationPayload.model_validate_json(content)
-        return EvaluationResult(
-            verdict=payload.verdict,
-            scores=payload.scores,
-            confidence=payload.confidence,
-            concerns=payload.concerns,
-            summary=payload.summary,
-            provider_used=provider,
-            used_llm=True,
-            raw_content=content,
-        )
-    except ValidationError as exc:
-        error_detail = _format_validation_errors(exc)
-        if client is not None:
-            repaired = _attempt_repair(
+    parsed = parse_structured_output(
+        content,
+        EvaluationPayload,
+        repair=(
+            (lambda schema_json, validation_errors, raw_response: _attempt_repair(
                 client,
-                raw_response=content,
-                validation_errors=error_detail,
-            )
-            if repaired:
-                try:
-                    payload = EvaluationPayload.model_validate_json(repaired)
-                    return EvaluationResult(
-                        verdict=payload.verdict,
-                        scores=payload.scores,
-                        confidence=payload.confidence,
-                        concerns=payload.concerns,
-                        summary=payload.summary,
-                        provider_used=provider,
-                        used_llm=True,
-                        raw_content=repaired,
-                    )
-                except ValidationError as repair_exc:
-                    repair_detail = _format_validation_errors(repair_exc)
-                    return EvaluationResult(
-                        verdict="CONCERNS",
-                        scores=None,
-                        concerns=[],
-                        summary=None,
-                        provider_used=provider,
-                        used_llm=True,
-                        raw_content=content,
-                        error=f"Failed to parse JSON response after repair: {repair_detail}",
-                    )
+                schema_json=schema_json,
+                validation_errors=validation_errors,
+                raw_response=raw_response,
+            ))
+            if client is not None
+            else None
+        ),
+    )
+    if parsed.payload is None:
+        if parsed.error_stage == "repair_validation":
+            error = f"Failed to parse JSON response after repair: {parsed.error_detail}"
+        else:
+            error = f"Failed to parse JSON response: {parsed.error_detail}"
         return EvaluationResult(
             verdict="CONCERNS",
             scores=None,
@@ -415,8 +384,20 @@ def _parse_llm_response(
             provider_used=provider,
             used_llm=True,
             raw_content=content,
-            error=f"Failed to parse JSON response: {error_detail}",
+            error=error,
         )
+
+    payload = parsed.payload
+    return EvaluationResult(
+        verdict=payload.verdict,
+        scores=payload.scores,
+        confidence=payload.confidence,
+        concerns=payload.concerns,
+        summary=payload.summary,
+        provider_used=provider,
+        used_llm=True,
+        raw_content=parsed.raw_content or content,
+    )
 
 
 def _is_auth_error(exc: Exception) -> bool:
