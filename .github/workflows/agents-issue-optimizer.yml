@@ -555,7 +555,7 @@ jobs:
               const { Octokit } = require('@octokit/rest');
               const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
               const core = { info: () => {}, warning: console.warn, debug: () => {} };
-              const github = new Octokit({ auth: process.env.GH_TOKEN });
+              const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
               const { withRetry } = await createTokenAwareRetry({
                 github,
                 core,
@@ -604,7 +604,7 @@ jobs:
               const { Octokit } = require('@octokit/rest');
               const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
               const core = { info: () => {}, warning: console.warn, debug: () => {} };
-              const github = new Octokit({ auth: process.env.GH_TOKEN });
+              const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
               const { withRetry } = await createTokenAwareRetry({
                 github,
                 core,
