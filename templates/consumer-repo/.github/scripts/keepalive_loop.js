@@ -1927,19 +1927,24 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
           runId: gateRun.runId,
           core,
         });
-        // Rate limits are infrastructure noise, not code quality issues
-        // Proceed with work if Gate only failed due to rate limits
-        if (gateRateLimit && tasksRemaining) {
-          action = 'run';
-          reason = 'bypass-rate-limit-gate';
-          if (core) core.info('Gate cancelled due to rate limits only - proceeding with work');
+        if (gateRateLimit) {
+          // Rate limits are infrastructure noise; prefer deferring until reset.
+          if (forceRetry && tasksRemaining) {
+            action = 'run';
+            reason = 'force-retry-cancelled-rate-limit';
+            if (core) core.info('Force retry enabled: bypassing cancelled gate with rate limit signals');
+          } else {
+            action = 'defer';
+            reason = 'gate-cancelled-rate-limit';
+            if (core) core.info('Gate cancelled due to rate limits - deferring until reset');
+          }
         } else if (forceRetry && tasksRemaining) {
           action = 'run';
           reason = 'force-retry-cancelled';
           if (core) core.info(`Force retry enabled: bypassing cancelled gate (rate_limit=${gateRateLimit})`);
         } else {
-          action = gateRateLimit ? 'defer' : 'wait';
-          reason = gateRateLimit ? 'gate-cancelled-rate-limit' : 'gate-cancelled';
+          action = 'wait';
+          reason = 'gate-cancelled';
         }
       } else {
         // Gate failed - check if failure is rate-limit related vs code quality
