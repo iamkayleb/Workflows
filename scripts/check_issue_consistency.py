@@ -545,9 +545,7 @@ def main() -> int:
 
     if mismatched_files:
         if autofix_context:
-            print(
-                "Skipping issue consistency check: autofix context with mismatched file headers."
-            )
+            print("Skipping issue consistency check: autofix context with mismatched file headers.")
             return 0
         print(
             "Error: File headers reference issue numbers that do not match PR title:",
