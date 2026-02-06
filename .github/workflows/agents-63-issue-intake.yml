@@ -105,6 +105,10 @@ on:
         required: false
       owner_pr_pat:
         required: false
+      openai_api_key:
+        required: false
+      claude_api_stranske:
+        required: false
       workflows_app_id:
         required: false
       workflows_app_private_key:
