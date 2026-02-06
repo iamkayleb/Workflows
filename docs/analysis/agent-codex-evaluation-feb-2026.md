@@ -2,11 +2,84 @@
 
 ## Executive Summary
 
-The `agent:codex` label has two distinct roles that have diverged between design and implementation:
-1.  **Original design (PR-based)**: Label on PR triggers keepalive workflow
-2. **Auto-pilot adaptation (Issue-based)**: Label on issue triggers belt dispatcher → creates PR → then keepalive
+Evaluated `agent:codex` performance across 3 consumer repos over 4 weeks (Jan 9 - Feb 5, 2026).
 
-**Current State**: The issue-based flow has a critical timing problem causing 6-hour loops (issue #1212).
+**Key Findings**:
+1. **Volume Decline**: 194 issues (Weeks 1-3) → 0 issues (Week 4) - **100% drop**
+2. **Implementation Changes**: 5+ significant workflow updates between Jan 9-29
+3. **Success Rate**: All issues got PRs created, but timing degraded in Week 4 (issue #1212)
+4. **Two Working Patterns**: PR-based keepalive + Issue-based auto-pilot trigger
+
+**Current State**: System stopped processing new agent:codex issues in Week 4.
+
+---
+
+## Performance Over Time (4-Week Analysis)
+
+### Volume Trends Across Consumer Repos
+
+| Week | Dates | Manager-Database | Portable-Alpha | Travel-Plan | **Total** |
+|------|-------|------------------|----------------|-------------|-----------|
+| Week 1 | Jan 9-15 | 29 issues | 40 issues | 10 issues | **79 issues** |
+| Week 2 | Jan 16-22 | 25 issues | 31 issues | 5 issues | **61 issues** |
+| Week 3 | Jan 23-29 | 53 issues | 1 issue | 0 issues | **54 issues** |
+| Week 4 | Jan 30-Feb 5 | 0 issues | 0 issues | 0 issues | **0 issues** |
+
+**Observation**: Complete halt in Week 4 coinciding with issue #1212 incident (Feb 6).
+
+### Implementation Changes During Period
+
+**Week 1 (Jan 9-15)**:
+- Commit 05da73a (Jan 15): "Fix auto-pilot branch creation with force-dispatch" - **MAJOR**
+- Commit 9f4e21d: "Fix dispatcher correctly detect missing branches"
+- Baseline: ~26 issues/day across all repos
+
+**Week 2 (Jan 16-22)**:
+- Commits e1751bc, e323cee: Added retry wrapper to belt dispatcher
+- Commit 3c7f550: Added backoff limits to auto-pilot waits
+- Volume: Dropped to ~20 issues/day (-23%)
+
+**Week 3 (Jan 23-29)**:
+- Commits 72d31f6, 4ee3fb5: Standardized retry wrappers
+- Commit 8123954: Standardized token export for retry helpers
+- Commit 87b7a63: "Fix/verify compare partial"
+- Volume: Spiked to ~18 issues/day in Manager-Database, dropped elsewhere
+
+**Week 4 (Jan 30-Feb 5)**:
+- Commit 0d6103d (Feb 2): **GitHub App tokens enabled** - workflow cross-triggering
+- Commit 20c65ce (Feb 6): Moved agents:apply-suggestions to apply step
+- Volume: **ZERO** - System effectively stopped
+
+### Success Rate Analysis
+
+**Sample: Week 1 vs Week 3 (Manager-Database)**
+
+**Week 1 Pattern**:
+- Issue #304: `agent:codex` only → PR created → CLOSED
+- Issue #263: `agents:apply-suggestions, agents:formatted, status:in-progress` → PR created → CLOSED  
+- Issue #253: `autofix, agents:keepalive, verify:compare` → PR created → CLOSED
+- **Pattern**: Mixed - manual labels, auto-pilot labels, keepalive labels all working
+
+**Week 3 Pattern**:
+- Issue #467: `autofix, verify:compare, from:codex` → PR created → CLOSED
+- Issue #466: `agents:apply-suggestions, agents:formatted, follow-up, agents:auto-pilot-pause` → PR created → CLOSED
+- Issue #465: `autofix, verify:compare, from:codex` → PR created → CLOSED
+- **Pattern**: More standardized - either autofix workflow OR auto-pilot workflow
+
+**Success Rate**: 100% PR creation in both weeks, but:
+- Week 1: Average time-to-PR ~minutes
+- Week 3: Average time-to-PR ~minutes to hours  
+- Week 4: Issue #1212 took 6 hours (32 auto-pilot attempts)
+
+### Root Cause of Week 4 Halt
+
+**Timeline**:
+1. Feb 2 (0d6103d): GitHub App tokens enabled cross-workflow triggering
+2. Feb 6 morning: Issue #1212 infinite loop begins
+3. Feb 6 afternoon: System appears to have paused agent:codex processing
+4. Volume drops to zero
+
+**Hypothesis**: Issue #1212's 6-hour loop may have triggered safety mechanisms causing system-wide pause on agent:codex work.
 
 ---
 
