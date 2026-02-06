@@ -151,22 +151,24 @@ jobs:
             import os
 
             count = os.environ.get("COUNT", "0")
-            text = """## ⚠️ Optimizer Paused
-
-      **Reason:** More than 3 optimizer runs detected in the last hour (__COUNT__ runs).
-
-      This usually indicates:
-      - Task decomposition spiral (creating too many subtasks)
-      - Repeated failures causing retry loop
-
-      **Next steps:**
-      1. Check issue body for task explosion (hundreds of repeated tasks)
-      2. Check recent workflow runs for errors
-      3. If issue body is corrupted, close and recreate with clean body
-      4. Remove `agents:auto-pilot-pause` label to retry after fixing
-
-      Auto-pilot has been paused. See [recovery procedures](https://github.com/${{ github.repository }}/blob/phase-3/Agents.md#auto-pilot-recovery-procedures).
-      """
+            lines = [
+              "## ⚠️ Optimizer Paused",
+              "",
+              "**Reason:** More than 3 optimizer runs detected in the last hour (__COUNT__ runs).",
+              "",
+              "This usually indicates:",
+              "- Task decomposition spiral (creating too many subtasks)",
+              "- Repeated failures causing retry loop",
+              "",
+              "**Next steps:**",
+              "1. Check issue body for task explosion (hundreds of repeated tasks)",
+              "2. Check recent workflow runs for errors",
+              "3. If issue body is corrupted, close and recreate with clean body",
+              "4. Remove `agents:auto-pilot-pause` label to retry after fixing",
+              "",
+              "Auto-pilot has been paused. See [recovery procedures](https://github.com/${{ github.repository }}/blob/phase-3/Agents.md#auto-pilot-recovery-procedures).",
+            ]
+            text = "\n".join(lines) + "\n"
             text = text.replace("__COUNT__", count)
             with open("/tmp/recursion_guard_comment.md", "w", encoding="utf-8") as handle:
               handle.write(text)
