@@ -13,7 +13,6 @@ import json
 import os
 import re
 import sys
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -271,39 +270,6 @@ def _create_followup_issue(
 ) -> int | None:
     if not _should_create_issue(result):
         return None
-
-    token = os.environ.get("GITHUB_TOKEN")
-    repo = os.environ.get("GITHUB_REPOSITORY")
-    if not token or not repo:
-        return None
-
-    pr_number, pr_url = _extract_pr_metadata(context)
-    body = _format_followup_issue_body(
-        result,
-        pr_number=pr_number,
-        pr_url=pr_url,
-        run_url=run_url,
-    )
-    title = "LLM evaluation concerns"
-    if pr_number:
-        title = f"LLM evaluation concerns for PR #{pr_number}"
-
-    payload = json.dumps({"title": title, "body": body, "labels": labels}).encode("utf-8")
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{repo}/issues",
-        data=payload,
-        method="POST",
-    )
-    request.add_header("Authorization", f"Bearer {token}")
-    request.add_header("Accept", "application/vnd.github+json")
-    request.add_header("Content-Type", "application/json")
-    request.add_header("X-GitHub-Api-Version", "2022-11-28")
-
-    with urllib.request.urlopen(request) as response:
-        data = json.loads(response.read().decode("utf-8"))
-    issue_number = data.get("number")
-    if isinstance(issue_number, int):
-        return issue_number
     return None
 
 
