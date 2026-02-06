@@ -487,3 +487,22 @@ def test_analyze_issue_repairs_trailing_commas(monkeypatch: pytest.MonkeyPatch) 
     assert result.provider_used == "github-models"
     assert result.missing_sections == ["Scope"]
     assert mock_chain.invoke.call_count == 2
+
+
+def test_analyze_issue_repairs_once_then_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    bad = "Here you go:\n" + json.dumps(_valid_issue_payload())
+    mock_chain.invoke.side_effect = [_response_with(bad), _response_with(bad)]
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_optimizer._get_llm_client",
+        return_value=(mock_client, "github-models"),
+    ):
+        result = issue_optimizer.analyze_issue("Issue body", use_llm=True)
+
+    assert result.provider_used is None
+    assert "LLM structured output failed" in (result.overall_notes or "")
+    assert mock_chain.invoke.call_count == 2

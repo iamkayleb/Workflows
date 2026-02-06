@@ -81,3 +81,25 @@ def test_comparison_runner_repairs_malformed_output() -> None:
     assert result.verdict == "PASS"
     assert result.used_llm is True
     assert mock_client.invoke.call_count == 2
+
+
+def test_evaluate_pr_repairs_once_then_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = _valid_payload()
+    bad = "```json\n" + json.dumps(payload) + "\n```"
+
+    mock_client = mock.MagicMock()
+    mock_client.invoke.side_effect = [_response_with(bad), _response_with(bad)]
+
+    monkeypatch.setattr(pr_verifier, "_prepare_prompt", lambda ctx, diff: "prompt")
+    monkeypatch.setattr(
+        pr_verifier,
+        "_get_llm_client",
+        lambda model=None, provider=None: (mock_client, "github-models"),
+    )
+
+    result = pr_verifier.evaluate_pr("context")
+    assert result.verdict == "CONCERNS"
+    assert result.used_llm is True
+    assert result.error
+    assert "Failed to parse JSON response after repair" in result.error
+    assert mock_client.invoke.call_count == 2
