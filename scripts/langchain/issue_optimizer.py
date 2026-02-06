@@ -684,7 +684,7 @@ def _apply_task_decomposition(formatted_body: str | None, suggestions: dict[str,
     # Guard against None input (can happen when issue body is too large)
     if formatted_body is None:
         return ""
-    
+
     raw_entries = suggestions.get("task_splitting")
     if not isinstance(raw_entries, list) or not raw_entries:
         return formatted_body
