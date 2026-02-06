@@ -190,3 +190,78 @@ def test_analyze_session_caps_confidence_for_short_jsonl_analysis():
 
     assert result.completion.confidence <= 0.4
     assert result.completion.confidence_adjusted is True
+
+
+def test_analyze_session_caps_confidence_for_very_short_analysis_text():
+    """Very short analysis text with work evidence caps confidence."""
+
+    class QualityAwareProvider(GitHubModelsProvider):
+        @property
+        def name(self) -> str:
+            return "quality-aware"
+
+        def is_available(self) -> bool:
+            return True
+
+        def analyze_completion(
+            self,
+            session_output: str,
+            tasks: list[str],
+            context: str | None = None,
+            quality_context: SessionQualityContext | None = None,
+        ) -> CompletionAnalysis:
+            response = """
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.9,
+    "reasoning": "Short analysis."
+}
+"""
+            parsed = self._parse_response(
+                response,
+                tasks,
+                quality_context=quality_context,
+            )
+            return CompletionAnalysis(
+                completed_tasks=parsed.completed_tasks,
+                in_progress_tasks=parsed.in_progress_tasks,
+                blocked_tasks=parsed.blocked_tasks,
+                confidence=parsed.confidence,
+                reasoning=parsed.reasoning,
+                provider_used=self.name,
+                raw_confidence=parsed.raw_confidence,
+                confidence_adjusted=parsed.confidence_adjusted,
+                quality_warnings=parsed.quality_warnings,
+            )
+
+    class DummySession:
+        raw_event_count = 1
+        agent_messages: list[str] = []
+        commands: list[object] = []
+
+        def get_analysis_text(self, include_reasoning: bool = True) -> str:
+            _ = include_reasoning
+            return "short"
+
+        def get_quality_metrics(self) -> dict:
+            return {
+                "has_agent_messages": False,
+                "has_work_evidence": True,
+                "file_change_count": 1,
+                "successful_command_count": 0,
+                "estimated_effort_score": 8,
+                "data_quality": "high",
+            }
+
+    chain = FallbackChainProvider([QualityAwareProvider()])
+    with (
+        patch("tools.codex_session_analyzer.parse_codex_jsonl", return_value=DummySession()),
+        patch("tools.codex_session_analyzer.get_llm_provider", return_value=chain),
+    ):
+        result = analyze_session("{}", ["task1"], data_source="jsonl_filtered")
+
+    assert result.analysis_text_length < 50
+    assert result.completion.confidence <= 0.4
+    assert result.completion.confidence_adjusted is True
