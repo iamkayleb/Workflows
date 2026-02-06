@@ -409,11 +409,13 @@ def evaluate_pr(
         # If auth error and not explicitly requesting a provider, try fallbacks
         if _is_auth_error(exc) and provider is None:
             provider_order = ["openai", "anthropic", "github-models"]
+            base_provider = provider_name.split("/", 1)[0]
             try:
-                current_index = provider_order.index(provider_name)
+                current_index = provider_order.index(base_provider)
             except ValueError:
                 current_index = -1
             fallback_chain = provider_order[current_index + 1 :]
+            fallback_errors: list[str] = []
             for fallback_provider in fallback_chain:
                 fallback_resolved = _get_llm_client(model=model, provider=fallback_provider)
                 if fallback_resolved is None:
@@ -437,10 +439,14 @@ def evaluate_pr(
                         )
                     return result
                 except Exception as fallback_exc:
-                    return _fallback_evaluation(
-                        f"Primary ({provider_name}): {exc}; "
-                        f"Fallback ({fallback_provider_name}): {fallback_exc}"
-                    )
+                    fallback_errors.append(f"Fallback ({fallback_provider_name}): {fallback_exc}")
+                    continue
+            error_details = "; ".join(fallback_errors)
+            if error_details:
+                return _fallback_evaluation(f"Primary ({provider_name}): {exc}; {error_details}")
+            return _fallback_evaluation(
+                f"Primary ({provider_name}): {exc}; no fallback providers succeeded"
+            )
         return _fallback_evaluation(f"LLM invocation failed: {exc}")
 
     content = getattr(response, "content", None) or str(response)
