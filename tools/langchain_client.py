@@ -432,11 +432,15 @@ def build_chat_clients(
     slots = _resolve_slots()
     candidate_slots: list[SlotDefinition] = []
     for slot in slots:
-        if slot.provider == PROVIDER_OPENAI and openai_token:
-            candidate_slots.append(slot)
-        elif slot.provider == PROVIDER_ANTHROPIC and anthropic_token and ChatAnthropic:
-            candidate_slots.append(slot)
-        elif slot.provider == PROVIDER_GITHUB and github_token:
+        if (
+            slot.provider == PROVIDER_OPENAI
+            and openai_token
+            or slot.provider == PROVIDER_ANTHROPIC
+            and anthropic_token
+            and ChatAnthropic
+            or slot.provider == PROVIDER_GITHUB
+            and github_token
+        ):
             candidate_slots.append(slot)
         if len(candidate_slots) >= 2:
             break
