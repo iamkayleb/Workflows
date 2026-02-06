@@ -18,7 +18,11 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scripts.langchain.structured_output import DEFAULT_REPAIR_PROMPT, parse_structured_output
+from scripts.langchain.structured_output import (
+    DEFAULT_REPAIR_PROMPT,
+    build_repair_prompt,
+    parse_structured_output,
+)
 
 AGENT_LIMITATIONS = [
     "Cannot modify .github/workflows/*.yml (protected)",
@@ -564,20 +568,13 @@ def _attempt_repair(
     validation_errors: str,
     raw_response: str,
 ) -> str | None:
-    try:
-        from langchain_core.prompts import ChatPromptTemplate
-    except ImportError:
-        return None
-
-    template = ChatPromptTemplate.from_template(ISSUE_OPTIMIZER_REPAIR_PROMPT)
-    chain = template | client
-    response = chain.invoke(
-        {
-            "schema_json": schema_json,
-            "validation_errors": validation_errors,
-            "raw_response": raw_response,
-        }
+    repair_prompt = build_repair_prompt(
+        schema_json=schema_json,
+        validation_errors=validation_errors,
+        raw_response=raw_response,
+        template=ISSUE_OPTIMIZER_REPAIR_PROMPT,
     )
+    response = client.invoke(repair_prompt)
     return getattr(response, "content", None) or str(response)
 
 

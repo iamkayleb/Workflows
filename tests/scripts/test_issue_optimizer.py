@@ -431,7 +431,8 @@ def test_analyze_issue_repairs_preamble_output(monkeypatch: pytest.MonkeyPatch) 
     mock_chain = mock.MagicMock()
     bad = "Here you go:\n" + json.dumps(_valid_issue_payload())
     good = json.dumps(_valid_issue_payload())
-    mock_chain.invoke.side_effect = [_response_with(bad), _response_with(good)]
+    mock_chain.invoke.side_effect = [_response_with(bad)]
+    mock_client.invoke.side_effect = [_response_with(good)]
 
     _install_fake_langchain(monkeypatch, mock_chain)
 
@@ -443,10 +444,12 @@ def test_analyze_issue_repairs_preamble_output(monkeypatch: pytest.MonkeyPatch) 
 
     assert result.provider_used == "github-models"
     assert result.missing_sections == ["Scope"]
-    assert mock_chain.invoke.call_count == 2
-    repair_payload = mock_chain.invoke.call_args_list[1].args[0]
-    assert "validation_errors" in repair_payload
-    assert "schema_json" in repair_payload
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 1
+    repair_prompt = mock_client.invoke.call_args_list[0].args[0]
+    assert "Validation errors:" in repair_prompt
+    assert "Schema:" in repair_prompt
+    assert "Original response:" in repair_prompt
 
 
 def test_analyze_issue_repairs_fenced_json(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -454,7 +457,8 @@ def test_analyze_issue_repairs_fenced_json(monkeypatch: pytest.MonkeyPatch) -> N
     mock_chain = mock.MagicMock()
     bad = "```json\n" + json.dumps(_valid_issue_payload()) + "\n```"
     good = json.dumps(_valid_issue_payload())
-    mock_chain.invoke.side_effect = [_response_with(bad), _response_with(good)]
+    mock_chain.invoke.side_effect = [_response_with(bad)]
+    mock_client.invoke.side_effect = [_response_with(good)]
 
     _install_fake_langchain(monkeypatch, mock_chain)
 
@@ -466,7 +470,8 @@ def test_analyze_issue_repairs_fenced_json(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert result.provider_used == "github-models"
     assert result.missing_sections == ["Scope"]
-    assert mock_chain.invoke.call_count == 2
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 1
 
 
 def test_analyze_issue_repairs_trailing_commas(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -474,7 +479,8 @@ def test_analyze_issue_repairs_trailing_commas(monkeypatch: pytest.MonkeyPatch) 
     mock_chain = mock.MagicMock()
     bad = '{"task_splitting": [], "blocked_tasks": [], "objective_criteria": [], "missing_sections": ["Scope"], "formatting_issues": [], "overall_notes": "All good.",}'
     good = json.dumps(_valid_issue_payload())
-    mock_chain.invoke.side_effect = [_response_with(bad), _response_with(good)]
+    mock_chain.invoke.side_effect = [_response_with(bad)]
+    mock_client.invoke.side_effect = [_response_with(good)]
 
     _install_fake_langchain(monkeypatch, mock_chain)
 
@@ -486,14 +492,16 @@ def test_analyze_issue_repairs_trailing_commas(monkeypatch: pytest.MonkeyPatch) 
 
     assert result.provider_used == "github-models"
     assert result.missing_sections == ["Scope"]
-    assert mock_chain.invoke.call_count == 2
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 1
 
 
 def test_analyze_issue_repairs_once_then_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_client = mock.MagicMock()
     mock_chain = mock.MagicMock()
     bad = "Here you go:\n" + json.dumps(_valid_issue_payload())
-    mock_chain.invoke.side_effect = [_response_with(bad), _response_with(bad)]
+    mock_chain.invoke.side_effect = [_response_with(bad)]
+    mock_client.invoke.side_effect = [_response_with(bad)]
 
     _install_fake_langchain(monkeypatch, mock_chain)
 
@@ -505,4 +513,5 @@ def test_analyze_issue_repairs_once_then_falls_back(monkeypatch: pytest.MonkeyPa
 
     assert result.provider_used is None
     assert "LLM structured output failed" in (result.overall_notes or "")
-    assert mock_chain.invoke.call_count == 2
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 1
