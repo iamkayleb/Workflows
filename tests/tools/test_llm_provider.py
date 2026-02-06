@@ -1048,9 +1048,7 @@ class TestFallbackChainProvider:
 
         assert result.confidence <= 0.4
         assert result.confidence_adjusted is True
-        assert any(
-            "suspiciously short" in warning for warning in result.quality_warnings
-        )
+        assert any("suspiciously short" in warning for warning in result.quality_warnings)
 
     def test_confidence_capped_for_very_short_analysis_text_with_evidence(self):
         """Confidence is capped when analysis text is <50 chars with work evidence."""
