@@ -262,9 +262,9 @@ def build_chat_client(
 
     # Auto-select: slot order (OpenAI -> Claude -> GitHub Models by default).
     slots = _resolve_slots()
-    model_override = model
-    for idx, slot in enumerate(slots):
-        slot_model = model_override if idx == 0 and model_override else slot.model
+    model_override = model or os.environ.get(ENV_MODEL)
+    for slot in slots:
+        slot_model = model_override or slot.model
         if slot.provider == PROVIDER_OPENAI and openai_token:
             with contextlib.suppress(Exception):
                 client = _build_openai_client(
@@ -430,10 +430,21 @@ def build_chat_clients(
         return clients
 
     slots = _resolve_slots()
-    model_overrides = [model1 or os.environ.get(ENV_MODEL), model2]
-    for idx, slot in enumerate(slots):
-        if len(clients) >= 2:
+    candidate_slots: list[SlotDefinition] = []
+    for slot in slots:
+        if slot.provider == PROVIDER_OPENAI and openai_token:
+            candidate_slots.append(slot)
+        elif slot.provider == PROVIDER_ANTHROPIC and anthropic_token and ChatAnthropic:
+            candidate_slots.append(slot)
+        elif slot.provider == PROVIDER_GITHUB and github_token:
+            candidate_slots.append(slot)
+        if len(candidate_slots) >= 2:
             break
+
+    primary_override = model1 or os.environ.get(ENV_MODEL)
+    secondary_override = model2 or model1
+    model_overrides = [primary_override, secondary_override]
+    for idx, slot in enumerate(candidate_slots):
         slot_model = model_overrides[idx] if idx < len(model_overrides) else None
         slot_model = slot_model or slot.model
         if slot.provider == PROVIDER_OPENAI and openai_token:
