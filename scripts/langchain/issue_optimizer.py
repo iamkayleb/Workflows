@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from scripts.langchain.structured_output import parse_structured_output
+from scripts.langchain.structured_output import DEFAULT_REPAIR_PROMPT, parse_structured_output
 
 AGENT_LIMITATIONS = [
     "Cannot modify .github/workflows/*.yml (protected)",
@@ -72,20 +72,7 @@ following AGENT_ISSUE_TEMPLATE structure. Move blocked tasks to
 a "## Deferred Tasks (Requires Human)" section.
 """.strip()
 
-ISSUE_OPTIMIZER_REPAIR_PROMPT = """
-The previous response did not match the required JSON schema.
-
-Schema:
-{schema_json}
-
-Validation errors:
-{validation_errors}
-
-Original response:
-{raw_response}
-
-Return ONLY valid JSON that matches the schema with no surrounding text.
-""".strip()
+ISSUE_OPTIMIZER_REPAIR_PROMPT = DEFAULT_REPAIR_PROMPT
 
 SECTION_ALIASES = {
     "why": ["why", "motivation", "summary"],

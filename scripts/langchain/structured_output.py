@@ -10,6 +10,22 @@ from pydantic import BaseModel, ValidationError
 T = TypeVar("T", bound=BaseModel)
 
 
+DEFAULT_REPAIR_PROMPT = """
+The previous response did not match the required JSON schema.
+
+Schema:
+{schema_json}
+
+Validation errors:
+{validation_errors}
+
+Original response:
+{raw_response}
+
+Return ONLY valid JSON that matches the schema with no surrounding text.
+""".strip()
+
+
 @dataclass(frozen=True)
 class StructuredOutputResult(Generic[T]):
     payload: T | None
@@ -24,6 +40,20 @@ def schema_json(model: type[BaseModel]) -> str:
 
 def format_validation_errors(exc: ValidationError) -> str:
     return json.dumps(exc.errors(), ensure_ascii=True, indent=2)
+
+
+def build_repair_prompt(
+    schema_json: str,
+    validation_errors: str,
+    raw_response: str,
+    *,
+    template: str = DEFAULT_REPAIR_PROMPT,
+) -> str:
+    return template.format(
+        schema_json=schema_json,
+        validation_errors=validation_errors,
+        raw_response=raw_response,
+    )
 
 
 def parse_structured_output(

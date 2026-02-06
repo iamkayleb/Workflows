@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from scripts import api_client
-from scripts.langchain.structured_output import parse_structured_output
+from scripts.langchain.structured_output import build_repair_prompt, parse_structured_output
 
 PR_EVALUATION_PROMPT = """
 You are reviewing a **merged** pull request to evaluate whether the code
@@ -60,21 +60,6 @@ Respond in JSON with:
   "concerns": ["..."],
   "summary": "concise report"
 }}
-""".strip()
-
-PR_EVALUATION_REPAIR_PROMPT = """
-The previous response did not match the required JSON schema.
-
-Schema:
-{schema_json}
-
-Validation errors:
-{validation_errors}
-
-Original response:
-{raw_response}
-
-Return ONLY valid JSON that matches the schema with no surrounding text.
 """.strip()
 
 PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "pr_evaluation.md"
@@ -345,7 +330,7 @@ def _fallback_evaluation(
 def _attempt_repair(
     client: object, *, schema_json: str, raw_response: str, validation_errors: str
 ) -> str | None:
-    repair_prompt = PR_EVALUATION_REPAIR_PROMPT.format(
+    repair_prompt = build_repair_prompt(
         schema_json=schema_json,
         validation_errors=validation_errors,
         raw_response=raw_response,
