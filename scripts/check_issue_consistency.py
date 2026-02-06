@@ -225,9 +225,7 @@ def _find_remote_with_ref(base_remote: str, base_ref: str) -> str | None:
     return None
 
 
-def _should_use_fallback(message: str, fallback: list[str] | None) -> bool:
-    if not fallback:
-        return False
+def _is_fallback_error(message: str) -> bool:
     lowered = message.lower()
     return any(
         snippet in lowered
@@ -241,6 +239,12 @@ def _should_use_fallback(message: str, fallback: list[str] | None) -> bool:
             "not in the working tree",
         )
     )
+
+
+def _should_use_fallback(message: str, fallback: list[str] | None) -> bool:
+    if not fallback:
+        return False
+    return _is_fallback_error(message)
 
 
 def _run_git_with_fallback(primary: list[str], fallback: list[str] | None) -> str:
@@ -261,6 +265,30 @@ def _run_git_with_fallback_and_flag(
         if _should_use_fallback(str(exc), fallback):
             return _run_git(fallback), True
         raise
+
+
+def _run_git_with_fallbacks_and_flag(
+    primary: list[str], fallbacks: list[list[str]]
+) -> tuple[str, bool]:
+    try:
+        return _run_git(primary), False
+    except RuntimeError as exc:
+        if not _should_use_fallback(str(exc), fallbacks[0] if fallbacks else None):
+            raise
+        last_exc: RuntimeError = exc
+
+    if not fallbacks:
+        raise last_exc
+
+    for fallback in fallbacks:
+        try:
+            return _run_git(fallback), True
+        except RuntimeError as exc:
+            last_exc = exc
+            if not _is_fallback_error(str(exc)):
+                break
+
+    raise last_exc
 
 
 def collect_commit_messages(
@@ -304,22 +332,21 @@ def collect_changed_files(
     if base_ref:
         resolved_remote = _find_remote_with_ref(base_remote, base_ref)
     if base_sha:
-        fallback = None
-        if base_ref:
-            if resolved_remote:
-                fallback = ["diff", "--name-only", f"{resolved_remote}/{base_ref}...HEAD"]
-            else:
-                fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
-        else:
-            fallback = ["diff", "--name-only", "HEAD~20..HEAD"]
-        output, used_fallback = _run_git_with_fallback_and_flag(
+        fallbacks: list[list[str]] = []
+        if base_ref and resolved_remote:
+            fallbacks.append(["diff", "--name-only", f"{resolved_remote}/{base_ref}...HEAD"])
+        fallbacks.append(["diff", "--name-only", "HEAD~20..HEAD"])
+        output, used_fallback = _run_git_with_fallbacks_and_flag(
             ["diff", "--name-only", f"{base_sha}...HEAD"],
-            fallback,
+            fallbacks,
         )
     elif base_ref:
         if resolved_remote:
             range_spec = f"{resolved_remote}/{base_ref}...HEAD"
-            output = _run_git(["diff", "--name-only", range_spec])
+            output, used_fallback = _run_git_with_fallbacks_and_flag(
+                ["diff", "--name-only", range_spec],
+                [["diff", "--name-only", "HEAD~20..HEAD"]],
+            )
         else:
             output = _run_git(["diff", "--name-only", "HEAD~20..HEAD"])
             used_fallback = True
