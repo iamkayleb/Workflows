@@ -128,7 +128,7 @@ def test_evaluate_pr_repair_prompt_includes_schema(monkeypatch: pytest.MonkeyPat
     assert "Validation errors:" in repair_prompt
     assert "Original response:" in repair_prompt
     assert "Here you go:" in repair_prompt
-    assert "\"verdict\"" in repair_prompt
+    assert '"verdict"' in repair_prompt
 
 
 def test_evaluate_pr_repairs_once_then_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
