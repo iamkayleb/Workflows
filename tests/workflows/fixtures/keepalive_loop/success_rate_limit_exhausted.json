@@ -1,0 +1,12 @@
+{
+  "pr_number": 2202,
+  "gate_conclusion": "success",
+  "run_id": 556688,
+  "rateLimit": {
+    "core": {
+      "remaining": 10,
+      "limit": 5000,
+      "reset": 9999999999
+    }
+  }
+}
