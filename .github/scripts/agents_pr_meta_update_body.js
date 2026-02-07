@@ -577,47 +577,61 @@ function buildCompletionAuthorWarningBody(logins, { resolved = false } = {}) {
 }
 
 async function upsertCompletionAuthorWarning({ github, owner, repo, prNumber, comments, unauthorizedLogins, core }) {
-  const list = Array.isArray(unauthorizedLogins) ? unauthorizedLogins.filter(Boolean) : [];
-  const existing = (Array.isArray(comments) ? comments : [])
-    .find((comment) => comment?.body && comment.body.includes(COMPLETION_WARNING_MARKER));
-  if (list.length === 0) {
-    if (existing) {
-      const body = buildCompletionAuthorWarningBody([], { resolved: true });
-      await github.rest.issues.updateComment({
-        owner,
-        repo,
-        comment_id: existing.id,
-        body,
-      });
-      if (core) {
-        core.info('Updated completion author warning comment to resolved state.');
+  try {
+    const list = Array.isArray(unauthorizedLogins) ? unauthorizedLogins.filter(Boolean) : [];
+    const existing = (Array.isArray(comments) ? comments : [])
+      .find((comment) => comment?.body && comment.body.includes(COMPLETION_WARNING_MARKER));
+    const updateComment = async (commentId, body, label) => {
+      await withRetries(
+        () => github.rest.issues.updateComment({
+          owner,
+          repo,
+          comment_id: commentId,
+          body,
+        }),
+        { description: label, core },
+      );
+    };
+    const createComment = async (body, label) => {
+      await withRetries(
+        () => github.rest.issues.createComment({
+          owner,
+          repo,
+          issue_number: prNumber,
+          body,
+        }),
+        { description: label, core },
+      );
+    };
+
+    if (list.length === 0) {
+      if (existing) {
+        const body = buildCompletionAuthorWarningBody([], { resolved: true });
+        await updateComment(existing.id, body, `issues.updateComment #${existing.id}`);
+        if (core) {
+          core.info('Updated completion author warning comment to resolved state.');
+        }
       }
+      return;
     }
-    return;
-  }
 
-  const body = buildCompletionAuthorWarningBody(list);
-  if (existing) {
-    await github.rest.issues.updateComment({
-      owner,
-      repo,
-      comment_id: existing.id,
-      body,
-    });
+    const body = buildCompletionAuthorWarningBody(list);
+    if (existing) {
+      await updateComment(existing.id, body, `issues.updateComment #${existing.id}`);
+      if (core) {
+        core.info('Updated completion author warning comment.');
+      }
+      return;
+    }
+
+    await createComment(body, `issues.createComment #${prNumber}`);
     if (core) {
-      core.info('Updated completion author warning comment.');
+      core.info('Posted completion author warning comment.');
     }
-    return;
-  }
-
-  await github.rest.issues.createComment({
-    owner,
-    repo,
-    issue_number: prNumber,
-    body,
-  });
-  if (core) {
-    core.info('Posted completion author warning comment.');
+  } catch (error) {
+    if (core) {
+      core.warning(`Failed to upsert completion author warning: ${error.message}`);
+    }
   }
 }
 
@@ -1255,15 +1269,19 @@ async function run({github: rawGithub, context, core, inputs}) {
   // Fetch checkbox states from connector bot comments to merge into status summary
   const connectorStates = parseConnectorCheckboxStatesFromComments(issueComments, core);
   const unauthorizedAuthors = findUnauthorizedCompletionAuthors(issueComments);
-  await upsertCompletionAuthorWarning({
-    github,
-    owner,
-    repo,
-    prNumber: pr.number,
-    comments: issueComments,
-    unauthorizedLogins: unauthorizedAuthors,
-    core,
-  });
+  try {
+    await upsertCompletionAuthorWarning({
+      github,
+      owner,
+      repo,
+      prNumber: pr.number,
+      comments: issueComments,
+      unauthorizedLogins: unauthorizedAuthors,
+      core,
+    });
+  } catch (error) {
+    core.warning(`Completion author warning skipped: ${error.message}`);
+  }
 
   const agentType = resolveAgentType({ inputs, env: process.env, pr });
 
