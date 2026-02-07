@@ -259,6 +259,7 @@ jobs:
           sparse-checkout: |
             .github
             tools
+            scripts
           token: ${{ steps.auth_token.outputs.checkout_token }}
 
       - name: Setup Workflows API client
@@ -800,6 +801,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/.workflows-lib:${{ github.workspace }}
           PR_NUM: ${{ inputs.pr_number }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -808,10 +810,16 @@ jobs:
 
           # Fetch PR body to extract tasks
           echo "Fetching PR #${PR_NUM} body..."
-          PR_BODY=$(gh pr view "${PR_NUM}" --json body --jq '.body' 2>/dev/null || echo "")
+          PR_BODY=$(gh pr view "${PR_NUM}" --json body --jq '.body' 2>&1)
+          fetch_exit=$?
 
-          if [ -z "$PR_BODY" ]; then
-            echo "::notice::Could not fetch PR body, skipping LLM analysis"
+          if [ $fetch_exit -ne 0 ] || [ -z "$PR_BODY" ]; then
+            echo "::warning::Could not fetch PR body for #${PR_NUM} (exit code: $fetch_exit)"
+            echo "::warning::LLM task completion analysis will be skipped"
+            echo "::warning::This may indicate a permissions issue or network problem"
+            if [ $fetch_exit -ne 0 ]; then
+              echo "Error output: $PR_BODY"
+            fi
             echo "llm-analysis-run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -823,6 +831,13 @@ jobs:
           # Scripts are in .workflows-lib from Workflows repo checkout
           # Note: logging goes to stderr, JSON output goes to stdout -> file
           echo "Running LLM-powered task completion analysis..."
+          if [ ! -f .workflows-lib/scripts/analyze_codex_session.py ]; then
+            echo "::error::Analysis script not found at .workflows-lib/scripts/analyze_codex_session.py"
+            echo "::error::This indicates a workflow configuration issue with sparse checkout"
+            echo "llm-analysis-run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           python3 .workflows-lib/scripts/analyze_codex_session.py \
             --session-file "$SESSION_JSONL" \
             --pr-body-file pr_body.md \

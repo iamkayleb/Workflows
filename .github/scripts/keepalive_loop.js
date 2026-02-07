@@ -2659,6 +2659,20 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
           `> ⚠️ Primary provider (GitHub Models) was unavailable; used ${providerLabel} instead.`,
         );
       }
+    } else if (agentChangesMade === 'true' && iteration > 0) {
+      // Warn when LLM analysis didn't run but agent made changes
+      // This indicates an infrastructure issue that should be investigated
+      summaryLines.push(
+        '',
+        '### ⚠️ Task Analysis Unavailable',
+        '> **Warning**: LLM-powered task completion analysis did not run for this iteration.',
+        '> This may be due to:',
+        '> - Missing analysis dependencies or scripts',
+        '> - Failed PR body fetch',
+        '> - Session data not captured',
+        '>',
+        '> Task checkboxes may not be automatically updated. Please review manually.',
+      );
     }
 
     if (isTransientFailure) {
