@@ -662,17 +662,22 @@ jobs:
             // If STOP recommended, remove agent label to prevent further runs
             if (recommendation === 'STOP') {
               core.warning('Progress review recommends STOP - agent work appears unaligned');
-              try {
-                await withRetry((client) =>
-                  client.rest.issues.removeLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: prNumber,
-                    name: 'agent:codex',
-                  })
-                );
-              } catch (e) {
-                core.info(`Could not remove label: ${e.message}`);
+              const agentType = '${{ needs.evaluate.outputs.agent_type }}';
+              if (agentType) {
+                const agentLabel = `agent:${agentType}`;
+                try {
+                  await withRetry((client) =>
+                    client.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: prNumber,
+                      name: agentLabel,
+                    })
+                  );
+                  core.info(`Removed ${agentLabel} label after STOP recommendation`);
+                } catch (e) {
+                  core.info(`Could not remove ${agentLabel} label: ${e.message}`);
+                }
               }
             }
 
