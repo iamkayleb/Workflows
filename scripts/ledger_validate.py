@@ -18,6 +18,7 @@ import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 
@@ -117,6 +118,38 @@ def _validate_timestamp(value: Any, *, field: str, path: str) -> list[str]:
     return errors
 
 
+def _pull_request_head_repo_url() -> str | None:
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if not event_path:
+        return None
+    try:
+        with open(event_path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return None
+    pull_request = payload.get("pull_request")
+    if not isinstance(pull_request, dict):
+        return None
+    head = pull_request.get("head")
+    if not isinstance(head, dict):
+        return None
+    repo = head.get("repo")
+    if not isinstance(repo, dict):
+        return None
+    clone_url = repo.get("clone_url") or repo.get("git_url") or repo.get("ssh_url")
+    if not isinstance(clone_url, str) or not clone_url.strip():
+        full_name = repo.get("full_name")
+        if isinstance(full_name, str) and full_name.strip():
+            server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
+            clone_url = f"{server}/{full_name}.git"
+        else:
+            return None
+    token = os.environ.get("GITHUB_TOKEN")
+    if token:
+        clone_url = _with_auth_token(clone_url, token)
+    return clone_url
+
+
 def _fetch_commit(commit: str) -> bool:
     """Ensure *commit* exists locally, fetching extra history if needed."""
 
@@ -125,8 +158,14 @@ def _fetch_commit(commit: str) -> bool:
     if repo:
         server = os.environ.get("GITHUB_SERVER_URL", "https://github.com").rstrip("/")
         base_url = f"{server}/{repo}.git"
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            base_url = _with_auth_token(base_url, token)
         if base_url not in fetch_targets:
             fetch_targets.append(base_url)
+    pr_head_url = _pull_request_head_repo_url()
+    if pr_head_url and pr_head_url not in fetch_targets:
+        fetch_targets.append(pr_head_url)
 
     for target in fetch_targets:
         fetch_attempts = [
@@ -153,6 +192,19 @@ def _fetch_commit(commit: str) -> bool:
                 "--no-tags",
                 "--filter=blob:none",
                 "--unshallow",
+                target,
+            ],
+            [
+                "git",
+                "fetch",
+                "--no-tags",
+                target,
+                commit,
+            ],
+            [
+                "git",
+                "fetch",
+                "--no-tags",
                 target,
             ],
         ]
@@ -191,6 +243,17 @@ def _fetch_commit(commit: str) -> bool:
             return True
 
     return False
+
+
+def _with_auth_token(base_url: str, token: str) -> str:
+    """Embed a GitHub token into https URLs without logging it."""
+    split = urlsplit(base_url)
+    if split.scheme not in {"http", "https"} or not split.netloc:
+        return base_url
+    if "@" in split.netloc:
+        return base_url
+    authed_netloc = f"x-access-token:{token}@{split.netloc}"
+    return urlunsplit((split.scheme, authed_netloc, split.path, split.query, split.fragment))
 
 
 def _commit_files(commit: str) -> list[str]:
