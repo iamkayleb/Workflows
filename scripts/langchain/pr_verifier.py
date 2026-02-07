@@ -333,9 +333,7 @@ def _parse_llm_response(
     parsed = parse_structured_output(
         content,
         EvaluationPayload,
-        repair=(
-            build_repair_callback(client) if client is not None else None
-        ),
+        repair=(build_repair_callback(client) if client is not None else None),
         max_repair_attempts=1,
     )
     if parsed.payload is None:
