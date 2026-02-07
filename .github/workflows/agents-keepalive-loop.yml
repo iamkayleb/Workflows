@@ -239,9 +239,20 @@ jobs:
             const options = { github, context, core };
             // Pass workflow_dispatch inputs if present
             const inputPrNumber = process.env.INPUT_PR_NUMBER;
-            const forceRetry = process.env.INPUT_FORCE_RETRY === 'true';
+            let forceRetry = process.env.INPUT_FORCE_RETRY === 'true';
             if (inputPrNumber) {
               options.overridePrNumber = parseInt(inputPrNumber, 10);
+            }
+            // Check if agent:retry label exists on PR (not just triggering event)
+            if (!forceRetry && context.eventName === 'pull_request') {
+              const pr = context.payload.pull_request;
+              if (pr && Array.isArray(pr.labels)) {
+                const hasRetryLabel = pr.labels.some(label => label.name === 'agent:retry');
+                if (hasRetryLabel) {
+                  forceRetry = true;
+                  core.info('agent:retry label found on PR - enabling force retry');
+                }
+              }
             }
             if (forceRetry) {
               options.forceRetry = true;
