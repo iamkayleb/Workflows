@@ -2195,6 +2195,7 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
 
     // LLM task analysis details
     const llmProvider = normalise(inputs.llm_provider ?? inputs.llmProvider);
+    const llmModel = normalise(inputs.llm_model ?? inputs.llmModel);
     const llmConfidence = toNumber(inputs.llm_confidence ?? inputs.llmConfidence, 0);
     const llmAnalysisRun = toBool(inputs.llm_analysis_run ?? inputs.llmAnalysisRun, false);
 
@@ -2604,8 +2605,14 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
         '',
         '### 🧠 Task Analysis',
         `| Provider | ${providerIcon} ${providerLabel} |`,
-        `| Confidence | ${confidencePercent}% |`,
       );
+
+      // Show model name if available
+      if (llmModel && llmModel !== 'unknown') {
+        summaryLines.push(`| Model | ${llmModel} |`);
+      }
+
+      summaryLines.push(`| Confidence | ${confidencePercent}% |`);
 
       // Show quality metrics if available
       if (sessionDataQuality) {

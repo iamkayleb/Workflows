@@ -243,6 +243,7 @@ def analyze_session(
             confidence=0.0,
             reasoning=f"Analysis failed: {e}",
             provider_used="error",
+            model_name="unknown",
         )
 
     # Build quality metrics from session

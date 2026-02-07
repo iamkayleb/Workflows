@@ -85,6 +85,7 @@ class CompletionAnalysis:
     confidence: float  # 0.0 to 1.0
     reasoning: str  # Explanation of the analysis
     provider_used: str  # Which provider generated this
+    model_name: str = "unknown"  # Specific model used (e.g., gpt-4o, claude-3.5-sonnet)
 
     # Quality metrics for BS detection
     raw_confidence: float | None = None  # Original confidence before adjustment
@@ -406,6 +407,7 @@ Be conservative - if unsure, don't mark as completed."""
                 confidence=adjusted_confidence,
                 reasoning=reasoning,
                 provider_used=self.name,
+                model_name=DEFAULT_MODEL,
                 raw_confidence=raw_confidence if adjusted_confidence != raw_confidence else None,
                 confidence_adjusted=adjusted_confidence != raw_confidence,
                 quality_warnings=warnings if warnings else None,
@@ -420,6 +422,7 @@ Be conservative - if unsure, don't mark as completed."""
                 confidence=0.0,
                 reasoning=f"Failed to parse response: {e}",
                 provider_used=self.name,
+                model_name=DEFAULT_MODEL,
             )
 
 
@@ -480,6 +483,7 @@ class OpenAIProvider(LLMProvider):
                 confidence=result.confidence,
                 reasoning=result.reasoning,
                 provider_used=self.name,
+                model_name=DEFAULT_MODEL,
                 raw_confidence=result.raw_confidence,
                 confidence_adjusted=result.confidence_adjusted,
                 quality_warnings=result.quality_warnings,
@@ -543,6 +547,7 @@ class AnthropicProvider(LLMProvider):
                 confidence=result.confidence,
                 reasoning=result.reasoning,
                 provider_used=self.name,
+                model_name="claude-3-5-sonnet-20241022",
                 raw_confidence=result.raw_confidence,
                 confidence_adjusted=result.confidence_adjusted,
                 quality_warnings=result.quality_warnings,
@@ -648,6 +653,7 @@ class RegexFallbackProvider(LLMProvider):
             in_progress_tasks=in_progress,
             blocked_tasks=blocked,
             confidence=0.3,  # Low confidence for regex
+            model_name="regex-patterns",
             reasoning="Pattern-based analysis (no LLM available)",
             provider_used=self.name,
         )

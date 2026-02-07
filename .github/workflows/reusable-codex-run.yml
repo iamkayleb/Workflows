@@ -118,6 +118,9 @@ on:
       llm-provider:
         description: 'LLM provider used for analysis (github-models, openai, regex-fallback)'
         value: ${{ jobs.codex.outputs.llm-provider }}
+      llm-model:
+        description: 'Specific model used for analysis (e.g., gpt-4o, claude-3-5-sonnet)'
+        value: ${{ jobs.codex.outputs.llm-model }}
       llm-confidence:
         description: 'Confidence level of LLM analysis (0-1)'
         value: ${{ jobs.codex.outputs.llm-confidence }}
@@ -177,8 +180,8 @@ jobs:
       llm-completed-tasks: ${{ steps.llm_analysis.outputs.completed-tasks }}
       llm-has-completions: ${{ steps.llm_analysis.outputs.has-completions }}
       llm-provider: ${{ steps.llm_analysis.outputs.provider }}
-      llm-confidence: ${{ steps.llm_analysis.outputs.confidence }}
-      # Quality metrics for keepalive integration
+      llm-model: ${{ steps.llm_analysis.outputs.model }}
+      llm-confidence: ${{ steps.llm_analysis.outputs.confidence }}\n      # Quality metrics for keepalive integration
       llm-raw-confidence: ${{ steps.llm_analysis.outputs.raw-confidence }}
       llm-effort-score: ${{ steps.llm_analysis.outputs.effort-score }}
       llm-data-quality: ${{ steps.llm_analysis.outputs.data-quality }}
@@ -862,6 +865,7 @@ jobs:
           if [ -f "$ANALYSIS_FILE" ]; then
             COMPLETED=$(python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); print(json.dumps(d.get('completed_tasks', [])))")
             PROVIDER=$(python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); print(d.get('provider', 'unknown'))")
+            MODEL=$(python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); print(d.get('model', 'unknown'))")
             CONFIDENCE=$(python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); print(d.get('confidence', 0))")
             # Quality metrics for keepalive integration
             RAW_CONFIDENCE=$(python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); print(d.get('raw_confidence', d.get('confidence', 0)))")
@@ -872,6 +876,7 @@ jobs:
             {
               echo "completed-tasks=$COMPLETED"
               echo "provider=$PROVIDER"
+              echo "model=$MODEL"
               echo "confidence=$CONFIDENCE"
               echo "raw-confidence=$RAW_CONFIDENCE"
               echo "effort-score=$EFFORT_SCORE"

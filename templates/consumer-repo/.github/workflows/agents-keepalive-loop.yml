@@ -912,8 +912,10 @@ jobs:
               // LLM analysis details for task completion reporting
               llm_provider:
                 '${{ needs.run-codex.outputs.llm-provider || '' }}',
+              llm_model:
+                '${{ needs.run-codex.outputs.llm-model || '' }}',
               llm_confidence:
-                '${{ needs.run-codex.outputs.llm-confidence || '' }}',
+                '${{ needs.run-codex.outputs.llm-confidence || ''}}',
               llm_analysis_run: '${{ needs.run-codex.outputs.llm-analysis-run }}' === 'true',
             };
             await updateKeepaliveLoopSummary({ github, context, core, inputs });
