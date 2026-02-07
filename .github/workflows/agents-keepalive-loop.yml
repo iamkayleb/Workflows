@@ -243,14 +243,35 @@ jobs:
             if (inputPrNumber) {
               options.overridePrNumber = parseInt(inputPrNumber, 10);
             }
-            // Check if agent:retry label exists on PR (not just triggering event)
-            if (!forceRetry && context.eventName === 'pull_request') {
-              const pr = context.payload.pull_request;
-              if (pr && Array.isArray(pr.labels)) {
-                const hasRetryLabel = pr.labels.some(label => label.name === 'agent:retry');
-                if (hasRetryLabel) {
-                  forceRetry = true;
-                  core.info('agent:retry label found on PR - enabling force retry');
+            // Check if agent:retry label exists on PR (works for all event types)
+            if (!forceRetry) {
+              const { owner, repo } = context.repo;
+              // Resolve PR number from override, workflow_run, or pull_request event
+              const prNumberForLabelCheck =
+                options.overridePrNumber ||
+                (context.payload?.workflow_run?.pull_requests?.[0]?.number) ||
+                (context.payload?.pull_request?.number);
+              if (prNumberForLabelCheck) {
+                try {
+                  const labelsResponse = await github.rest.issues.listLabelsOnIssue({
+                    owner,
+                    repo,
+                    issue_number: prNumberForLabelCheck,
+                  });
+                  const hasRetryLabel = Array.isArray(labelsResponse.data) &&
+                    labelsResponse.data.some(label => label.name === 'agent:retry');
+                  if (hasRetryLabel) {
+                    forceRetry = true;
+                    core.info(
+                      `agent:retry label found on PR #${prNumberForLabelCheck} - ` +
+                      `enabling force retry`
+                    );
+                  }
+                } catch (error) {
+                  core.warning(
+                    `Could not check labels for PR #${prNumberForLabelCheck}: ` +
+                    `${error.message}`
+                  );
                 }
               }
             }
