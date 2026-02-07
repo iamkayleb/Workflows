@@ -51,8 +51,6 @@ ENV/
 
 # Node.js
 node_modules/
-.github/scripts/package.json
-.github/scripts/package-lock.json
 
 # Logs
 *.log
