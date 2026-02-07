@@ -33,8 +33,10 @@ logger = logging.getLogger(__name__)
 
 # GitHub Models API endpoint (OpenAI-compatible)
 GITHUB_MODELS_BASE_URL = "https://models.inference.ai.azure.com"
-# Legacy DEFAULT_MODEL - no longer used by primary providers
-# Kept for backward compatibility with external code
+# Legacy/default model identifier:
+# - Not used for issuing requests to primary providers (OpenAI/Anthropic/GitHub Models)
+# - Still used internally (e.g., default slot model in langchain_client.py)
+# - Kept for backward compatibility with external code that references it
 DEFAULT_MODEL = "codex-mini-latest"
 ANTHROPIC_API_KEY_ENV = "CLAUDE_API_STRANSKE"
 
@@ -407,7 +409,7 @@ Be conservative - if unsure, don't mark as completed."""
                 confidence=adjusted_confidence,
                 reasoning=reasoning,
                 provider_used=self.name,
-                model_name=DEFAULT_MODEL,
+                model_name="gpt-4.1",  # Actual model used by GitHubModelsProvider
                 raw_confidence=raw_confidence if adjusted_confidence != raw_confidence else None,
                 confidence_adjusted=adjusted_confidence != raw_confidence,
                 quality_warnings=warnings if warnings else None,
@@ -422,7 +424,7 @@ Be conservative - if unsure, don't mark as completed."""
                 confidence=0.0,
                 reasoning=f"Failed to parse response: {e}",
                 provider_used=self.name,
-                model_name=DEFAULT_MODEL,
+                model_name="gpt-4.1",  # Actual model used by GitHubModelsProvider
             )
 
 
@@ -483,7 +485,7 @@ class OpenAIProvider(LLMProvider):
                 confidence=result.confidence,
                 reasoning=result.reasoning,
                 provider_used=self.name,
-                model_name=DEFAULT_MODEL,
+                model_name="gpt-5.1-codex",  # Actual model used by OpenAIProvider
                 raw_confidence=result.raw_confidence,
                 confidence_adjusted=result.confidence_adjusted,
                 quality_warnings=result.quality_warnings,
