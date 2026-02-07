@@ -42,6 +42,14 @@ def format_validation_errors(exc: ValidationError) -> str:
     return json.dumps(exc.errors(), ensure_ascii=True, indent=2)
 
 
+def format_non_validation_error(exc: Exception) -> str:
+    return json.dumps(
+        [{"type": exc.__class__.__name__, "message": str(exc)}],
+        ensure_ascii=True,
+        indent=2,
+    )
+
+
 def build_repair_prompt(
     schema_json: str,
     validation_errors: str,
@@ -92,6 +100,12 @@ def parse_structured_output(
         )
     except ValidationError as exc:
         error_detail = format_validation_errors(exc)
+    except Exception as exc:
+        error_detail = format_non_validation_error(exc)
+    else:
+        error_detail = None
+
+    if error_detail is not None:
         attempts = max(0, min(int(max_repair_attempts), 1))
         if repair is None or attempts == 0:
             return StructuredOutputResult(
@@ -118,9 +132,22 @@ def parse_structured_output(
             )
         except ValidationError as repair_exc:
             repair_detail = format_validation_errors(repair_exc)
+        except Exception as repair_exc:
+            repair_detail = format_non_validation_error(repair_exc)
+        else:
+            repair_detail = None
+
+        if repair_detail is not None:
             return StructuredOutputResult(
                 payload=None,
                 raw_content=None,
                 error_stage="repair_validation",
                 error_detail=repair_detail,
             )
+
+    return StructuredOutputResult(
+        payload=None,
+        raw_content=None,
+        error_stage="validation",
+        error_detail="Unknown validation error.",
+    )
