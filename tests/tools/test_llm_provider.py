@@ -10,6 +10,7 @@ from tools.llm_provider import (
     CompletionAnalysis,
     FallbackChainProvider,
     GitHubModelsProvider,
+    AnthropicProvider,
     LLMProvider,
     OpenAIProvider,
     RegexFallbackProvider,
@@ -202,6 +203,26 @@ class TestProviderLegacyBehavior:
 
         assert result.provider_used == "openai"
         assert result.confidence == 0.85
+
+    def test_anthropic_analyze_completion_without_quality_context(self):
+        """Anthropic provider works with default quality_context=None."""
+        provider = AnthropicProvider()
+        mock_client = MagicMock()
+        mock_client.invoke.return_value = MagicMock(content="""
+{
+    "completed": ["task1"],
+    "in_progress": [],
+    "blocked": [],
+    "confidence": 0.88,
+    "reasoning": "Legacy call."
+}
+""")
+
+        with patch.object(provider, "_get_client", return_value=mock_client):
+            result = provider.analyze_completion("output", ["task1"])
+
+        assert result.provider_used == "anthropic"
+        assert result.confidence == 0.88
 
     def test_regex_fallback_analyze_completion_without_quality_context(self):
         """Regex fallback works with default quality_context=None."""
