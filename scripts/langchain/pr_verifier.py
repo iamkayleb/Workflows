@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from scripts import api_client
-from scripts.langchain.structured_output import build_repair_prompt, parse_structured_output
+from scripts.langchain.structured_output import build_repair_callback, parse_structured_output
 
 PR_EVALUATION_PROMPT = """
 You are reviewing a **merged** pull request to evaluate whether the code
@@ -327,18 +327,6 @@ def _fallback_evaluation(
     )
 
 
-def _attempt_repair(
-    client: object, *, schema_json: str, raw_response: str, validation_errors: str
-) -> str | None:
-    repair_prompt = build_repair_prompt(
-        schema_json=schema_json,
-        validation_errors=validation_errors,
-        raw_response=raw_response,
-    )
-    response = client.invoke(repair_prompt)
-    return getattr(response, "content", None) or str(response)
-
-
 def _parse_llm_response(
     content: str, provider: str, *, client: object | None = None
 ) -> EvaluationResult:
@@ -346,17 +334,9 @@ def _parse_llm_response(
         content,
         EvaluationPayload,
         repair=(
-            (
-                lambda schema_json, validation_errors, raw_response: _attempt_repair(
-                    client,
-                    schema_json=schema_json,
-                    validation_errors=validation_errors,
-                    raw_response=raw_response,
-                )
-            )
-            if client is not None
-            else None
+            build_repair_callback(client) if client is not None else None
         ),
+        max_repair_attempts=1,
     )
     if parsed.payload is None:
         if parsed.error_stage == "repair_validation":

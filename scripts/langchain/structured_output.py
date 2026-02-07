@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -54,6 +54,25 @@ def build_repair_prompt(
         validation_errors=validation_errors,
         raw_response=raw_response,
     )
+
+
+def build_repair_callback(
+    client: Any, *, template: str = DEFAULT_REPAIR_PROMPT
+) -> Callable[[str, str, str], str | None]:
+    def _repair(schema_json: str, validation_errors: str, raw_response: str) -> str | None:
+        try:
+            repair_prompt = build_repair_prompt(
+                schema_json=schema_json,
+                validation_errors=validation_errors,
+                raw_response=raw_response,
+                template=template,
+            )
+            response = client.invoke(repair_prompt)
+        except Exception:
+            return None
+        return getattr(response, "content", None) or str(response)
+
+    return _repair
 
 
 def parse_structured_output(

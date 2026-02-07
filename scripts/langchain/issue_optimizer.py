@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from scripts.langchain.structured_output import (
     DEFAULT_REPAIR_PROMPT,
-    build_repair_prompt,
+    build_repair_callback,
     parse_structured_output,
 )
 
@@ -561,23 +561,6 @@ def _normalize_result(
     )
 
 
-def _attempt_repair(
-    client: object,
-    *,
-    schema_json: str,
-    validation_errors: str,
-    raw_response: str,
-) -> str | None:
-    repair_prompt = build_repair_prompt(
-        schema_json=schema_json,
-        validation_errors=validation_errors,
-        raw_response=raw_response,
-        template=ISSUE_OPTIMIZER_REPAIR_PROMPT,
-    )
-    response = client.invoke(repair_prompt)
-    return getattr(response, "content", None) or str(response)
-
-
 def _process_llm_response(
     response: Any, provider: str, use_llm: bool, *, client: object | None = None
 ) -> tuple[IssueOptimizationResult | None, str | None]:
@@ -587,17 +570,11 @@ def _process_llm_response(
         content,
         IssueOptimizationPayload,
         repair=(
-            (
-                lambda schema_json, validation_errors, raw_response: _attempt_repair(
-                    client,
-                    schema_json=schema_json,
-                    validation_errors=validation_errors,
-                    raw_response=raw_response,
-                )
-            )
+            build_repair_callback(client, template=ISSUE_OPTIMIZER_REPAIR_PROMPT)
             if client is not None
             else None
         ),
+        max_repair_attempts=1,
     )
     if parsed.payload is None:
         if parsed.error_stage == "repair_unavailable":
