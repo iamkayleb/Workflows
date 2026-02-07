@@ -135,6 +135,22 @@ jobs:
             const issueNumber = Number('${{ steps.ctx.outputs.issue }}');
             const { owner, repo } = context.repo;
             const fs = require('fs');
+
+            // Use load balancer to get optimal token with capacity
+            const { getOptimalToken } = require('./.github/scripts/token_load_balancer.js');
+            const tokenInfo = await getOptimalToken({
+              github: null,
+              core,
+              task: 'read-repo',
+              capabilities: ['read-repo'],
+              minRemaining: 100,
+            });
+
+            // Create authenticated Octokit instance with optimal token
+            const { Octokit } = require('@octokit/rest');
+            const octokit = new Octokit({ auth: tokenInfo.token });
+
+            // Load retry helpers
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
             const retryHelpers = fs.existsSync(retryHelperPath)
               ? require(retryHelperPath)
@@ -153,7 +169,8 @@ jobs:
               if (issueFromEvent && Number(issueFromEvent.number) === issueNumber) {
                 return issueFromEvent.labels || [];
               }
-              const { data } = await withRetry(() => github.rest.issues.get({ owner, repo, issue_number: issueNumber }));
+              // Use load-balanced token for API call
+              const { data } = await withRetry(() => octokit.rest.issues.get({ owner, repo, issue_number: issueNumber }));
               return data.labels || [];
             };
 
@@ -269,6 +286,22 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const fs = require('fs');
+
+            // Use load balancer to get optimal token with capacity
+            const { getOptimalToken } = require('./.github/scripts/token_load_balancer.js');
+            const tokenInfo = await getOptimalToken({
+              github: null,
+              core,
+              task: 'read-repo',
+              capabilities: ['read-repo'],
+              minRemaining: 100,
+            });
+
+            // Create authenticated Octokit instance with optimal token
+            const { Octokit } = require('@octokit/rest');
+            const octokit = new Octokit({ auth: tokenInfo.token });
+
+            // Load retry helpers
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
             const retryHelpers = fs.existsSync(retryHelperPath)
               ? require(retryHelperPath)
@@ -278,7 +311,9 @@ jobs:
                     githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
-            const { data } = await withRetry(() => github.rest.repos.get({ owner, repo }));
+
+            // Use load-balanced token for API call
+            const { data } = await withRetry(() => octokit.rest.repos.get({ owner, repo }));
             const base = data.default_branch;
             if (!base) {
               core.setFailed('Repository default branch not available');
@@ -376,6 +411,22 @@ jobs:
             const issueNumber = Number('${{ steps.ctx.outputs.issue }}');
             const { owner, repo } = context.repo;
             const fs = require('fs');
+
+            // Use load balancer to get optimal token with capacity
+            const { getOptimalToken } = require('./.github/scripts/token_load_balancer.js');
+            const tokenInfo = await getOptimalToken({
+              github: null,
+              core,
+              task: 'read-repo',
+              capabilities: ['read-repo'],
+              minRemaining: 100,
+            });
+
+            // Create authenticated Octokit instance with optimal token
+            const { Octokit } = require('@octokit/rest');
+            const octokit = new Octokit({ auth: tokenInfo.token });
+
+            // Load retry helpers
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
             const retryHelpers = fs.existsSync(retryHelperPath)
               ? require(retryHelperPath)
@@ -403,7 +454,8 @@ jobs:
             let issue = context.payload.issue;
             if (!issue || Number(issue.number) !== issueNumber) {
               try {
-                const { data } = await withRetry(() => github.rest.issues.get({ owner, repo, issue_number: issueNumber }));
+                // Use load-balanced token for API call
+                const { data } = await withRetry(() => octokit.rest.issues.get({ owner, repo, issue_number: issueNumber }));
                 issue = data;
               } catch (error) {
                 core.warning(`Failed to fetch issue #${issueNumber}: ${error.message}`);
@@ -413,7 +465,7 @@ jobs:
             try {
                 const headRef = '${{ steps.refs.outputs.head }}';
                 const candidate = await findIssuePrCandidate({
-                  github,
+                  github: octokit,
                   core,
                   owner,
                   repo,
@@ -443,7 +495,8 @@ jobs:
 
             if (prNumber && !prData) {
               try {
-                const { data } = await withRetry(() => github.rest.pulls.get({ owner, repo, pull_number: prNumber }));
+                // Use load-balanced token for API call
+                const { data } = await withRetry(() => octokit.rest.pulls.get({ owner, repo, pull_number: prNumber }));
                 prData = data;
               } catch (error) {
                 core.warning(`Unable to fetch PR #${prNumber}: ${error.message}`);
@@ -452,8 +505,9 @@ jobs:
 
             if (!enabled) {
               try {
+                // Use load-balanced token for API call
                 const comments = await paginateWithRetry(
-                  github, github.rest.issues.listComments,
+                  octokit, octokit.rest.issues.listComments,
                   { owner, repo, issue_number: issueNumber, per_page: 100 }
                 );
                 for (const comment of comments) {
@@ -592,6 +646,22 @@ jobs:
             const branch = process.env.BRANCH;
             const agent = (process.env.AGENT || '').trim();
             const fs = require('fs');
+
+            // Use load balancer to get optimal token with capacity
+            const { getOptimalToken } = require('./.github/scripts/token_load_balancer.js');
+            const tokenInfo = await getOptimalToken({
+              github: null,
+              core,
+              task: 'write-comment',
+              capabilities: ['write-comment'],
+              minRemaining: 100,
+            });
+
+            // Create authenticated Octokit instance with optimal token
+            const { Octokit } = require('@octokit/rest');
+            const octokit = new Octokit({ auth: tokenInfo.token });
+
+            // Load retry helpers
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
             const retryHelpers = fs.existsSync(retryHelperPath)
               ? require(retryHelperPath)
@@ -620,7 +690,7 @@ jobs:
             let issueTitle = '';
             let issueBody = '';
             try {
-              const { data: is } = await withRetry(() => github.rest.issues.get({ owner, repo, issue_number }));
+              const { data: is } = await withRetry(() => octokit.rest.issues.get({ owner, repo, issue_number }));
               issueTitle = is.title || '';
               issueBody = is.body || '';
             } catch (err) {
@@ -630,7 +700,7 @@ jobs:
             // Check if a PR already exists for this branch
             let existingPr = null;
             try {
-              const { data: pulls } = await withRetry(() => github.rest.pulls.list({
+              const { data: pulls } = await withRetry(() => octokit.rest.pulls.list({
                 owner,
                 repo,
                 state: 'open',
@@ -707,7 +777,7 @@ jobs:
 
                 const newPrBody = prBodySections.join('\n').trim();
                 try {
-                  await withRetry(() => github.rest.pulls.update({
+                  await withRetry(() => octokit.rest.pulls.update({
                     owner,
                     repo,
                     pull_number: existingPr.number,
@@ -727,7 +797,7 @@ jobs:
               try {
                 // Fetch all comments using pagination to avoid missing any
                 const comments = await paginateWithRetry(
-                  github, github.rest.issues.listComments,
+                  octokit, octokit.rest.issues.listComments,
                   {
                     owner,
                     repo,
@@ -749,7 +819,7 @@ jobs:
                     issueBody.trim(),
                   ].join('\n');
 
-                  await withRetry(() => github.rest.issues.createComment({
+                  await withRetry(() => octokit.rest.issues.createComment({
                     owner,
                     repo,
                     issue_number: existingPr.number,
@@ -762,7 +832,7 @@ jobs:
               }
 
               // Still post on the issue for visibility
-              await withRetry(() => github.rest.issues.createComment({
+              await withRetry(() => octokit.rest.issues.createComment({
                 owner,
                 repo,
                 issue_number,
@@ -771,7 +841,7 @@ jobs:
               return;
             }
 
-            await withRetry(() => github.rest.issues.createComment({
+            await withRetry(() => octokit.rest.issues.createComment({
               owner,
               repo,
               issue_number,
