@@ -106,10 +106,10 @@ with our current `build_chat_client()` implementation without code changes:
 
 ### Invalid Model IDs in Current Codebase
 
-| Currently Used | Status | Correct Replacement |
+| Previously Used | Status | Replacement Applied |
 |---------------|--------|---------------------|
-| `claude-4.5-sonnet` | **Does not exist** | `claude-sonnet-4-5` |
-| `gpt-4o` (as default) | Works but legacy | `gpt-4.1` (recommended) |
+| `claude-4.5-sonnet` | **Did not exist** | `claude-sonnet-4-5` (fixed) |
+| `gpt-4o` (as default) | Works but legacy | `codex-mini-latest` (trialing) |
 
 ---
 
