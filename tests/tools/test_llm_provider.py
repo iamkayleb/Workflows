@@ -203,6 +203,17 @@ class TestProviderLegacyBehavior:
         assert result.provider_used == "openai"
         assert result.confidence == 0.85
 
+    def test_regex_fallback_analyze_completion_without_quality_context(self):
+        """Regex fallback works with default quality_context=None."""
+        provider = RegexFallbackProvider()
+        result = provider.analyze_completion(
+            "Completed task1 successfully.",
+            ["task1"],
+        )
+
+        assert result.provider_used == "regex-fallback"
+        assert result.completed_tasks == ["task1"]
+
 
 class TestRegexFallbackProvider:
     """Test regex-based analysis."""

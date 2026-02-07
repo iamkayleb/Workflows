@@ -11,14 +11,6 @@ tasks:
     finished_at: '2026-02-05T19:34:48Z'
     commit: 346c61368f169ac3f3e985d31d940f06f2f13320
     notes: []
-  - id: task-02
-    title: 'Identify underlying providers that support `quality_context`. (verify:
-      confirm completion in repo)'
-    status: todo
-    started_at: null
-    finished_at: null
-    commit: ''
-    notes: []
   - id: task-08
     title: Update the `LLMProvider` interface to include an optional `quality_context`
       parameter (default `None`), modify relevant methods to accept it, and verify
