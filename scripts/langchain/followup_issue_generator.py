@@ -64,6 +64,10 @@ SECTION_TITLES = {
 
 LIST_ITEM_REGEX = re.compile(r"^\s*([-*+]|\d+[.)]|[A-Za-z][.)])\s+(.*)$")
 CHECKBOX_REGEX = re.compile(r"^\[([ xX])\]\s*(.*)$")
+MISSING_CONCERNS_MESSAGE = (
+    "Verification output did not include extractable concerns; "
+    "re-run verification to capture verifier-context.md and verifier-diff-summary.md."
+)
 
 
 def _normalize_heading(text: str) -> str:
@@ -296,6 +300,7 @@ class VerificationData:
     tasks_completed: int = 0
     non_actionable_items: list[str] = field(default_factory=list)
     structural_issues: list[str] = field(default_factory=list)
+    missing_concerns: bool = False
 
 
 @dataclass
@@ -465,6 +470,12 @@ def extract_verification_data(comment_body: str) -> VerificationData:
             seen.add(c_lower)
             data.concerns.append(c)
 
+    if not data.concerns and _should_add_missing_concerns_note(
+        comment_body, data.provider_verdicts
+    ):
+        data.missing_concerns = True
+        data.concerns.append(MISSING_CONCERNS_MESSAGE)
+
     # Extract low scores (handle decimal scores like 6.0/10)
     score_pattern = re.compile(r"(\w+):\s*(\d+(?:\.\d+)?)/10", re.IGNORECASE)
     for match in score_pattern.finditer(comment_body):
@@ -507,6 +518,23 @@ def extract_verification_data(comment_body: str) -> VerificationData:
             data.structural_issues.append(match.group(1).strip())
 
     return data
+
+
+def _should_add_missing_concerns_note(
+    comment_body: str, provider_verdicts: dict[str, dict[str, Any]]
+) -> bool:
+    if not comment_body:
+        return True
+    if not provider_verdicts:
+        return True
+    verdicts = []
+    for payload in provider_verdicts.values():
+        verdict = (payload.get("verdict") or "").strip().lower()
+        if verdict:
+            verdicts.append(verdict)
+    if not verdicts:
+        return True
+    return any(verdict == "unknown" for verdict in verdicts)
 
 
 def extract_original_issue_data(
@@ -991,7 +1019,13 @@ def _generate_without_llm(
 
     # Convert concerns to tasks
     tasks = []
+    if verification_data.missing_concerns:
+        tasks.append(
+            "Re-run verification to capture verifier-context.md and verifier-diff-summary.md."
+        )
     for concern in verification_data.concerns[:10]:  # Limit
+        if verification_data.missing_concerns and concern == MISSING_CONCERNS_MESSAGE:
+            continue
         # Clean up concern to be task-like
         task = concern
         if not task.lower().startswith(("add", "fix", "implement", "update", "ensure")):
