@@ -514,7 +514,7 @@ class AnthropicProvider(LLMProvider):
             return None
 
         return ChatAnthropic(
-            model="claude-4.5-sonnet",
+            model="claude-sonnet-4-5",
             anthropic_api_key=os.environ.get(ANTHROPIC_API_KEY_ENV),
             temperature=0.1,
         )
@@ -547,7 +547,7 @@ class AnthropicProvider(LLMProvider):
                 confidence=result.confidence,
                 reasoning=result.reasoning,
                 provider_used=self.name,
-                model_name="claude-3-5-sonnet-20241022",
+                model_name="claude-sonnet-4-5",
                 raw_confidence=result.raw_confidence,
                 confidence_adjusted=result.confidence_adjusted,
                 quality_warnings=result.quality_warnings,
