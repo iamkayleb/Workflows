@@ -42,6 +42,13 @@ def _run_harness(
     scenario_path: Path, *, extra_env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     env = _clean_token_env(os.environ.copy())
+    try:
+        scenario_data = json.loads(scenario_path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        scenario_data = {}
+    if scenario_data.get("clear_token_defaults") or scenario_data.get("clearTokenDefaults"):
+        env.setdefault("CLEAR_TOKEN_DEFAULTS", "true")
+        env.setdefault("clear_token_defaults", "true")
     if extra_env:
         env.update(extra_env)
     command = ["node", str(HARNESS), str(scenario_path)]
