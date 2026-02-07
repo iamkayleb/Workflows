@@ -426,6 +426,26 @@ def _valid_issue_payload() -> dict[str, object]:
     }
 
 
+def test_analyze_issue_valid_output_no_repair(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    good = json.dumps(_valid_issue_payload())
+    mock_chain.invoke.side_effect = [_response_with(good)]
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_optimizer._get_llm_client",
+        return_value=(mock_client, "github-models"),
+    ):
+        result = issue_optimizer.analyze_issue("Issue body", use_llm=True)
+
+    assert result.provider_used == "github-models"
+    assert result.missing_sections == ["Scope"]
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 0
+
+
 def test_analyze_issue_repairs_preamble_output(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_client = mock.MagicMock()
     mock_chain = mock.MagicMock()
