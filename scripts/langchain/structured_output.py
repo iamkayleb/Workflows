@@ -32,6 +32,7 @@ class StructuredOutputResult(Generic[T]):
     raw_content: str | None
     error_stage: str | None
     error_detail: str | None
+    repair_attempts_used: int = 0
 
 
 def schema_json(model: type[BaseModel]) -> str:
@@ -97,6 +98,7 @@ def parse_structured_output(
             raw_content=content,
             error_stage=None,
             error_detail=None,
+            repair_attempts_used=0,
         )
     except ValidationError as exc:
         error_detail = format_validation_errors(exc)
@@ -113,6 +115,7 @@ def parse_structured_output(
                 raw_content=None,
                 error_stage="validation",
                 error_detail=error_detail,
+                repair_attempts_used=0,
             )
         repaired = repair(schema_json(model), error_detail, content)
         if not repaired:
@@ -121,6 +124,7 @@ def parse_structured_output(
                 raw_content=None,
                 error_stage="repair_unavailable",
                 error_detail=error_detail,
+                repair_attempts_used=1,
             )
         try:
             payload = model.model_validate_json(repaired)
@@ -129,6 +133,7 @@ def parse_structured_output(
                 raw_content=repaired,
                 error_stage=None,
                 error_detail=None,
+                repair_attempts_used=1,
             )
         except ValidationError as repair_exc:
             repair_detail = format_validation_errors(repair_exc)
@@ -143,6 +148,7 @@ def parse_structured_output(
                 raw_content=None,
                 error_stage="repair_validation",
                 error_detail=repair_detail,
+                repair_attempts_used=1,
             )
 
     return StructuredOutputResult(
@@ -150,4 +156,5 @@ def parse_structured_output(
         raw_content=None,
         error_stage="validation",
         error_detail="Unknown validation error.",
+        repair_attempts_used=0,
     )
