@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from tools.llm_provider import (
+    AnthropicProvider,
     CompletionAnalysis,
     FallbackChainProvider,
     GitHubModelsProvider,
-    AnthropicProvider,
     LLMProvider,
     OpenAIProvider,
     RegexFallbackProvider,
