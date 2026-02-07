@@ -227,7 +227,7 @@ def test_build_chat_clients_env_provider_override_github(
 
 
 def test_build_chat_clients_env_model_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Model override env var should set both models when not provided."""
+    """Model override env var should set the primary model when not provided."""
     FakeChatOpenAI = _install_fake_langchain_openai(monkeypatch)
     monkeypatch.setenv("GITHUB_TOKEN", "gh-token")
     monkeypatch.setenv("OPENAI_API_KEY", "oa-token")
@@ -236,7 +236,10 @@ def test_build_chat_clients_env_model_override(monkeypatch: pytest.MonkeyPatch) 
 
     clients = langchain_client.build_chat_clients()
 
-    assert [client.model for client in clients] == ["gpt-4o-mini", "gpt-4o"]
+    assert [client.model for client in clients] == [
+        "gpt-4o-mini",
+        langchain_client.DEFAULT_MODEL,
+    ]
     assert isinstance(clients[0].client, FakeChatOpenAI)
 
 

@@ -13,7 +13,7 @@
     {
       "name": "slot3",
       "provider": "github-models",
-      "model": "gpt-4o"
+      "model": "codex-mini-latest"
     }
   ]
 }

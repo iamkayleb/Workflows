@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.integration_repo import DEFAULT_WORKFLOW_REF, render_integration_repo
+from tools.integration_repo import DEFAULT_WORKFLOW_REF, render_integration_repo  # noqa: E402
 
 DEFAULT_DESTINATION = Path(".consumer-tests") / "integration-repo"
 
