@@ -23,6 +23,7 @@ Original response:
 {raw_response}
 
 Return ONLY valid JSON that matches the schema with no surrounding text.
+Do not wrap the JSON in markdown fences.
 """.strip()
 
 
