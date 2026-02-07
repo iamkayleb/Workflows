@@ -282,6 +282,7 @@ def summarize(context: SummaryContext) -> SummaryResult:
         return SummaryResult(lines=lines, state="success", description=description)
 
     records = _load_summary_records(context.artifacts_root)
+    has_records = bool(records)
 
     (
         table,
@@ -320,10 +321,14 @@ def summarize(context: SummaryContext) -> SummaryResult:
     elif python_result not in ("success", "skipped") or (
         python_result == "skipped" and context.run_core
     ):
-        state = "failure"
-        description = f"Python CI result: {python_result}."
-        cosmetic_failure, failure_checks = _detect_cosmetic_failure(records)
-        format_failure = "format" in failure_checks
+        if python_result == "skipped" and context.run_core and not has_records:
+            state = "pending"
+            description = "Python CI skipped; waiting for rerun."
+        else:
+            state = "failure"
+            description = f"Python CI result: {python_result}."
+            cosmetic_failure, failure_checks = _detect_cosmetic_failure(records)
+            format_failure = "format" in failure_checks
     elif context.docker_changed and docker_result_norm == "cancelled":
         state = "pending"
         description = "Docker smoke cancelled; waiting for rerun."

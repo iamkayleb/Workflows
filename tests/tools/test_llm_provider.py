@@ -203,6 +203,17 @@ class TestProviderLegacyBehavior:
         assert result.provider_used == "openai"
         assert result.confidence == 0.85
 
+    def test_regex_fallback_analyze_completion_without_quality_context(self):
+        """Regex fallback works with default quality_context=None."""
+        provider = RegexFallbackProvider()
+        result = provider.analyze_completion(
+            "Completed task1 successfully.",
+            ["task1"],
+        )
+
+        assert result.provider_used == "regex-fallback"
+        assert result.completed_tasks == ["task1"]
+
 
 class TestRegexFallbackProvider:
     """Test regex-based analysis."""
@@ -743,6 +754,81 @@ class TestFallbackChainProvider:
         )
 
         assert result.provider_used == "quality-aware"
+
+    def test_prefers_quality_context_provider_and_passes_context(self):
+        """Preferred provider receives quality_context when available."""
+
+        class LegacyProvider(LLMProvider):
+            @property
+            def name(self) -> str:
+                return "legacy"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+            ) -> CompletionAnalysis:
+                return CompletionAnalysis(
+                    completed_tasks=["legacy"],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.6,
+                    reasoning="legacy",
+                    provider_used=self.name,
+                )
+
+        class QualityAwareProvider(LLMProvider):
+            def __init__(self) -> None:
+                self.received_quality_context: SessionQualityContext | None = None
+
+            @property
+            def name(self) -> str:
+                return "quality-aware"
+
+            def is_available(self) -> bool:
+                return True
+
+            def analyze_completion(
+                self,
+                session_output: str,
+                tasks: list[str],
+                context: str | None = None,
+                quality_context: SessionQualityContext | None = None,
+            ) -> CompletionAnalysis:
+                self.received_quality_context = quality_context
+                return CompletionAnalysis(
+                    completed_tasks=["quality-aware"],
+                    in_progress_tasks=[],
+                    blocked_tasks=[],
+                    confidence=0.7,
+                    reasoning="quality-aware",
+                    provider_used=self.name,
+                )
+
+        quality_context = SessionQualityContext(
+            has_agent_messages=True,
+            has_work_evidence=True,
+            file_change_count=1,
+            successful_command_count=1,
+            estimated_effort_score=10,
+            data_quality="medium",
+            analysis_text_length=250,
+        )
+
+        quality_provider = QualityAwareProvider()
+        chain = FallbackChainProvider([LegacyProvider(), quality_provider])
+        result = chain.analyze_completion(
+            "output",
+            ["task1"],
+            quality_context=quality_context,
+        )
+
+        assert result.provider_used == "quality-aware"
+        assert quality_provider.received_quality_context is quality_context
 
     def test_quality_context_reaches_selected_provider(self):
         """Chain forwards quality_context to the active quality-aware provider."""

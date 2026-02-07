@@ -295,6 +295,24 @@ def test_summarize_handles_skipped_python_when_core_runs(tmp_path: Path) -> None
     assert "Python CI result: skipped." in result.description
 
 
+def test_summarize_skipped_python_without_records_is_pending(tmp_path: Path) -> None:
+    context = gate_summary.SummaryContext(
+        doc_only=False,
+        run_core=True,
+        reason="",
+        python_result="skipped",
+        docker_result="skipped",
+        docker_changed=False,
+        artifacts_root=tmp_path,
+        summary_path=None,
+        output_path=None,
+    )
+
+    result = gate_summary.summarize(context)
+    assert result.state == "pending"
+    assert "Python CI skipped; waiting for rerun." in result.description
+
+
 def test_summarize_handles_docker_failures(tmp_path: Path) -> None:
     write_summary(tmp_path, "3.12")
     context = gate_summary.SummaryContext(
