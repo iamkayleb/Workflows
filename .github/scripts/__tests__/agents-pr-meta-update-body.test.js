@@ -10,6 +10,9 @@ const {
   coalesceWrappedChecklist,
   extractBlock,
   fetchConnectorCheckboxStates,
+  findUnauthorizedCompletionAuthors,
+  buildCompletionAuthorWarningBody,
+  upsertCompletionAuthorWarning,
   buildStatusBlock,
   resolveAgentType,
   stripPrTemplateContent,
@@ -496,6 +499,92 @@ test('fetchConnectorCheckboxStates handles comments with null user', async () =>
 
   assert.strictEqual(states.size, 1);
   assert.strictEqual(states.get('valid task'), true);
+});
+
+test('findUnauthorizedCompletionAuthors detects completion checkpoint authors', () => {
+  const comments = [
+    {
+      user: { login: 'custom-bot[bot]' },
+      body: '<!-- codex-completion-checkpoint -->\n- [x] Done',
+    },
+    {
+      user: { login: 'github-actions[bot]' },
+      body: '<!-- codex-completion-checkpoint -->\n- [x] Done',
+    },
+  ];
+
+  const result = findUnauthorizedCompletionAuthors(comments);
+
+  assert.deepStrictEqual(result, ['custom-bot[bot]']);
+});
+
+test('buildCompletionAuthorWarningBody includes marker and logins', () => {
+  const body = buildCompletionAuthorWarningBody(['custom-bot[bot]']);
+
+  assert.ok(body.includes('<!-- completion-author-warning -->'));
+  assert.ok(body.includes('custom-bot[bot]'));
+});
+
+test('upsertCompletionAuthorWarning creates comment for unauthorized authors', async () => {
+  const calls = { create: 0, update: 0, lastBody: '' };
+  const github = {
+    rest: {
+      issues: {
+        createComment: async ({ body }) => {
+          calls.create += 1;
+          calls.lastBody = body;
+        },
+        updateComment: async () => {
+          calls.update += 1;
+        },
+      },
+    },
+  };
+
+  await upsertCompletionAuthorWarning({
+    github,
+    owner: 'octo',
+    repo: 'demo',
+    prNumber: 42,
+    comments: [],
+    unauthorizedLogins: ['custom-bot[bot]'],
+    core: { info: () => {}, warning: () => {} },
+  });
+
+  assert.strictEqual(calls.create, 1);
+  assert.strictEqual(calls.update, 0);
+  assert.ok(calls.lastBody.includes('custom-bot[bot]'));
+});
+
+test('upsertCompletionAuthorWarning resolves existing warning comment', async () => {
+  const calls = { create: 0, update: 0, lastBody: '' };
+  const github = {
+    rest: {
+      issues: {
+        createComment: async () => {
+          calls.create += 1;
+        },
+        updateComment: async ({ body }) => {
+          calls.update += 1;
+          calls.lastBody = body;
+        },
+      },
+    },
+  };
+
+  await upsertCompletionAuthorWarning({
+    github,
+    owner: 'octo',
+    repo: 'demo',
+    prNumber: 42,
+    comments: [{ id: 99, body: '<!-- completion-author-warning -->' }],
+    unauthorizedLogins: [],
+    core: { info: () => {}, warning: () => {} },
+  });
+
+  assert.strictEqual(calls.create, 0);
+  assert.strictEqual(calls.update, 1);
+  assert.ok(calls.lastBody.includes('Completion Comment Authors Authorized'));
 });
 
 test('resolveAgentType prefers explicit inputs over labels', () => {

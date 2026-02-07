@@ -511,7 +511,7 @@ class AnthropicProvider(LLMProvider):
             return None
 
         return ChatAnthropic(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-5-20250929",
             anthropic_api_key=os.environ.get(ANTHROPIC_API_KEY_ENV),
             temperature=0.1,
         )

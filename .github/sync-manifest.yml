@@ -424,6 +424,9 @@ scripts:
   - source: tools/llm_provider.py
     description: "LLM provider configuration - GitHub Models and OpenAI client setup"
 
+  - source: tools/langchain_client.py
+    description: "LangChain client builder - multi-provider client with slot-based fallback and configuration"
+
   - source: .github/scripts/agents-guard.js
     description: "Guards against unauthorized agent workflow file changes"
 
@@ -451,6 +454,12 @@ actions:
   - source: .github/actions/export-load-balancer-tokens/
     is_directory: true
     description: "Export load balancer tokens action - required by reusable-10-ci-python.yml (deprecated, use setup-api-client)"
+
+# Configuration files for LLM providers and workflows
+llm_config:
+  - source: config/llm_slots.json
+    description: "LLM slot configuration - defines provider/model slots for multi-provider workflows"
+    sync_mode: create_only  # Don't overwrite - repos may customize provider preferences
 
 # Documentation synced to consumer repos
 docs:

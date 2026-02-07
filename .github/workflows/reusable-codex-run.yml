@@ -821,8 +821,10 @@ jobs:
 
           # Fetch PR body to extract tasks
           echo "Fetching PR #${PR_NUM} body..."
+          set +e
           PR_BODY=$(gh pr view "${PR_NUM}" --json body --jq '.body' 2>&1)
           fetch_exit=$?
+          set -e
 
           if [ $fetch_exit -ne 0 ] || [ -z "$PR_BODY" ]; then
             echo "::warning::Could not fetch PR body for #${PR_NUM} (exit code: $fetch_exit)"

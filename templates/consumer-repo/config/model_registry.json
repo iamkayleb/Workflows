@@ -166,7 +166,7 @@
       "notes": "Opus tier. Overkill for most tasks, great for T5."
     },
     {
-      "model_id": "claude-sonnet-4-5",
+      "model_id": "claude-sonnet-4-5-20250929",
       "provider": "anthropic",
       "api": "chat",
       "quality": { "T1": 0.90, "T2": 0.90, "T3": 0.92, "T4": 0.92, "T5": 0.94 },
