@@ -408,6 +408,54 @@ def _formatted_output_valid(text: str) -> bool:
     return all(section in text for section in required)
 
 
+def _deduplicate_task_lines(formatted: str) -> str:
+    """Remove duplicate task lines from the formatted output."""
+    lines = formatted.splitlines()
+    try:
+        header_idx = next(i for i, line in enumerate(lines) if line.strip() == "## Tasks")
+    except StopIteration:
+        return formatted
+
+    end_idx = next(
+        (
+            i
+            for i in range(header_idx + 1, len(lines))
+            if lines[i].startswith("## ") and lines[i].strip() != "## Tasks"
+        ),
+        len(lines),
+    )
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for line in lines[header_idx + 1 : end_idx]:
+        stripped = line.strip()
+        if not stripped:
+            deduped.append(line)
+            continue
+        norm = _normalize_task_text(_strip_task_marker(stripped))
+        if not norm:
+            deduped.append(line)
+            continue
+        if norm in seen:
+            continue
+        seen.add(norm)
+        deduped.append(line)
+
+    result = lines[: header_idx + 1] + deduped + lines[end_idx:]
+    return "\n".join(result)
+
+
+def _section_duplication_ratio(formatted: str) -> float:
+    """Return the fraction of section headings that appear more than once."""
+    headings = re.findall(r"^##\s+(.+)$", formatted, re.MULTILINE)
+    if not headings:
+        return 0.0
+    norm_headings = [h.strip().lower() for h in headings]
+    unique = set(norm_headings)
+    duplicated = sum(1 for h in unique if norm_headings.count(h) > 1)
+    return duplicated / len(unique)
+
+
 def _strip_task_marker(text: str) -> str:
     cleaned = re.sub(r"^\s*[-*+]\s*", "", text)
     cleaned = re.sub(r"^\s*\[[ xX]\]\s*", "", cleaned)
@@ -426,8 +474,13 @@ def _coerce_split_suggestions(entry: dict[str, Any]) -> list[str]:
     items: list[str] = []
     for suggestion in suggestions:
         value = str(suggestion).strip()
-        if value:
-            items.append(value)
+        if not value:
+            continue
+        # Reject short fragments that aren't actionable tasks
+        word_count = len(re.findall(r"[A-Za-z0-9']+", value))
+        if word_count < 5:
+            continue
+        items.append(value)
     return items
 
 
@@ -480,10 +533,11 @@ def _ensure_task_decomposition(
         if not suggestions:
             decomposition = task_decomposer.decompose_task(task, use_llm=use_llm)
             suggestions = decomposition.get("sub_tasks") or []
-        normalized = task_decomposer.normalize_subtasks(suggestions)
+        # Skip normalize_subtasks here; _apply_task_decomposition handles it
+        # to avoid double-normalization that can amplify duplication.
         updated_entry = dict(entry)
-        if normalized:
-            updated_entry["split_suggestions"] = normalized
+        if suggestions:
+            updated_entry["split_suggestions"] = suggestions
         updated.append(updated_entry)
     return updated
 
@@ -751,11 +805,18 @@ def apply_suggestions(
                     content = getattr(response, "content", None) or str(response)
                     formatted = content.strip()
                     if _formatted_output_valid(formatted):
-                        return {
-                            "formatted_body": formatted,
-                            "provider_used": provider,
-                            "used_llm": True,
-                        }
+                        formatted = _deduplicate_task_lines(formatted)
+                        if _section_duplication_ratio(formatted) > 0:
+                            print(
+                                "LLM output has duplicated sections, " "falling back",
+                                file=sys.stderr,
+                            )
+                        else:
+                            return {
+                                "formatted_body": formatted,
+                                "provider_used": provider,
+                                "used_llm": True,
+                            }
                 except Exception as e:
                     # If GitHub Models hit token limit, retry with OpenAI API
                     if _is_token_limit_error(e) and provider == "github-models":
@@ -779,15 +840,23 @@ def apply_suggestions(
                                 content = getattr(response, "content", None) or str(response)
                                 formatted = content.strip()
                                 if _formatted_output_valid(formatted):
-                                    print(
-                                        "Successfully applied suggestions with OpenAI API",
-                                        file=sys.stderr,
-                                    )
-                                    return {
-                                        "formatted_body": formatted,
-                                        "provider_used": openai_provider,
-                                        "used_llm": True,
-                                    }
+                                    formatted = _deduplicate_task_lines(formatted)
+                                    if _section_duplication_ratio(formatted) > 0:
+                                        print(
+                                            "OpenAI output has duplicated "
+                                            "sections, falling back",
+                                            file=sys.stderr,
+                                        )
+                                    else:
+                                        print(
+                                            "Successfully applied suggestions " "with OpenAI API",
+                                            file=sys.stderr,
+                                        )
+                                        return {
+                                            "formatted_body": formatted,
+                                            "provider_used": openai_provider,
+                                            "used_llm": True,
+                                        }
                             except Exception as openai_error:
                                 print(
                                     f"OpenAI API also failed ({type(openai_error).__name__}: {openai_error}), using fallback",
@@ -810,6 +879,7 @@ def apply_suggestions(
     fallback = issue_formatter.format_issue_body(issue_body, use_llm=False)
     formatted = _apply_task_decomposition(fallback["formatted_body"], suggestions)
     formatted = _append_deferred_tasks(formatted, suggestions)
+    formatted = _deduplicate_task_lines(formatted)
     return {
         "formatted_body": formatted,
         "provider_used": None,
