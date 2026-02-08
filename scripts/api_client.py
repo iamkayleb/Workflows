@@ -218,19 +218,18 @@ def fetch_oauth_scopes(
     *,
     retry_attempts: int | None = None,
     retry_backoff: float | None = None,
-) -> set[str] | None:
-    response = _request_response(
-        "GET",
-        GITHUB_API,
-        token,
-        payload=None,
-        **_retry_kwargs(retry_attempts, retry_backoff),
-    )
+) -> str | None:
+    try:
+        response = _request_response(
+            "GET",
+            GITHUB_API,
+            token,
+            payload=None,
+            **_retry_kwargs(retry_attempts, retry_backoff),
+        )
+    except RuntimeError:
+        return None
     headers = getattr(response, "headers", None)
     if not headers:
         return None
-    scopes_header = headers.get("X-OAuth-Scopes")
-    if scopes_header is None:
-        return None
-    scopes = {scope.strip() for scope in scopes_header.split(",") if scope.strip()}
-    return scopes
+    return headers.get("X-OAuth-Scopes")
