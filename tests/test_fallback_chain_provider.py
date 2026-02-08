@@ -49,7 +49,13 @@ def test_fallback_chain_forwards_quality_context_to_active_provider():
     chain.analyze_completion("session", ["task"], quality_context=sentinel)
 
     provider.analyze_completion.assert_called_once()
-    assert provider.analyze_completion.call_args.kwargs["quality_context"] is sentinel
+    call_args = provider.analyze_completion.call_args
+    assert call_args.args == ()
+    call_kwargs = call_args.kwargs
+    assert call_kwargs["session_output"] == "session"
+    assert call_kwargs["tasks"] == ["task"]
+    assert call_kwargs["quality_context"] is sentinel
+    assert sentinel not in call_args.args
 
 
 class LegacyProvider(LLMProvider):
@@ -128,3 +134,4 @@ def test_fallback_chain_selects_expected_active_provider_and_forwards_args():
     assert call_kwargs["tasks"] == ["task"]
     assert call_kwargs["context"] == "ctx"
     assert call_kwargs["quality_context"] is sentinel
+    assert sentinel not in call_args.args
