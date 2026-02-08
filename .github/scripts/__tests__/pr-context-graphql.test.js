@@ -98,6 +98,40 @@ const mockPRBasicResponse = {
   }
 };
 
+const mockPRContextResponseWithAgents = {
+  repository: {
+    pullRequest: {
+      ...mockPRContextResponse.repository.pullRequest,
+      files: {
+        totalCount: 4,
+        nodes: [
+          { path: 'src/index.js', additions: 10, deletions: 5, changeType: 'MODIFIED' },
+          { path: 'tests/test.js', additions: 20, deletions: 0, changeType: 'ADDED' },
+          { path: 'README.md', additions: 2, deletions: 1, changeType: 'MODIFIED' },
+          { path: '.agents/issue-1234-ledger.yml', additions: 3, deletions: 1, changeType: 'MODIFIED' }
+        ]
+      }
+    }
+  }
+};
+
+const mockPRContextResponseWithDocs = {
+  repository: {
+    pullRequest: {
+      ...mockPRContextResponse.repository.pullRequest,
+      files: {
+        totalCount: 4,
+        nodes: [
+          { path: 'src/index.js', additions: 10, deletions: 5, changeType: 'MODIFIED' },
+          { path: 'docs/guide/intro.md', additions: 4, deletions: 0, changeType: 'ADDED' },
+          { path: 'README.md', additions: 2, deletions: 1, changeType: 'MODIFIED' },
+          { path: '.agents/issue-1234-ledger.yml', additions: 3, deletions: 1, changeType: 'MODIFIED' }
+        ]
+      }
+    }
+  }
+};
+
 describe('fetchPRContext', () => {
   it('fetches and transforms PR context correctly', async () => {
     const mockGithub = {
@@ -141,6 +175,55 @@ describe('fetchPRContext', () => {
     assert.strictEqual(context.files.total, 3);
     assert.deepStrictEqual(context.files.paths, ['src/index.js', 'tests/test.js', 'README.md']);
     assert.strictEqual(context.files.detailed.length, 3);
+  });
+
+  it('filters ignored .agents ledger files by default', async () => {
+    const mockGithub = {
+      graphql: mock.fn(async () => mockPRContextResponseWithAgents)
+    };
+
+    const context = await fetchPRContext(mockGithub, 'owner', 'repo', 42);
+
+    assert.strictEqual(context.files.total, 3);
+    assert.strictEqual(context.files.ignored, 1);
+    assert.strictEqual(context.files.unfilteredTotal, 4);
+    assert.deepStrictEqual(context.files.ignoredPaths, ['.agents/issue-1234-ledger.yml']);
+    assert.deepStrictEqual(context.files.paths, ['src/index.js', 'tests/test.js', 'README.md']);
+  });
+
+  it('respects custom ignored path patterns from env', async () => {
+    const mockGithub = {
+      graphql: mock.fn(async () => mockPRContextResponseWithDocs)
+    };
+    const originalPaths = process.env.PR_CONTEXT_IGNORED_PATHS;
+    const originalPatterns = process.env.PR_CONTEXT_IGNORED_PATTERNS;
+
+    process.env.PR_CONTEXT_IGNORED_PATHS = 'docs/';
+    process.env.PR_CONTEXT_IGNORED_PATTERNS = '.agents/issue-*-ledger.yml,docs/**/*.md';
+
+    try {
+      const context = await fetchPRContext(mockGithub, 'owner', 'repo', 42);
+
+      assert.strictEqual(context.files.total, 2);
+      assert.strictEqual(context.files.ignored, 2);
+      assert.strictEqual(context.files.unfilteredTotal, 4);
+      assert.deepStrictEqual(context.files.ignoredPaths, [
+        'docs/guide/intro.md',
+        '.agents/issue-1234-ledger.yml'
+      ]);
+      assert.deepStrictEqual(context.files.paths, ['src/index.js', 'README.md']);
+    } finally {
+      if (originalPaths === undefined) {
+        delete process.env.PR_CONTEXT_IGNORED_PATHS;
+      } else {
+        process.env.PR_CONTEXT_IGNORED_PATHS = originalPaths;
+      }
+      if (originalPatterns === undefined) {
+        delete process.env.PR_CONTEXT_IGNORED_PATTERNS;
+      } else {
+        process.env.PR_CONTEXT_IGNORED_PATTERNS = originalPatterns;
+      }
+    }
   });
   
   it('extracts reviews correctly', async () => {
@@ -226,6 +309,7 @@ describe('fetchPRContext', () => {
     assert.strictEqual(context.author, 'unknown');
     assert.deepStrictEqual(context.labels, []);
     assert.strictEqual(context.files.total, 0);
+    assert.deepStrictEqual(context.files.ignoredPaths, []);
     assert.strictEqual(context.lastCommit, null);
   });
 });
