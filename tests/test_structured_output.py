@@ -9,6 +9,7 @@ from scripts.langchain.structured_output import (
     StructuredOutputResult,
     build_repair_callback,
     build_repair_prompt,
+    clamp_repair_attempts,
     format_non_validation_error,
     format_validation_errors,
     parse_structured_output,
@@ -172,3 +173,16 @@ def test_parse_structured_output_repair_validation_error():
     assert result.payload is None
     assert result.error_stage == "repair_validation"
     assert result.repair_attempts_used == 1
+
+
+@pytest.mark.parametrize(
+    ("input_attempts", "expected"),
+    [
+        (0, 0),
+        (1, 1),
+        (2, 2),
+        (10, 10),
+    ],
+)
+def test_clamp_repair_attempts_uses_lower_bound_only(input_attempts: int, expected: int):
+    assert clamp_repair_attempts(input_attempts) == expected
