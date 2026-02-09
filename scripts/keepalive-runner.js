@@ -11,6 +11,7 @@ const {
 const {
   getKeepaliveInstructionWithMention,
 } = require('../.github/scripts/keepalive_instruction_template.js');
+const { createTokenAwareRetry } = require('../.github/scripts/github-api-with-retry.js');
 
 function parseJson(value, fallback) {
   try {
@@ -74,6 +75,63 @@ function normaliseLogin(login) {
     return '';
   }
   return base.replace(/\[bot\]$/i, '');
+}
+
+function normalizeScopeBlock(value) {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/\s+$/g, ''))
+    .join('\n')
+    .trim();
+}
+
+function normalizeScopeBlockForComparison(value) {
+  const cleaned = normalizeScopeBlock(value);
+  if (!cleaned) {
+    return '';
+  }
+
+  const normalizedLines = cleaned.split('\n').map((line) => {
+    let text = String(line || '').trim();
+    if (!text) {
+      return '';
+    }
+    text = text.replace(/^#{1,6}\s+/, '');
+    text = text.replace(/\s*:\s*$/, '');
+    text = text.replace(/^(?:\*\*|__)(.+)(?:\*\*|__)$/, '$1');
+    return text.trim().toLowerCase();
+  });
+
+  const compacted = [];
+  for (const line of normalizedLines) {
+    if (!line) {
+      if (compacted.length && compacted[compacted.length - 1] === '') {
+        continue;
+      }
+    }
+    compacted.push(line);
+  }
+
+  return compacted.join('\n').trim();
+}
+
+function shouldIncludeScopeBlock({ scopeBlock, prBody }) {
+  const cleanedScope = normalizeScopeBlockForComparison(scopeBlock);
+  if (!cleanedScope) {
+    return false;
+  }
+  const prSource = prBody ? String(prBody) : '';
+  const prScopeBlock = normalizeScopeBlockForComparison(
+    prSource ? extractScopeTasksAcceptanceSections(prSource, { includePlaceholders: false }) : ''
+  );
+  if (!prScopeBlock) {
+    return true;
+  }
+  if (prScopeBlock.includes(cleanedScope) || cleanedScope.includes(prScopeBlock)) {
+    return false;
+  }
+  return true;
 }
 
 function hasCliAgentLabel(labels) {
@@ -791,6 +849,9 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     }
   }
 
+  // Initialize token-aware retry for API calls
+  const { withRetry, github: tokenAwareGithub } = await createTokenAwareRetry({ github, core });
+
   const idleMinutes = coerceNumber(options.keepalive_idle_minutes, 10, { min: 0 });
   const repeatMinutes = coerceNumber(options.keepalive_repeat_minutes, 30, { min: 0 });
 
@@ -876,18 +937,18 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     )
     .addEOL();
 
-  const paginatePulls = github.paginate.iterator(
-    github.rest.pulls.list,
+  const paginatePulls = tokenAwareGithub.paginate.iterator(
+    tokenAwareGithub.rest.pulls.list,
     { owner, repo, state: 'open', per_page: 50 }
   );
 
   const fetchIssueComments = async (issueNumber) => {
     const comments = [];
     const perPage = 100;
-    const hasIterator = Boolean(github.paginate?.iterator);
+    const hasIterator = Boolean(tokenAwareGithub.paginate?.iterator);
 
     if (hasIterator) {
-      const iterator = github.paginate.iterator(github.rest.issues.listComments, {
+      const iterator = tokenAwareGithub.paginate.iterator(tokenAwareGithub.rest.issues.listComments, {
         owner,
         repo,
         issue_number: issueNumber,
@@ -903,13 +964,13 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     } else {
       let page = 1;
       while (true) {
-        const { data } = await github.rest.issues.listComments({
+        const { data } = await withRetry((client) => client.rest.issues.listComments({
           owner,
           repo,
           issue_number: issueNumber,
           per_page: perPage,
           page,
-        });
+        }));
         if (!Array.isArray(data) || !data.length) {
           break;
         }
@@ -1111,8 +1172,13 @@ async function runKeepalive({ core, github, context, env = process.env }) {
       const command =
         commandOverride || getKeepaliveInstructionWithMention('codex', promptContext);
 
+      const includeScopeBlock = shouldIncludeScopeBlock({ scopeBlock, prBody: pr.body || '' });
       const bodyParts = [roundMarker, attemptMarker, canonicalMarker, traceMarker, command];
-      bodyParts.push('', scopeBlock);
+      if (includeScopeBlock) {
+        bodyParts.push('', scopeBlock);
+      } else if (scopeBlock) {
+        core.info(`#${prNumber}: scope/tasks/acceptance already in PR body; skipping scope echo in keepalive comment.`);
+      }
       if (marker && marker !== canonicalMarker) {
         bodyParts.push('', marker);
       }
@@ -1140,12 +1206,12 @@ async function runKeepalive({ core, github, context, env = process.env }) {
 
           if (assignableAssignees.length > 0) {
             core.info(`#${prNumber}: adding human assignees: ${assignableAssignees.join(', ')}`);
-            await github.rest.issues.addAssignees({
+            await withRetry((client) => client.rest.issues.addAssignees({
               owner,
               repo,
               issue_number: prNumber,
               assignees: assignableAssignees,
-            });
+            }));
             assignmentSummaries.push(`#${prNumber} – ensured assignees: ${assignableAssignees.join(', ')}`);
           } else {
             core.info(`#${prNumber}: no assignable human assignees available; skipping assignment.`);
@@ -1341,6 +1407,8 @@ module.exports = {
   resolveDispatchToken,
   extractScopeTasksAcceptanceSections,
   findScopeTasksAcceptanceBlock,
+  normalizeScopeBlock,
+  shouldIncludeScopeBlock,
   countCheckboxes,
   extractLatestChecklist,
   resolvePromptCheckboxCounts,
