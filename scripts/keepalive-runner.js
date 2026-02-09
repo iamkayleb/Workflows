@@ -796,6 +796,16 @@ function resolveDispatchToken(env = {}, instructionToken = '') {
   return '';
 }
 
+function stripTokenKeys(env = {}, keys = []) {
+  const cleaned = { ...env };
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(cleaned, key)) {
+      delete cleaned[key];
+    }
+  }
+  return cleaned;
+}
+
 async function runKeepalive({ core, github, context, env = process.env }) {
   const rawOptions = env.OPTIONS_JSON || '{}';
   const dryRun = (env.DRY_RUN || '').trim().toLowerCase() === 'true';
@@ -803,6 +813,11 @@ async function runKeepalive({ core, github, context, env = process.env }) {
   const summary = core.summary;
   const traceSeed = generateTraceSeed(env.KEEPALIVE_TRACE || env.keepalive_trace || '');
   const pausedLabel = 'agents:paused';
+  const clearTokenDefaults = coerceBool(
+    env.CLEAR_TOKEN_DEFAULTS ?? env.clear_token_defaults,
+    false
+  );
+  const tokenEnv = clearTokenDefaults ? stripTokenKeys(env, DISPATCH_TOKEN_KEYS) : env;
 
   const addHeading = () => {
     summary.addHeading('Codex Keepalive');
@@ -827,13 +842,13 @@ async function runKeepalive({ core, github, context, env = process.env }) {
   let dispatchToken = '';
   let instructionAuthorOctokit = null;
   if (!dryRun) {
-    instructionAuthorToken = resolveInstructionToken(env);
+    instructionAuthorToken = resolveInstructionToken(tokenEnv);
     if (!instructionAuthorToken) {
       throw new Error(
         'GitHub token is required to author keepalive instructions (app token, PAT, or GITHUB_TOKEN).'
       );
     }
-    dispatchToken = resolveDispatchToken(env, instructionAuthorToken);
+    dispatchToken = resolveDispatchToken(tokenEnv, instructionAuthorToken);
 
     instructionAuthorOctokit = buildOctokitInstance({
       core,
@@ -937,23 +952,56 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     )
     .addEOL();
 
-  const paginatePulls = tokenAwareGithub.paginate.iterator(
-    tokenAwareGithub.rest.pulls.list,
-    { owner, repo, state: 'open', per_page: 50 }
-  );
+  const pullsPerPage = 50;
+  const pullsClient = tokenAwareGithub?.rest?.pulls?.list ? tokenAwareGithub : github;
+  const hasPaginationIterator = Boolean(pullsClient?.paginate?.iterator);
+  const iteratePulls = async function* () {
+    if (hasPaginationIterator) {
+      const iterator = pullsClient.paginate.iterator(
+        pullsClient.rest.pulls.list,
+        { owner, repo, state: 'open', per_page: pullsPerPage }
+      );
+      for await (const page of iterator) {
+        yield page;
+      }
+      return;
+    }
+
+    let page = 1;
+    while (true) {
+      const { data } = await withRetry(
+        (client) =>
+          client.rest.pulls.list({ owner, repo, state: 'open', per_page: pullsPerPage, page }),
+        { github: pullsClient }
+      );
+      const entries = Array.isArray(data) ? data : [];
+      if (!entries.length) {
+        break;
+      }
+      yield { data: entries };
+      if (entries.length < pullsPerPage) {
+        break;
+      }
+      page += 1;
+    }
+  };
 
   const fetchIssueComments = async (issueNumber) => {
     const comments = [];
     const perPage = 100;
-    const hasIterator = Boolean(tokenAwareGithub.paginate?.iterator);
+    const commentsClient = tokenAwareGithub?.rest?.issues?.listComments ? tokenAwareGithub : github;
+    const hasIterator = Boolean(commentsClient?.paginate?.iterator);
 
     if (hasIterator) {
-      const iterator = tokenAwareGithub.paginate.iterator(tokenAwareGithub.rest.issues.listComments, {
-        owner,
-        repo,
-        issue_number: issueNumber,
-        per_page: perPage,
-      });
+      const iterator = commentsClient.paginate.iterator(
+        commentsClient.rest.issues.listComments,
+        {
+          owner,
+          repo,
+          issue_number: issueNumber,
+          per_page: perPage,
+        }
+      );
 
       for await (const page of iterator) {
         const data = Array.isArray(page.data) ? page.data : [];
@@ -964,13 +1012,17 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     } else {
       let page = 1;
       while (true) {
-        const { data } = await withRetry((client) => client.rest.issues.listComments({
-          owner,
-          repo,
-          issue_number: issueNumber,
-          per_page: perPage,
-          page,
-        }));
+        const { data } = await withRetry(
+          (client) =>
+            client.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              per_page: perPage,
+              page,
+            }),
+          { github: commentsClient }
+        );
         if (!Array.isArray(data) || !data.length) {
           break;
         }
@@ -985,7 +1037,7 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     return comments;
   };
 
-  for await (const page of paginatePulls) {
+  for await (const page of iteratePulls()) {
     for (const pr of page.data) {
       if (scanned >= maxPrs) {
         limitReached = true;
@@ -1205,13 +1257,15 @@ async function runKeepalive({ core, github, context, env = process.env }) {
           }
 
           if (assignableAssignees.length > 0) {
+            const assigneeClient =
+              tokenAwareGithub?.rest?.issues?.addAssignees ? tokenAwareGithub : github;
             core.info(`#${prNumber}: adding human assignees: ${assignableAssignees.join(', ')}`);
             await withRetry((client) => client.rest.issues.addAssignees({
               owner,
               repo,
               issue_number: prNumber,
               assignees: assignableAssignees,
-            }));
+            }), { github: assigneeClient });
             assignmentSummaries.push(`#${prNumber} – ensured assignees: ${assignableAssignees.join(', ')}`);
           } else {
             core.info(`#${prNumber}: no assignable human assignees available; skipping assignment.`);
