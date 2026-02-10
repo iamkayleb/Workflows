@@ -248,9 +248,12 @@ def check_prompt_injection(text: object | None) -> GuardCheckResult:
             }
 
         code = _extract_reason_code(reason)
+        # Fallback: extract code from patterns when reason parsing fails
         if code is None:
-            return {"blocked": True, "reason": reason, "code": None}
-
+            for pattern in _PATTERNS:
+                if pattern.regex.search(normalized):
+                    code = pattern.code
+                    break
         return {"blocked": True, "reason": reason, "code": code}
     except Exception as exc:  # fail closed on guard errors
         return {

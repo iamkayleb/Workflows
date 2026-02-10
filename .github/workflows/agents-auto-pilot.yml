@@ -714,20 +714,63 @@ jobs:
             --input-file /tmp/issue_body.md \
             --json > /tmp/format_result.json
 
-          # Extract and apply formatted body
+          # Check for guard_blocked before proceeding
           python -c "
-          import json
+          import json, sys
           with open('/tmp/format_result.json') as f:
               result = json.load(f)
+          if result.get('guard_blocked'):
+              reason = result.get('guard_reason', 'unknown')
+              print(f'GUARD_BLOCKED: {reason}')
+              with open('/tmp/guard_blocked', 'w') as f:
+                  f.write(reason)
+              sys.exit(0)
           formatted = result.get('formatted_body', '')
           if not formatted:
               print('ERROR: No formatted body returned')
-              import sys
               sys.exit(1)
           with open('/tmp/formatted_body.md', 'w') as f:
               f.write(formatted)
           print('Issue formatted successfully')
           " || exit 1
+
+          # If guard blocked, apply needs-human + pause labels and stop
+          if [ -f /tmp/guard_blocked ]; then
+            echo "⚠️ Prompt injection guard blocked this issue. Applying needs-human labels."
+            GUARD_REASON=$(cat /tmp/guard_blocked)
+            node - <<'GUARD_NODE'
+            (async () => {
+              const fs = require('fs');
+              const { Octokit } = require('@octokit/rest');
+              const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+              const core = { info: () => {}, warning: console.warn, debug: () => {} };
+              const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
+              const { withRetry } = await createTokenAwareRetry({
+                github,
+                core,
+                env: process.env,
+                task: 'auto-pilot',
+                capabilities: ['issues:write'],
+              });
+              const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+              const issueNumber = Number(process.env.ISSUE_NUMBER);
+              const reason = fs.readFileSync('/tmp/guard_blocked', 'utf8').trim();
+              await withRetry((client) => client.rest.issues.addLabels({
+                owner, repo, issue_number: issueNumber,
+                labels: ['needs-human', 'agents:paused'],
+              }));
+              await withRetry((client) => client.rest.issues.createComment({
+                owner, repo, issue_number: issueNumber,
+                body: `⚠️ **Prompt injection guard triggered** during formatting.\n\nReason: ${reason}\n\nAutomation has been paused. A human must review this issue before automation can continue.`,
+              }));
+            })().catch((error) => {
+              console.error(error);
+              process.exit(1);
+            });
+          GUARD_NODE
+            echo "🛑 Automation stopped due to prompt injection guard."
+            exit 0
+          fi
 
           # Update issue body
           node - <<'NODE'
@@ -914,6 +957,57 @@ jobs:
           python scripts/langchain/issue_optimizer.py \
             --input-file /tmp/issue_body.md \
             --json > /tmp/suggestions.json
+
+          # Check for guard_blocked before proceeding with optimizer results
+          python -c "
+          import json, sys
+          with open('/tmp/suggestions.json') as f:
+              data = json.load(f)
+          if data.get('guard_blocked'):
+              reason = data.get('guard_reason', 'unknown')
+              print(f'GUARD_BLOCKED: {reason}')
+              with open('/tmp/guard_blocked', 'w') as f:
+                  f.write(reason)
+              sys.exit(0)
+          "
+
+          # If guard blocked, apply needs-human + pause labels and stop
+          if [ -f /tmp/guard_blocked ]; then
+            echo "⚠️ Prompt injection guard blocked this issue. Applying needs-human labels."
+            GUARD_REASON=$(cat /tmp/guard_blocked)
+            node - <<'GUARD_NODE'
+            (async () => {
+              const fs = require('fs');
+              const { Octokit } = require('@octokit/rest');
+              const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+              const core = { info: () => {}, warning: console.warn, debug: () => {} };
+              const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
+              const { withRetry } = await createTokenAwareRetry({
+                github,
+                core,
+                env: process.env,
+                task: 'auto-pilot',
+                capabilities: ['issues:write'],
+              });
+              const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+              const issueNumber = Number(process.env.ISSUE_NUMBER);
+              const reason = fs.readFileSync('/tmp/guard_blocked', 'utf8').trim();
+              await withRetry((client) => client.rest.issues.addLabels({
+                owner, repo, issue_number: issueNumber,
+                labels: ['needs-human', 'agents:paused'],
+              }));
+              await withRetry((client) => client.rest.issues.createComment({
+                owner, repo, issue_number: issueNumber,
+                body: `⚠️ **Prompt injection guard triggered** during optimization.\n\nReason: ${reason}\n\nAutomation has been paused. A human must review this issue before automation can continue.`,
+              }));
+            })().catch((error) => {
+              console.error(error);
+              process.exit(1);
+            });
+          GUARD_NODE
+            echo "🛑 Automation stopped due to prompt injection guard."
+            exit 0
+          fi
 
           # Format and post comment
           python -c "
@@ -1237,11 +1331,57 @@ jobs:
           # Apply suggestions
           result = apply_suggestions(issue_body, suggestions, use_llm=True)
 
+          # Check for guard_blocked
+          if result.get('guard_blocked'):
+              reason = result.get('guard_reason', 'unknown')
+              print(f'GUARD_BLOCKED: {reason}')
+              with open('/tmp/guard_blocked', 'w') as f:
+                  f.write(reason)
+              sys.exit(0)
+
           with open('/tmp/updated_body.md', 'w') as f:
               f.write(result['formatted_body'])
 
           print('Suggestions applied successfully')
           " || exit 1
+
+          # If guard blocked during apply, apply needs-human + pause labels and stop
+          if [ -f /tmp/guard_blocked ]; then
+            echo "⚠️ Prompt injection guard blocked during apply step."
+            GUARD_REASON=$(cat /tmp/guard_blocked)
+            node - <<'GUARD_NODE'
+            (async () => {
+              const fs = require('fs');
+              const { Octokit } = require('@octokit/rest');
+              const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+              const core = { info: () => {}, warning: console.warn, debug: () => {} };
+              const github = new Octokit({ auth: process.env.GITHUB_TOKEN });
+              const { withRetry } = await createTokenAwareRetry({
+                github,
+                core,
+                env: process.env,
+                task: 'auto-pilot',
+                capabilities: ['issues:write'],
+              });
+              const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+              const issueNumber = Number(process.env.ISSUE_NUMBER);
+              const reason = fs.readFileSync('/tmp/guard_blocked', 'utf8').trim();
+              await withRetry((client) => client.rest.issues.addLabels({
+                owner, repo, issue_number: issueNumber,
+                labels: ['needs-human', 'agents:paused'],
+              }));
+              await withRetry((client) => client.rest.issues.createComment({
+                owner, repo, issue_number: issueNumber,
+                body: `⚠️ **Prompt injection guard triggered** during apply step.\n\nReason: ${reason}\n\nAutomation has been paused. A human must review this issue before automation can continue.`,
+              }));
+            })().catch((error) => {
+              console.error(error);
+              process.exit(1);
+            });
+          GUARD_NODE
+            echo "🛑 Automation stopped due to prompt injection guard."
+            exit 0
+          fi
 
           # Update issue body
           node - <<'NODE'
