@@ -97,7 +97,7 @@ tasks:
 - id: task-12
   title: Add a dedicated step to `.github/workflows/agents-auto-pilot.yml` that executes
     `pip install -r tools/requirements-llm.txt`
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -105,7 +105,7 @@ tasks:
   - 'Human-only: requires editing protected workflow files'
 - id: task-13
   title: Remove all unpinned `pip install langchain*` commands from `.github/workflows/agents-auto-pilot.yml`
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -114,7 +114,7 @@ tasks:
 - id: task-14
   title: Add a step to `.github/workflows/reusable-agents-verifier.yml` evaluate mode
     that executes `pip install -r .workflows-lib/tools/requirements-llm.txt`
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -123,7 +123,7 @@ tasks:
 - id: task-15
   title: Add a step to `.github/workflows/reusable-agents-verifier.yml` compare mode
     that executes `pip install -r .workflows-lib/tools/requirements-llm.txt`
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -132,7 +132,7 @@ tasks:
 - id: task-16
   title: Remove all unpinned `pip install langchain*` commands from evaluate and compare
     modes in `.github/workflows/reusable-agents-verifier.yml`
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -141,7 +141,7 @@ tasks:
 - id: task-17
   title: Add `actions/cache@v4` pip cache step to `.github/workflows/agents-auto-pilot.yml`
     with cache key including Python version and `hashFiles('tools/requirements-llm.txt')`
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -150,7 +150,7 @@ tasks:
 - id: task-18
   title: Add `actions/cache@v4` pip cache step to `.github/workflows/reusable-agents-verifier.yml`
     with cache key including Python version and `hashFiles('.workflows-lib/tools/requirements-llm.txt')`
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -159,7 +159,7 @@ tasks:
 - id: task-19
   title: '`.github/workflows/agents-auto-pilot.yml` contains a step that executes
     exactly `pip install -r tools/requirements-llm.txt` (as a run command in the workflow)'
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -170,7 +170,7 @@ tasks:
     commands that install langchain via an unpinned specifier, including (but not
     limited to) `pip install langchain`, `pip install langchain*`, `pip install langchain==`
     (missing version), or `pip install git+...langchain...`'
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -180,7 +180,7 @@ tasks:
   title: '`.github/workflows/reusable-agents-verifier.yml` includes a step that executes
     exactly `pip install -r .workflows-lib/tools/requirements-llm.txt` in the evaluate
     mode execution path'
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -190,7 +190,7 @@ tasks:
   title: '`.github/workflows/reusable-agents-verifier.yml` includes a step that executes
     exactly `pip install -r .workflows-lib/tools/requirements-llm.txt` in the compare
     mode execution path'
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -201,7 +201,7 @@ tasks:
     install` commands that install langchain via an unpinned specifier in the evaluate
     or compare execution paths (e.g., `pip install langchain*`, `pip install langchain`,
     `pip install langchain-community` without a version pin)'
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -212,7 +212,7 @@ tasks:
     step that caches pip (cache path includes pip cache directory) and uses a cache
     key that includes BOTH the Python version and `${{ hashFiles(''tools/requirements-llm.txt'')
     }}`'
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
@@ -223,7 +223,7 @@ tasks:
     step that caches pip (cache path includes pip cache directory) and uses a cache
     key that includes BOTH the Python version and `${{ hashFiles(''.workflows-lib/tools/requirements-llm.txt'')
     }}`'
-  status: deferred
+  status: todo
   started_at: null
   finished_at: null
   commit: ''
