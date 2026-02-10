@@ -15,9 +15,9 @@ def _load_text(path: Path) -> str:
 
 def _assert_pinned_install(text: str, expected: str, name: str, minimum: int = 1) -> None:
     count = text.count(expected)
-    assert count >= minimum, (
-        f"{name} must include `{expected}` at least {minimum} time(s); found {count}."
-    )
+    assert (
+        count >= minimum
+    ), f"{name} must include `{expected}` at least {minimum} time(s); found {count}."
 
 
 def _assert_no_floating_langchain(text: str, name: str) -> None:
@@ -26,9 +26,7 @@ def _assert_no_floating_langchain(text: str, name: str) -> None:
         re.IGNORECASE | re.MULTILINE,
     )
     match = pattern.search(text)
-    assert match is None, (
-        f"{name} contains floating langchain install: `{match.group(0).strip()}`"
-    )
+    assert match is None, f"{name} contains floating langchain install: `{match.group(0).strip()}`"
 
 
 def test_agents_auto_pilot_llm_install_is_pinned() -> None:
