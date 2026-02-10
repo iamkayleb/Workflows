@@ -24,30 +24,19 @@ def test_generate_embeddings_uses_client_info():
         client=StubEmbeddings("stub-model"),
         provider="stub",
         model="stub-model",
+        is_fallback=False,
     )
     result = semantic_matcher.generate_embeddings(["alpha", "beta"], client_info=client_info)
     assert result is not None
     assert result.provider == "stub"
     assert result.model == "stub-model"
+    assert result.is_fallback is False
+    assert result.dimensions == 1
     assert result.vectors == [[5.0], [4.0]]
 
 
-def test_get_embedding_client_prefers_github_models(monkeypatch):
+def test_get_embedding_client_prefers_openai(monkeypatch):
     _install_stub_langchain(monkeypatch)
-    monkeypatch.setenv("GITHUB_TOKEN", "token")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    info = semantic_matcher.get_embedding_client(model="unit-test-model")
-
-    assert info is not None
-    assert info.provider == "github-models"
-    assert info.model == "unit-test-model"
-    assert info.client.base_url == semantic_matcher.GITHUB_MODELS_BASE_URL
-
-
-def test_get_embedding_client_falls_back_to_openai(monkeypatch):
-    _install_stub_langchain(monkeypatch)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "token")
 
     info = semantic_matcher.get_embedding_client(model="unit-test-model")
@@ -55,41 +44,24 @@ def test_get_embedding_client_falls_back_to_openai(monkeypatch):
     assert info is not None
     assert info.provider == "openai"
     assert info.model == "unit-test-model"
-    assert info.client.base_url is None
+    assert info.is_fallback is False
 
 
-def test_get_embedding_client_returns_none_without_token(monkeypatch):
-    """get_embedding_client returns None when no tokens are available."""
-    _install_stub_langchain(monkeypatch)
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+def test_get_embedding_client_falls_back_without_token(monkeypatch):
+    """get_embedding_client returns fallback when no external credentials are available."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     info = semantic_matcher.get_embedding_client()
 
-    assert info is None
-
-
-def test_get_embedding_client_returns_none_without_langchain(monkeypatch):
-    """get_embedding_client returns None when langchain_openai cannot be imported."""
-    monkeypatch.setitem(sys.modules, "langchain_openai", None)
-    monkeypatch.setenv("GITHUB_TOKEN", "token")
-
-    # Force re-import by clearing cached module
-    import importlib
-
-    importlib.reload(semantic_matcher)
-
-    # Call the function (we're just verifying it doesn't crash)
-    _ = semantic_matcher.get_embedding_client()
-    # Restore module for other tests
-    _install_stub_langchain(monkeypatch)
-    importlib.reload(semantic_matcher)
+    assert info is not None
+    assert info.provider == "fallback"
+    assert info.is_fallback is True
 
 
 def test_get_embedding_client_uses_env_model(monkeypatch):
     """get_embedding_client uses EMBEDDING_MODEL env var when no model is provided."""
     _install_stub_langchain(monkeypatch)
-    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setenv("OPENAI_API_KEY", "token")
     monkeypatch.setenv("EMBEDDING_MODEL", "custom-embedding-model")
 
     info = semantic_matcher.get_embedding_client()
@@ -101,7 +73,7 @@ def test_get_embedding_client_uses_env_model(monkeypatch):
 def test_get_embedding_client_uses_default_model(monkeypatch):
     """get_embedding_client uses DEFAULT_EMBEDDING_MODEL when no model is specified."""
     _install_stub_langchain(monkeypatch)
-    monkeypatch.setenv("GITHUB_TOKEN", "token")
+    monkeypatch.setenv("OPENAI_API_KEY", "token")
     monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
 
     info = semantic_matcher.get_embedding_client()
@@ -127,8 +99,8 @@ def test_generate_embeddings_strips_whitespace_only_texts():
 
 def test_generate_embeddings_returns_none_without_client(monkeypatch):
     """generate_embeddings returns None when no client is available."""
-    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("EMBEDDING_PROVIDER_ALLOWLIST", "openai")
 
     result = semantic_matcher.generate_embeddings(["some text"])
 
@@ -141,6 +113,7 @@ def test_generate_embeddings_with_model_override():
         client=StubEmbeddings("override-model"),
         provider="test",
         model="override-model",
+        is_fallback=False,
     )
     result = semantic_matcher.generate_embeddings(
         ["text"], client_info=client_info, model="ignored"

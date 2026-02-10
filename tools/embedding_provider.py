@@ -20,6 +20,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+import hashlib
+import math
+import os
+import re
+
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+FALLBACK_DIMENSIONS = 256
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,19 @@ class EmbeddingProvider(ABC):
         """Return the provider's default embedding model name."""
         return ""
 
+    @property
+    def provider_id(self) -> str:
+        """Stable provider identifier used in observability."""
+        return self.name
+
+    def model_name(self, model: str | None) -> str:
+        """Resolve the effective model name for the request."""
+        return model or self.default_model
+
+    def is_fallback(self) -> bool:
+        """Return True if this provider is a non-LLM fallback."""
+        return False
+
     def supports_model(self, model: str | None) -> bool:
         """Return True if the provider can serve the requested model."""
         return True
@@ -105,6 +125,124 @@ class EmbeddingProvider(ABC):
         raise NotImplementedError
 
 
+class OpenAIEmbeddingProvider(EmbeddingProvider):
+    """OpenAI embeddings provider."""
+
+    name = "openai"
+    cost_tier = 2
+    latency_tier = 2
+    priority = 10
+    capabilities = {"embeddings"}
+
+    @property
+    def default_model(self) -> str:
+        return os.environ.get("EMBEDDING_MODEL") or DEFAULT_EMBEDDING_MODEL
+
+    def credentials_configured(self) -> bool:
+        return bool(os.environ.get("OPENAI_API_KEY"))
+
+    def is_available(self) -> bool:
+        if not self.credentials_configured():
+            return False
+        try:
+            import langchain_openai  # noqa: F401
+        except ImportError:
+            return False
+        return True
+
+    def embed(self, texts: Iterable[str], *, model: str | None = None) -> EmbeddingResponse:
+        items = [text.strip() for text in texts if text and text.strip()]
+        resolved_model = self.model_name(model)
+        metadata = EmbeddingMetadata(
+            provider=self.provider_id,
+            model=resolved_model,
+            dimensions=None,
+            is_fallback=self.is_fallback(),
+        )
+        if not items:
+            return EmbeddingResponse(vectors=[], metadata=metadata)
+        if not self.credentials_configured():
+            raise RuntimeError("OpenAI embeddings requested without OPENAI_API_KEY configured.")
+        try:
+            from langchain_openai import OpenAIEmbeddings
+        except ImportError as exc:
+            raise RuntimeError("langchain_openai is required for OpenAI embeddings.") from exc
+
+        try:
+            client = OpenAIEmbeddings(model=resolved_model, api_key=os.environ["OPENAI_API_KEY"])
+            vectors = client.embed_documents(items)
+        except Exception as exc:  # pragma: no cover - depends on external SDK errors
+            raise RuntimeError("OpenAI embeddings request failed.") from exc
+
+        dimensions = len(vectors[0]) if vectors else None
+        metadata = EmbeddingMetadata(
+            provider=self.provider_id,
+            model=resolved_model,
+            dimensions=dimensions,
+            is_fallback=self.is_fallback(),
+        )
+        return EmbeddingResponse(vectors=vectors, metadata=metadata)
+
+
+class LocalFallbackEmbeddingProvider(EmbeddingProvider):
+    """Deterministic local fallback embedding provider."""
+
+    name = "fallback"
+    cost_tier = 0
+    latency_tier = 1
+    priority = 0
+    capabilities = {"embeddings", "local"}
+
+    @property
+    def default_model(self) -> str:
+        return "local-hash-bow"
+
+    def credentials_configured(self) -> bool:
+        return True
+
+    def is_fallback(self) -> bool:
+        return True
+
+    def embed(self, texts: Iterable[str], *, model: str | None = None) -> EmbeddingResponse:
+        items = [text.strip() for text in texts if text and text.strip()]
+        resolved_model = self.model_name(model)
+        metadata = EmbeddingMetadata(
+            provider=self.provider_id,
+            model=resolved_model,
+            dimensions=FALLBACK_DIMENSIONS,
+            is_fallback=self.is_fallback(),
+        )
+        if not items:
+            return EmbeddingResponse(vectors=[], metadata=metadata)
+
+        vectors: list[list[float]] = []
+        for text in items:
+            vector = [0.0] * FALLBACK_DIMENSIONS
+            for token in _tokenize(text):
+                index = _hash_token(token) % FALLBACK_DIMENSIONS
+                vector[index] += 1.0
+            _normalize_l2(vector)
+            vectors.append(vector)
+        return EmbeddingResponse(vectors=vectors, metadata=metadata)
+
+
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _hash_token(token: str) -> int:
+    digest = hashlib.md5(token.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "little")
+
+
+def _normalize_l2(vector: list[float]) -> None:
+    norm = math.sqrt(sum(value * value for value in vector))
+    if norm <= 0:
+        return
+    for idx, value in enumerate(vector):
+        vector[idx] = value / norm
+
+
 class EmbeddingProviderRegistry:
     """Registry for embedding providers with deterministic selection."""
 
@@ -122,9 +260,10 @@ class EmbeddingProviderRegistry:
     def _eligible_providers(self, criteria: EmbeddingSelectionCriteria) -> list[EmbeddingProvider]:
         candidates: list[EmbeddingProvider] = []
         for provider in self._providers:
-            if criteria.provider_allowlist and provider.name not in criteria.provider_allowlist:
+            provider_id = provider.provider_id
+            if criteria.provider_allowlist and provider_id not in criteria.provider_allowlist:
                 continue
-            if criteria.provider_denylist and provider.name in criteria.provider_denylist:
+            if criteria.provider_denylist and provider_id in criteria.provider_denylist:
                 continue
             if not provider.credentials_configured():
                 continue
@@ -138,7 +277,7 @@ class EmbeddingProviderRegistry:
         return candidates
 
     def _sort_key(self, provider: EmbeddingProvider, criteria: EmbeddingSelectionCriteria) -> tuple:
-        preferred_rank = 0 if criteria.preferred_provider == provider.name else 1
+        preferred_rank = 0 if criteria.preferred_provider == provider.provider_id else 1
         cost_rank = provider.cost_tier if criteria.prefer_low_cost else 0
         latency_rank = provider.latency_tier if criteria.prefer_low_latency else 0
         priority_rank = -int(provider.priority)
@@ -147,7 +286,7 @@ class EmbeddingProviderRegistry:
             cost_rank,
             latency_rank,
             priority_rank,
-            provider.name,
+            provider.provider_id,
         )
 
     def select(self, criteria: EmbeddingSelectionCriteria) -> EmbeddingProviderSelection | None:
@@ -169,3 +308,11 @@ class EmbeddingProviderRegistry:
         selected = candidates[0]
         model = criteria.model or selected.default_model
         return EmbeddingProviderSelection(provider=selected, model=model)
+
+
+def bootstrap_registry() -> EmbeddingProviderRegistry:
+    """Create and register all available embedding providers."""
+    registry = EmbeddingProviderRegistry()
+    for provider in (OpenAIEmbeddingProvider(), LocalFallbackEmbeddingProvider()):
+        registry.register(provider)
+    return registry
