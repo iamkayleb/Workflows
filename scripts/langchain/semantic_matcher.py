@@ -15,8 +15,8 @@ from dataclasses import dataclass
 
 from tools.embedding_provider import (
     EmbeddingProvider,
-    EmbeddingProviderSelection,
     EmbeddingProviderRegistry,
+    EmbeddingProviderSelection,
     EmbeddingSelectionCriteria,
     bootstrap_registry,
 )
