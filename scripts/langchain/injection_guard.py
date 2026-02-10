@@ -179,6 +179,25 @@ def detect_prompt_injection(text: str) -> GuardResult:
     return False, ""
 
 
+def _normalize_guard_input(text: object | None) -> str:
+    """Normalize arbitrary input for guard evaluation.
+
+    Returns an empty string for None and for values that do not produce
+    meaningful content. This keeps the guard behavior stable for callers.
+    """
+
+    if text is None:
+        return ""
+
+    if isinstance(text, bytes):
+        return text.decode("utf-8", errors="ignore")
+
+    if isinstance(text, str):
+        return text
+
+    return str(text)
+
+
 def check_prompt_injection(text: object | None) -> GuardCheckResult:
     """Run prompt-injection detection with input validation and a stable result shape.
 
@@ -193,17 +212,8 @@ def check_prompt_injection(text: object | None) -> GuardCheckResult:
             code: ReasonCode | "GUARD_ERROR" | None
     """
 
-    if text is None:
-        return {"blocked": False, "reason": "", "code": None}
-
     try:
-        if isinstance(text, bytes):
-            normalized = text.decode("utf-8", errors="ignore")
-        elif isinstance(text, str):
-            normalized = text
-        else:
-            normalized = str(text)
-
+        normalized = _normalize_guard_input(text)
         if not normalized.strip():
             return {"blocked": False, "reason": "", "code": None}
 
