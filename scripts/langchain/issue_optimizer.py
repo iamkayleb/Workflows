@@ -23,6 +23,7 @@ from scripts.langchain.structured_output import (
     build_repair_callback,
     parse_structured_output,
 )
+
 try:
     from scripts.langchain.injection_guard import check_prompt_injection
 except ModuleNotFoundError:
