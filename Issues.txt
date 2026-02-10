@@ -1,295 +1,133 @@
-1. [LangChain] Propagate SessionQualityContext through LLM provider chain (fix BS detector drop)
-labels: [agent:codex, bug]
-body:
+1. Issue: Make embeddings provider-agnostic by wiring EmbeddingProviderRegistry into semantic_matcher
+
 ## Why
 
-The keepalive session analyzer computes a SessionQualityContext, but the default fallback provider path does not reliably pass it through. This weakens confidence sanity checks and increases false confidence.
+The repository now has a deterministic embedding provider registry (`tools/embedding_provider.py`), but the actual embedding path used by semantic matching still bypasses it and directly instantiates OpenAIEmbeddings. This prevents provider-pool selection (by criteria) and blocks the intended “agent/provider agnostic embeddings” design.
 
 ## Scope
 
-Thread SessionQualityContext through the LLM provider abstraction so that confidence adjustments reliably apply even when using the fallback chain provider.
+Route all embedding generation for semantic matching through EmbeddingProviderRegistry, with deterministic provider selection and a non-LLM fallback that keeps workflows functional when no external embedding credentials are configured.
 
 ## Non-Goals
 
-This does not change the heuristics themselves beyond ensuring they run.
-This does not add a new provider.
+This does not change the semantic scoring algorithm beyond provider selection and fallback behavior.
+This does not require GitHub Models embeddings support (if unavailable, it should remain ineligible).
 
 ## Tasks
 
-- [x] Extend the LLMProvider interface to accept an optional quality_context parameter (default None) while maintaining backwards compatibility.
-- [x] Update FallbackChainProvider to pass quality_context through to underlying providers that support it.
-- [x] Update codex_session_analyzer.analyze_session to always pass quality_context when available, including when using the fallback chain.
-- [x] Add regression tests proving confidence capping is applied in the fallback-chain path.
+- [ ] Implement concrete EmbeddingProvider classes (at minimum: OpenAI embeddings provider and a deterministic local fallback provider that requires no external dependencies).
+- [ ] Add a small registry bootstrap helper that registers providers in priority order and applies EmbeddingSelectionCriteria deterministically.
+- [ ] Refactor `scripts/langchain/semantic_matcher.py` to select providers via `EmbeddingProviderRegistry.select(...)` and call `provider.embed(...)` instead of constructing OpenAIEmbeddings directly.
+- [ ] Update downstream consumers (`label_matcher.py`, `issue_dedup.py`) to rely on the updated semantic_matcher behavior and to surface provider/model metadata in outputs for observability.
+- [ ] Add unit tests verifying deterministic selection (preferred provider, allowlist/denylist, and fallback when no credentials exist).
+- [ ] Add a brief docs note describing configuration knobs (provider preference, allow/deny lists, and fallback behavior).
 
 ## Acceptance Criteria
 
-- [x] Unit tests demonstrate that quality_context reaches the active provider even when wrapped by FallbackChainProvider.
-- [x] Regression tests demonstrate confidence is capped when analysis_text_length is very short and has_work_evidence is true.
-- [ ] No existing callers break due to signature changes (CI passes).
+- [ ] When `OPENAI_API_KEY` is configured, semantic matching uses the OpenAI embedding provider and reports `provider=openai` (or the defined stable provider id).
+- [ ] When no embedding credentials are configured, semantic matching uses the fallback provider (and does not crash) and reports `is_fallback=true`.
+- [ ] `scripts/langchain/semantic_matcher.py` no longer directly constructs OpenAIEmbeddings as its primary path.
+- [ ] Unit tests cover provider selection determinism and the fallback path.
 
 ## Implementation Notes
 
 Primary files:
-`tools/llm_provider.py`
-`tools/codex_session_analyzer.py`
-`tests/tools/test_llm_provider.py`
-`tests/scripts/test_analyze_codex_session.py`
+- `tools/embedding_provider.py`
+- `scripts/langchain/semantic_matcher.py`
+- `scripts/langchain/label_matcher.py`
+- `scripts/langchain/issue_dedup.py`
+- `tests/` (add focused tests for provider selection + fallback)
 
+Fallback suggestion (no new deps): implement a hashing bag-of-words vectorizer with fixed dimensionality (e.g., 256/512) and L2 normalization so cosine similarity remains meaningful.
 
-2. [LangChain] Centralize Chat model/client creation for scripts (single source of truth)
-labels: [agent:codex, enhancement]
-body:
+2. Issue: Pin LangChain deps and enable pip caching in high-volume workflows (auto-pilot + verifier)
+
 ## Why
 
-Multiple scripts implement ad-hoc LLM client construction with different defaults (timeouts, provider preference, retry behavior). This increases drift and makes the same workflow produce different results over time.
+Pinned LLM dependencies exist (`tools/requirements-llm.txt`) and pip caching snippets exist, but the highest-volume workflows still install floating LangChain packages at runtime. This keeps drift risk and slows cold starts in the most important loops.
 
 ## Scope
 
-Introduce a single utility module for constructing LangChain chat clients and refactor a small set of core scripts to use it (start with formatter/optimizer/verifier). Keep behavior-compatible defaults.
+Update the real workflows (not only snippets) to install from pinned requirements and add pip caching keyed by the requirements hash:
+- `.github/workflows/agents-auto-pilot.yml`
+- `.github/workflows/reusable-agents-verifier.yml`
 
 ## Non-Goals
 
-This does not refactor every script in one PR.
-This does not change workflow triggers, labels, or the automation state machine.
+This does not migrate the repo to a new packaging tool (Poetry/uv/etc.).
+This does not change workflow trigger logic or pipeline state transitions.
 
 ## Tasks
 
-- [ ] Create a shared utility module (e.g., `tools/langchain_client.py`) that builds chat clients with standardized timeouts, retries, and provider selection (GitHub Models then OpenAI fallback).
-- [ ] Refactor `scripts/langchain/issue_formatter.py` and `scripts/langchain/issue_optimizer.py` to use the shared utility (remove duplicated client code).
-- [ ] Refactor `scripts/langchain/pr_verifier.py` to use the shared utility for client construction in both single-provider and compare modes.
-- [ ] Add unit tests for the utility module covering provider selection and env override behavior.
+- [ ] Update `.github/workflows/agents-auto-pilot.yml` to install LLM deps via `pip install -r tools/requirements-llm.txt` (remove unpinned `pip install langchain ...` lines).
+- [ ] Add a pip cache step to `.github/workflows/agents-auto-pilot.yml` using `actions/cache@v4` keyed by `${{ hashFiles('tools/requirements-llm.txt') }}` and Python version.
+- [ ] Update `.github/workflows/reusable-agents-verifier.yml` to install LLM deps via the pinned file from the checked-out Workflows lib (`pip install -r .workflows-lib/tools/requirements-llm.txt`) for evaluate/compare modes.
+- [ ] Add a pip cache step to `.github/workflows/reusable-agents-verifier.yml` keyed by `${{ hashFiles('.workflows-lib/tools/requirements-llm.txt') }}` and Python version.
+- [ ] Add a lightweight repo test that fails if these workflows contain floating installs for langchain packages or omit the pinned requirements install line.
+- [ ] Ensure any existing snippet validation tests remain consistent with the updated workflows.
 
 ## Acceptance Criteria
 
-- [ ] issue_formatter, issue_optimizer, and pr_verifier continue to run with no behavioral regressions (existing tests pass).
-- [ ] Provider selection behavior is consistent across the refactored scripts (documented and test-covered).
-- [ ] The new utility has tests covering: GitHub Models path, OpenAI fallback path, and env overrides for model/provider.
+- [ ] `agents-auto-pilot.yml` installs LLM deps from `tools/requirements-llm.txt` and does not contain unpinned `pip install langchain*` runtime installs.
+- [ ] `reusable-agents-verifier.yml` installs LLM deps from `.workflows-lib/tools/requirements-llm.txt` for evaluate/compare modes.
+- [ ] Both workflows include a pip cache step keyed by the pinned requirements file hash.
+- [ ] A unit test enforces the pinned-install + cache requirement for these workflows.
 
 ## Implementation Notes
 
 Primary files:
-`tools/langchain_client.py` (new)
-`scripts/langchain/issue_formatter.py`
-`scripts/langchain/issue_optimizer.py`
-`scripts/langchain/pr_verifier.py`
+- `.github/workflows/agents-auto-pilot.yml`
+- `.github/workflows/reusable-agents-verifier.yml`
+- `tools/requirements-llm.txt`
+- `tests/` (add a static workflow scan test)
 
+Reference snippets already exist (align implementation with them where possible):
+- `docs/workflow-snippets/pip-cache-step.yml`
+- `docs/workflow-snippets/agents-auto-pilot-install.yml`
 
-3. [LangChain] Structured output + single-repair retry for JSON-returning scripts
-labels: [agent:codex, enhancement]
-body:
+3. Issue: Enforce prompt-injection guardrails in Python issue rewrite scripts (formatter/optimizer/apply/followup)
+
 ## Why
 
-Several scripts rely on brittle JSON extraction from LLM output. When the model emits preamble text, markdown wrappers, or partial JSON, automation becomes flaky.
+Prompt-injection detection utilities exist (Python and JS), but the Python scripts that rewrite issue content (formatter/optimizer/apply/followup generation) do not consistently invoke the Python guard. These scripts ingest user-controlled markdown and can trigger automated rewrites, so the guard needs to be enforced at the entry points.
 
 ## Scope
 
-Add strict structured-output parsing (Pydantic models + validation) and a single repair retry that feeds validation errors back to the model for:
-- `scripts/langchain/issue_optimizer.py` (analysis JSON)
-- `scripts/langchain/pr_verifier.py` (evaluation JSON)
+Add prompt-injection screening to the Python LangChain scripts that ingest user-controlled text and either:
+1) invoke an LLM, or
+2) rewrite issue bodies based on LLM-produced suggestions.
+
+Ensure blocked inputs fail safe (no LLM call, no automatic rewrite) and produce machine-readable output so workflows can pause and label `needs-human`.
 
 ## Non-Goals
 
-This does not rewrite prompts end-to-end.
-This does not introduce multi-retry loops (one repair retry only).
+This does not attempt perfect detection; it targets high-signal patterns.
+This does not expand the JS prompt-injection guard beyond its current workflow/PR gating role.
 
 ## Tasks
 
-- [ ] Use strict Pydantic validation as the primary parsing path in issue_optimizer (avoid regex JSON extraction as primary).
-- [ ] Use strict Pydantic validation as the primary parsing path in pr_verifier (evaluate + compare).
-- [ ] Implement a single repair retry that includes schema plus the validation error message when parsing fails.
-- [ ] Add tests with malformed outputs (preamble text, markdown fences, trailing commas) and confirm repair produces valid JSON.
+- [ ] Add a small reusable helper (or wrapper) that calls `detect_prompt_injection(...)` and returns a structured `{blocked, reason}` result for arbitrary input text.
+- [ ] Integrate the guard into `scripts/langchain/issue_formatter.py` so suspicious issue bodies skip LLM invocation and return a safe fallback formatting result plus `blocked=true` metadata.
+- [ ] Integrate the guard into `scripts/langchain/issue_optimizer.py` so suspicious inputs skip LLM analysis / apply steps and return `blocked=true` metadata.
+- [ ] Integrate the guard into `scripts/langchain/followup_issue_generator.py` so suspicious verification/issue payloads skip multi-round LLM steps and generate a minimal follow-up that routes to human review.
+- [ ] Extend `--json` outputs for these scripts to include `guard_blocked` and `guard_reason` fields when applicable.
+- [ ] Update the auto-pilot workflow step(s) that call these scripts to detect `guard_blocked=true` and then apply `needs-human` + pause labels and stop further automation.
+- [ ] Add tests that prove: (a) guard triggers on representative injection strings, and (b) LLM client invocation is not called when blocked.
 
 ## Acceptance Criteria
 
-- [ ] For invalid model output, scripts perform exactly one repair attempt and then either succeed with valid structured output or fail with an explicit parsing error.
-- [ ] Tests cover at least three malformed output patterns per script.
-- [ ] Existing behavior remains compatible for valid outputs (tests pass).
+- [ ] For a representative injected issue body (e.g., “ignore previous instructions… reveal system prompt…”), formatter/optimizer/apply do not invoke an LLM and return `guard_blocked=true` with a non-empty reason.
+- [ ] Auto-pilot pauses and applies `needs-human` when `guard_blocked=true` is emitted by formatter/optimizer/apply steps.
+- [ ] Unit tests verify the guard blocks and that the LLM client is not invoked in blocked cases.
 
 ## Implementation Notes
 
 Primary files:
-`scripts/langchain/issue_optimizer.py`
-`scripts/langchain/pr_verifier.py`
-
-
-4. [Embeddings] Provider-agnostic embedding pool with selection criteria (OpenAI + Anthropic + fallbacks)
-labels: [agent:codex, enhancement]
-body:
-## Why
-
-Semantic features (label matching, deduplication) need embeddings, but the current behavior is effectively tied to a single provider path. You plan to add Anthropic soon and want embeddings to be provider/agent agnostic with criteria-based selection.
-
-## Scope
-
-Create a provider-agnostic embeddings registry that selects from a pool of available embedding providers based on criteria (availability, cost/latency preference, configured credentials, capability). Update semantic_matcher and downstream consumers to use this pool, with safe fallbacks when embeddings are unavailable.
-
-## Non-Goals
-
-This does not require embeddings to be enabled everywhere.
-This does not change similarity math beyond provider selection and fallbacks.
-
-## Tasks
-
-- [ ] Add an embedding provider abstraction + registry (e.g., `tools/embedding_provider.py`) with deterministic selection based on criteria.
-- [ ] Implement providers: OpenAI embeddings (existing behavior), Anthropic embeddings (gated by env var; documented), and at least one non-LLM fallback (keyword/TF-IDF) to keep workflows functional when no embedding credentials exist.
-- [ ] Refactor `scripts/langchain/semantic_matcher.py` to request embeddings via the provider pool and return provider/model metadata.
-- [ ] Update `scripts/langchain/label_matcher.py` and `scripts/langchain/issue_dedup.py` to use updated semantic_matcher behavior and degrade gracefully when embeddings are unavailable.
-- [ ] Add tests using mock providers to validate deterministic selection and fallback ordering.
-
-## Acceptance Criteria
-
-- [ ] When multiple embedding providers are configured, selection is deterministic and respects criteria (test-covered).
-- [ ] When no embedding providers are configured, semantic workflows still run using a fallback path (no crashes; behavior documented).
-- [ ] Provider/model used is surfaced in outputs for observability (test-covered).
-
-## Implementation Notes
-
-Primary files:
-`tools/embedding_provider.py` (new)
-`scripts/langchain/semantic_matcher.py`
-`scripts/langchain/label_matcher.py`
-`scripts/langchain/issue_dedup.py`
-
-
-5. [Security] Add prompt-injection guardrails for issue rewrite + follow-up generation paths
-labels: [agent:codex, enhancement]
-body:
-## Why
-
-Automation steps ingest user-controlled markdown (issues/PR bodies/comments) and can rewrite issues or generate follow-up issues/PRs. A conservative injection guard reduces the risk of instruction smuggling and unintended actions.
-
-## Scope
-
-Add a lightweight prompt-injection detector and wire it into scripts that rewrite issue content or generate follow-up issues. If triggered, fail safe (no rewrite) and clearly signal needs-human.
-
-## Non-Goals
-
-This does not aim for perfect detection.
-This does not attempt to block every jailbreak; it targets high-signal patterns.
-
-## Tasks
-
-- [ ] Implement a small reusable injection guard utility (Python) usable by langchain scripts.
-- [ ] Integrate the guard into `scripts/langchain/issue_formatter.py`, `scripts/langchain/issue_optimizer.py`, and `scripts/langchain/followup_issue_generator.py` (skip LLM call and/or skip applying changes when flagged).
-- [ ] Update workflows/templates to apply a safe label/comment when the guard blocks execution (e.g., add needs-human and a short explanation).
-- [ ] Add tests with representative injected inputs confirming the guard blocks and outputs clearly signal the block.
-
-## Acceptance Criteria
-
-- [ ] Injected inputs cause a safe block: no issue body rewrite occurs and the workflow signals needs-human with a clear message.
-- [ ] Non-injected inputs proceed as before (existing tests pass).
-- [ ] The guard is unit-tested with multiple injection patterns and at least one false-positive control.
-
-## Implementation Notes
-
-Primary files:
-`scripts/langchain/issue_formatter.py`
-`scripts/langchain/issue_optimizer.py`
-`scripts/langchain/followup_issue_generator.py`
-
-
-6. [LangSmith] Fix env wiring + standardize trace metadata for Workflows LLM calls
-labels: [agent:codex, enhancement]
-body:
-## Why
-
-Tracing is only useful if it is consistent and queryable. Some paths set LANGSMITH_API_KEY but not LANGCHAIN_API_KEY, and metadata tags are not consistently attached to runs.
-
-## Scope
-
-Ensure LangSmith tracing is enabled consistently when LANGSMITH_API_KEY is present, and add standardized metadata (repo, workflow, run id, issue/PR number, step name) to LLM calls.
-
-## Non-Goals
-
-This does not add a dashboard.
-This does not change core prompts or evaluation logic.
-
-## Tasks
-
-- [ ] Update `tools/llm_provider.py` to set LANGCHAIN_API_KEY when LANGSMITH_API_KEY is present and ensure LANGCHAIN_TRACING_V2 is enabled.
-- [ ] Standardize metadata tagging for LLM calls in pr_verifier and followup_issue_generator (repo + run id + issue/pr number + operation at minimum).
-- [ ] Add a unit test that verifies env wiring behavior when LANGSMITH_API_KEY is set/unset.
-
-## Acceptance Criteria
-
-- [ ] With LANGSMITH_API_KEY set, LANGCHAIN_TRACING_V2 and LANGCHAIN_API_KEY are configured (test-covered).
-- [ ] At least two key operations emit traces with standardized metadata fields (documented).
-- [ ] With no LANGSMITH_API_KEY, tracing remains off and code paths still run.
-
-## Implementation Notes
-
-Primary files:
-`tools/llm_provider.py`
-`scripts/langchain/pr_verifier.py`
-`scripts/langchain/followup_issue_generator.py`
-
-
-7. [CI] Pin LangChain dependencies + add pip caching in workflows that install at runtime
-labels: [agent:codex, enhancement]
-body:
-## Why
-
-Workflows that pip install langchain dependencies at runtime without pinning are vulnerable to drift and slow cold starts. Pinning + caching reduces both flakiness and cycle time.
-
-## Scope
-
-Introduce a pinned requirements file for workflow-installed LLM dependencies and update key workflows to install from it with pip cache enabled.
-
-## Non-Goals
-
-This does not migrate to Poetry or lockfiles repo-wide.
-This does not change the automation flow.
-
-## Tasks
-
-- [ ] Add a pinned requirements file for LLM workflow deps (e.g., `tools/requirements-llm.txt` or `.github/llm/requirements.txt`).
-- [ ] Update workflows that install langchain packages (auto-pilot, verifier, verify-to-new-pr) to install from the pinned file.
-- [ ] Add actions/cache for pip keyed on python version + requirements hash.
-- [ ] Log installed versions in workflow output for debugging.
-
-## Acceptance Criteria
-
-- [ ] Updated workflows install from the pinned requirements file (no floating installs).
-- [ ] Pip cache is configured and keyed correctly (visible in workflow logs).
-- [ ] CI passes with pinned versions.
-
-## Implementation Notes
-
-Candidate workflows:
-`.github/workflows/agents-auto-pilot.yml`
-`.github/workflows/reusable-agents-verifier.yml`
-`.github/workflows/agents-verify-to-new-pr.yml`
-
-
-8. [New capability] CI failure triage assistant for keepalive/autofix (actionable next-step generation)
-labels: [agent:codex, enhancement]
-body:
-## Why
-
-When CI fails repeatedly, humans and agents waste cycles re-reading logs. A constrained triage assistant that summarizes root cause and proposes concrete fix tasks extends system capacity without auto-editing code.
-
-## Scope
-
-Create a script that ingests a CI failure log snippet (or GitHub job summary) and produces structured, actionable fix guidance. Integrate it into keepalive or autofix workflows to post a helpful comment after repeated failures.
-
-## Non-Goals
-
-This does not auto-apply fixes.
-This does not replace existing autofix or verifier logic.
-
-## Tasks
-
-- [ ] Implement `scripts/langchain/ci_failure_triage.py` that outputs JSON: error_category, likely_root_cause, suggested_commands, likely_files, and 3–6 concrete tasks.
-- [ ] Add an integration hook: when a PR hits N consecutive failures, post a triage comment (or enrich the keepalive prompt) using the script output.
-- [ ] Add tests using canned CI log fixtures verifying stable categorization and task extraction.
-
-## Acceptance Criteria
-
-- [ ] Given representative fixtures (ruff failure, pytest failure, mypy failure), the script outputs structured JSON with sensible categories and concrete tasks (test-covered).
-- [ ] Workflow integration posts triage only after repeated failures (no spam).
-- [ ] Triage output is sanitized and never includes secrets or raw environment values.
-
-## Implementation Notes
-
-Primary file:
-`scripts/langchain/ci_failure_triage.py` (new)
+- `scripts/langchain/injection_guard.py`
+- `scripts/langchain/issue_formatter.py`
+- `scripts/langchain/issue_optimizer.py`
+- `scripts/langchain/followup_issue_generator.py`
+- `.github/workflows/agents-auto-pilot.yml`
+- `tests/` (add focused unit tests around guard behavior and script JSON outputs)
+
+Prefer a “fail safe” behavior: block automated rewrites and route to `needs-human` rather than attempting to sanitize and proceed silently.
