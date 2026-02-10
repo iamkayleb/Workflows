@@ -36,6 +36,7 @@ def test_build_label_vector_store_uses_faiss_from_texts(monkeypatch):
         client=object(),
         provider="unit-test",
         model="unit-test-model",
+        is_fallback=False,
     )
     labels = [
         {"name": "bug", "description": "Something isn't working"},
@@ -46,6 +47,7 @@ def test_build_label_vector_store_uses_faiss_from_texts(monkeypatch):
     assert result is not None
     assert result.store["texts"] == ["bug\nSomething isn't working"]
     assert result.store["metadatas"] == [{"name": "bug", "description": "Something isn't working"}]
+    assert result.is_fallback is False
     assert DummyFAISS.calls
 
 
@@ -90,7 +92,11 @@ def test_find_similar_labels_filters_by_relevance_score():
         ]
     )
     vector_store = label_matcher.LabelVectorStore(
-        store=store, provider="unit-test", model="unit-test-model", labels=[]
+        store=store,
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=[],
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "defect", threshold=0.8)
@@ -109,7 +115,11 @@ def test_find_similar_labels_converts_distance_scores():
         ]
     )
     vector_store = label_matcher.LabelVectorStore(
-        store=store, provider="unit-test", model="unit-test-model", labels=[]
+        store=store,
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=[],
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "defect", threshold=0.85)
@@ -122,7 +132,11 @@ def test_find_similar_labels_converts_distance_scores():
 
 def test_find_similar_labels_rejects_invalid_inputs():
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=[]
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=[],
     )
 
     with pytest.raises(ValueError, match="label_store must be a LabelVectorStore instance."):
@@ -138,7 +152,11 @@ def test_find_similar_labels_handles_missing_metadata_name():
         ]
     )
     vector_store = label_matcher.LabelVectorStore(
-        store=store, provider="unit-test", model="unit-test-model", labels=[]
+        store=store,
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=[],
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "bug", threshold=0.8)
@@ -150,7 +168,11 @@ def test_find_similar_labels_handles_missing_metadata_name():
 def test_resolve_label_match_prefers_exact_for_short_labels():
     label = label_matcher.LabelRecord(name="CI", description="Pipeline failures")
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=[label]
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=[label],
     )
 
     match = label_matcher.resolve_label_match(vector_store, "ci")
@@ -168,7 +190,11 @@ def test_resolve_label_match_uses_semantic_search():
         ]
     )
     vector_store = label_matcher.LabelVectorStore(
-        store=store, provider="unit-test", model="unit-test-model", labels=[]
+        store=store,
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=[],
     )
 
     match = label_matcher.resolve_label_match(vector_store, "defect", threshold=0.8)
@@ -184,7 +210,11 @@ def test_find_similar_labels_keyword_bug_match():
         label_matcher.LabelRecord(name="type:feature"),
     ]
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=labels
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "App crashes on login", threshold=0.8)
@@ -202,7 +232,11 @@ def test_find_similar_labels_keyword_feature_match():
         label_matcher.LabelRecord(name="type:feature"),
     ]
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=labels
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     matches = label_matcher.find_similar_labels(
@@ -220,7 +254,11 @@ def test_find_similar_labels_keyword_feature_phrase_match():
         label_matcher.LabelRecord(name="type:feature"),
     ]
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=labels
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "Dark mode", threshold=0.8)
@@ -236,7 +274,11 @@ def test_find_similar_labels_keyword_multicategory_match():
         label_matcher.LabelRecord(name="documentation"),
     ]
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=labels
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "Bug in docs examples", threshold=0.8)
@@ -255,7 +297,11 @@ def test_find_similar_labels_keyword_docs_description_match():
         label_matcher.LabelRecord(name="type:documentation", description="Documentation updates"),
     ]
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=labels
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "Bug in docs examples", threshold=0.8)
@@ -278,7 +324,11 @@ def test_find_similar_labels_appends_keyword_matches_after_semantic():
         ]
     )
     vector_store = label_matcher.LabelVectorStore(
-        store=store, provider="unit-test", model="unit-test-model", labels=labels
+        store=store,
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "Bug in docs examples", threshold=0.8)
@@ -298,7 +348,11 @@ def test_find_similar_labels_dedupes_normalized_keyword_matches():
         ]
     )
     vector_store = label_matcher.LabelVectorStore(
-        store=store, provider="unit-test", model="unit-test-model", labels=labels
+        store=store,
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     matches = label_matcher.find_similar_labels(vector_store, "Bug in docs examples", threshold=0.8)
@@ -313,7 +367,11 @@ def test_resolve_label_match_keyword_bug_match():
         label_matcher.LabelRecord(name="type:feature"),
     ]
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=labels
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     match = label_matcher.resolve_label_match(vector_store, "App crashes on login", threshold=0.8)
@@ -329,7 +387,11 @@ def test_resolve_label_match_keyword_feature_match():
         label_matcher.LabelRecord(name="type:feature"),
     ]
     vector_store = label_matcher.LabelVectorStore(
-        store=object(), provider="unit-test", model="unit-test-model", labels=labels
+        store=object(),
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        labels=labels,
     )
 
     match = label_matcher.resolve_label_match(vector_store, "Add dark mode support", threshold=0.8)
