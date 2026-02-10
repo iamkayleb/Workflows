@@ -454,6 +454,7 @@ def format_issue_body(issue_body: str, *, use_llm: bool = True) -> dict[str, Any
             "provider_used": None,
             "used_llm": False,
             "blocked": True,
+            "guard_blocked": True,
             "guard_reason": guard_result["reason"],
         }
 

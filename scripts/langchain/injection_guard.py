@@ -4,6 +4,7 @@ Prompt injection detection utility for langchain scripts.
 
 Public API:
     detect_prompt_injection(text: str) -> tuple[bool, str]
+    check_prompt_injection(text: object | None) -> GuardCheckResult
 
 Return schema:
     GuardResult = tuple[bool, str]
@@ -231,3 +232,14 @@ def check_prompt_injection(text: object | None) -> GuardCheckResult:
             "reason": f"GUARD_ERROR: {exc}",
             "code": "GUARD_ERROR",
         }
+
+
+__all__ = [
+    "GuardCheckResult",
+    "GuardPattern",
+    "GuardResult",
+    "ReasonCode",
+    "check_prompt_injection",
+    "detect_prompt_injection",
+    "list_guard_patterns",
+]

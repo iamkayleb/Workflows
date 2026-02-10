@@ -911,6 +911,7 @@ def apply_suggestions(
             "provider_used": None,
             "used_llm": False,
             "blocked": True,
+            "guard_blocked": True,
             "guard_reason": guard_result["reason"],
         }
 
