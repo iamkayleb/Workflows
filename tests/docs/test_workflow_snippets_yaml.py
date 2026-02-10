@@ -43,17 +43,27 @@ def test_pip_cache_step_uses_requirements_llm_hash() -> None:
 
 
 @pytest.mark.parametrize(
-    "snippet_path",
+    ("snippet_path", "requirements_path"),
     [
-        Path("docs/workflow-snippets/agents-auto-pilot-install.yml"),
-        Path("docs/workflow-snippets/reusable-agents-verifier-install.yml"),
-        Path("docs/workflow-snippets/agents-verify-to-new-pr-install.yml"),
+        (
+            Path("docs/workflow-snippets/agents-auto-pilot-install.yml"),
+            "tools/requirements-llm.txt",
+        ),
+        (
+            Path("docs/workflow-snippets/reusable-agents-verifier-install.yml"),
+            ".workflows-lib/tools/requirements-llm.txt",
+        ),
+        (
+            Path("docs/workflow-snippets/agents-verify-to-new-pr-install.yml"),
+            "tools/requirements-llm.txt",
+        ),
     ],
 )
-def test_install_snippets_reference_requirements_llm(snippet_path: Path) -> None:
+def test_install_snippets_reference_requirements_llm(
+    snippet_path: Path, requirements_path: str
+) -> None:
     contents = snippet_path.read_text(encoding="utf-8")
-    assert "tools/requirements-llm.txt" in contents
-    assert ".workflows-lib/tools/requirements-llm.txt" not in contents
+    assert requirements_path in contents
 
     parsed = yaml.safe_load(contents)
     assert isinstance(parsed, list), f"{snippet_path} should contain a YAML list"
@@ -61,11 +71,11 @@ def test_install_snippets_reference_requirements_llm(snippet_path: Path) -> None
         isinstance(step, dict)
         and isinstance(step.get("run"), str)
         and any(
-            line.strip() == "pip install -r tools/requirements-llm.txt"
+            line.strip() == f"pip install -r {requirements_path}"
             for line in step["run"].splitlines()
         )
         for step in parsed
-    ), "Expected install snippet to include pip install for tools/requirements-llm.txt"
+    ), f"Expected install snippet to include pip install for {requirements_path}"
 
 
 def test_pip_freeze_step_runs_python_module() -> None:
