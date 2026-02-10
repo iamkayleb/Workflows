@@ -1,0 +1,197 @@
+version: 1
+issue: 1436
+base: main
+branch: codex/issue-1436
+tasks:
+  - id: task-01
+    title: Define the EmbeddingProvider abstract base class with embed method signature
+      and metadata properties in `tools/embedding_provider.py`
+    status: doing
+    started_at: '2026-02-10T08:23:09Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: Implement the OpenAIEmbeddingProvider class that wraps OpenAI embeddings
+      API with error handling and credential validation in `tools/embedding_provider.py`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: Implement the LocalFallbackEmbeddingProvider class using hashing bag-of-words
+      vectorizer with fixed dimensionality and L2 normalization in `tools/embedding_provider.py`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: Add provider metadata methods that return provider_id, model_name, and
+      is_fallback status for observability in `tools/embedding_provider.py`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: Create a bootstrap_registry function in `tools/embedding_provider.py` that
+      instantiates and registers all available providers
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: Implement priority ordering logic that ranks providers based on credential
+      availability and configuration preferences in `tools/embedding_provider.py`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: Add deterministic selection logic that applies EmbeddingSelectionCriteria
+      including allowlist and denylist filters to the registry in `tools/embedding_provider.py`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: Refactor `scripts/langchain/semantic_matcher.py` to select providers via
+      `EmbeddingProviderRegistry.select(...)` and call `provider.embed(...)` instead
+      of constructing OpenAIEmbeddings directly
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: Refactor `scripts/langchain/label_matcher.py` to call the updated semantic_matcher.py
+      interface without direct embedding instantiation
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: Add provider and model metadata fields to label_matcher.py output structures
+      for observability
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: Update `scripts/langchain/label_matcher.py` logging to include provider_id
+      and is_fallback status in diagnostic messages
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: Refactor `scripts/langchain/issue_dedup.py` to call the updated semantic_matcher.py
+      interface without direct embedding instantiation
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: Add provider and model metadata fields to issue_dedup.py output structures
+      for observability
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: Update `scripts/langchain/issue_dedup.py` logging to include provider_id
+      and is_fallback status in diagnostic messages
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: Write unit tests verifying that the registry selects the OpenAI provider
+      when OPENAI_API_KEY is configured and no filters are applied in `tests/`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: Write unit tests verifying that allowlist and denylist criteria correctly
+      filter available providers during selection in `tests/`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: Write unit tests verifying that the fallback provider is selected when
+      no external credentials are configured in `tests/`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: Write unit tests verifying that provider selection is deterministic given
+      identical configuration and criteria inputs in `tests/`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: Add a brief documentation note describing configuration knobs (provider
+      preference, allow/deny lists, and fallback behavior)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: With `OPENAI_API_KEY` configured, semantic matching uses the OpenAI embedding
+      provider and reports `provider=openai` exactly (as defined in OpenAIEmbeddingProvider.provider_id)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: With no embedding credentials configured, semantic matching uses the fallback
+      provider, does not crash, and reports `is_fallback=true`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: '`scripts/langchain/semantic_matcher.py` does not contain any direct instantiation
+      of OpenAIEmbeddings class'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: Unit tests in `tests/` cover deterministic provider selection and the no-credentials
+      fallback path
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: All unit tests pass with exit code 0
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
