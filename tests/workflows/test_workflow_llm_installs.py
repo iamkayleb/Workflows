@@ -34,6 +34,19 @@ def _assert_no_floating_langchain(text: str, name: str) -> None:
     assert match is None, f"{name} contains floating langchain install: `{match.group(0).strip()}`"
 
 
+def _assert_pip_cache(text: str, hash_path: str, name: str) -> None:
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        if "actions/cache@v4" not in line:
+            continue
+        window = "\n".join(lines[idx : idx + 20])
+        if f"hashFiles('{hash_path}')" in window and "python-version" in window and "key:" in window:
+            return
+    assert (
+        False
+    ), f"{name} must include actions/cache@v4 step with key using python-version and hashFiles('{hash_path}')."
+
+
 def test_agents_auto_pilot_llm_install_is_pinned() -> None:
     if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
         pytest.skip("needs-human: workflow updates require agent-high-privilege")
@@ -44,6 +57,13 @@ def test_agents_auto_pilot_llm_install_is_pinned() -> None:
         AUTO_PILOT.name,
     )
     _assert_no_floating_langchain(text, AUTO_PILOT.name)
+
+
+def test_agents_auto_pilot_pip_cache_is_configured() -> None:
+    if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
+        pytest.skip("needs-human: workflow updates require agent-high-privilege")
+    text = _load_text(AUTO_PILOT)
+    _assert_pip_cache(text, "tools/requirements-llm.txt", AUTO_PILOT.name)
 
 
 def test_reusable_agents_verifier_llm_install_is_pinned_for_modes() -> None:
@@ -57,3 +77,10 @@ def test_reusable_agents_verifier_llm_install_is_pinned_for_modes() -> None:
         minimum=2,
     )
     _assert_no_floating_langchain(text, VERIFIER.name)
+
+
+def test_reusable_agents_verifier_pip_cache_is_configured() -> None:
+    if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
+        pytest.skip("needs-human: workflow updates require agent-high-privilege")
+    text = _load_text(VERIFIER)
+    _assert_pip_cache(text, ".workflows-lib/tools/requirements-llm.txt", VERIFIER.name)
