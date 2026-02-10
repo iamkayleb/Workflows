@@ -40,7 +40,11 @@ def _assert_pip_cache(text: str, hash_path: str, name: str) -> None:
         if "actions/cache@v4" not in line:
             continue
         window = "\n".join(lines[idx : idx + 20])
-        if f"hashFiles('{hash_path}')" in window and "python-version" in window and "key:" in window:
+        if (
+            f"hashFiles('{hash_path}')" in window
+            and "python-version" in window
+            and "key:" in window
+        ):
             return
     assert (
         False
