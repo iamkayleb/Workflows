@@ -5,8 +5,8 @@ from tests._autofix_diag import DiagnosticsRecorder, autofix_recorder  # noqa: F
 
 @pytest.fixture
 def injection_samples() -> list[dict[str, str]]:
-    from pathlib import Path
     import json
+    from pathlib import Path
 
     fixture_path = Path(__file__).resolve().parent / "fixtures" / "prompt_injection_samples.json"
     return json.loads(fixture_path.read_text(encoding="utf-8"))
