@@ -89,6 +89,25 @@ def main() -> int:
     errors: set[str] = set()
     obsolete: set[str] = set()
 
+    def _check_file(local_file: Path, remote_target: str, repo: str) -> None:
+        """Compare a single local file against its remote counterpart."""
+        local_digest = file_hash(local_file.read_bytes())
+        url = f"https://api.github.com/repos/{repo}/contents/{remote_target}"
+        response = session.get(url)
+        if response.status_code == 404:
+            missing.add(f"{repo}: {remote_target}")
+            return
+        if response.status_code >= 400:
+            errors.add(f"{repo}: {remote_target} (HTTP {response.status_code})")
+            return
+        data = response.json()
+        if data.get("encoding") != "base64" or "content" not in data:
+            errors.add(f"{repo}: {remote_target} (unexpected content encoding)")
+            return
+        remote_content = base64.b64decode(data["content"])
+        if file_hash(remote_content) != local_digest:
+            drift.add(f"{repo}: {remote_target}")
+
     for section in sections:
         for entry in manifest.get(section, []) or []:
             source = entry.get("source")
@@ -97,29 +116,22 @@ def main() -> int:
             if entry.get("sync_mode") == "create_only":
                 continue
             target = entry.get("target", source)
+            is_directory = entry.get("is_directory", False)
             local_path = local_path_for(source)
             if not local_path:
-                errors.append(f"{section}: missing local file for {source}")
+                errors.add(f"{section}: missing local file for {source}")
                 continue
 
-            local_digest = file_hash(local_path.read_bytes())
-
             for repo in repos:
-                url = f"https://api.github.com/repos/{repo}/contents/{target}"
-                response = session.get(url)
-                if response.status_code == 404:
-                    missing.add(f"{repo}: {target}")
-                    continue
-                if response.status_code >= 400:
-                    errors.add(f"{repo}: {target} (HTTP {response.status_code})")
-                    continue
-                data = response.json()
-                if data.get("encoding") != "base64" or "content" not in data:
-                    errors.add(f"{repo}: {target} (unexpected content encoding)")
-                    continue
-                remote_content = base64.b64decode(data["content"])
-                if file_hash(remote_content) != local_digest:
-                    drift.add(f"{repo}: {target}")
+                if is_directory or local_path.is_dir():
+                    # Recursively compare all files within the directory
+                    for child in sorted(local_path.rglob("*")):
+                        if child.is_file():
+                            rel = child.relative_to(local_path)
+                            remote_target = f"{target}/{rel}"
+                            _check_file(child, remote_target, repo)
+                else:
+                    _check_file(local_path, target, repo)
 
     for entry in manifest.get("removals", []) or []:
         target = entry.get("target")
