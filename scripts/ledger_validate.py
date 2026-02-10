@@ -35,7 +35,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for repo scripts
         return REPO_ROOT
 
 
-VALID_STATUSES = {"todo", "doing", "done"}
+VALID_STATUSES = {"todo", "doing", "done", "deferred"}
 HEX_RE = re.compile(r"^[0-9a-f]{7,40}$")
 ISO8601_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 _SHALLOW_CACHE: bool | None = None
@@ -498,8 +498,8 @@ def _validate_task(
 
     if status != "done" and task.get("finished_at"):
         errors.append(f"{context}.finished_at must be null unless status is done")
-    if status == "todo" and task.get("started_at"):
-        errors.append(f"{context}.started_at must be null when status is todo")
+    if status in ("todo", "deferred") and task.get("started_at"):
+        errors.append(f"{context}.started_at must be null when status is {status}")
 
     return errors
 
