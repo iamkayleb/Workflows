@@ -1,0 +1,516 @@
+version: 1
+issue: 1437
+base: main
+branch: codex/issue-1437
+tasks:
+  - id: task-01
+    title: Update `.github/workflows/agents-auto-pilot.yml` to install LLM deps via
+      `pip install -r tools/requirements-llm.txt` and remove any unpinned `pip install
+      langchain*` runtime install lines.
+    status: doing
+    started_at: '2026-02-10T09:02:19Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: 'Define scope for: Add the pip install command using the pinned requirements
+      file to agents-auto-pilot.yml (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'Implement focused slice for: Add the pip install command using the pinned
+      requirements file to agents-auto-pilot.yml (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Validate focused slice for: Add the pip install command using the pinned
+      requirements file to agents-auto-pilot.yml (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Remove all unpinned pip install langchain commands from agents-auto-pilot.yml
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Define scope for: Verify that agents-auto-pilot.yml contains no floating
+      langchain dependencies after changes'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: 'Implement focused slice for: Verify that agents-auto-pilot.yml contains
+      no floating langchain dependencies after changes'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: 'Validate focused slice for: Verify that agents-auto-pilot.yml contains
+      no floating langchain dependencies after changes'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: Add an `actions/cache@v4` pip cache step to `.github/workflows/agents-auto-pilot.yml`
+      keyed by `${{ hashFiles('tools/requirements-llm.txt') }}` and Python version.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: Update `.github/workflows/reusable-agents-verifier.yml` to install LLM
+      deps (for evaluate/compare modes) via `pip install -r .workflows-lib/tools/requirements-llm.txt`
+      and remove any unpinned `pip install langchain*` runtime install lines for those
+      modes.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'Identify all evaluate (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'compare mode sections in reusable-agents-verifier.yml (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'Define scope for: Add the pinned requirements install command to evaluate
+      mode in reusable-agents-verifier.yml (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: 'Implement focused slice for: Add the pinned requirements install command
+      to evaluate mode in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: 'Validate focused slice for: Add the pinned requirements install command
+      to evaluate mode in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'Define scope for: Add the pinned requirements install command to compare
+      mode in reusable-agents-verifier.yml (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: 'Implement focused slice for: Add the pinned requirements install command
+      to compare mode in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: 'Validate focused slice for: Add the pinned requirements install command
+      to compare mode in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: 'Define scope for: Remove unpinned langchain install commands from evaluate
+      mode in reusable-agents-verifier.yml (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: 'Implement focused slice for: Remove unpinned langchain install commands
+      from evaluate mode in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: 'Validate focused slice for: Remove unpinned langchain install commands
+      from evaluate mode in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: 'Define scope for: Remove unpinned langchain install commands from compare
+      mode in reusable-agents-verifier.yml (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: 'Implement focused slice for: Remove unpinned langchain install commands
+      from compare mode in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: 'Validate focused slice for: Remove unpinned langchain install commands
+      from compare mode in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: Add an `actions/cache@v4` pip cache step to `.github/workflows/reusable-agents-verifier.yml`
+      keyed by `${{ hashFiles('.workflows-lib/tools/requirements-llm.txt') }}` and
+      Python version.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: Create a static workflow scan test under `tests/` that fails if `.github/workflows/agents-auto-pilot.yml`
+      or `.github/workflows/reusable-agents-verifier.yml` contain floating `pip install
+      langchain*` installs or omit the pinned `pip install -r ...requirements-llm.txt`
+      install line.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: 'Create a test file under tests directory for workflow validation (verify:
+      tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: 'Define scope for: Implement test assertion that detects floating pip install
+      langchain commands in agents-auto-pilot.yml (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: 'Implement focused slice for: Implement test assertion that detects floating
+      pip install langchain commands in agents-auto-pilot.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: 'Validate focused slice for: Implement test assertion that detects floating
+      pip install langchain commands in agents-auto-pilot.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: 'Define scope for: Implement test assertion that verifies pinned requirements
+      install line exists in agents-auto-pilot.yml (verify: confirm completion in
+      repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: 'Implement focused slice for: Implement test assertion that verifies pinned
+      requirements install line exists in agents-auto-pilot.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-33
+    title: 'Validate focused slice for: Implement test assertion that verifies pinned
+      requirements install line exists in agents-auto-pilot.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-34
+    title: 'Define scope for: Implement test assertion that detects floating pip install
+      langchain commands in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-35
+    title: 'Implement focused slice for: Implement test assertion that detects floating
+      pip install langchain commands in reusable-agents-verifier.yml (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-36
+    title: 'Validate focused slice for: Implement test assertion that detects floating
+      pip install langchain commands in reusable-agents-verifier.yml (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-37
+    title: 'Define scope for: Implement test assertion that verifies pinned requirements
+      install line exists in reusable-agents-verifier.yml (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-38
+    title: 'Implement focused slice for: Implement test assertion that verifies pinned
+      requirements install line exists in reusable-agents-verifier.yml (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-39
+    title: 'Validate focused slice for: Implement test assertion that verifies pinned
+      requirements install line exists in reusable-agents-verifier.yml (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-40
+    title: Update any existing snippet validation tests to remain consistent with
+      the updated workflows (align with `docs/workflow-snippets/pip-cache-step.yml`
+      and `docs/workflow-snippets/agents-auto-pilot-install.yml` where applicable).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-41
+    title: '`.github/workflows/agents-auto-pilot.yml` contains `pip install -r tools/requirements-llm.txt`
+      and contains no unpinned runtime `pip install langchain*` lines.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-42
+    title: '`.github/workflows/reusable-agents-verifier.yml` contains `pip install
+      -r .workflows-lib/tools/requirements-llm.txt` for evaluate/compare modes.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-43
+    title: Both workflows include an `actions/cache@v4` pip cache step keyed by the
+      pinned requirements file hash (`hashFiles(...)`) and Python version.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-44
+    title: A test in `tests/` fails when either workflow omits the pinned install
+      line or includes floating `pip install langchain*` installs, and passes when
+      the workflows meet the requirements.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-45
+    title: Update `.github/workflows/agents-auto-pilot.yml` to install LLM deps via
+      `pip install -r tools/requirements-llm.txt` (remove unpinned `pip install langchain
+      ...` lines).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-46
+    title: Add a pip cache step to `.github/workflows/agents-auto-pilot.yml` using
+      `actions/cache@v4` keyed by `${{ hashFiles('tools/requirements-llm.txt') }}`
+      and Python version.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-47
+    title: Update `.github/workflows/reusable-agents-verifier.yml` to install LLM
+      deps via the pinned file from the checked-out Workflows lib (`pip install -r
+      .workflows-lib/tools/requirements-llm.txt`) for evaluate/compare modes.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-48
+    title: Add a pip cache step to `.github/workflows/reusable-agents-verifier.yml`
+      keyed by `${{ hashFiles('.workflows-lib/tools/requirements-llm.txt') }}` and
+      Python version.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-49
+    title: Add a lightweight repo test that fails if these workflows contain floating
+      installs for langchain packages or omit the pinned requirements install line.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-50
+    title: Ensure any existing snippet validation tests remain consistent with the
+      updated workflows.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-51
+    title: '`agents-auto-pilot.yml` installs LLM deps from `tools/requirements-llm.txt`
+      and does not contain unpinned `pip install langchain*` runtime installs.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-52
+    title: '`reusable-agents-verifier.yml` installs LLM deps from `.workflows-lib/tools/requirements-llm.txt`
+      for evaluate/compare modes.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-53
+    title: Both workflows include a pip cache step keyed by the pinned requirements
+      file hash.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-54
+    title: A unit test enforces the pinned-install + cache requirement for these workflows.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-55
+    title: Update `.github/workflows/agents-auto-pilot.yml` to install LLM deps via
+      `pip install -r tools/requirements-llm.txt` and remove any unpinned `pip install
+      langchain*` runtime install lines. (AGENT_LIMITATIONS states 'Cannot modify
+      .github/workflows/*.yml (protected)'. This workflow file is in a protected directory.
+      | Create a pull request with the proposed changes to agents-auto-pilot.yml,
+      including detailed comments explaining the modifications, for human review and
+      merge.)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-56
+    title: Add an `actions/cache@v4` pip cache step to `.github/workflows/agents-auto-pilot.yml`
+      keyed by `${{ hashFiles('tools/requirements-llm.txt') }}` and Python version.
+      (AGENT_LIMITATIONS states 'Cannot modify .github/workflows/*.yml (protected)'.
+      This workflow file is in a protected directory. | Create a pull request with
+      the proposed cache step configuration for agents-auto-pilot.yml, referencing
+      the existing snippet in docs/workflow-snippets/pip-cache-step.yml as a template.)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-57
+    title: Update `.github/workflows/reusable-agents-verifier.yml` to install LLM
+      deps (for evaluate/compare modes) via `pip install -r .workflows-lib/tools/requirements-llm.txt`
+      and remove any unpinned `pip install langchain*` runtime install lines for those
+      modes. (AGENT_LIMITATIONS states 'Cannot modify .github/workflows/*.yml (protected)'.
+      This workflow file is in a protected directory. | Create a pull request with
+      the proposed changes to reusable-agents-verifier.yml for evaluate and compare
+      modes, with clear documentation of which sections were modified.)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-58
+    title: Add an `actions/cache@v4` pip cache step to `.github/workflows/reusable-agents-verifier.yml`
+      keyed by `${{ hashFiles('.workflows-lib/tools/requirements-llm.txt') }}` and
+      Python version. (AGENT_LIMITATIONS states 'Cannot modify .github/workflows/*.yml
+      (protected)'. This workflow file is in a protected directory. | Create a pull
+      request with the proposed cache step configuration for reusable-agents-verifier.yml,
+      ensuring the cache key correctly references the .workflows-lib path.)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
