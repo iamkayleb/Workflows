@@ -204,6 +204,19 @@ def _normalize_guard_input(text: object | None) -> str:
     return str(text)
 
 
+def _extract_reason_code(reason: str) -> ReasonCode | None:
+    """Return the reason code when the format is valid."""
+
+    if ":" not in reason:
+        return None
+
+    prefix = reason.split(":", 1)[0].strip()
+    if prefix in REASON_CODE_MESSAGES:
+        return cast(ReasonCode, prefix)
+
+    return None
+
+
 def check_prompt_injection(text: object | None) -> GuardCheckResult:
     """Run prompt-injection detection with input validation and a stable result shape.
 
@@ -227,9 +240,17 @@ def check_prompt_injection(text: object | None) -> GuardCheckResult:
         if not blocked:
             return {"blocked": False, "reason": "", "code": None}
 
-        code = None
-        if reason:
-            code = cast(ReasonCode, reason.split(":", 1)[0].strip())
+        if not isinstance(reason, str) or not reason.strip():
+            return {
+                "blocked": True,
+                "reason": "GUARD_ERROR: Invalid reason format",
+                "code": "GUARD_ERROR",
+            }
+
+        code = _extract_reason_code(reason)
+        if code is None:
+            return {"blocked": True, "reason": reason, "code": None}
+
         return {"blocked": True, "reason": reason, "code": code}
     except Exception as exc:  # fail closed on guard errors
         return {

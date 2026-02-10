@@ -4,7 +4,6 @@ import os
 import re
 from pathlib import Path
 
-import pytest
 import yaml
 
 WORKFLOWS_DIR = Path(".github/workflows")
@@ -13,6 +12,13 @@ VERIFIER = WORKFLOWS_DIR / "reusable-agents-verifier.yml"
 NEEDS_HUMAN_COMMENT = Path("agents/codex-1447.md")
 
 # needs-human: update workflow installs to use pinned requirements files.
+
+
+def _skip_if_not_high_privilege() -> None:
+    if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
+        import pytest
+
+        pytest.skip("needs-human: workflow updates require agent-high-privilege")
 
 
 def _load_text(path: Path) -> str:
@@ -65,8 +71,7 @@ def _assert_pip_cache(workflow: dict, hash_path: str, name: str) -> None:
 
 
 def test_agents_auto_pilot_llm_install_is_pinned() -> None:
-    if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
-        pytest.skip("needs-human: workflow updates require agent-high-privilege")
+    _skip_if_not_high_privilege()
     text = _load_text(AUTO_PILOT)
     _assert_pinned_install(
         text,
@@ -77,15 +82,13 @@ def test_agents_auto_pilot_llm_install_is_pinned() -> None:
 
 
 def test_agents_auto_pilot_pip_cache_is_configured() -> None:
-    if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
-        pytest.skip("needs-human: workflow updates require agent-high-privilege")
+    _skip_if_not_high_privilege()
     workflow = _load_workflow(AUTO_PILOT)
     _assert_pip_cache(workflow, "tools/requirements-llm.txt", AUTO_PILOT.name)
 
 
 def test_reusable_agents_verifier_llm_install_is_pinned_for_modes() -> None:
-    if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
-        pytest.skip("needs-human: workflow updates require agent-high-privilege")
+    _skip_if_not_high_privilege()
     text = _load_text(VERIFIER)
     _assert_pinned_install(
         text,
@@ -97,8 +100,7 @@ def test_reusable_agents_verifier_llm_install_is_pinned_for_modes() -> None:
 
 
 def test_reusable_agents_verifier_pip_cache_is_configured() -> None:
-    if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
-        pytest.skip("needs-human: workflow updates require agent-high-privilege")
+    _skip_if_not_high_privilege()
     workflow = _load_workflow(VERIFIER)
     _assert_pip_cache(workflow, ".workflows-lib/tools/requirements-llm.txt", VERIFIER.name)
 
