@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final, Literal, TypeAlias
+from typing import Final, Literal, TypeAlias, TypedDict, cast
 
 ReasonCode: TypeAlias = Literal[
     "INSTRUCTION_OVERRIDE",
@@ -51,6 +51,20 @@ ReasonCode: TypeAlias = Literal[
 ]
 
 GuardResult: TypeAlias = tuple[bool, str]
+
+
+class GuardCheckResult(TypedDict):
+    """Structured result from check_prompt_injection.
+
+    Fields:
+        blocked (bool): True when prompt injection is detected or the guard fails closed.
+        reason (str): Human-readable reason. Empty when not blocked.
+        code (ReasonCode | "GUARD_ERROR" | None): Parsed reason code or error code.
+    """
+
+    blocked: bool
+    reason: str
+    code: ReasonCode | Literal["GUARD_ERROR"] | None
 
 
 @dataclass(frozen=True)
@@ -163,3 +177,47 @@ def detect_prompt_injection(text: str) -> GuardResult:
             return True, reason
 
     return False, ""
+
+
+def check_prompt_injection(text: object | None) -> GuardCheckResult:
+    """Run prompt-injection detection with input validation and a stable result shape.
+
+    Args:
+        text: Arbitrary input. None and empty/whitespace-only strings are treated
+            as not blocked. Non-string inputs are coerced to string safely.
+
+    Returns:
+        GuardCheckResult with fields:
+            blocked: bool
+            reason: str (empty when not blocked)
+            code: ReasonCode | "GUARD_ERROR" | None
+    """
+
+    if text is None:
+        return {"blocked": False, "reason": "", "code": None}
+
+    try:
+        if isinstance(text, bytes):
+            normalized = text.decode("utf-8", errors="ignore")
+        elif isinstance(text, str):
+            normalized = text
+        else:
+            normalized = str(text)
+
+        if not normalized.strip():
+            return {"blocked": False, "reason": "", "code": None}
+
+        blocked, reason = detect_prompt_injection(normalized)
+        if not blocked:
+            return {"blocked": False, "reason": "", "code": None}
+
+        code = None
+        if reason:
+            code = cast(ReasonCode, reason.split(":", 1)[0].strip())
+        return {"blocked": True, "reason": reason, "code": code}
+    except Exception as exc:  # fail closed on guard errors
+        return {
+            "blocked": True,
+            "reason": f"GUARD_ERROR: {exc}",
+            "code": "GUARD_ERROR",
+        }
