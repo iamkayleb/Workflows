@@ -2,6 +2,7 @@ import sys
 import types
 
 from scripts.langchain import semantic_matcher
+from tools.embedding_provider import FALLBACK_DIMENSIONS
 
 
 class StubEmbeddings:
@@ -33,6 +34,29 @@ def test_generate_embeddings_uses_client_info():
     assert result.is_fallback is False
     assert result.dimensions == 1
     assert result.vectors == [[5.0], [4.0]]
+
+
+def test_generate_embeddings_uses_openai_provider(monkeypatch):
+    _install_stub_langchain(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "token")
+
+    result = semantic_matcher.generate_embeddings(["alpha", "beta"])
+
+    assert result is not None
+    assert result.provider == "openai"
+    assert result.is_fallback is False
+    assert result.dimensions == 1
+
+
+def test_generate_embeddings_uses_fallback_provider(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    result = semantic_matcher.generate_embeddings(["alpha", "beta"])
+
+    assert result is not None
+    assert result.provider == "fallback"
+    assert result.is_fallback is True
+    assert result.dimensions == FALLBACK_DIMENSIONS
 
 
 def test_get_embedding_client_prefers_openai(monkeypatch):
