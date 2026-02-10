@@ -669,11 +669,13 @@ async function writeStepSummary({
 }
 
 function countCheckboxes(markdown) {
+  // Apply parent-child cascade before counting so that checked parents
+  // automatically cascade to their indented children.
+  const cascaded = cascadeParentCheckboxes(String(markdown || ''));
   const result = { total: 0, checked: 0, unchecked: 0 };
   const regex = /(?:^|\n)\s*(?:[-*+]|\d+[.)])\s*\[( |x|X)\]/g;
-  const content = String(markdown || '');
   let match;
-  while ((match = regex.exec(content)) !== null) {
+  while ((match = regex.exec(cascaded)) !== null) {
     result.total += 1;
     if ((match[1] || '').toLowerCase() === 'x') {
       result.checked += 1;
@@ -682,6 +684,68 @@ function countCheckboxes(markdown) {
     }
   }
   return result;
+}
+
+/**
+ * Cascade checked parent checkboxes to their indented children.
+ *
+ * When a parent checkbox line is checked (`[x]`), all immediately following
+ * lines that are indented deeper and contain unchecked checkboxes (`[ ]`) are
+ * also checked.  The cascade stops when a line at the same or lesser
+ * indentation as the parent is encountered.
+ *
+ * This solves the bookkeeping problem where top-level tasks get checked off
+ * (because Codex completes the work and the reconciler matches the parent),
+ * but the automatically-generated sub-tasks ("Define scope for: …",
+ * "Implement focused slice for: …", "Validate focused slice for: …") remain
+ * unchecked — causing the keepalive loop to believe work remains.
+ *
+ * @param {string} body - Markdown text (typically the PR body or task section).
+ * @returns {string} The body with sub-task checkboxes cascaded from checked parents.
+ */
+function cascadeParentCheckboxes(body) {
+  if (!body) return body;
+  const lines = body.split('\n');
+  const result = [];
+  // Track the indentation level of the most recent checked parent (if any).
+  // null means we are not inside a cascading region.
+  let parentIndent = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Match checkbox lines: optional indent, bullet, [x] or [ ]
+    const cbMatch = line.match(/^(\s*)([-*+]|\d+[.)])\s*\[([ xX])\]\s*/);
+    if (!cbMatch) {
+      // Non-checkbox line — reset cascade if it's a heading or blank section break
+      if (/^\s*$/.test(line) || /^#{1,6}\s/.test(line)) {
+        parentIndent = null;
+      }
+      result.push(line);
+      continue;
+    }
+
+    const indent = cbMatch[1].length;
+    const checked = cbMatch[3].toLowerCase() === 'x';
+
+    if (parentIndent !== null && indent > parentIndent) {
+      // This is a child of the current checked parent — cascade the check
+      if (!checked) {
+        result.push(line.replace(/\[\s\]/, '[x]'));
+      } else {
+        result.push(line);
+      }
+      continue;
+    }
+
+    // This line is at the same or lesser indentation — it may be a new parent
+    parentIndent = null;
+    if (checked) {
+      parentIndent = indent;
+    }
+    result.push(line);
+  }
+
+  return result.join('\n');
 }
 
 function normaliseChecklistSection(content) {
@@ -3537,6 +3601,19 @@ async function autoReconcileTasks({ github: rawGithub, context, prNumber, baseSh
     };
   }
 
+  // Cascade checked parents to their indented children so that sub-tasks
+  // (e.g., "Define scope for: …", "Implement focused slice for: …") are
+  // automatically checked when their parent task is marked complete.
+  const beforeCascade = updatedBody;
+  updatedBody = cascadeParentCheckboxes(updatedBody);
+  const cascadeCheckboxes = countCheckboxes(updatedBody);
+  const beforeCheckboxes = countCheckboxes(beforeCascade);
+  const cascadedCount = cascadeCheckboxes.checked - beforeCheckboxes.checked;
+  if (cascadedCount > 0) {
+    log(`Cascaded ${cascadedCount} sub-task checkbox(es) from checked parents`);
+    checkedCount += cascadedCount;
+  }
+
   // Update the PR body
   try {
     await github.rest.pulls.update({
@@ -3572,6 +3649,7 @@ async function autoReconcileTasks({ github: rawGithub, context, prNumber, baseSh
 
 module.exports = {
   countCheckboxes,
+  cascadeParentCheckboxes,
   parseConfig,
   buildTaskAppendix,
   extractSourceSection,
