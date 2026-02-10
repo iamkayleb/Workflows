@@ -376,15 +376,29 @@ jobs:
 
       # === LLM Evaluation Mode (when mode=evaluate) ===
       - name: Setup Python for LLM evaluation
+        id: setup-python-evaluate
         if: steps.context.outputs.should_run == 'true' && inputs.mode == 'evaluate'
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
+      - name: Cache pip (LLM evaluation requirements)
+        if: steps.context.outputs.should_run == 'true' && inputs.mode == 'evaluate'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+          key: >-
+            pip-${{ runner.os }}-${{ steps.setup-python-evaluate.outputs.python-version }}-${{ hashFiles('.workflows-lib/tools/requirements-llm.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ steps.setup-python-evaluate.outputs.python-version }}-
+            pip-${{ runner.os }}-
+
       - name: Install LLM evaluation dependencies
         if: steps.context.outputs.should_run == 'true' && inputs.mode == 'evaluate'
         run: |
-          pip install pydantic langchain-openai langchain-anthropic
+          python -m pip install --upgrade pip
+          pip install -r .workflows-lib/tools/requirements-llm.txt
 
       - name: Check provider secrets
         id: openai_key
@@ -531,15 +545,29 @@ jobs:
 
       # === Multi-Provider Comparison Mode (when mode=compare) ===
       - name: Setup Python for comparison
+        id: setup-python-compare
         if: steps.context.outputs.should_run == 'true' && inputs.mode == 'compare'
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
+      - name: Cache pip (LLM comparison requirements)
+        if: steps.context.outputs.should_run == 'true' && inputs.mode == 'compare'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+          key: >-
+            pip-${{ runner.os }}-${{ steps.setup-python-compare.outputs.python-version }}-${{ hashFiles('.workflows-lib/tools/requirements-llm.txt') }}
+          restore-keys: |
+            pip-${{ runner.os }}-${{ steps.setup-python-compare.outputs.python-version }}-
+            pip-${{ runner.os }}-
+
       - name: Install comparison dependencies
         if: steps.context.outputs.should_run == 'true' && inputs.mode == 'compare'
         run: |
-          pip install pydantic langchain-openai langchain-anthropic
+          python -m pip install --upgrade pip
+          pip install -r .workflows-lib/tools/requirements-llm.txt
 
       - name: Run multi-provider comparison
         id: llm_compare

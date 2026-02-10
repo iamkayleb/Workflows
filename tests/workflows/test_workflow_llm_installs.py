@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 
@@ -10,15 +9,6 @@ WORKFLOWS_DIR = Path(".github/workflows")
 AUTO_PILOT = WORKFLOWS_DIR / "agents-auto-pilot.yml"
 VERIFIER = WORKFLOWS_DIR / "reusable-agents-verifier.yml"
 NEEDS_HUMAN_COMMENT = Path("agents/codex-1447.md")
-
-# needs-human: update workflow installs to use pinned requirements files.
-
-
-def _skip_if_not_high_privilege() -> None:
-    if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
-        import pytest
-
-        pytest.skip("needs-human: workflow updates require agent-high-privilege")
 
 
 def _load_text(path: Path) -> str:
@@ -38,12 +28,17 @@ def _assert_pinned_install(text: str, expected: str, name: str, minimum: int = 1
 
 
 def _assert_no_floating_langchain(text: str, name: str) -> None:
+    # Match lines that do `pip install ... langchain*` without -r (requirements file).
+    # Lines using `pip install -r <file>` are safe even if the requirements
+    # file itself is named with "langchain" in the path.
     pattern = re.compile(
-        r"^.*\\bpip install\\b.*\\blangchain[\\w-]*",
+        r"^[^#]*\bpip\s+install\b(?!.*\s+-r\s).*\blangchain[\w-]*",
         re.IGNORECASE | re.MULTILINE,
     )
     match = pattern.search(text)
-    assert match is None, f"{name} contains floating langchain install: `{match.group(0).strip()}`"
+    assert match is None, (
+        f"{name} contains floating langchain install: " f"`{match.group(0).strip()}`"
+    )
 
 
 def _iter_steps(workflow: dict) -> list[dict]:
@@ -71,7 +66,6 @@ def _assert_pip_cache(workflow: dict, hash_path: str, name: str) -> None:
 
 
 def test_agents_auto_pilot_llm_install_is_pinned() -> None:
-    _skip_if_not_high_privilege()
     text = _load_text(AUTO_PILOT)
     _assert_pinned_install(
         text,
@@ -82,13 +76,11 @@ def test_agents_auto_pilot_llm_install_is_pinned() -> None:
 
 
 def test_agents_auto_pilot_pip_cache_is_configured() -> None:
-    _skip_if_not_high_privilege()
     workflow = _load_workflow(AUTO_PILOT)
     _assert_pip_cache(workflow, "tools/requirements-llm.txt", AUTO_PILOT.name)
 
 
 def test_reusable_agents_verifier_llm_install_is_pinned_for_modes() -> None:
-    _skip_if_not_high_privilege()
     text = _load_text(VERIFIER)
     _assert_pinned_install(
         text,
@@ -100,7 +92,6 @@ def test_reusable_agents_verifier_llm_install_is_pinned_for_modes() -> None:
 
 
 def test_reusable_agents_verifier_pip_cache_is_configured() -> None:
-    _skip_if_not_high_privilege()
     workflow = _load_workflow(VERIFIER)
     _assert_pip_cache(workflow, ".workflows-lib/tools/requirements-llm.txt", VERIFIER.name)
 
