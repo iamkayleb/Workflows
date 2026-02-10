@@ -13,6 +13,7 @@ NEEDS_HUMAN_COMMENT = Path("agents/codex-1447.md")
 
 # needs-human: update workflow installs to use pinned requirements files.
 
+
 def _skip_if_not_high_privilege() -> None:
     if os.environ.get("AGENT_ENV", "agent-standard") != "agent-high-privilege":
         import pytest
