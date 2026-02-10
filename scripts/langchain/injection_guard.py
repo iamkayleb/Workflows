@@ -54,18 +54,23 @@ ReasonCode: TypeAlias = Literal[
 GuardResult: TypeAlias = tuple[bool, str]
 
 
-class GuardCheckResult(TypedDict):
-    """Structured result from check_prompt_injection.
+class GuardCheckResultAllowed(TypedDict):
+    """Guard result for inputs that are not blocked."""
 
-    Fields:
-        blocked (bool): True when prompt injection is detected or the guard fails closed.
-        reason (str): Human-readable reason. Empty when not blocked.
-        code (ReasonCode | "GUARD_ERROR" | None): Parsed reason code or error code.
-    """
+    blocked: Literal[False]
+    reason: Literal[""]
+    code: None
 
-    blocked: bool
+
+class GuardCheckResultBlocked(TypedDict):
+    """Guard result for inputs that are blocked or when guard fails closed."""
+
+    blocked: Literal[True]
     reason: str
     code: ReasonCode | Literal["GUARD_ERROR"] | None
+
+
+GuardCheckResult: TypeAlias = GuardCheckResultAllowed | GuardCheckResultBlocked
 
 
 @dataclass(frozen=True)
@@ -207,10 +212,10 @@ def check_prompt_injection(text: object | None) -> GuardCheckResult:
             as not blocked. Non-string inputs are coerced to string safely.
 
     Returns:
-        GuardCheckResult with fields:
-            blocked: bool
-            reason: str (empty when not blocked)
-            code: ReasonCode | "GUARD_ERROR" | None
+        GuardCheckResult:
+            blocked: True when prompt injection is detected or guard fails closed.
+            reason: Human-readable reason (empty string when not blocked).
+            code: ReasonCode | "GUARD_ERROR" | None.
     """
 
     try:
