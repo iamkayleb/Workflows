@@ -329,7 +329,9 @@ def review_progress_with_llm(
                 scope_drift_identified=unaligned[:5],
             ),
             feedback_for_agent="Review your recent work against the acceptance criteria.",
-            summary=f"Heuristic review: {len(aligned)}/{len(recent_commits)} commits appear aligned",
+            summary=(
+                f"Heuristic review: {len(aligned)}/" f"{len(recent_commits)} commits appear aligned"
+            ),
             used_llm=False,
             error="LLM unavailable, using heuristic fallback",
         )
@@ -427,7 +429,9 @@ def review_progress(
                 scope_drift_identified=unaligned[:3],
             ),
             feedback_for_agent="Work appears aligned. Continue toward task completion.",
-            summary=f"Heuristic: {len(aligned)}/{len(recent_commits)} commits aligned with criteria",
+            summary=(
+                f"Heuristic: {len(aligned)}/" f"{len(recent_commits)} commits aligned with criteria"
+            ),
             used_llm=False,
         )
 

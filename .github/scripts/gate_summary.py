@@ -195,9 +195,15 @@ def _collect_table(
         else:
             percent_display = "—"
 
-        table.append(
-            f"| {runtime} | {_emoji(lint)} {_friendly(lint)} | {_emoji(typing)} {_friendly(typing)} | {_emoji(tests)} {_friendly(tests)} | {_emoji(coverage_min)} {_friendly(coverage_min)} | {percent_display} |"
+        row = (
+            f"| {runtime}"
+            f" | {_emoji(lint)} {_friendly(lint)}"
+            f" | {_emoji(typing)} {_friendly(typing)}"
+            f" | {_emoji(tests)} {_friendly(tests)}"
+            f" | {_emoji(coverage_min)} {_friendly(coverage_min)}"
+            f" | {percent_display} |"
         )
+        table.append(row)
 
     return (
         table,
@@ -263,9 +269,9 @@ def _active_lines(
     lines.append(f"- Lint: {_emoji(lint_status)} {_friendly(lint_status)} ({lint_detail})")
     lines.append(f"- Type check: {_emoji(type_status)} {_friendly(type_status)} ({type_detail})")
     lines.append(f"- Tests: {_emoji(test_status)} {_friendly(test_status)} ({test_detail})")
-    lines.append(
-        f"- Coverage minimum: {_emoji(coverage_status)} {_friendly(coverage_status)} ({coverage_detail})"
-    )
+    cov_emoji = _emoji(coverage_status)
+    cov_text = _friendly(coverage_status)
+    lines.append(f"- Coverage minimum: {cov_emoji} {cov_text} ({coverage_detail})")
     coverage_summary = list(coverage_percents)
     if coverage_summary:
         lines.append(f"- Reported coverage: {', '.join(coverage_summary)}")
