@@ -136,7 +136,8 @@ def _generate_guard_blocked_followup(
         "",
         "## Acceptance Criteria",
         "",
-        "- [ ] A human has reviewed the blocked content and determined the appropriate follow-up actions.",
+        "- [ ] A human has reviewed the blocked content and determined"
+        " the appropriate follow-up actions.",
         "",
         "## Implementation Notes",
         "",
