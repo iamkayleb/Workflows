@@ -6,10 +6,10 @@ tasks:
   - id: task-01
     title: Define the EmbeddingProvider abstract base class with embed method signature
       and metadata properties in `tools/embedding_provider.py`
-    status: doing
+    status: done
     started_at: '2026-02-10T08:23:09Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-02-10T08:23:18Z'
+    commit: 1127d53e39ad927704db4d34162f94311950ba6d
     notes: []
   - id: task-02
     title: Implement the OpenAIEmbeddingProvider class that wraps OpenAI embeddings
