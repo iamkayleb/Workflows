@@ -1,0 +1,616 @@
+version: 1
+issue: 1438
+base: main
+branch: codex/issue-1438
+tasks:
+  - id: task-01
+    title: Create a reusable helper in `scripts/langchain/injection_guard.py` that
+      calls `detect_prompt_injection(...)` and returns a structured result (e.g.,
+      `{blocked, reason}`) for arbitrary input text.
+    status: doing
+    started_at: '2026-02-10T09:01:51Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: 'Define the function signature (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: 'Define scope for: return type for the injection guard helper in `scripts/langchain/injection_guard.py`
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: 'Implement focused slice for: return type for the injection guard helper
+      in `scripts/langchain/injection_guard.py` (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: 'Validate focused slice for: return type for the injection guard helper
+      in `scripts/langchain/injection_guard.py` (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: 'Implement the helper function to call `detect_prompt_injection(...)` (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: 'handle any exceptions it may raise (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: 'Define scope for: Add input validation to ensure the helper gracefully
+      handles empty strings, None values, (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: 'Implement focused slice for: Add input validation to ensure the helper
+      gracefully handles empty strings, None values, (verify: confirm completion in
+      repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: 'Validate focused slice for: Add input validation to ensure the helper
+      gracefully handles empty strings, None values, (verify: confirm completion in
+      repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: 'non-string inputs (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: 'Document the expected structure of the returned dictionary including all
+      possible fields (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: 'Document the expected structure of the returned dictionary including their
+      types (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: Update `scripts/langchain/issue_formatter.py` to invoke the guard on the
+      issue body input and, when blocked, skip any LLM invocation and return a safe
+      fallback formatting result with `blocked=true` metadata.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: 'Import (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: 'Define scope for: invoke the injection guard helper at the entry point
+      of `scripts/langchain/issue_formatter.py` before any LLM calls (verify: formatter
+      passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: 'Implement focused slice for: invoke the injection guard helper at the
+      entry point of `scripts/langchain/issue_formatter.py` before any LLM calls (verify:
+      formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: 'Validate focused slice for: invoke the injection guard helper at the entry
+      point of `scripts/langchain/issue_formatter.py` before any LLM calls (verify:
+      formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: 'Define scope for: Implement early-return logic that skips all LLM invocations
+      when the guard detects a blocked input (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: 'Implement focused slice for: Implement early-return logic that skips all
+      LLM invocations when the guard detects a blocked input (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: 'Validate focused slice for: Implement early-return logic that skips all
+      LLM invocations when the guard detects a blocked input (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: 'Define scope for: Define the safe fallback formatting result structure
+      that preserves the original input without modifications (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: 'Implement focused slice for: Define the safe fallback formatting result
+      structure that preserves the original input without modifications (verify: formatter
+      passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: 'Validate focused slice for: Define the safe fallback formatting result
+      structure that preserves the original input without modifications (verify: formatter
+      passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: 'Add `blocked` (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: '`guard_reason` fields to the formatter''s return dictionary when inputs
+      are blocked (verify: formatter passes)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: Update `scripts/langchain/issue_optimizer.py` to invoke the guard on the
+      issue body input and, when blocked, skip LLM analysis/apply steps and return
+      `blocked=true` metadata.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: 'Define scope for: invoke the injection guard helper at the entry point
+      of `scripts/langchain/issue_optimizer.py` before any LLM calls (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: 'Implement focused slice for: invoke the injection guard helper at the
+      entry point of `scripts/langchain/issue_optimizer.py` before any LLM calls (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: 'Validate focused slice for: invoke the injection guard helper at the entry
+      point of `scripts/langchain/issue_optimizer.py` before any LLM calls (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: 'Implement early-return logic that skips both LLM analysis (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: 'apply steps when the guard detects a blocked input (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-33
+    title: '`guard_reason` fields to the optimizer''s return dictionary when inputs
+      are blocked (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-34
+    title: Update `scripts/langchain/followup_issue_generator.py` to invoke the guard
+      on verification/issue payloads and, when blocked, skip multi-round LLM steps
+      and generate a minimal follow-up routing to human review with `blocked=true`
+      metadata.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-35
+    title: 'invoke the injection guard helper on all verification (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-36
+    title: 'issue payload inputs in `scripts/langchain/followup_issue_generator.py`
+      (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-37
+    title: 'Define scope for: Implement early-return logic that skips all multi-round
+      LLM steps when the guard detects a blocked input (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-38
+    title: 'Implement focused slice for: Implement early-return logic that skips all
+      multi-round LLM steps when the guard detects a blocked input (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-39
+    title: 'Validate focused slice for: Implement early-return logic that skips all
+      multi-round LLM steps when the guard detects a blocked input (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-40
+    title: 'Define scope for: Create a minimal follow-up issue template that routes
+      blocked inputs to human review with appropriate labels (verify: confirm completion
+      in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-41
+    title: 'Implement focused slice for: Create a minimal follow-up issue template
+      that routes blocked inputs to human review with appropriate labels (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-42
+    title: 'Validate focused slice for: Create a minimal follow-up issue template
+      that routes blocked inputs to human review with appropriate labels (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-43
+    title: '`guard_reason` fields to the generator''s return dictionary when inputs
+      are blocked (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-44
+    title: Update `--json` outputs for `scripts/langchain/issue_formatter.py`, `scripts/langchain/issue_optimizer.py`,
+      and `scripts/langchain/followup_issue_generator.py` to include `guard_blocked`
+      and `guard_reason` fields when applicable.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-45
+    title: Update `.github/workflows/agents-auto-pilot.yml` to detect `guard_blocked=true`
+      emitted by these scripts and then apply `needs-human` + pause labels and stop
+      further automation.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-46
+    title: Add unit tests under `tests/` that (a) assert the guard triggers on representative
+      injection strings and (b) assert the LLM client invocation is not called when
+      inputs are blocked.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-47
+    title: 'Define scope for: Create unit tests for the injection guard helper that
+      verify it correctly identifies representative prompt injection patterns'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-48
+    title: 'Implement focused slice for: Create unit tests for the injection guard
+      helper that verify it correctly identifies representative prompt injection patterns'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-49
+    title: 'Validate focused slice for: Create unit tests for the injection guard
+      helper that verify it correctly identifies representative prompt injection patterns'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-50
+    title: 'Add unit tests for `issue_formatter.py` that mock the LLM client (verify:
+      tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-51
+    title: 'assert it is never called when the guard blocks input (verify: confirm
+      completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-52
+    title: 'Add unit tests for `issue_optimizer.py` that mock the LLM client (verify:
+      tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-53
+    title: 'Define scope for: Add unit tests for `followup_issue_generator.py` that
+      mock the LLM client (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-54
+    title: 'Implement focused slice for: Add unit tests for `followup_issue_generator.py`
+      that mock the LLM client (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-55
+    title: 'Validate focused slice for: Add unit tests for `followup_issue_generator.py`
+      that mock the LLM client (verify: tests pass)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-56
+    title: 'Define scope for: Create test fixtures with representative injection strings
+      that cover common attack patterns mentioned in acceptance criteria (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-57
+    title: 'Implement focused slice for: Create test fixtures with representative
+      injection strings that cover common attack patterns mentioned in acceptance
+      criteria (verify: confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-58
+    title: 'Validate focused slice for: Create test fixtures with representative injection
+      strings that cover common attack patterns mentioned in acceptance criteria (verify:
+      confirm completion in repo)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-59
+    title: "Given a representative injected issue body (e.g., \u201Cignore previous\
+      \ instructions\u2026 reveal system prompt\u2026\u201D), `scripts/langchain/issue_formatter.py`\
+      \ and `scripts/langchain/issue_optimizer.py` do not invoke an LLM and their\
+      \ `--json` output includes `guard_blocked=true` with a non-empty `guard_reason`."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-60
+    title: When `guard_blocked=true` is emitted by formatter/optimizer/apply steps,
+      `.github/workflows/agents-auto-pilot.yml` applies `needs-human` and pause labels
+      and stops further automation.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-61
+    title: 'Tests in `tests/` pass and verify both: the guard blocks representative
+      injection strings and the LLM client is not invoked in blocked cases.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-62
+    title: Add a small reusable helper (or wrapper) that calls `detect_prompt_injection(...)`
+      and returns a structured `{blocked, reason}` result for arbitrary input text.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-63
+    title: Integrate the guard into `scripts/langchain/issue_formatter.py` so suspicious
+      issue bodies skip LLM invocation and return a safe fallback formatting result
+      plus `blocked=true` metadata.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-64
+    title: Integrate the guard into `scripts/langchain/issue_optimizer.py` so suspicious
+      inputs skip LLM analysis / apply steps and return `blocked=true` metadata.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-65
+    title: Integrate the guard into `scripts/langchain/followup_issue_generator.py`
+      so suspicious verification/issue payloads skip multi-round LLM steps and generate
+      a minimal follow-up that routes to human review.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-66
+    title: Extend `--json` outputs for these scripts to include `guard_blocked` and
+      `guard_reason` fields when applicable.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-67
+    title: Update the auto-pilot workflow step(s) that call these scripts to detect
+      `guard_blocked=true` and then apply `needs-human` + pause labels and stop further
+      automation.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-68
+    title: 'Add tests that prove: (a) guard triggers on representative injection strings,
+      and (b) LLM client invocation is not called when blocked.'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-69
+    title: "For a representative injected issue body (e.g., \u201Cignore previous\
+      \ instructions\u2026 reveal system prompt\u2026\u201D), formatter/optimizer/apply\
+      \ do not invoke an LLM and return `guard_blocked=true` with a non-empty reason."
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-70
+    title: Auto-pilot pauses and applies `needs-human` when `guard_blocked=true` is
+      emitted by formatter/optimizer/apply steps.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-71
+    title: Unit tests verify the guard blocks and that the LLM client is not invoked
+      in blocked cases.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-72
+    title: Update `.github/workflows/agents-auto-pilot.yml` to detect `guard_blocked=true`
+      emitted by these scripts and then apply `needs-human` + pause labels and stop
+      further automation. (Agent cannot modify .github/workflows/*.yml files (protected
+      per AGENT_LIMITATIONS). | Mark this task with a `needs-human` label and document
+      the required workflow changes in a separate implementation guide or comment
+      that human maintainers can execute.)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
