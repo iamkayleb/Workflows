@@ -143,10 +143,14 @@ function hasCliAgentLabel(labels) {
 
 function countCheckboxes(markdown) {
   const result = { total: 0, checked: 0, unchecked: 0 };
-  const content = String(markdown || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\u2028|\u2029/g, '\n');
+  // Apply parent-child cascade before counting so that checked parents
+  // automatically cascade to their indented children.
+  const content = cascadeParentCheckboxes(
+    String(markdown || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\u2028|\u2029/g, '\n')
+  );
   const fencePattern = /^\s*(```|~~~)/;
   const checkboxPattern = /^\s*(?:[-*+]|\d+[.)])\s*\[( |x|X)\]/;
   let inCodeBlock = false;
@@ -171,6 +175,64 @@ function countCheckboxes(markdown) {
     }
   }
   return result;
+}
+
+/**
+ * Cascade checked parent checkboxes to their indented children.
+ * See cascadeParentCheckboxes in .github/scripts/keepalive_loop.js for the
+ * canonical implementation and detailed documentation.
+ */
+function cascadeParentCheckboxes(body) {
+  if (!body) return body;
+  const lines = body.split('\n');
+  const result = [];
+  let parentIndent = null;
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Detect code fence boundaries — reset cascade and skip contents.
+    if (/^\s*(`{3,}|~{3,})/.test(line)) {
+      inCodeBlock = !inCodeBlock;
+      parentIndent = null;
+      result.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+
+    const cbMatch = line.match(/^(\s*)([-*+]|\d+[.)])\s*\[([ xX])\]\s*/);
+    if (!cbMatch) {
+      if (/^\s*$/.test(line) || /^#{1,6}\s/.test(line)) {
+        parentIndent = null;
+      }
+      result.push(line);
+      continue;
+    }
+
+    const indent = cbMatch[1].length;
+    const checked = cbMatch[3].toLowerCase() === 'x';
+
+    if (parentIndent !== null && indent > parentIndent) {
+      if (!checked) {
+        result.push(line.replace(/\[\s+\]/, '[x]'));
+      } else {
+        result.push(line);
+      }
+      continue;
+    }
+
+    parentIndent = null;
+    if (checked) {
+      parentIndent = indent;
+    }
+    result.push(line);
+  }
+
+  return result.join('\n');
 }
 
 function extractLatestChecklist(botComments) {
@@ -1479,6 +1541,7 @@ module.exports = {
   normalizeScopeBlock,
   shouldIncludeScopeBlock,
   countCheckboxes,
+  cascadeParentCheckboxes,
   extractLatestChecklist,
   resolvePromptCheckboxCounts,
   resolveKeepalivePromptContext,
