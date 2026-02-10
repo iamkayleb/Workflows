@@ -182,6 +182,26 @@ def test_format_issue_body_falls_back_without_llm_tokens(monkeypatch: pytest.Mon
     assert "## Tasks" in result["formatted_body"]
 
 
+def test_format_issue_body_guard_blocks_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    injection_samples: list[dict[str, str]],
+) -> None:
+    raw = injection_samples[0]["text"]
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("LLM should not be invoked when guard blocks input.")
+
+    monkeypatch.setattr(issue_formatter, "_get_llm_client", _fail)
+
+    result = issue_formatter.format_issue_body(raw, use_llm=True)
+
+    assert result["blocked"] is True
+    assert result["guard_reason"]
+    assert result["used_llm"] is False
+    assert result["provider_used"] is None
+    assert result["formatted_body"] == raw
+
+
 def test_format_issue_body_llm_path_includes_raw_issue(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_client = mock.MagicMock()
     mock_chain = mock.MagicMock()

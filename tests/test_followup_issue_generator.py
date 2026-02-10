@@ -3,6 +3,7 @@
 
 import json
 import logging
+import sys
 
 import pytest
 
@@ -199,6 +200,41 @@ Agent ran 5 iterations before completion.
 """
         data = extract_verification_data(comment)
         assert data.iteration_count == 5
+
+
+def test_main_guard_blocks_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    injection_samples: list[dict[str, str]],
+) -> None:
+    raw = injection_samples[0]["text"]
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("LLM should not be invoked when guard blocks input.")
+
+    monkeypatch.setattr(followup_issue_generator, "generate_followup_issue", _fail)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "followup_issue_generator.py",
+            "--pr-number",
+            "123",
+            "--verification-comment",
+            raw,
+            "--original-issue",
+            "Original issue body",
+            "--json",
+        ],
+    )
+
+    exit_code = followup_issue_generator.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert payload["guard_blocked"] is True
+    assert payload["guard_reason"]
 
     def test_extract_task_completion(self):
         """Extract task completion stats."""

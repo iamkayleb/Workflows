@@ -4,6 +4,15 @@ from tests._autofix_diag import DiagnosticsRecorder, autofix_recorder  # noqa: F
 
 
 @pytest.fixture
+def injection_samples() -> list[dict[str, str]]:
+    import json
+    from pathlib import Path
+
+    fixture_path = Path(__file__).resolve().parent / "fixtures" / "prompt_injection_samples.json"
+    return json.loads(fixture_path.read_text(encoding="utf-8"))
+
+
+@pytest.fixture
 def llm_env_sentinel(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     values = {
         "GITHUB_REPOSITORY": "sentinel/repo",
