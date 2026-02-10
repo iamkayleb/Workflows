@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 DEFAULT_WORKFLOWS = (
     Path(".github/workflows/agents-auto-pilot.yml"),
@@ -13,7 +13,9 @@ DEFAULT_WORKFLOWS = (
 )
 
 
-def build_comment(workflows: Iterable[Path] = DEFAULT_WORKFLOWS, include_label: bool = False) -> str:
+def build_comment(
+    workflows: Iterable[Path] = DEFAULT_WORKFLOWS, include_label: bool = False
+) -> str:
     lines: list[str] = []
     if include_label:
         lines.append("Label: needs-human")
