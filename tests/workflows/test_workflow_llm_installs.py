@@ -9,6 +9,7 @@ import pytest
 WORKFLOWS_DIR = Path(".github/workflows")
 AUTO_PILOT = WORKFLOWS_DIR / "agents-auto-pilot.yml"
 VERIFIER = WORKFLOWS_DIR / "reusable-agents-verifier.yml"
+NEEDS_HUMAN_COMMENT = Path("agents/codex-1447.md")
 
 # needs-human: update workflow installs to use pinned requirements files.
 
@@ -88,3 +89,18 @@ def test_reusable_agents_verifier_pip_cache_is_configured() -> None:
         pytest.skip("needs-human: workflow updates require agent-high-privilege")
     text = _load_text(VERIFIER)
     _assert_pip_cache(text, ".workflows-lib/tools/requirements-llm.txt", VERIFIER.name)
+
+
+def test_workflow_llm_needs_human_comment_documents_blocker() -> None:
+    text = _load_text(NEEDS_HUMAN_COMMENT)
+    required_phrases = [
+        ".github/workflows/agents-auto-pilot.yml",
+        ".github/workflows/reusable-agents-verifier.yml",
+        "actions/cache@v4",
+        "tools/requirements-llm.txt",
+        ".workflows-lib/tools/requirements-llm.txt",
+        "langchain",
+        "agent-high-privilege",
+    ]
+    missing = [phrase for phrase in required_phrases if phrase not in text]
+    assert not missing, f"needs-human comment missing: {', '.join(missing)}"
