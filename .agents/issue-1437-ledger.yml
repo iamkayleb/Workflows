@@ -7,10 +7,10 @@ tasks:
     title: Update `.github/workflows/agents-auto-pilot.yml` to install LLM deps via
       `pip install -r tools/requirements-llm.txt` and remove any unpinned `pip install
       langchain*` runtime install lines.
-    status: doing
+    status: done
     started_at: '2026-02-10T09:02:19Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-02-10T09:02:28Z'
+    commit: 5d1f5c4231fd0533c9bc5b7aa91b12d2a6ed3677
     notes: []
   - id: task-02
     title: 'Define scope for: Add the pip install command using the pinned requirements
