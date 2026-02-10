@@ -70,6 +70,27 @@ def test_check_prompt_injection_handles_malformed_detector_outputs(
     assert result["reason"]
 
 
+@pytest.mark.parametrize(
+    "bad_reason",
+    [None, 123, 0, False],
+)
+def test_check_prompt_injection_handles_non_string_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    bad_reason: object,
+) -> None:
+    """Detector returns non-string reason — should fall back to GUARD_ERROR."""
+
+    def fake_detect(_: str) -> tuple[bool, object]:
+        return True, bad_reason
+
+    monkeypatch.setattr(injection_guard, "detect_prompt_injection", fake_detect)
+
+    result = injection_guard.check_prompt_injection("trigger")
+    assert result["blocked"] is True
+    assert result["code"] == "GUARD_ERROR"
+    assert "Invalid reason format" in result["reason"]
+
+
 def test_check_prompt_injection_handles_known_good_reason_format(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -82,3 +103,30 @@ def test_check_prompt_injection_handles_known_good_reason_format(
     assert result["blocked"] is True
     assert result["code"] == "ROLE_CONFUSION"
     assert result["reason"] == "ROLE_CONFUSION: demo"
+
+
+@pytest.mark.parametrize(
+    "known_code",
+    [
+        "INSTRUCTION_OVERRIDE",
+        "SYSTEM_PROMPT_EXFILTRATION",
+        "ROLE_CONFUSION",
+        "ENCODED_INSTRUCTIONS",
+        "TOOL_INJECTION",
+    ],
+)
+def test_check_prompt_injection_recognises_all_known_reason_codes(
+    monkeypatch: pytest.MonkeyPatch,
+    known_code: str,
+) -> None:
+    """Every code listed in REASON_CODE_MESSAGES must be extracted correctly."""
+
+    def fake_detect(_: str) -> tuple[bool, str]:
+        return True, f"{known_code}: test detail"
+
+    monkeypatch.setattr(injection_guard, "detect_prompt_injection", fake_detect)
+
+    result = injection_guard.check_prompt_injection("trigger")
+    assert result["blocked"] is True
+    assert result["code"] == known_code
+    assert result["reason"] == f"{known_code}: test detail"

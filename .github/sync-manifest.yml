@@ -184,6 +184,9 @@ scripts:
   - source: tools/resolve_mypy_pin.py
     description: "Resolves mypy version pinning - required by reusable CI workflow"
 
+  - source: tools/requirements-llm.txt
+    description: "Pinned LLM dependencies - required by agents-auto-pilot.yml"
+
   - source: tools/coverage_trend.py
     description: "Generates coverage trend summaries - required by reusable CI workflow"
 
