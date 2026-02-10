@@ -7,10 +7,10 @@ tasks:
     title: Create a reusable helper in `scripts/langchain/injection_guard.py` that
       calls `detect_prompt_injection(...)` and returns a structured result (e.g.,
       `{blocked, reason}`) for arbitrary input text.
-    status: doing
+    status: done
     started_at: '2026-02-10T09:01:51Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-02-10T09:02:04Z'
+    commit: 9f4f1c751f1f34ec4025220b51f50a5b9f85ba79
     notes: []
   - id: task-02
     title: 'Define the function signature (verify: confirm completion in repo)'
