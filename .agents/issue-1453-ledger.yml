@@ -1,0 +1,309 @@
+version: 1
+issue: 1453
+base: main
+branch: codex/issue-1453
+tasks:
+  - id: task-01
+    title: Remove the unconditional skip logic from `tests/workflows/test_workflow_llm_installs.py`
+      so tests run in normal CI
+    status: doing
+    started_at: '2026-02-10T18:33:20Z'
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-02
+    title: Add assertion to `tests/workflows/test_workflow_llm_installs.py` to verify
+      agents-auto-pilot workflow contains the pinned install step and lacks unpinned
+      langchain commands
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: Add assertions to `tests/workflows/test_workflow_llm_installs.py` to verify
+      reusable-agents-verifier workflow contains pinned install steps in both evaluate
+      and compare modes
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: Add assertions to `tests/workflows/test_workflow_llm_installs.py` to verify
+      both workflows include actions/cache@v4 with correct cache keys containing Python
+      version and requirements hash
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: Add unit tests to validate `check_prompt_injection()` handles malformed
+      detector outputs without raising exceptions
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: Add unit tests to validate `check_prompt_injection()` correctly handles
+      known-good reason code formats
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: Update `check_prompt_injection()` to validate detector output format before
+      parsing (check prefix/delimiters and guard integer conversion)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: Implement safe fallback path in `check_prompt_injection()` for unexpected
+      formats (no exception, defined behavior)
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: Create `docs/workflow-updates/agents-auto-pilot-changes.yml` with complete
+      YAML snippet for pip install step and cache configuration
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: Create `docs/workflow-updates/reusable-agents-verifier-changes.yml` with
+      complete YAML snippets for evaluate/compare mode pip install steps and cache
+      configuration
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: Add `docs/workflow-updates/README.md` with instructions for applying the
+      YAML snippets to protected workflow files
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: Add a dedicated step to `.github/workflows/agents-auto-pilot.yml` that
+      executes `pip install -r tools/requirements-llm.txt`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: Remove all unpinned `pip install langchain*` commands from `.github/workflows/agents-auto-pilot.yml`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: Add a step to `.github/workflows/reusable-agents-verifier.yml` evaluate
+      mode that executes `pip install -r .workflows-lib/tools/requirements-llm.txt`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: Add a step to `.github/workflows/reusable-agents-verifier.yml` compare
+      mode that executes `pip install -r .workflows-lib/tools/requirements-llm.txt`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: Remove all unpinned `pip install langchain*` commands from evaluate and
+      compare modes in `.github/workflows/reusable-agents-verifier.yml`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-17
+    title: Add `actions/cache@v4` pip cache step to `.github/workflows/agents-auto-pilot.yml`
+      with cache key including Python version and `hashFiles('tools/requirements-llm.txt')`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: Add `actions/cache@v4` pip cache step to `.github/workflows/reusable-agents-verifier.yml`
+      with cache key including Python version and `hashFiles('.workflows-lib/tools/requirements-llm.txt')`
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: '`.github/workflows/agents-auto-pilot.yml` contains a step that executes
+      exactly `pip install -r tools/requirements-llm.txt` (as a run command in the
+      workflow)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: '`.github/workflows/agents-auto-pilot.yml` does NOT contain any `pip install`
+      commands that install langchain via an unpinned specifier, including (but not
+      limited to) `pip install langchain`, `pip install langchain*`, `pip install
+      langchain==` (missing version), or `pip install git+...langchain...`'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-21
+    title: '`.github/workflows/reusable-agents-verifier.yml` includes a step that
+      executes exactly `pip install -r .workflows-lib/tools/requirements-llm.txt`
+      in the evaluate mode execution path'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-22
+    title: '`.github/workflows/reusable-agents-verifier.yml` includes a step that
+      executes exactly `pip install -r .workflows-lib/tools/requirements-llm.txt`
+      in the compare mode execution path'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-23
+    title: '`.github/workflows/reusable-agents-verifier.yml` does NOT contain any
+      `pip install` commands that install langchain via an unpinned specifier in the
+      evaluate or compare execution paths (e.g., `pip install langchain*`, `pip install
+      langchain`, `pip install langchain-community` without a version pin)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-24
+    title: '`.github/workflows/agents-auto-pilot.yml` contains an `actions/cache@v4`
+      step that caches pip (cache path includes pip cache directory) and uses a cache
+      key that includes BOTH the Python version and `${{ hashFiles(''tools/requirements-llm.txt'')
+      }}`'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-25
+    title: '`.github/workflows/reusable-agents-verifier.yml` contains an `actions/cache@v4`
+      step that caches pip (cache path includes pip cache directory) and uses a cache
+      key that includes BOTH the Python version and `${{ hashFiles(''.workflows-lib/tools/requirements-llm.txt'')
+      }}`'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-26
+    title: '`tests/workflows/test_workflow_llm_installs.py` is executed under normal
+      CI (i.e., it is not unconditionally skipped) and will fail if the agents-auto-pilot
+      workflow lacks the pinned requirements install step'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-27
+    title: '`tests/workflows/test_workflow_llm_installs.py` asserts that `.github/workflows/agents-auto-pilot.yml`
+      contains `pip install -r tools/requirements-llm.txt` AND asserts it does not
+      contain any floating `pip install langchain*`/unversioned langchain install
+      commands'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-28
+    title: '`tests/workflows/test_workflow_llm_installs.py` asserts that `.github/workflows/reusable-agents-verifier.yml`
+      contains `pip install -r .workflows-lib/tools/requirements-llm.txt` for BOTH
+      evaluate and compare modes (separate assertions per mode/path, not a single
+      generic check)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-29
+    title: '`tests/workflows/test_workflow_llm_installs.py` asserts that BOTH workflows
+      include an `actions/cache@v4` step and that each cache key includes Python version
+      + the correct `hashFiles(...)` call for the correct requirements path'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-30
+    title: '`check_prompt_injection()` does not raise an exception when `detect_prompt_injection`
+      returns an unexpected or malformed reason code (e.g., empty string, missing
+      delimiter/prefix, non-integer suffix); instead it follows a defined fallback
+      path (e.g., returns a safe default or logs and continues)'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-31
+    title: '`check_prompt_injection()` continues to correctly handle valid reason
+      code formats by producing the same outcome as before for at least one known-good
+      reason code value'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-32
+    title: Unit tests pass that verify `check_prompt_injection()` behavior with both
+      malformed and known-good detector outputs
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-33
+    title: '`docs/workflow-updates/agents-auto-pilot-changes.yml` exists and contains
+      valid YAML snippet for pip install and cache steps'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-34
+    title: '`docs/workflow-updates/reusable-agents-verifier-changes.yml` exists and
+      contains valid YAML snippets for evaluate/compare mode pip install and cache
+      steps'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-35
+    title: '`docs/workflow-updates/README.md` exists and provides clear instructions
+      for applying the YAML snippets to the protected workflow files'
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
