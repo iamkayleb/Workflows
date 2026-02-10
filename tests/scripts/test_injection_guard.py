@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from scripts.langchain import injection_guard
 
 
@@ -42,3 +44,41 @@ def test_check_prompt_injection_return_shape_for_allowed_input() -> None:
     assert result["blocked"] is False
     assert result["reason"] == ""
     assert result["code"] is None
+
+
+@pytest.mark.parametrize(
+    ("reason", "expected_code"),
+    [
+        ("", "GUARD_ERROR"),
+        ("INSTRUCTION_OVERRIDE missing delimiter", None),
+        ("UNKNOWN_CODE: Something odd", None),
+    ],
+)
+def test_check_prompt_injection_handles_malformed_detector_outputs(
+    monkeypatch: pytest.MonkeyPatch,
+    reason: str,
+    expected_code: str | None,
+) -> None:
+    def fake_detect(_: str) -> tuple[bool, str]:
+        return True, reason
+
+    monkeypatch.setattr(injection_guard, "detect_prompt_injection", fake_detect)
+
+    result = injection_guard.check_prompt_injection("trigger")
+    assert result["blocked"] is True
+    assert result["code"] == expected_code
+    assert result["reason"]
+
+
+def test_check_prompt_injection_handles_known_good_reason_format(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_detect(_: str) -> tuple[bool, str]:
+        return True, "ROLE_CONFUSION: demo"
+
+    monkeypatch.setattr(injection_guard, "detect_prompt_injection", fake_detect)
+
+    result = injection_guard.check_prompt_injection("trigger")
+    assert result["blocked"] is True
+    assert result["code"] == "ROLE_CONFUSION"
+    assert result["reason"] == "ROLE_CONFUSION: demo"
