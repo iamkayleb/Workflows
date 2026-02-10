@@ -33,3 +33,12 @@ def test_check_prompt_injection_handles_bad_str_objects() -> None:
     assert result["blocked"] is True
     assert result["code"] == "GUARD_ERROR"
     assert result["reason"].startswith("GUARD_ERROR:")
+
+
+def test_check_prompt_injection_return_shape_for_allowed_input() -> None:
+    result = injection_guard.check_prompt_injection("Plain issue description")
+
+    assert set(result.keys()) == {"blocked", "reason", "code"}
+    assert result["blocked"] is False
+    assert result["reason"] == ""
+    assert result["code"] is None
