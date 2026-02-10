@@ -6,10 +6,10 @@ tasks:
   - id: task-01
     title: Remove the unconditional skip logic from `tests/workflows/test_workflow_llm_installs.py`
       so tests run in normal CI
-    status: doing
+    status: done
     started_at: '2026-02-10T18:33:20Z'
-    finished_at: null
-    commit: ''
+    finished_at: '2026-02-10T18:33:32Z'
+    commit: 59bfc77cda7dd313d843eecd3ff96c5e7b5b1cb0
     notes: []
   - id: task-02
     title: Add assertion to `tests/workflows/test_workflow_llm_installs.py` to verify
