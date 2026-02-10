@@ -431,6 +431,24 @@ def _valid_issue_payload() -> dict[str, object]:
     }
 
 
+def test_analyze_issue_guard_blocks_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    injection_samples: list[dict[str, str]],
+) -> None:
+    raw = injection_samples[0]["text"]
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("LLM should not be invoked when guard blocks input.")
+
+    monkeypatch.setattr(issue_optimizer, "_get_llm_client", _fail)
+
+    result = issue_optimizer.analyze_issue(raw, use_llm=True)
+
+    assert result.guard_blocked is True
+    assert result.guard_reason
+    assert result.provider_used is None
+
+
 def test_analyze_issue_valid_output_no_repair(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_client = mock.MagicMock()
     mock_chain = mock.MagicMock()
