@@ -737,7 +737,6 @@ jobs:
           # If guard blocked, apply needs-human + pause labels and stop
           if [ -f /tmp/guard_blocked ]; then
             echo "⚠️ Prompt injection guard blocked this issue. Applying needs-human labels."
-            GUARD_REASON=$(cat /tmp/guard_blocked)
             node - <<'GUARD_NODE'
             (async () => {
               const fs = require('fs');
@@ -974,7 +973,6 @@ jobs:
           # If guard blocked, apply needs-human + pause labels and stop
           if [ -f /tmp/guard_blocked ]; then
             echo "⚠️ Prompt injection guard blocked this issue. Applying needs-human labels."
-            GUARD_REASON=$(cat /tmp/guard_blocked)
             node - <<'GUARD_NODE'
             (async () => {
               const fs = require('fs');
@@ -1349,7 +1347,6 @@ jobs:
           # If guard blocked during apply, apply needs-human + pause labels and stop
           if [ -f /tmp/guard_blocked ]; then
             echo "⚠️ Prompt injection guard blocked during apply step."
-            GUARD_REASON=$(cat /tmp/guard_blocked)
             node - <<'GUARD_NODE'
             (async () => {
               const fs = require('fs');
