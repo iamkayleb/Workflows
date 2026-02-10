@@ -449,6 +449,28 @@ def test_analyze_issue_guard_blocks_llm(
     assert result.provider_used is None
 
 
+def test_apply_suggestions_guard_blocks_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    injection_samples: list[dict[str, str]],
+) -> None:
+    raw = injection_samples[0]["text"]
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("LLM should not be invoked when guard blocks input.")
+
+    monkeypatch.setattr(issue_optimizer, "_get_llm_client", _fail)
+
+    result = issue_optimizer.apply_suggestions(raw, {}, use_llm=True)
+
+    assert result["guard_blocked"] is True
+    assert result["guard_reason"]
+    assert result["used_llm"] is False
+    assert result["provider_used"] is None
+    assert result["formatted_body"] == raw
+    # Verify no redundant 'blocked' key - schema uses only 'guard_blocked'
+    assert "blocked" not in result
+
+
 def test_analyze_issue_valid_output_no_repair(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_client = mock.MagicMock()
     mock_chain = mock.MagicMock()

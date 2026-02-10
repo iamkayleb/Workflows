@@ -453,7 +453,6 @@ def format_issue_body(issue_body: str, *, use_llm: bool = True) -> dict[str, Any
             "formatted_body": issue_body,
             "provider_used": None,
             "used_llm": False,
-            "blocked": True,
             "guard_blocked": True,
             "guard_reason": guard_result["reason"],
         }
@@ -565,7 +564,7 @@ def main() -> None:
             "used_llm": result.get("used_llm", False),
             "labels": build_label_transition(),
         }
-        if result.get("blocked"):
+        if result.get("guard_blocked"):
             payload["guard_blocked"] = True
             payload["guard_reason"] = result.get("guard_reason") or ""
         print(json.dumps(payload, ensure_ascii=True))

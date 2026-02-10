@@ -150,7 +150,7 @@ def _generate_guard_blocked_followup(
     return FollowupIssue(
         title=title,
         body="\n".join(body_parts),
-        labels=["needs-human", "agents:paused"],
+        labels=["needs-human", "agents:auto-pilot-pause"],
     )
 
 

@@ -195,7 +195,7 @@ def test_format_issue_body_guard_blocks_llm(
 
     result = issue_formatter.format_issue_body(raw, use_llm=True)
 
-    assert result["blocked"] is True
+    assert result["guard_blocked"] is True
     assert result["guard_reason"]
     assert result["used_llm"] is False
     assert result["provider_used"] is None

@@ -236,28 +236,85 @@ def test_main_guard_blocks_llm(
     assert payload["guard_blocked"] is True
     assert payload["guard_reason"]
 
-    def test_extract_task_completion(self):
-        """Extract task completion stats."""
-        comment = """
+
+def test_guard_blocked_followup_structure(
+    injection_samples: list[dict[str, str]],
+) -> None:
+    """Verify the generated guard-blocked follow-up meets documented requirements."""
+    from scripts.langchain.followup_issue_generator import _generate_guard_blocked_followup
+
+    followup = _generate_guard_blocked_followup(
+        pr_number=42,
+        original_issue_number=100,
+        original_issue_title="Test issue title",
+        guard_reason="INSTRUCTION_OVERRIDE: test reason",
+    )
+
+    # Title format
+    assert "PR #42" in followup.title
+    assert "Human review" in followup.title
+
+    # Body structure: must contain Why, Source, Tasks, Acceptance Criteria sections
+    assert "## Why" in followup.body
+    assert "## Source" in followup.body
+    assert "## Tasks" in followup.body
+    assert "## Acceptance Criteria" in followup.body
+    assert "## Implementation Notes" in followup.body
+
+    # Body references
+    assert "#42" in followup.body  # PR number
+    assert "#100" in followup.body  # original issue number
+    assert "Test issue title" in followup.body
+
+    # Guard reason mention
+    assert "INSTRUCTION_OVERRIDE" in followup.body
+
+    # Labels match workflow expected schema
+    assert "needs-human" in followup.labels
+    assert "agents:auto-pilot-pause" in followup.labels
+
+
+def test_guard_blocked_followup_labels_match_workflow_schema() -> None:
+    """Labels on guard-blocked followup must match what auto-pilot expects."""
+    from scripts.langchain.followup_issue_generator import _generate_guard_blocked_followup
+
+    followup = _generate_guard_blocked_followup(
+        pr_number=1,
+        original_issue_number=None,
+        original_issue_title=None,
+        guard_reason="test",
+    )
+
+    # These are the exact labels the auto-pilot workflow checks
+    assert set(followup.labels) == {"needs-human", "agents:auto-pilot-pause"}
+
+    # Unknown issue fields handled gracefully
+    assert "unknown" in followup.body
+
+
+def test_extract_task_completion():
+    """Extract task completion stats."""
+    comment = """
 Remaining unchecked items: 3 of 10
 """
-        data = extract_verification_data(comment)
-        assert data.tasks_attempted == 10
-        assert data.tasks_completed == 7
+    data = extract_verification_data(comment)
+    assert data.tasks_attempted == 10
+    assert data.tasks_completed == 7
 
-    def test_extract_structural_issues(self):
-        """Extract structural issues detected."""
-        comment = """
+
+def test_extract_structural_issues():
+    """Extract structural issues detected."""
+    comment = """
 ### ⚠️ Issues Detected in Issue Structure
 
 **Problem:** Tasks contain code snippets instead of actionable items
 
 - Example: `def foo(): pass`
 """
-        data = extract_verification_data(comment)
+    data = extract_verification_data(comment)
 
-        assert len(data.structural_issues) >= 1
-        assert any("code snippets" in issue.lower() for issue in data.structural_issues)
+    assert len(data.structural_issues) >= 1
+    assert any("code snippets" in issue.lower() for issue in data.structural_issues)
 
 
 class TestExtractOriginalIssueData:
