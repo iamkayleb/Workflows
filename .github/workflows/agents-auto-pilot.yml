@@ -757,7 +757,7 @@ jobs:
               const reason = fs.readFileSync('/tmp/guard_blocked', 'utf8').trim();
               await withRetry((client) => client.rest.issues.addLabels({
                 owner, repo, issue_number: issueNumber,
-                labels: ['needs-human', 'agents:paused'],
+                labels: ['needs-human', 'agents:auto-pilot-pause'],
               }));
               await withRetry((client) => client.rest.issues.createComment({
                 owner, repo, issue_number: issueNumber,
@@ -994,7 +994,7 @@ jobs:
               const reason = fs.readFileSync('/tmp/guard_blocked', 'utf8').trim();
               await withRetry((client) => client.rest.issues.addLabels({
                 owner, repo, issue_number: issueNumber,
-                labels: ['needs-human', 'agents:paused'],
+                labels: ['needs-human', 'agents:auto-pilot-pause'],
               }));
               await withRetry((client) => client.rest.issues.createComment({
                 owner, repo, issue_number: issueNumber,
@@ -1006,6 +1006,7 @@ jobs:
             });
           GUARD_NODE
             echo "🛑 Automation stopped due to prompt injection guard."
+            echo "stop_autopilot=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -1368,7 +1369,7 @@ jobs:
               const reason = fs.readFileSync('/tmp/guard_blocked', 'utf8').trim();
               await withRetry((client) => client.rest.issues.addLabels({
                 owner, repo, issue_number: issueNumber,
-                labels: ['needs-human', 'agents:paused'],
+                labels: ['needs-human', 'agents:auto-pilot-pause'],
               }));
               await withRetry((client) => client.rest.issues.createComment({
                 owner, repo, issue_number: issueNumber,
@@ -1380,6 +1381,7 @@ jobs:
             });
           GUARD_NODE
             echo "🛑 Automation stopped due to prompt injection guard."
+            echo "stop_autopilot=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -2737,6 +2739,9 @@ jobs:
         if: |
           steps.context.outputs.should_continue == 'true' &&
           steps.cycles.outputs.exceeded != 'true' &&
+          steps.format_step.outputs.stop_autopilot != 'true' &&
+          steps.optimize_step.outputs.stop_autopilot != 'true' &&
+          steps.apply_step.outputs.stop_autopilot != 'true' &&
           steps.create_pr_step.outputs.stop_autopilot != 'true' &&
           steps.monitor_pr_step.outputs.stop_autopilot != 'true' &&
           contains(

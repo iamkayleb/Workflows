@@ -271,7 +271,7 @@ def test_guard_blocked_followup_structure(
 
     # Labels match workflow expected schema
     assert "needs-human" in followup.labels
-    assert "agents:paused" in followup.labels
+    assert "agents:auto-pilot-pause" in followup.labels
 
 
 def test_guard_blocked_followup_labels_match_workflow_schema() -> None:
@@ -286,33 +286,35 @@ def test_guard_blocked_followup_labels_match_workflow_schema() -> None:
     )
 
     # These are the exact labels the auto-pilot workflow checks
-    assert set(followup.labels) == {"needs-human", "agents:paused"}
+    assert set(followup.labels) == {"needs-human", "agents:auto-pilot-pause"}
 
     # Unknown issue fields handled gracefully
     assert "unknown" in followup.body
 
-    def test_extract_task_completion(self):
-        """Extract task completion stats."""
-        comment = """
+
+def test_extract_task_completion():
+    """Extract task completion stats."""
+    comment = """
 Remaining unchecked items: 3 of 10
 """
-        data = extract_verification_data(comment)
-        assert data.tasks_attempted == 10
-        assert data.tasks_completed == 7
+    data = extract_verification_data(comment)
+    assert data.tasks_attempted == 10
+    assert data.tasks_completed == 7
 
-    def test_extract_structural_issues(self):
-        """Extract structural issues detected."""
-        comment = """
+
+def test_extract_structural_issues():
+    """Extract structural issues detected."""
+    comment = """
 ### ⚠️ Issues Detected in Issue Structure
 
 **Problem:** Tasks contain code snippets instead of actionable items
 
 - Example: `def foo(): pass`
 """
-        data = extract_verification_data(comment)
+    data = extract_verification_data(comment)
 
-        assert len(data.structural_issues) >= 1
-        assert any("code snippets" in issue.lower() for issue in data.structural_issues)
+    assert len(data.structural_issues) >= 1
+    assert any("code snippets" in issue.lower() for issue in data.structural_issues)
 
 
 class TestExtractOriginalIssueData:
