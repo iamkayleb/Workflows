@@ -46,9 +46,9 @@ def _assert_pip_cache(text: str, hash_path: str, name: str) -> None:
             and "key:" in window
         ):
             return
-    assert (
-        False
-    ), f"{name} must include actions/cache@v4 step with key using python-version and hashFiles('{hash_path}')."
+    raise AssertionError(
+        f"{name} must include actions/cache@v4 step with key using python-version and hashFiles('{hash_path}')."
+    )
 
 
 def test_agents_auto_pilot_llm_install_is_pinned() -> None:
