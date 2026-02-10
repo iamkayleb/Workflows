@@ -710,9 +710,24 @@ function cascadeParentCheckboxes(body) {
   // Track the indentation level of the most recent checked parent (if any).
   // null means we are not inside a cascading region.
   let parentIndent = null;
+  // Track whether we are inside a fenced code block (``` or ~~~).
+  let inCodeBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // Detect code fence boundaries — reset cascade and skip contents.
+    if (/^\s*(`{3,}|~{3,})/.test(line)) {
+      inCodeBlock = !inCodeBlock;
+      parentIndent = null;
+      result.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+
     // Match checkbox lines: optional indent, bullet, [x] or [ ]
     const cbMatch = line.match(/^(\s*)([-*+]|\d+[.)])\s*\[([ xX])\]\s*/);
     if (!cbMatch) {
@@ -730,7 +745,7 @@ function cascadeParentCheckboxes(body) {
     if (parentIndent !== null && indent > parentIndent) {
       // This is a child of the current checked parent — cascade the check
       if (!checked) {
-        result.push(line.replace(/\[\s\]/, '[x]'));
+        result.push(line.replace(/\[\s+\]/, '[x]'));
       } else {
         result.push(line);
       }
@@ -3604,11 +3619,18 @@ async function autoReconcileTasks({ github: rawGithub, context, prNumber, baseSh
   // Cascade checked parents to their indented children so that sub-tasks
   // (e.g., "Define scope for: …", "Implement focused slice for: …") are
   // automatically checked when their parent task is marked complete.
+  // Count checkboxes *before* cascade using a plain regex so we don't
+  // redundantly run cascadeParentCheckboxes inside countCheckboxes.
+  const plainCount = (text) => {
+    const checked = (text.match(/\[[xX]\]/g) || []).length;
+    const total = (text.match(/\[(?:\s|[xX])\]/g) || []).length;
+    return { checked, total };
+  };
   const beforeCascade = updatedBody;
   updatedBody = cascadeParentCheckboxes(updatedBody);
-  const cascadeCheckboxes = countCheckboxes(updatedBody);
-  const beforeCheckboxes = countCheckboxes(beforeCascade);
-  const cascadedCount = cascadeCheckboxes.checked - beforeCheckboxes.checked;
+  const cascadedCounts = countCheckboxes(updatedBody);
+  const beforeCounts = plainCount(beforeCascade);
+  const cascadedCount = cascadedCounts.checked - beforeCounts.checked;
   if (cascadedCount > 0) {
     log(`Cascaded ${cascadedCount} sub-task checkbox(es) from checked parents`);
     checkedCount += cascadedCount;

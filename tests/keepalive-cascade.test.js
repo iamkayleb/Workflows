@@ -170,6 +170,69 @@ test('countCheckboxes: all parents checked means allComplete', () => {
   assert.equal(counts.checked, 8);
 });
 
+// ─── Code fence awareness ───────────────────────────────────────────────────
+
+test('cascade: does not bleed through fenced code blocks', () => {
+  const input = [
+    '- [x] Checked parent',
+    '```',
+    '- [ ] Example inside fence',
+    '```',
+    '- [ ] Real task after fence',
+  ].join('\n');
+
+  // The fenced checkbox must NOT be cascaded, and the real task after the
+  // fence must NOT be cascaded either because the fence resets parentIndent.
+  assert.equal(cascadeParentCheckboxes(input), input);
+});
+
+test('cascade: fenced block resets parent state', () => {
+  const input = [
+    '- [x] Parent before fence',
+    '  - [ ] Child before fence',
+    '```markdown',
+    '- [x] Example',
+    '```',
+    '  - [ ] Should NOT cascade (fence reset parent)',
+  ].join('\n');
+
+  const expected = [
+    '- [x] Parent before fence',
+    '  - [x] Child before fence',
+    '```markdown',
+    '- [x] Example',
+    '```',
+    '  - [ ] Should NOT cascade (fence reset parent)',
+  ].join('\n');
+
+  assert.equal(cascadeParentCheckboxes(input), expected);
+});
+
+test('cascade: tilde fences are also handled', () => {
+  const input = [
+    '- [x] Parent',
+    '~~~',
+    '  - [ ] Fenced child',
+    '~~~',
+    '  - [ ] After fence',
+  ].join('\n');
+
+  // Fenced child is untouched, after-fence child is not cascaded (fence reset)
+  assert.equal(cascadeParentCheckboxes(input), input);
+});
+
+test('runner cascade: fenced code blocks handled', () => {
+  const input = [
+    '- [x] Parent',
+    '```',
+    '  - [ ] Fenced',
+    '```',
+    '  - [ ] After fence',
+  ].join('\n');
+
+  assert.equal(runnerCascade(input), input);
+});
+
 // ─── keepalive-runner.js cascade (parallel implementation) ──────────────────
 
 test('runner cascade: matches keepalive_loop cascade behavior', () => {

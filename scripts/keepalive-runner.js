@@ -187,9 +187,23 @@ function cascadeParentCheckboxes(body) {
   const lines = body.split('\n');
   const result = [];
   let parentIndent = null;
+  let inCodeBlock = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+
+    // Detect code fence boundaries — reset cascade and skip contents.
+    if (/^\s*(`{3,}|~{3,})/.test(line)) {
+      inCodeBlock = !inCodeBlock;
+      parentIndent = null;
+      result.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+
     const cbMatch = line.match(/^(\s*)([-*+]|\d+[.)])\s*\[([ xX])\]\s*/);
     if (!cbMatch) {
       if (/^\s*$/.test(line) || /^#{1,6}\s/.test(line)) {
@@ -204,7 +218,7 @@ function cascadeParentCheckboxes(body) {
 
     if (parentIndent !== null && indent > parentIndent) {
       if (!checked) {
-        result.push(line.replace(/\[\s\]/, '[x]'));
+        result.push(line.replace(/\[\s+\]/, '[x]'));
       } else {
         result.push(line);
       }
