@@ -234,7 +234,9 @@ jobs:
           path: |
             ~/.cache/pip
           key: >-
-            pip-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('tools/requirements-llm.txt') }}
+            pip-${{ runner.os }}-${{
+            steps.setup-python.outputs.python-version
+            }}-${{ hashFiles('tools/requirements-llm.txt') }}
           restore-keys: |
             pip-${{ runner.os }}-${{ steps.setup-python.outputs.python-version }}-
             pip-${{ runner.os }}-
