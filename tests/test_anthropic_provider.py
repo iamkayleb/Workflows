@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
 from tools.llm_provider import AnthropicProvider, CompletionAnalysis, GitHubModelsProvider
 
 

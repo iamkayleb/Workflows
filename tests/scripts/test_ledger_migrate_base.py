@@ -3,7 +3,6 @@ from pathlib import Path
 
 import pytest
 import yaml
-
 from scripts import ledger_migrate_base
 
 

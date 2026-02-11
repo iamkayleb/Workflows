@@ -5,7 +5,6 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from tools.llm_provider import (
     AnthropicProvider,
     CompletionAnalysis,
