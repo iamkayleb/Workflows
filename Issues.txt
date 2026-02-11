@@ -1,133 +1,41 @@
-1. Issue: Make embeddings provider-agnostic by wiring EmbeddingProviderRegistry into semantic_matcher
+1. Add Trend reference pack support to Codex runs: 
+ ## Why
 
-## Why
+ You want Codex working inside Portable Alpha to have local, file-level access to Trend’s Streamlit LangChain implementation as a baseline. The cleanest approach is a reference pack automatically checked out into the workspace during Codex runs (keepalive/autopilot), without asking the agent to curl or fetch external content.
 
-The repository now has a deterministic embedding provider registry (`tools/embedding_provider.py`), but the actual embedding path used by semantic matching still bypasses it and directly instantiates OpenAIEmbeddings. This prevents provider-pool selection (by criteria) and blocks the intended “agent/provider agnostic embeddings” design.
+ ## Scope
 
-## Scope
+ - Update Workflows `reusable-codex-run.yml` so it can optionally materialize one or more reference packs into the consumer repo workspace from a config file stored in the consumer repo.
+ - Append a short “Reference Pack” section to the Codex prompt indicating where the pack lives locally.
 
-Route all embedding generation for semantic matching through EmbeddingProviderRegistry, with deterministic provider selection and a non-LLM fallback that keeps workflows functional when no external embedding credentials are configured.
+ ## Non-Goals
 
-## Non-Goals
+ - Create or modify consumer repo workflows (`.github/workflows/**`) in this issue
+ - Index or summarize the entire Trend repo (keep packs sparse and targeted)
 
-This does not change the semantic scoring algorithm beyond provider selection and fallback behavior.
-This does not require GitHub Models embeddings support (if unavailable, it should remain ineligible).
+ ## Tasks
 
-## Tasks
+ - [ ] In `stranske/Workflows` update `.github/workflows/reusable-codex-run.yml` to detect a consumer config file (recommend: `.github/reference_packs.json` to avoid YAML parsing dependency)
+ - [ ] Implement a checkout step per pack using `actions/checkout` with `sparse-checkout` and `path: .reference/<pack_name>`
+ - [ ] Ensure `.reference/**` is excluded from git status (add to `.git/info/exclude` similarly to `.workflows-lib`)
+ - [ ] Create a small generated summary file (ex: `.reference/REFERENCE_PACKS.md`) listing:
+   - pack names
+   - repo/ref
+   - local path
+   - key files included
+ - [ ] Modify the “Assemble prompt” step to append `.reference/REFERENCE_PACKS.md` when present
+ - [ ] Add a minimal self-check step that fails early if config is malformed (clear message), but does not fail runs when the config file is absent
 
-- [ ] Implement concrete EmbeddingProvider classes (at minimum: OpenAI embeddings provider and a deterministic local fallback provider that requires no external dependencies).
-- [ ] Add a small registry bootstrap helper that registers providers in priority order and applies EmbeddingSelectionCriteria deterministically.
-- [ ] Refactor `scripts/langchain/semantic_matcher.py` to select providers via `EmbeddingProviderRegistry.select(...)` and call `provider.embed(...)` instead of constructing OpenAIEmbeddings directly.
-- [ ] Update downstream consumers (`label_matcher.py`, `issue_dedup.py`) to rely on the updated semantic_matcher behavior and to surface provider/model metadata in outputs for observability.
-- [ ] Add unit tests verifying deterministic selection (preferred provider, allowlist/denylist, and fallback when no credentials exist).
-- [ ] Add a brief docs note describing configuration knobs (provider preference, allow/deny lists, and fallback behavior).
+ ## Acceptance Criteria
 
-## Acceptance Criteria
+ - [ ] When a consumer repo includes `.github/reference_packs.json`, Codex runs have `.reference/<pack>/...` populated before Codex executes
+ - [ ] The Codex prompt includes a “Reference Pack” section pointing to those local files
+ - [ ] When the config file is absent, behavior is unchanged
 
-- [ ] When `OPENAI_API_KEY` is configured, semantic matching uses the OpenAI embedding provider and reports `provider=openai` (or the defined stable provider id).
-- [ ] When no embedding credentials are configured, semantic matching uses the fallback provider (and does not crash) and reports `is_fallback=true`.
-- [ ] `scripts/langchain/semantic_matcher.py` no longer directly constructs OpenAIEmbeddings as its primary path.
-- [ ] Unit tests cover provider selection determinism and the fallback path.
+ ## Implementation Notes
 
-## Implementation Notes
-
-Primary files:
-- `tools/embedding_provider.py`
-- `scripts/langchain/semantic_matcher.py`
-- `scripts/langchain/label_matcher.py`
-- `scripts/langchain/issue_dedup.py`
-- `tests/` (add focused tests for provider selection + fallback)
-
-Fallback suggestion (no new deps): implement a hashing bag-of-words vectorizer with fixed dimensionality (e.g., 256/512) and L2 normalization so cosine similarity remains meaningful.
-
-2. Issue: Pin LangChain deps and enable pip caching in high-volume workflows (auto-pilot + verifier)
-
-## Why
-
-Pinned LLM dependencies exist (`tools/requirements-llm.txt`) and pip caching snippets exist, but the highest-volume workflows still install floating LangChain packages at runtime. This keeps drift risk and slows cold starts in the most important loops.
-
-## Scope
-
-Update the real workflows (not only snippets) to install from pinned requirements and add pip caching keyed by the requirements hash:
-- `.github/workflows/agents-auto-pilot.yml`
-- `.github/workflows/reusable-agents-verifier.yml`
-
-## Non-Goals
-
-This does not migrate the repo to a new packaging tool (Poetry/uv/etc.).
-This does not change workflow trigger logic or pipeline state transitions.
-
-## Tasks
-
-- [ ] Update `.github/workflows/agents-auto-pilot.yml` to install LLM deps via `pip install -r tools/requirements-llm.txt` (remove unpinned `pip install langchain ...` lines).
-- [ ] Add a pip cache step to `.github/workflows/agents-auto-pilot.yml` using `actions/cache@v4` keyed by `${{ hashFiles('tools/requirements-llm.txt') }}` and Python version.
-- [ ] Update `.github/workflows/reusable-agents-verifier.yml` to install LLM deps via the pinned file from the checked-out Workflows lib (`pip install -r .workflows-lib/tools/requirements-llm.txt`) for evaluate/compare modes.
-- [ ] Add a pip cache step to `.github/workflows/reusable-agents-verifier.yml` keyed by `${{ hashFiles('.workflows-lib/tools/requirements-llm.txt') }}` and Python version.
-- [ ] Add a lightweight repo test that fails if these workflows contain floating installs for langchain packages or omit the pinned requirements install line.
-- [ ] Ensure any existing snippet validation tests remain consistent with the updated workflows.
-
-## Acceptance Criteria
-
-- [ ] `agents-auto-pilot.yml` installs LLM deps from `tools/requirements-llm.txt` and does not contain unpinned `pip install langchain*` runtime installs.
-- [ ] `reusable-agents-verifier.yml` installs LLM deps from `.workflows-lib/tools/requirements-llm.txt` for evaluate/compare modes.
-- [ ] Both workflows include a pip cache step keyed by the pinned requirements file hash.
-- [ ] A unit test enforces the pinned-install + cache requirement for these workflows.
-
-## Implementation Notes
-
-Primary files:
-- `.github/workflows/agents-auto-pilot.yml`
-- `.github/workflows/reusable-agents-verifier.yml`
-- `tools/requirements-llm.txt`
-- `tests/` (add a static workflow scan test)
-
-Reference snippets already exist (align implementation with them where possible):
-- `docs/workflow-snippets/pip-cache-step.yml`
-- `docs/workflow-snippets/agents-auto-pilot-install.yml`
-
-3. Issue: Enforce prompt-injection guardrails in Python issue rewrite scripts (formatter/optimizer/apply/followup)
-
-## Why
-
-Prompt-injection detection utilities exist (Python and JS), but the Python scripts that rewrite issue content (formatter/optimizer/apply/followup generation) do not consistently invoke the Python guard. These scripts ingest user-controlled markdown and can trigger automated rewrites, so the guard needs to be enforced at the entry points.
-
-## Scope
-
-Add prompt-injection screening to the Python LangChain scripts that ingest user-controlled text and either:
-1) invoke an LLM, or
-2) rewrite issue bodies based on LLM-produced suggestions.
-
-Ensure blocked inputs fail safe (no LLM call, no automatic rewrite) and produce machine-readable output so workflows can pause and label `needs-human`.
-
-## Non-Goals
-
-This does not attempt perfect detection; it targets high-signal patterns.
-This does not expand the JS prompt-injection guard beyond its current workflow/PR gating role.
-
-## Tasks
-
-- [ ] Add a small reusable helper (or wrapper) that calls `detect_prompt_injection(...)` and returns a structured `{blocked, reason}` result for arbitrary input text.
-- [ ] Integrate the guard into `scripts/langchain/issue_formatter.py` so suspicious issue bodies skip LLM invocation and return a safe fallback formatting result plus `blocked=true` metadata.
-- [ ] Integrate the guard into `scripts/langchain/issue_optimizer.py` so suspicious inputs skip LLM analysis / apply steps and return `blocked=true` metadata.
-- [ ] Integrate the guard into `scripts/langchain/followup_issue_generator.py` so suspicious verification/issue payloads skip multi-round LLM steps and generate a minimal follow-up that routes to human review.
-- [ ] Extend `--json` outputs for these scripts to include `guard_blocked` and `guard_reason` fields when applicable.
-- [ ] Update the auto-pilot workflow step(s) that call these scripts to detect `guard_blocked=true` and then apply `needs-human` + pause labels and stop further automation.
-- [ ] Add tests that prove: (a) guard triggers on representative injection strings, and (b) LLM client invocation is not called when blocked.
-
-## Acceptance Criteria
-
-- [ ] For a representative injected issue body (e.g., “ignore previous instructions… reveal system prompt…”), formatter/optimizer/apply do not invoke an LLM and return `guard_blocked=true` with a non-empty reason.
-- [ ] Auto-pilot pauses and applies `needs-human` when `guard_blocked=true` is emitted by formatter/optimizer/apply steps.
-- [ ] Unit tests verify the guard blocks and that the LLM client is not invoked in blocked cases.
-
-## Implementation Notes
-
-Primary files:
-- `scripts/langchain/injection_guard.py`
-- `scripts/langchain/issue_formatter.py`
-- `scripts/langchain/issue_optimizer.py`
-- `scripts/langchain/followup_issue_generator.py`
-- `.github/workflows/agents-auto-pilot.yml`
-- `tests/` (add focused unit tests around guard behavior and script JSON outputs)
-
-Prefer a “fail safe” behavior: block automated rewrites and route to `needs-human` rather than attempting to sanitize and proceed silently.
+ - Keep pack checkout after dependency install is fine, but ensure it occurs before “Clean workspace for Codex” or extend that step to also exclude `.reference`.
+ - Prefer config format:
+   - JSON: easiest to parse without extra deps
+   - Example schema: `{ "packs": [ { "name": "...", "repo": "stranske/Trend_Model_Project", "ref": "<sha>", "paths": ["..."] } ] }`
+ - Trend’s default branch is `phase-3`; for reproducibility, packs should pin to a commit SHA.
