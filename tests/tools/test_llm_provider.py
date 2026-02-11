@@ -1504,6 +1504,18 @@ Here's my analysis:
         assert result.confidence == 0.0
         assert "parse" in result.reasoning.lower()
 
+    def test_parse_response_list_content(self):
+        """Handles Anthropic-style list-of-blocks content."""
+        provider = GitHubModelsProvider()
+        # Anthropic returns content as a list of dicts with "type" and "text"
+        content = [
+            {"type": "text", "text": '{"completed": ["task1"], "in_progress": [], '},
+            {"type": "text", "text": '"blocked": [], "confidence": 0.8, "reasoning": "done"}'},
+        ]
+        result = provider._parse_response(content, ["task1"])
+        assert result.completed_tasks == ["task1"]
+        assert result.confidence == 0.8
+
 
 class TestAnthropicProvider:
     """Test Anthropic provider (mocked)."""

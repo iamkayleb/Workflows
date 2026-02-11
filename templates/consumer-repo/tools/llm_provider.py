@@ -373,11 +373,17 @@ Be conservative - if unsure, don't mark as completed."""
 
     def _parse_response(
         self,
-        content: str,
+        content: str | list,
         _tasks: list[str],
         quality_context: SessionQualityContext | None = None,
     ) -> CompletionAnalysis:
         """Parse LLM response into CompletionAnalysis with BS detection."""
+        # Normalize content: Anthropic can return a list of content blocks
+        if isinstance(content, list):
+            content = "".join(
+                block.get("text", "") if isinstance(block, dict) else str(block)
+                for block in content
+            )
         try:
             # Try to extract JSON from response
             json_start = content.find("{")
