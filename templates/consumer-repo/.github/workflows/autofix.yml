@@ -33,7 +33,7 @@ concurrency:
     autofix-${{
       github.event.pull_request.number
       || github.event.workflow_run.pull_requests[0].number
-      || github.event.check_suite.pull_requests[0].number
+      || github.event.check_suite.id
       || github.run_id
     }}
   cancel-in-progress: true
@@ -42,6 +42,14 @@ jobs:
   # Resolve PR context
   resolve:
     name: Resolve Context
+    if: >-
+      ${{
+        github.event_name != 'check_suite'
+        || (
+          github.event.check_suite.conclusion == 'failure'
+          && toJson(github.event.check_suite.pull_requests) != '[]'
+        )
+      }}
     runs-on: ubuntu-latest
     outputs:
       should_run: ${{ steps.context.outputs.should_run }}
@@ -169,7 +177,8 @@ jobs:
                 return;
               }
 
-              const headSha = suite?.head_sha || pr.head?.sha;
+              // Always use the PR's current head SHA to avoid stale autofix runs.
+              const headSha = pr.head?.sha;
               if (!headSha) {
                 core.info('PR head SHA missing; skipping autofix.');
                 core.setOutput('should_run', 'false');
