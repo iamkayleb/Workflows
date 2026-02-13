@@ -38,3 +38,22 @@ def test_json_output_contains_review_fields():
 
     assert "review" in decoded
     assert set(decoded["review"].keys()) == {"score", "feedback", "suggestions"}
+
+
+def test_heuristic_alignment_handles_snake_case_tokens():
+    result = progress_reviewer.review_progress(
+        acceptance_criteria=[
+            "Running `render_cprs_ch_png(...)` generates PNGs without errors.",
+        ],
+        recent_commits=[
+            "Define explicit CPRS-CH PNG column layout",
+        ],
+        files_changed=[
+            "src/counter_risk/renderers/table_png.py",
+        ],
+        rounds_without_completion=22,
+        use_llm=False,
+    )
+
+    assert result.alignment_score > 0
+    assert result.recommendation != "STOP"
