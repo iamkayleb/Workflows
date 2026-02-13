@@ -116,7 +116,22 @@ jobs:
                   paginateWithRetry: (githubInstance, method, params) =>
                     githubInstance.paginate(method, params),
                 };
-            const { withRetry } = retryHelpers;
+            const core = require('@actions/core');
+            const { createTokenAwareRetry } = retryHelpers;
+            const { github: api, withRetry } = createTokenAwareRetry
+              ? await createTokenAwareRetry({
+                  github,
+                  core,
+                  env: process.env,
+                  task: 'maint-71-merge-sync-prs',
+                  capabilities: [
+                    'pull-requests:read',
+                    'pull-requests:write',
+                    'checks:read',
+                    'contents:write',
+                  ],
+                })
+              : { github, withRetry: (fn) => fn(github) };
 
             // Parse repos from previous step
             const registeredRepos = '${{ steps.repos.outputs.list }}'.split(',').map(r => r.trim());
@@ -137,7 +152,7 @@ jobs:
 
               try {
                 // Find open sync PRs
-                const { data: prs } = await withRetry(() => github.rest.pulls.list({
+                const { data: prs } = await withRetry((client) => client.rest.pulls.list({
                   owner,
                   repo,
                   state: 'open',
@@ -166,7 +181,7 @@ jobs:
 
                     if (!dryRun) {
                       // Close PR
-                      await withRetry(() => github.rest.pulls.update({
+                      await withRetry((client) => client.rest.pulls.update({
                         owner,
                         repo,
                         pull_number: stalePR.number,
@@ -176,7 +191,7 @@ jobs:
 
                       // Delete branch
                       try {
-                        await withRetry(() => github.rest.git.deleteRef({
+                        await withRetry((client) => client.rest.git.deleteRef({
                           owner,
                           repo,
                           ref: `heads/${stalePR.head.ref}`
@@ -198,14 +213,14 @@ jobs:
                 console.log(`Created: ${pr.created_at}`);
 
                 // Check PR status
-                const { data: combinedStatus } = await withRetry(() => github.rest.repos.getCombinedStatusForRef({
+                await withRetry((client) => client.rest.repos.getCombinedStatusForRef({
                   owner,
                   repo,
                   ref: pr.head.sha
                 }));
 
                 // Check check runs
-                const { data: checkRuns } = await withRetry(() => github.rest.checks.listForRef({
+                const { data: checkRuns } = await withRetry((client) => client.rest.checks.listForRef({
                   owner,
                   repo,
                   ref: pr.head.sha
@@ -275,20 +290,40 @@ jobs:
 
                 // Merge the PR
                 try {
-                  await withRetry(() => github.rest.pulls.merge({
-                    owner,
-                    repo,
-                    pull_number: pr.number,
-                    merge_method: 'merge',
-                    commit_title: pr.title,
-                    commit_message: `Automated merge of sync PR\n\nSync hash: ${pr.head.ref.split('-').pop()}`
-                  }));
+                  const mergeMethods = ['merge', 'squash', 'rebase'];
+                  let merged = false;
+                  let lastError = null;
 
-                  console.log('✓ Merged successfully');
+                  for (const merge_method of mergeMethods) {
+                    try {
+                      await withRetry((client) => client.rest.pulls.merge({
+                        owner,
+                        repo,
+                        pull_number: pr.number,
+                        merge_method,
+                        commit_title: pr.title,
+                        commit_message: `Automated merge of sync PR\n\nSync hash: ${pr.head.ref.split('-').pop()}`
+                      }));
+                      console.log(`✓ Merged successfully (method=${merge_method})`);
+                      merged = true;
+                      break;
+                    } catch (e) {
+                      lastError = e;
+                      const message = String(e?.message || 'unknown error');
+                      console.log(`⚠ Merge attempt failed (method=${merge_method}): ${message}`);
+                      if (!message.toLowerCase().includes('repository rule violations')) {
+                        break;
+                      }
+                    }
+                  }
+
+                  if (!merged) {
+                    throw lastError || new Error('Merge failed');
+                  }
 
                   // Delete the branch
                   try {
-                    await withRetry(() => github.rest.git.deleteRef({
+                    await withRetry((client) => client.rest.git.deleteRef({
                       owner,
                       repo,
                       ref: `heads/${pr.head.ref}`
