@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 from scripts.langchain import progress_reviewer
 
@@ -57,3 +59,38 @@ def test_heuristic_alignment_handles_snake_case_tokens():
 
     assert result.alignment_score > 0
     assert result.recommendation != "STOP"
+
+
+def test_cli_accumulates_repeated_flags(tmp_path):
+    script = "scripts/langchain/progress_reviewer.py"
+    proc = subprocess.run(
+        [
+            sys.executable,
+            script,
+            "--acceptance-criteria",
+            "Criterion one",
+            "--acceptance-criteria",
+            "Criterion two",
+            "--recent-commits",
+            "commit one",
+            "--recent-commits",
+            "commit two",
+            "--files-changed",
+            "a.py",
+            "--files-changed",
+            "b.py",
+            "--rounds-without-completion",
+            "10",
+            "--json",
+            "--no-llm",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert proc.stdout
+    payload = json.loads(proc.stdout)
+    assert "summary" in payload
+    # The heuristic summary embeds the denominator; ensure it saw both commits.
+    assert "/2 commits" in payload["summary"]
