@@ -69,6 +69,7 @@ install_ci_deps() {
 
   # Initialize arrays
   local specs=()
+  local strict_specs=()
   local tools_installed=()
   local tools_skipped=()
 
@@ -198,11 +199,53 @@ install_ci_deps() {
     skip_tool "coverage (coverage disabled)"
   fi
 
+  strict_specs=("${specs[@]}")
+
   # Install dependencies
   if [ ${#specs[@]} -eq 0 ]; then
     echo "No install targets found; skipping dependency installation."
   else
-    uv pip install --system "${specs[@]}"
+    local install_ok="true"
+    if ! uv pip install --system "${strict_specs[@]}"; then
+      install_ok="false"
+      echo "Strict dependency install failed; retrying with relaxed compatibility constraints." >&2
+
+      local relaxed_specs=()
+
+      # Prefer broader top-level dependencies on retry to avoid lockfile pin drift.
+      if [ -f requirements.txt ]; then
+        relaxed_specs+=('-r' 'requirements.txt')
+      elif [ -f pyproject.toml ] || [ -f setup.cfg ] || [ -f setup.py ]; then
+        relaxed_specs+=('-e' '.')
+      fi
+
+      # Add unpinned tool/runtime deps so CI jobs still run when exact pins are unavailable.
+      if [ "$format_enabled" = "true" ]; then
+        relaxed_specs+=('black' 'docformatter' 'isort')
+      fi
+      if [ "$lint_enabled" = "true" ]; then
+        relaxed_specs+=('ruff')
+      fi
+      if [ "$mypy_enabled" = "true" ]; then
+        relaxed_specs+=('mypy')
+      fi
+      relaxed_specs+=('pytest' 'pytest-xdist')
+      relaxed_specs+=('hypothesis' 'pandas' 'numpy' 'pydantic' 'pydantic-core' 'requests' 'jsonschema' 'PyYAML' 'tomlkit')
+      if [ "$coverage_enabled" = "true" ]; then
+        relaxed_specs+=('pytest-cov' 'coverage')
+      fi
+
+      if [ ${#relaxed_specs[@]} -eq 0 ]; then
+        echo "No relaxed install targets available after strict install failure." >&2
+      elif uv pip install --system "${relaxed_specs[@]}"; then
+        install_ok="true"
+      fi
+    fi
+
+    if [ "$install_ok" != "true" ]; then
+      echo "Dependency installation failed for both strict and relaxed specs." >&2
+      return 1
+    fi
   fi
 
   # Generate summary
