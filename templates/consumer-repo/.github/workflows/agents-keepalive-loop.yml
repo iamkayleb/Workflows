@@ -639,7 +639,8 @@ jobs:
             );
             if (startIndex !== -1) {
               for (let i = startIndex + 1; i < lines.length; i += 1) {
-                if (/^#{1,6}\s+\S/.test(lines[i])) {
+                const trimmed = lines[i].trim();
+                if (/^#{1,6}\s*(\S|$)/.test(trimmed)) {
                   break;
                 }
                 const match = lines[i].match(/^\s*[-*+]\s*(?:\[[ xX]\]\s*)?(.+)/);
