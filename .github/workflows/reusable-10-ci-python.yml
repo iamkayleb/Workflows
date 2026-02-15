@@ -2002,9 +2002,12 @@ jobs:
       - name: Build CI metrics payload
         if: >-
           ${{
+          (
           inputs['enable-metrics']
           || inputs['enable-history']
           || inputs['enable-classification']
+          )
+          && matrix.python-version == inputs['primary-python-version']
           }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/ci_metrics.py"
@@ -2015,7 +2018,11 @@ jobs:
           MIN_SECONDS: ${{ inputs['slow-test-min-seconds'] }}
 
       - name: Upload metrics artifact
-        if: ${{ inputs['enable-metrics'] }}
+        if: >-
+          ${{
+          inputs['enable-metrics']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs['artifact-prefix'] }}ci-metrics
@@ -2025,7 +2032,14 @@ jobs:
           overwrite: true
 
       - name: Append metrics history
-        if: ${{ inputs['enable-history'] || inputs['enable-classification'] }}
+        if: >-
+          ${{
+          (
+          inputs['enable-history']
+          || inputs['enable-classification']
+          )
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/ci_history.py"
         env:
@@ -2036,7 +2050,11 @@ jobs:
           CLASSIFICATION_OUT: classification.json
 
       - name: Upload metrics history artifact
-        if: ${{ inputs['enable-history'] }}
+        if: >-
+          ${{
+          inputs['enable-history']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs['artifact-prefix'] }}metrics-history
@@ -2046,7 +2064,11 @@ jobs:
           overwrite: true
 
       - name: Upload classification artifact
-        if: ${{ inputs['enable-classification'] }}
+        if: >-
+          ${{
+          inputs['enable-classification']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs['artifact-prefix'] }}classification
@@ -2056,7 +2078,12 @@ jobs:
           overwrite: true
 
       - name: Compute coverage delta
-        if: ${{ inputs.coverage && inputs['enable-coverage-delta'] }}
+        if: >-
+          ${{
+          inputs.coverage
+          && inputs['enable-coverage-delta']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/ci_coverage_delta.py"
         env:
@@ -2067,7 +2094,12 @@ jobs:
           FAIL_ON_DROP: ${{ inputs['fail-on-coverage-drop'] }}
 
       - name: Upload coverage delta artifact
-        if: ${{ inputs.coverage && inputs['enable-coverage-delta'] }}
+        if: >-
+          ${{
+          inputs.coverage
+          && inputs['enable-coverage-delta']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs['artifact-prefix'] }}coverage-delta
