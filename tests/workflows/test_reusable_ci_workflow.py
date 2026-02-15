@@ -55,12 +55,14 @@ def test_workflow_inputs_include_python_version_defaults() -> None:
     assert call_inputs.get("python-version", {}).get("default") == "3.11"
     assert call_inputs.get("python-versions", {}).get("default") == "[]"
     assert call_inputs.get("primary-python-version", {}).get("default") == "3.11"
+    assert call_inputs.get("pytest_args", {}).get("default") == ""
 
     # workflow_dispatch has reduced inputs (10-input limit) but python-versions remains
     assert dispatch_inputs.get("working-directory", {}).get("default") == "."
     assert dispatch_inputs.get("python-versions", {}).get("default") == '["3.11"]'
     # python-version was removed from workflow_dispatch to meet GitHub's 10-input limit
     assert "python-version" not in dispatch_inputs
+    assert "pytest_args" not in dispatch_inputs
 
 
 def test_artifact_names_normalized() -> None:
