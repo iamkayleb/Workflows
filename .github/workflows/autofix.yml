@@ -9,11 +9,11 @@ on:
       - labeled
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  checks: read
   actions: read
+  checks: read
+  contents: write
+  issues: write
+  pull-requests: write
 
 concurrency:
   group: >-
@@ -38,21 +38,9 @@ jobs:
       same_repo: ${{ steps.context.outputs.same_repo }}
       caller_actor: ${{ steps.context.outputs.caller_actor }}
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout for API helpers
         uses: actions/checkout@v6
         with:
-
-          token: ${{ steps.app_token.outputs.token || github.token }}
           sparse-checkout: |
             .github/actions/setup-api-client
             .github/scripts/github-api-with-retry.js
@@ -65,30 +53,12 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
 
-
-
-
-      - name: Set up Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-
-      - name: Install GitHub API dependencies
-        run: >-
-          npm install --no-save --no-package-lock
-          @octokit/rest
-          @octokit/auth-app
-
       - name: Resolve PR context
         id: context
         uses: actions/github-script@v8
         with:
           github-token: >-
-            ${{
-              secrets.AGENTS_AUTOMATION_PAT
-              || secrets.ACTIONS_BOT_PAT
-              || github.token
-            }}
+            ${{ secrets.AGENTS_AUTOMATION_PAT || secrets.ACTIONS_BOT_PAT || github.token }}
           script: |
             const { createTokenAwareRetry } = require(
               './.github/scripts/github-api-with-retry.js'
@@ -96,6 +66,7 @@ jobs:
             const { withRetry, paginateWithRetry } = await createTokenAwareRetry({
               github,
               core,
+              env: process.env,
               task: 'autofix-loop-resolve-context',
             });
 
@@ -127,22 +98,57 @@ jobs:
               }
 
               core.info(
-                `Relevant failures: ${relevantFailures
-                  .map((cr) => cr.name)
-                  .join(', ')}`
+                `Relevant failures: ${relevantFailures.map((cr) => cr.name).join(', ')}`
               );
               return true;
+            };
+
+            const listFilesOrNullOnRateLimit = async ({ owner, repo, prNumber }) => {
+              try {
+                return await paginateWithRetry(
+                  github.rest.pulls.listFiles,
+                  {
+                    owner,
+                    repo,
+                    pull_number: prNumber,
+                    per_page: 100,
+                  },
+                  { maxRetries: 3 }
+                );
+              } catch (error) {
+                const message = String(error?.message || error || '');
+                const status = Number(error?.status || error?.response?.status || 0);
+                if (status === 403 && message.toLowerCase().includes('rate limit')) {
+                  core.warning(
+                    'Rate limited listing PR files; proceeding without file filter.'
+                  );
+                  return null;
+                }
+                throw error;
+              }
+            };
+
+            const setOutputs = ({ pr, sameRepo, callerActor }) => {
+              const labels = (pr.labels || []).map((l) => l.name);
+              core.setOutput('should_run', 'true');
+              core.setOutput('pr_number', pr.number);
+              core.setOutput('head_ref', pr.head.ref);
+              core.setOutput('pr_title', pr.title);
+              core.setOutput('pr_is_draft', pr.draft ? 'true' : 'false');
+              core.setOutput('pr_labels_json', JSON.stringify(labels));
+              core.setOutput('same_repo', sameRepo ? 'true' : 'false');
+              core.setOutput('caller_actor', callerActor);
             };
 
             // --- workflow_run trigger (after Gate/CI completes) ---
             if (context.eventName === 'workflow_run') {
               const run = context.payload.workflow_run;
               const workflowName = run?.name || 'workflow';
+              const triggerHeadSha = String(run?.head_sha || run?.head_commit?.id || '');
 
               if (run.conclusion !== 'failure') {
                 core.info(
-                  `${workflowName} concluded '${run.conclusion}' — ` +
-                  'no autofix needed'
+                  `${workflowName} concluded '${run.conclusion}' — no autofix needed`
                 );
                 core.setOutput('should_run', 'false');
                 return;
@@ -150,22 +156,19 @@ jobs:
 
               const prs = run.pull_requests || [];
               if (prs.length === 0) {
-                core.info('No associated PR');
+                core.info('No associated PR found');
                 core.setOutput('should_run', 'false');
                 return;
               }
 
-              const prNum = prs[0].number;
+              const prNumber = prs[0].number;
               const { owner, repo } = context.repo;
-              const { data: pr } =
-                await github.rest.pulls.get({
-                  owner,
-                  repo,
-                  pull_number: prNum,
-                });
+              const { data: pr } = await withRetry((client) =>
+                client.rest.pulls.get({ owner, repo, pull_number: prNumber })
+              );
 
               if (pr.state !== 'open') {
-                core.info(`PR #${prNum} is ${pr.state}`);
+                core.info(`PR #${prNumber} is ${pr.state}`);
                 core.setOutput('should_run', 'false');
                 return;
               }
@@ -177,9 +180,7 @@ jobs:
               }
 
               const sameRepo =
-                pr.head.repo !== null &&
-                pr.head.repo.full_name ===
-                  pr.base.repo?.full_name;
+                pr.head.repo !== null && pr.head.repo.full_name === pr.base.repo?.full_name;
               if (!sameRepo) {
                 core.info('Fork PR — not supported.');
                 core.setOutput('should_run', 'false');
@@ -193,68 +194,41 @@ jobs:
                 return;
               }
 
-              const shouldAutofix = await hasRelevantFailureCheck({
-                owner,
-                repo,
-                ref: headSha,
-              });
+              const refForChecks = triggerHeadSha || headSha;
+              let shouldAutofix = await hasRelevantFailureCheck({ owner, repo, ref: refForChecks });
+
+              if (!shouldAutofix && triggerHeadSha && triggerHeadSha !== headSha) {
+                core.info(
+                  `No relevant failures for trigger SHA ${triggerHeadSha}; ` +
+                  `re-checking latest PR head ${headSha}`
+                );
+                shouldAutofix = await hasRelevantFailureCheck({ owner, repo, ref: headSha });
+              }
 
               if (!shouldAutofix) {
                 core.setOutput('should_run', 'false');
                 return;
               }
 
-              // Check for Python files
-              let files = [];
-              try {
-                files = await paginateWithRetry(
-                  github.rest.pulls.listFiles,
-                  { owner, repo, pull_number: prNum, per_page: 100 },
-                  { maxRetries: 3 }
-                );
-              } catch (error) {
-                const msg = String(error?.message || '');
-                const st = Number(error?.status || 0);
-                if (
-                  st === 403 &&
-                  msg.toLowerCase().includes('rate limit')
-                ) {
-                  core.warning(
-                    'Rate limited listing PR files; ' +
-                    'skipping autofix run.'
-                  );
-                  core.setOutput('should_run', 'false');
-                  return;
-                }
-                throw error;
-              }
-
-              const hasPy = files.some(
-                f => f.filename.endsWith('.py') ||
-                     f.filename.endsWith('.pyi')
-              );
-              if (!hasPy) {
+              const files = await listFilesOrNullOnRateLimit({ owner, repo, prNumber });
+              const hasPython =
+                files === null
+                  ? true
+                  : files.some(
+                      (file) =>
+                        file.filename.endsWith('.py') || file.filename.endsWith('.pyi')
+                    );
+              if (!hasPython) {
                 core.info('No Python files changed.');
                 core.setOutput('should_run', 'false');
                 return;
               }
 
-              const labels =
-                (pr.labels || []).map(l => l.name);
-              core.setOutput('should_run', 'true');
-              core.setOutput('pr_number', pr.number);
-              core.setOutput('head_ref', pr.head.ref);
-              core.setOutput('pr_title', pr.title);
-              core.setOutput('pr_is_draft', pr.draft);
-              core.setOutput(
-                'pr_labels_json',
-                JSON.stringify(labels),
-              );
-              core.setOutput('same_repo', sameRepo);
-              core.setOutput(
-                'caller_actor',
-                run.actor?.login || context.actor,
-              );
+              setOutputs({
+                pr,
+                sameRepo,
+                callerActor: run.actor?.login || context.actor,
+              });
               return;
             }
 
@@ -268,30 +242,19 @@ jobs:
             const isLabeled =
               context.eventName === 'pull_request_target' &&
               context.payload.action === 'labeled';
-
             if (!isLabeled) {
-              core.info(
-                'Unsupported event: ' +
-                `${context.eventName}/${context.payload.action}`
-              );
+              core.info(`Unsupported event: ${context.eventName}/${context.payload.action}`);
               core.setOutput('should_run', 'false');
               return;
             }
 
-            // Label validation
-            const label =
-              context.payload.label?.name?.toLowerCase();
-            if (
-              label !== 'autofix' && label !== 'autofix:clean'
-            ) {
-              core.info(
-                `Label '${label}' not an autofix trigger.`
-              );
+            const label = context.payload.label?.name?.toLowerCase();
+            if (label !== 'autofix' && label !== 'autofix:clean') {
+              core.info(`Label '${label}' is not an autofix trigger.`);
               core.setOutput('should_run', 'false');
               return;
             }
 
-            // PR State validation
             if (pr.state !== 'open') {
               core.info('PR is not open.');
               core.setOutput('should_run', 'false');
@@ -304,74 +267,35 @@ jobs:
               return;
             }
 
-            // Same repo check
             const sameRepo =
-              pr.head.repo.full_name ===
-              pr.base.repo.full_name;
+              pr.head.repo !== null && pr.head.repo.full_name === pr.base.repo?.full_name;
             if (!sameRepo) {
-              core.info('Fork PRs not supported.');
+              core.info('Fork PR — not supported.');
               core.setOutput('should_run', 'false');
               return;
             }
 
-            // File check with rate limit retry
             const { owner, repo } = context.repo;
-            let files = [];
-            try {
-              files = await paginateWithRetry(
-                github.rest.pulls.listFiles,
-                {
-                  owner,
-                  repo,
-                  pull_number: pr.number,
-                  per_page: 100,
-                },
-                { maxRetries: 3 }
-              );
-            } catch (error) {
-              const message =
-                String(error?.message || error || '');
-              const status = Number(
-                error?.status ||
-                error?.response?.status || 0
-              );
-              if (
-                status === 403 &&
-                message
-                  .toLowerCase()
-                  .includes('rate limit exceeded')
-              ) {
-                core.warning(
-                  'Rate limited listing PR files; ' +
-                  'skipping autofix run. ' + message
-                );
-                core.setOutput('should_run', 'false');
-                return;
-              }
-              throw error;
-            }
+            const files = await listFilesOrNullOnRateLimit({
+              owner,
+              repo,
+              prNumber: pr.number,
+            });
 
-            const hasPython = files.some(
-              f => f.filename.endsWith('.py') ||
-                   f.filename.endsWith('.pyi')
-            );
+            const hasPython =
+              files === null
+                ? true
+                : files.some(
+                    (file) =>
+                      file.filename.endsWith('.py') || file.filename.endsWith('.pyi')
+                  );
             if (!hasPython) {
               core.info('No Python files changed.');
               core.setOutput('should_run', 'false');
               return;
             }
 
-            core.setOutput('should_run', 'true');
-            core.setOutput('pr_number', pr.number);
-            core.setOutput('head_ref', pr.head.ref);
-            core.setOutput('pr_title', pr.title);
-            core.setOutput('pr_is_draft', pr.draft);
-            core.setOutput(
-              'pr_labels_json',
-              JSON.stringify(pr.labels.map(l => l.name)),
-            );
-            core.setOutput('same_repo', sameRepo);
-            core.setOutput('caller_actor', context.actor);
+            setOutputs({ pr, sameRepo, callerActor: context.actor });
 
   autofix:
     needs: resolve
