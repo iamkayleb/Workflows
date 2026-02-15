@@ -237,15 +237,29 @@ jobs:
               return
             value = raw.lower()
             if value not in {"true", "false"}:
-              fail(f"{name.replace('_', '-')} must be a boolean string of 'true' or 'false' (received {raw!r}).")
+              fail(
+                f"{name.replace('_', '-')} must be a boolean string of 'true' or 'false' "
+                f"(received {raw!r})."
+              )
 
-          def validate_number(name: str, raw: str, *, min_value: float | None = None, max_value: float | None = None, integer: bool = False) -> None:
+          def validate_number(
+            name: str,
+            raw: str,
+            *,
+            min_value: float | None = None,
+            max_value: float | None = None,
+            integer: bool = False,
+          ) -> None:
             if raw == "":
               return
             try:
               value = int(raw) if integer else float(raw)
             except ValueError:
-              constraint = f" between {min_value}-{max_value}" if min_value is not None and max_value is not None else ""
+              constraint = (
+                f" between {min_value}-{max_value}"
+                if min_value is not None and max_value is not None
+                else ""
+              )
               fail(f"{name} must be a number{constraint} (received {raw!r}).")
             if min_value is not None and value < min_value:
               fail(f"{name} must be a number between {min_value}-{max_value} (received {raw!r}).")
@@ -257,20 +271,53 @@ jobs:
             try:
               python_versions = json.loads(python_versions_raw)
             except json.JSONDecodeError:
-              fail('python-versions must be a valid JSON array of strings (example: ["3.11", "3.12"]).')
+              fail(
+                'python-versions must be a valid JSON array of strings '
+                '(example: ["3.11", "3.12"]).'
+              )
             if not isinstance(python_versions, list):
               fail('python-versions must be a JSON array (example: ["3.11", "3.12"]).')
             if not python_versions:
               fail('python-versions must include at least one version (example: ["3.11", "3.12"]).')
             for version in python_versions:
               if not isinstance(version, str) or not version.strip():
-                fail('python-versions entries must be non-empty strings (example: ["3.11", "3.12"]).')
+                fail(
+                  'python-versions entries must be non-empty strings '
+                  '(example: ["3.11", "3.12"]).'
+                )
 
-          validate_number("coverage-min", os.getenv("COVERAGE_MIN", ""), min_value=0, max_value=100)
-          validate_number("slow-test-top", os.getenv("SLOW_TEST_TOP", ""), min_value=0, max_value=None, integer=True)
-          validate_number("slow-test-min-seconds", os.getenv("SLOW_TEST_MIN_SECONDS", ""), min_value=0, max_value=None, integer=True)
-          validate_number("baseline-coverage", os.getenv("BASELINE_COVERAGE", ""), min_value=0, max_value=100)
-          validate_number("coverage-alert-drop", os.getenv("COVERAGE_ALERT_DROP", ""), min_value=0, max_value=100)
+          validate_number(
+            "coverage-min",
+            os.getenv("COVERAGE_MIN", ""),
+            min_value=0,
+            max_value=100,
+          )
+          validate_number(
+            "slow-test-top",
+            os.getenv("SLOW_TEST_TOP", ""),
+            min_value=0,
+            max_value=None,
+            integer=True,
+          )
+          validate_number(
+            "slow-test-min-seconds",
+            os.getenv("SLOW_TEST_MIN_SECONDS", ""),
+            min_value=0,
+            max_value=None,
+            integer=True,
+          )
+          validate_number(
+            "baseline-coverage",
+            os.getenv("BASELINE_COVERAGE", ""),
+            min_value=0,
+            max_value=100,
+          )
+          validate_number(
+            "coverage-alert-drop",
+            os.getenv("COVERAGE_ALERT_DROP", ""),
+            min_value=0,
+            max_value=100,
+          )
 
           for boolean_env in (
             "LINT",
@@ -298,10 +345,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${MARKER}" ]; then
-            echo "::warning ::Input 'marker' is deprecated and will be removed in v2.0.0. Use 'pytest_markers' instead."
+            echo "::warning ::Input 'marker' is deprecated and will be removed in v2.0.0. " \
+              "Use 'pytest_markers' instead."
           fi
           if [ "${RUN_MYPY}" != "true" ]; then
-            echo "::warning ::Input 'run-mypy' is deprecated and will be removed in v2.0.0. Use 'typecheck' to control mypy execution."
+            echo "::warning ::Input 'run-mypy' is deprecated and will be removed in v2.0.0. " \
+              "Use 'typecheck' to control mypy execution."
           fi
 
   lint-format:
@@ -318,7 +367,13 @@ jobs:
     env:
       WORKDIR: ${{ inputs['working-directory'] || '.' }}
       WORKSPACE_ROOT: ${{ github.workspace }}
-      PROJECT_ROOT: ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' && format('{0}/{1}', github.workspace, inputs['working-directory']) || github.workspace }}
+      PROJECT_ROOT: >-
+        ${{
+          inputs['working-directory'] != ''
+          && inputs['working-directory'] != '.'
+          && format('{0}/{1}', github.workspace, inputs['working-directory'])
+          || github.workspace
+        }}
     outputs:
       format_outcome: ${{ steps.finalize.outputs.outcome || steps.black.outcome || 'skipped' }}
     steps:
@@ -363,7 +418,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+          python-version: >-
+            ${{
+              inputs['primary-python-version']
+              || inputs['python-version']
+              || '3.11'
+            }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -382,9 +442,12 @@ jobs:
         with:
           path: |
             ~/.cache/uv
-          key: uv-${{ runner.os }}-${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}-${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
+          key: >-
+            uv-${{ runner.os }}
+            -${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}
+            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
           restore-keys: |
-            uv-${{ runner.os }}-${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}-
             uv-${{ runner.os }}-
 
       - name: Install dependencies
@@ -398,7 +461,12 @@ jobs:
           INPUT_TYPECHECK: 'false'
           INPUT_RUN_MYPY: 'false'
           INPUT_COVERAGE: 'false'
-          INPUT_PYTHON_VERSION: ${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+          INPUT_PYTHON_VERSION: >-
+            ${{
+              inputs['primary-python-version']
+              || inputs['python-version']
+              || '3.11'
+            }}
         run: |
           set -euo pipefail
           start_ts=$(date +%s)
@@ -457,17 +525,9 @@ jobs:
           pytest_cov_spec="pytest-cov"
           coverage_spec="coverage"
           pytest_xdist_spec="pytest-xdist"
-          base_test_specs=(
-            "hypothesis"
-            "pandas"
-            "numpy"
-            "pydantic"
-            "pydantic-core"
-            "requests"
-            "jsonschema"
-            "PyYAML"
-            "tomlkit"
-          )
+          # Do not install heavyweight "baseline" test deps implicitly.
+          # Repos should declare their own runtime/test dependencies.
+          base_test_specs=()
 
           resolve_spec() {
             local package=$1
@@ -495,17 +555,7 @@ jobs:
             pytest_cov_spec=$(resolve_spec "pytest-cov" "${PYTEST_COV_VERSION:-}" "")
             coverage_spec=$(resolve_spec "coverage" "${COVERAGE_VERSION:-}" "7.13.2")
             pytest_xdist_spec=$(resolve_spec "pytest-xdist" "${PYTEST_XDIST_VERSION:-}" "3.6.1")
-            base_test_specs=(
-              "$(resolve_spec "hypothesis" "${HYPOTHESIS_VERSION:-}" "6.115.1")"
-              "$(resolve_spec "pandas" "${PANDAS_VERSION:-}" "2.3.0")"
-              "$(resolve_spec "numpy" "${NUMPY_VERSION:-}" "2.1.0")"
-              "$(resolve_spec "pydantic" "${PYDANTIC_VERSION:-}" "2.10.3")"
-              "$(resolve_spec "pydantic-core" "${PYDANTIC_CORE_VERSION:-}" "2.27.1")"
-              "$(resolve_spec "requests" "${REQUESTS_VERSION:-}" "2.31.0")"
-              "$(resolve_spec "jsonschema" "${JSONSCHEMA_VERSION:-}" "4.22.0")"
-              "$(resolve_spec "PyYAML" "${PYYAML_VERSION:-}" "6.0.2")"
-              "$(resolve_spec "tomlkit" "${TOMLKIT_VERSION:-}" "")"
-            )
+            base_test_specs=()
           elif [ "$has_lock_file" = "false" ]; then
             echo "Warning: autofix-versions.env not found, installing latest tool versions" >&2
           fi
@@ -535,9 +585,6 @@ jobs:
 
           add_tool "$pytest_spec" "pytest"
           add_tool "$pytest_xdist_spec" "pytest-xdist"
-          for spec in "${base_test_specs[@]}"; do
-            add_tool "$spec" "$spec"
-          done
 
           if [ "$coverage_enabled" = "true" ]; then
             add_tool "$pytest_cov_spec" "pytest-cov"
@@ -572,9 +619,16 @@ jobs:
               printf -- '- Tools installed: %s\n' "$installed_label"
               printf -- '- Tools skipped (disabled): %s\n' "$skipped_label"
               if [ ${#tools_skipped[@]} -gt 0 ]; then
-                printf -- '- Note: skipping %d tool(s) avoids extra setup time when disabled.\n' "${#tools_skipped[@]}"
+                printf -- '- Note: skipping %d tool(s) avoids extra setup time when disabled.\n' \
+                  "${#tools_skipped[@]}"
               fi
-              printf -- '- Cache key: uv-%s-%s-%s-%s\n' "${{ runner.os }}" "$INPUT_PYTHON_VERSION" "$(sha256sum requirements.lock 2>/dev/null | cut -d' ' -f1 || echo none)" "$(sha256sum pyproject.toml 2>/dev/null | cut -d' ' -f1 || echo none)"
+              req_hash=$(sha256sum requirements.lock 2>/dev/null | cut -d' ' -f1 || echo none)
+              pyproject_hash=$(sha256sum pyproject.toml 2>/dev/null | cut -d' ' -f1 || echo none)
+              printf -- '- Cache key: uv-%s-%s-%s-%s\n' \
+                "${{ runner.os }}" \
+                "$INPUT_PYTHON_VERSION" \
+                "$req_hash" \
+                "$pyproject_hash"
             } >>"${GITHUB_STEP_SUMMARY}"
           fi
 
@@ -619,7 +673,13 @@ jobs:
     env:
       WORKDIR: ${{ inputs['working-directory'] || '.' }}
       WORKSPACE_ROOT: ${{ github.workspace }}
-      PROJECT_ROOT: ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' && format('{0}/{1}', github.workspace, inputs['working-directory']) || github.workspace }}
+      PROJECT_ROOT: >-
+        ${{
+          inputs['working-directory'] != ''
+          && inputs['working-directory'] != '.'
+          && format('{0}/{1}', github.workspace, inputs['working-directory'])
+          || github.workspace
+        }}
     outputs:
       lint_outcome: ${{ steps.finalize.outputs.outcome || steps.ruff.outcome || 'skipped' }}
     steps:
@@ -647,7 +707,12 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+          python-version: >-
+            ${{
+              inputs['primary-python-version']
+              || inputs['python-version']
+              || '3.11'
+            }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -666,9 +731,12 @@ jobs:
         with:
           path: |
             ~/.cache/uv
-          key: uv-${{ runner.os }}-${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}-${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
+          key: >-
+            uv-${{ runner.os }}
+            -${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}
+            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
           restore-keys: |
-            uv-${{ runner.os }}-${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}-
             uv-${{ runner.os }}-
 
       - name: Install dependencies
@@ -682,7 +750,12 @@ jobs:
           INPUT_TYPECHECK: 'false'
           INPUT_RUN_MYPY: 'false'
           INPUT_COVERAGE: 'false'
-          INPUT_PYTHON_VERSION: ${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+          INPUT_PYTHON_VERSION: >-
+            ${{
+              inputs['primary-python-version']
+              || inputs['python-version']
+              || '3.11'
+            }}
         run: |
           set -euo pipefail
           start_ts=$(date +%s)
@@ -741,17 +814,9 @@ jobs:
           pytest_cov_spec="pytest-cov"
           coverage_spec="coverage"
           pytest_xdist_spec="pytest-xdist"
-          base_test_specs=(
-            "hypothesis"
-            "pandas"
-            "numpy"
-            "pydantic"
-            "pydantic-core"
-            "requests"
-            "jsonschema"
-            "PyYAML"
-            "tomlkit"
-          )
+          # Do not install heavyweight "baseline" test deps implicitly.
+          # Repos should declare their own runtime/test dependencies.
+          base_test_specs=()
 
           resolve_spec() {
             local package=$1
@@ -779,17 +844,7 @@ jobs:
             pytest_cov_spec=$(resolve_spec "pytest-cov" "${PYTEST_COV_VERSION:-}" "")
             coverage_spec=$(resolve_spec "coverage" "${COVERAGE_VERSION:-}" "7.13.2")
             pytest_xdist_spec=$(resolve_spec "pytest-xdist" "${PYTEST_XDIST_VERSION:-}" "3.6.1")
-            base_test_specs=(
-              "$(resolve_spec "hypothesis" "${HYPOTHESIS_VERSION:-}" "6.115.1")"
-              "$(resolve_spec "pandas" "${PANDAS_VERSION:-}" "2.3.0")"
-              "$(resolve_spec "numpy" "${NUMPY_VERSION:-}" "2.1.0")"
-              "$(resolve_spec "pydantic" "${PYDANTIC_VERSION:-}" "2.10.3")"
-              "$(resolve_spec "pydantic-core" "${PYDANTIC_CORE_VERSION:-}" "2.27.1")"
-              "$(resolve_spec "requests" "${REQUESTS_VERSION:-}" "2.31.0")"
-              "$(resolve_spec "jsonschema" "${JSONSCHEMA_VERSION:-}" "4.22.0")"
-              "$(resolve_spec "PyYAML" "${PYYAML_VERSION:-}" "6.0.2")"
-              "$(resolve_spec "tomlkit" "${TOMLKIT_VERSION:-}" "")"
-            )
+            base_test_specs=()
           elif [ "$has_lock_file" = "false" ]; then
             echo "Warning: autofix-versions.env not found, installing latest tool versions" >&2
           fi
@@ -819,9 +874,6 @@ jobs:
 
           add_tool "$pytest_spec" "pytest"
           add_tool "$pytest_xdist_spec" "pytest-xdist"
-          for spec in "${base_test_specs[@]}"; do
-            add_tool "$spec" "$spec"
-          done
 
           if [ "$coverage_enabled" = "true" ]; then
             add_tool "$pytest_cov_spec" "pytest-cov"
@@ -856,9 +908,16 @@ jobs:
               printf -- '- Tools installed: %s\n' "$installed_label"
               printf -- '- Tools skipped (disabled): %s\n' "$skipped_label"
               if [ ${#tools_skipped[@]} -gt 0 ]; then
-                printf -- '- Note: skipping %d tool(s) avoids extra setup time when disabled.\n' "${#tools_skipped[@]}"
+                printf -- '- Note: skipping %d tool(s) avoids extra setup time when disabled.\n' \
+                  "${#tools_skipped[@]}"
               fi
-              printf -- '- Cache key: uv-%s-%s-%s-%s\n' "${{ runner.os }}" "$INPUT_PYTHON_VERSION" "$(sha256sum requirements.lock 2>/dev/null | cut -d' ' -f1 || echo none)" "$(sha256sum pyproject.toml 2>/dev/null | cut -d' ' -f1 || echo none)"
+              req_hash=$(sha256sum requirements.lock 2>/dev/null | cut -d' ' -f1 || echo none)
+              pyproject_hash=$(sha256sum pyproject.toml 2>/dev/null | cut -d' ' -f1 || echo none)
+              printf -- '- Cache key: uv-%s-%s-%s-%s\n' \
+                "${{ runner.os }}" \
+                "$INPUT_PYTHON_VERSION" \
+                "$req_hash" \
+                "$pyproject_hash"
             } >>"${GITHUB_STEP_SUMMARY}"
           fi
 
@@ -904,7 +963,13 @@ jobs:
     env:
       WORKDIR: ${{ inputs['working-directory'] || '.' }}
       WORKSPACE_ROOT: ${{ github.workspace }}
-      PROJECT_ROOT: ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' && format('{0}/{1}', github.workspace, inputs['working-directory']) || github.workspace }}
+      PROJECT_ROOT: >-
+        ${{
+          inputs['working-directory'] != ''
+          && inputs['working-directory'] != '.'
+          && format('{0}/{1}', github.workspace, inputs['working-directory'])
+          || github.workspace
+        }}
     outputs:
       mypy_outcome: ${{ steps.finalize.outputs.outcome || steps.mypy.outcome || 'skipped' }}
     steps:
@@ -931,7 +996,12 @@ jobs:
       - name: Resolve mypy python pin
         id: mypy-pin
         env:
-          MATRIX_PYTHON_VERSION: ${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+          MATRIX_PYTHON_VERSION: >-
+            ${{
+              inputs['primary-python-version']
+              || inputs['python-version']
+              || '3.11'
+            }}
         run: |
           set -euo pipefail
           python "${GITHUB_WORKSPACE}/tools/resolve_mypy_pin.py"
@@ -940,7 +1010,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: ${{ steps.mypy-pin.outputs.python-version || inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+          python-version: >-
+            ${{
+              steps.mypy-pin.outputs.python-version
+              || inputs['primary-python-version']
+              || inputs['python-version']
+              || '3.11'
+            }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -959,9 +1035,12 @@ jobs:
         with:
           path: |
             ~/.cache/uv
-          key: uv-${{ runner.os }}-${{ steps.mypy-pin.outputs.python-version || inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}-${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
+          key: >-
+            uv-${{ runner.os }}
+            -${{ steps.mypy-pin.outputs.python-version }}
+            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}
+            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
           restore-keys: |
-            uv-${{ runner.os }}-${{ steps.mypy-pin.outputs.python-version || inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}-
             uv-${{ runner.os }}-
 
       - name: Install dependencies
@@ -975,7 +1054,13 @@ jobs:
           INPUT_TYPECHECK: ${{ inputs.typecheck }}
           INPUT_RUN_MYPY: ${{ inputs['run-mypy'] }}
           INPUT_COVERAGE: 'false'
-          INPUT_PYTHON_VERSION: ${{ steps.mypy-pin.outputs.python-version || inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
+          INPUT_PYTHON_VERSION: >-
+            ${{
+              steps.mypy-pin.outputs.python-version
+              || inputs['primary-python-version']
+              || inputs['python-version']
+              || '3.11'
+            }}
         run: |
           set -euo pipefail
           start_ts=$(date +%s)
@@ -1034,17 +1119,9 @@ jobs:
           pytest_cov_spec="pytest-cov"
           coverage_spec="coverage"
           pytest_xdist_spec="pytest-xdist"
-          base_test_specs=(
-            "hypothesis"
-            "pandas"
-            "numpy"
-            "pydantic"
-            "pydantic-core"
-            "requests"
-            "jsonschema"
-            "PyYAML"
-            "tomlkit"
-          )
+          # Do not install heavyweight "baseline" test deps implicitly.
+          # Repos should declare their own runtime/test dependencies.
+          base_test_specs=()
 
           resolve_spec() {
             local package=$1
@@ -1072,17 +1149,7 @@ jobs:
             pytest_cov_spec=$(resolve_spec "pytest-cov" "${PYTEST_COV_VERSION:-}" "")
             coverage_spec=$(resolve_spec "coverage" "${COVERAGE_VERSION:-}" "7.13.2")
             pytest_xdist_spec=$(resolve_spec "pytest-xdist" "${PYTEST_XDIST_VERSION:-}" "3.6.1")
-            base_test_specs=(
-              "$(resolve_spec "hypothesis" "${HYPOTHESIS_VERSION:-}" "6.115.1")"
-              "$(resolve_spec "pandas" "${PANDAS_VERSION:-}" "2.3.0")"
-              "$(resolve_spec "numpy" "${NUMPY_VERSION:-}" "2.1.0")"
-              "$(resolve_spec "pydantic" "${PYDANTIC_VERSION:-}" "2.10.3")"
-              "$(resolve_spec "pydantic-core" "${PYDANTIC_CORE_VERSION:-}" "2.27.1")"
-              "$(resolve_spec "requests" "${REQUESTS_VERSION:-}" "2.31.0")"
-              "$(resolve_spec "jsonschema" "${JSONSCHEMA_VERSION:-}" "4.22.0")"
-              "$(resolve_spec "PyYAML" "${PYYAML_VERSION:-}" "6.0.2")"
-              "$(resolve_spec "tomlkit" "${TOMLKIT_VERSION:-}" "")"
-            )
+            base_test_specs=()
           elif [ "$has_lock_file" = "false" ]; then
             echo "Warning: autofix-versions.env not found, installing latest tool versions" >&2
           fi
@@ -1112,9 +1179,6 @@ jobs:
 
           add_tool "$pytest_spec" "pytest"
           add_tool "$pytest_xdist_spec" "pytest-xdist"
-          for spec in "${base_test_specs[@]}"; do
-            add_tool "$spec" "$spec"
-          done
 
           if [ "$coverage_enabled" = "true" ]; then
             add_tool "$pytest_cov_spec" "pytest-cov"
@@ -1149,9 +1213,16 @@ jobs:
               printf -- '- Tools installed: %s\n' "$installed_label"
               printf -- '- Tools skipped (disabled): %s\n' "$skipped_label"
               if [ ${#tools_skipped[@]} -gt 0 ]; then
-                printf -- '- Note: skipping %d tool(s) avoids extra setup time when disabled.\n' "${#tools_skipped[@]}"
+                printf -- '- Note: skipping %d tool(s) avoids extra setup time when disabled.\n' \
+                  "${#tools_skipped[@]}"
               fi
-              printf -- '- Cache key: uv-%s-%s-%s-%s\n' "${{ runner.os }}" "$INPUT_PYTHON_VERSION" "$(sha256sum requirements.lock 2>/dev/null | cut -d' ' -f1 || echo none)" "$(sha256sum pyproject.toml 2>/dev/null | cut -d' ' -f1 || echo none)"
+              req_hash=$(sha256sum requirements.lock 2>/dev/null | cut -d' ' -f1 || echo none)
+              pyproject_hash=$(sha256sum pyproject.toml 2>/dev/null | cut -d' ' -f1 || echo none)
+              printf -- '- Cache key: uv-%s-%s-%s-%s\n' \
+                "${{ runner.os }}" \
+                "$INPUT_PYTHON_VERSION" \
+                "$req_hash" \
+                "$pyproject_hash"
             } >>"${GITHUB_STEP_SUMMARY}"
           fi
 
@@ -1160,10 +1231,14 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ inputs['working-directory'] || '.' }}/.mypy_cache
-          key: mypy-${{ runner.os }}-${{ steps.mypy-pin.outputs.python-version || inputs['primary-python-version'] || inputs['python-version'] }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}-${{ hashFiles(format('{0}/src/**/*.py', inputs['working-directory'])) }}
+          key: >-
+            mypy-${{ runner.os }}
+            -${{ steps.mypy-pin.outputs.python-version }}
+            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}
+            -${{ hashFiles(format('{0}/src/**/*.py', inputs['working-directory'])) }}
           restore-keys: |
-            mypy-${{ runner.os }}-${{ steps.mypy-pin.outputs.python-version || inputs['primary-python-version'] || inputs['python-version'] }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}-
-            mypy-${{ runner.os }}-${{ steps.mypy-pin.outputs.python-version || inputs['primary-python-version'] || inputs['python-version'] }}-
+            mypy-${{ runner.os }}-
+            mypy-${{ runner.os }}-${{ steps.mypy-pin.outputs.python-version }}-
 
       - name: Mypy (type check)
         id: mypy
@@ -1250,7 +1325,13 @@ jobs:
     env:
       WORKDIR: ${{ inputs['working-directory'] || '.' }}
       WORKSPACE_ROOT: ${{ github.workspace }}
-      PROJECT_ROOT: ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' && format('{0}/{1}', github.workspace, inputs['working-directory']) || github.workspace }}
+      PROJECT_ROOT: >-
+        ${{
+          inputs['working-directory'] != ''
+          && inputs['working-directory'] != '.'
+          && format('{0}/{1}', github.workspace, inputs['working-directory'])
+          || github.workspace
+        }}
     steps:
       # Mint GitHub App token early to use for API calls (avoids rate limits)
       - name: Mint GitHub App Token
@@ -1305,7 +1386,11 @@ jobs:
         with:
           path: |
             ~/.cache/uv
-          key: uv-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
+          key: >-
+            uv-${{ runner.os }}
+            -${{ matrix.python-version }}
+            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}
+            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
           restore-keys: |
             uv-${{ runner.os }}-${{ matrix.python-version }}-
             uv-${{ runner.os }}-
@@ -1380,17 +1465,9 @@ jobs:
           pytest_cov_spec="pytest-cov"
           coverage_spec="coverage"
           pytest_xdist_spec="pytest-xdist"
-          base_test_specs=(
-            "hypothesis"
-            "pandas"
-            "numpy"
-            "pydantic"
-            "pydantic-core"
-            "requests"
-            "jsonschema"
-            "PyYAML"
-            "tomlkit"
-          )
+          # Do not install heavyweight "baseline" test deps implicitly.
+          # Repos should declare their own runtime/test dependencies.
+          base_test_specs=()
 
           resolve_spec() {
             local package=$1
@@ -1418,17 +1495,7 @@ jobs:
             pytest_cov_spec=$(resolve_spec "pytest-cov" "${PYTEST_COV_VERSION:-}" "")
             coverage_spec=$(resolve_spec "coverage" "${COVERAGE_VERSION:-}" "7.13.2")
             pytest_xdist_spec=$(resolve_spec "pytest-xdist" "${PYTEST_XDIST_VERSION:-}" "3.6.1")
-            base_test_specs=(
-              "$(resolve_spec "hypothesis" "${HYPOTHESIS_VERSION:-}" "6.115.1")"
-              "$(resolve_spec "pandas" "${PANDAS_VERSION:-}" "2.3.0")"
-              "$(resolve_spec "numpy" "${NUMPY_VERSION:-}" "2.1.0")"
-              "$(resolve_spec "pydantic" "${PYDANTIC_VERSION:-}" "2.10.3")"
-              "$(resolve_spec "pydantic-core" "${PYDANTIC_CORE_VERSION:-}" "2.27.1")"
-              "$(resolve_spec "requests" "${REQUESTS_VERSION:-}" "2.31.0")"
-              "$(resolve_spec "jsonschema" "${JSONSCHEMA_VERSION:-}" "4.22.0")"
-              "$(resolve_spec "PyYAML" "${PYYAML_VERSION:-}" "6.0.2")"
-              "$(resolve_spec "tomlkit" "${TOMLKIT_VERSION:-}" "")"
-            )
+            base_test_specs=()
           elif [ "$has_lock_file" = "false" ]; then
             echo "Warning: autofix-versions.env not found, installing latest tool versions" >&2
           fi
@@ -1458,9 +1525,6 @@ jobs:
 
           add_tool "$pytest_spec" "pytest"
           add_tool "$pytest_xdist_spec" "pytest-xdist"
-          for spec in "${base_test_specs[@]}"; do
-            add_tool "$spec" "$spec"
-          done
 
           if [ "$coverage_enabled" = "true" ]; then
             add_tool "$pytest_cov_spec" "pytest-cov"
@@ -1495,9 +1559,16 @@ jobs:
               printf -- '- Tools installed: %s\n' "$installed_label"
               printf -- '- Tools skipped (disabled): %s\n' "$skipped_label"
               if [ ${#tools_skipped[@]} -gt 0 ]; then
-                printf -- '- Note: skipping %d tool(s) avoids extra setup time when disabled.\n' "${#tools_skipped[@]}"
+                printf -- '- Note: skipping %d tool(s) avoids extra setup time when disabled.\n' \
+                  "${#tools_skipped[@]}"
               fi
-              printf -- '- Cache key: uv-%s-%s-%s-%s\n' "${{ runner.os }}" "$INPUT_PYTHON_VERSION" "$(sha256sum requirements.lock 2>/dev/null | cut -d' ' -f1 || echo none)" "$(sha256sum pyproject.toml 2>/dev/null | cut -d' ' -f1 || echo none)"
+              req_hash=$(sha256sum requirements.lock 2>/dev/null | cut -d' ' -f1 || echo none)
+              pyproject_hash=$(sha256sum pyproject.toml 2>/dev/null | cut -d' ' -f1 || echo none)
+              printf -- '- Cache key: uv-%s-%s-%s-%s\n' \
+                "${{ runner.os }}" \
+                "$INPUT_PYTHON_VERSION" \
+                "$req_hash" \
+                "$pyproject_hash"
             } >>"${GITHUB_STEP_SUMMARY}"
           fi
 
@@ -1586,7 +1657,8 @@ jobs:
           fi
           append_summary ""
           append_summary "📝 Updated pyproject.toml with missing dependencies."
-          append_summary "⚠️ Build will fail - commit the updated pyproject.toml and regenerate requirements.lock"
+          append_summary "⚠️ Build will fail - commit the updated pyproject.toml and"
+          append_summary "regenerate requirements.lock"
           exit 1
 
       - name: Resolve mypy python pin
@@ -1603,9 +1675,13 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ inputs['working-directory'] || '.' }}/.mypy_cache
-          key: mypy-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}-${{ hashFiles(format('{0}/src/**/*.py', inputs['working-directory'])) }}
+          key: >-
+            mypy-${{ runner.os }}
+            -${{ matrix.python-version }}
+            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}
+            -${{ hashFiles(format('{0}/src/**/*.py', inputs['working-directory'])) }}
           restore-keys: |
-            mypy-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}-
+            mypy-${{ runner.os }}-
             mypy-${{ runner.os }}-${{ matrix.python-version }}-
 
       - name: Cache pytest state
@@ -1613,7 +1689,11 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ${{ inputs['working-directory'] || '.' }}/.pytest_cache
-          key: pytest-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}-${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'])) }}
+          key: >-
+            pytest-${{ runner.os }}
+            -${{ matrix.python-version }}
+            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}
+            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'])) }}
           restore-keys: |
             pytest-${{ runner.os }}-${{ matrix.python-version }}-
             pytest-${{ runner.os }}-
@@ -1622,7 +1702,12 @@ jobs:
         continue-on-error: true
         working-directory: ${{ inputs['working-directory'] || '.' }}
         env:
-          PYTEST_MARKERS: ${{ inputs.pytest_markers != '' && inputs.pytest_markers || inputs.marker }}
+          PYTEST_MARKERS: >-
+            ${{
+              inputs.pytest_markers != ''
+              && inputs.pytest_markers
+              || inputs.marker
+            }}
           COVERAGE_ENABLED: ${{ inputs.coverage }}
           PYTHONPATH: ${{ github.workspace }}/${{ inputs['working-directory'] || '.' }}
         run: |
@@ -1633,7 +1718,10 @@ jobs:
           fi
           args=("--junitxml=pytest-junit.xml")
           if [ "${COVERAGE_ENABLED}" = "true" ]; then
-            args+=("--cov=${coverage_target}" "--cov-report=xml:coverage.xml" "--cov-report=term-missing" "--cov-report=json:coverage.json")
+            args+=("--cov=${coverage_target}")
+            args+=("--cov-report=xml:coverage.xml")
+            args+=("--cov-report=term-missing")
+            args+=("--cov-report=json:coverage.json")
           fi
           if [ -n "${PYTEST_MARKERS}" ]; then
             args=("-m" "${PYTEST_MARKERS}" "${args[@]}")
@@ -1733,7 +1821,10 @@ jobs:
           summary: dict[str, object] = {
               "python_version": runtime,
               "checks": {
-                  "tests": {"tool": "pytest", "outcome": normalize(os.environ.get("PYTEST_OUTCOME"))},
+                "tests": {
+                  "tool": "pytest",
+                  "outcome": normalize(os.environ.get("PYTEST_OUTCOME")),
+                },
                   "coverage_minimum": {
                       "tool": "threshold",
                       "outcome": normalize(os.environ.get("COVERAGE_MIN_OUTCOME")),
@@ -1847,7 +1938,9 @@ jobs:
         if: ${{ always() && steps.coverage_paths.outputs.has_payload == 'true' }}
         uses: actions/upload-artifact@v6
         with:
-          name: ${{ inputs['artifact-prefix'] }}coverage-${{ matrix.python-version }}-${{ github.run_attempt }}
+          name: >-
+            ${{ inputs['artifact-prefix'] }}coverage-${{ matrix.python-version }}-
+            ${{ github.run_attempt }}
           path: ${{ env.PROJECT_ROOT }}/artifacts/coverage
           if-no-files-found: warn
           retention-days: 7
@@ -1875,7 +1968,9 @@ jobs:
             local label="$1"
             local outcome="$2"
             echo "Checking ${label}: ${outcome}"
-            if [ -z "${outcome}" ] || [ "${outcome}" = 'success' ] || [ "${outcome}" = 'skipped' ]; then
+            if [ -z "${outcome}" ] || \
+              [ "${outcome}" = 'success' ] || \
+              [ "${outcome}" = 'skipped' ]; then
               return 0
             fi
             if [ "${outcome}" = 'cancelled' ]; then
@@ -1898,7 +1993,12 @@ jobs:
           echo "All checks passed!"
 
       - name: Build CI metrics payload
-        if: ${{ inputs['enable-metrics'] || inputs['enable-history'] || inputs['enable-classification'] }}
+        if: >-
+          ${{
+          inputs['enable-metrics']
+          || inputs['enable-history']
+          || inputs['enable-classification']
+          }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/ci_metrics.py"
         env:
@@ -1970,7 +2070,12 @@ jobs:
           overwrite: true
 
       - name: Generate coverage trend summary
-        if: ${{ inputs.coverage && inputs['enable-soft-gate'] && matrix.python-version == inputs['primary-python-version'] }}
+        if: >-
+          ${{
+          inputs.coverage
+          && inputs['enable-soft-gate']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         run: |
           # shellcheck disable=SC2086
           MIN_ARG=""
@@ -1990,7 +2095,12 @@ jobs:
             $MIN_ARG
 
       - name: Annotate coverage trend record
-        if: ${{ inputs.coverage && inputs['enable-soft-gate'] && matrix.python-version == inputs['primary-python-version'] }}
+        if: >-
+          ${{
+          inputs.coverage
+          && inputs['enable-soft-gate']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         run: |
           python - <<'PY'
           import json
@@ -2007,7 +2117,12 @@ jobs:
           PY
 
       - name: Append coverage trend history
-        if: ${{ inputs.coverage && inputs['enable-soft-gate'] && matrix.python-version == inputs['primary-python-version'] }}
+        if: >-
+          ${{
+          inputs.coverage
+          && inputs['enable-soft-gate']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/coverage_history_append.py"
         env:
@@ -2015,7 +2130,12 @@ jobs:
           RECORD_PATH: coverage-trend.json
 
       - name: Upload coverage summary artifact
-        if: ${{ inputs.coverage && inputs['enable-soft-gate'] && matrix.python-version == inputs['primary-python-version'] }}
+        if: >-
+          ${{
+          inputs.coverage
+          && inputs['enable-soft-gate']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs['artifact-prefix'] }}coverage-summary
@@ -2025,7 +2145,12 @@ jobs:
           overwrite: true
 
       - name: Upload coverage trend artifact
-        if: ${{ inputs.coverage && inputs['enable-soft-gate'] && matrix.python-version == inputs['primary-python-version'] }}
+        if: >-
+          ${{
+          inputs.coverage
+          && inputs['enable-soft-gate']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs['artifact-prefix'] }}coverage-trend
@@ -2035,7 +2160,12 @@ jobs:
           overwrite: true
 
       - name: Upload coverage trend history artifact
-        if: ${{ inputs.coverage && inputs['enable-soft-gate'] && matrix.python-version == inputs['primary-python-version'] }}
+        if: >-
+          ${{
+          inputs.coverage
+          && inputs['enable-soft-gate']
+          && matrix.python-version == inputs['primary-python-version']
+          }}
         uses: actions/upload-artifact@v6
         with:
           name: ${{ inputs['artifact-prefix'] }}coverage-trend-history
@@ -2095,11 +2225,31 @@ jobs:
 
           summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
           checks = [
-              ("Black", "${{ needs['lint-format'].result || 'skipped' }}", "${{ needs['lint-format'].outputs.format_outcome || 'skipped' }}"),
-              ("Ruff", "${{ needs['lint-ruff'].result || 'skipped' }}", "${{ needs['lint-ruff'].outputs.lint_outcome || 'skipped' }}"),
-              ("Mypy", "${{ needs['typecheck-mypy'].result || 'skipped' }}", "${{ needs['typecheck-mypy'].outputs.mypy_outcome || 'skipped' }}"),
-              ("Pytest", "${{ needs.tests.result || 'skipped' }}", "${{ needs.tests.outputs.pytest_outcome || 'skipped' }}"),
-              ("Coverage minimum", "${{ needs.tests.result || 'skipped' }}", "${{ needs.tests.outputs.coverage_min_outcome || 'skipped' }}"),
+              (
+                "Black",
+                "${{ needs['lint-format'].result || 'skipped' }}",
+                "${{ needs['lint-format'].outputs.format_outcome || 'skipped' }}",
+              ),
+              (
+                "Ruff",
+                "${{ needs['lint-ruff'].result || 'skipped' }}",
+                "${{ needs['lint-ruff'].outputs.lint_outcome || 'skipped' }}",
+              ),
+              (
+                "Mypy",
+                "${{ needs['typecheck-mypy'].result || 'skipped' }}",
+                "${{ needs['typecheck-mypy'].outputs.mypy_outcome || 'skipped' }}",
+              ),
+              (
+                "Pytest",
+                "${{ needs.tests.result || 'skipped' }}",
+                "${{ needs.tests.outputs.pytest_outcome || 'skipped' }}",
+              ),
+              (
+                "Coverage minimum",
+                "${{ needs.tests.result || 'skipped' }}",
+                "${{ needs.tests.outputs.coverage_min_outcome || 'skipped' }}",
+              ),
           ]
 
           def normalize(value: str | None) -> str:
@@ -2149,8 +2299,14 @@ jobs:
               const status = error?.status || error?.response?.status;
               const isRateLimit = status === 403 && /rate limit/i.test(error?.message ?? '');
               const message = isRateLimit
-                ? 'Skipped job summary because the GitHub API rate limit was hit while listing workflow jobs.'
-                : `Skipped job summary because job listing failed: ${error?.message ?? 'unknown error'}`;
+                ? (
+                    'Skipped job summary because the GitHub API rate limit was hit ' +
+                    'while listing workflow jobs.'
+                  )
+                : (
+                    `Skipped job summary because job listing failed: ` +
+                    `${error?.message ?? 'unknown error'}`
+                  );
               core.warning(message);
               await core.summary
                 .addHeading('Workflow job summary', 3)
