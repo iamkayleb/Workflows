@@ -1725,9 +1725,10 @@ jobs:
             args=("-m" "${PYTEST_MARKERS}" "${args[@]}")
           fi
           if [ -n "${PYTEST_ARGS}" ]; then
-            python_code='import os,shlex;'
-            python_code+='[print(a) for a in shlex.split(os.getenv("PYTEST_ARGS",""))]'
-            mapfile -t extra_args < <(python -c "$python_code")
+            mapfile -t extra_args < <(
+              python -c \
+                'import os, shlex; print(*shlex.split(os.getenv("PYTEST_ARGS", "")), sep="\n")'
+            )
             if [ ${#extra_args[@]} -gt 0 ]; then
               args+=("${extra_args[@]}")
             fi
