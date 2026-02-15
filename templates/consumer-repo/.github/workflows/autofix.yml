@@ -118,44 +118,16 @@ jobs:
             };
 
             const hasRelevantFailureJobForRun = async ({ owner, repo, runId }) => {
-              let page = 1;
-              let jobs = [];
-              let totalCount = null;
-
-              while (page <= 25) {
-                const { data } = await withRetry((client) =>
-                  client.rest.actions.listJobsForWorkflowRun({
-                    owner,
-                    repo,
-                    run_id: runId,
-                    per_page: 100,
-                    page,
-                  })
-                );
-
-                const jobsPage = data?.jobs || [];
-                jobs = jobs.concat(jobsPage);
-
-                if (typeof data?.total_count === 'number') {
-                  totalCount = data.total_count;
-                }
-
-                if (jobsPage.length < 100) {
-                  break;
-                }
-
-                if (totalCount !== null && jobs.length >= totalCount) {
-                  break;
-                }
-
-                page += 1;
-              }
-
-              if (totalCount !== null && jobs.length < totalCount) {
-                core.warning(
-                  `Only retrieved ${jobs.length}/${totalCount} jobs for run ${runId}`
-                );
-              }
+              const jobs = await paginateWithRetry(
+                github.rest.actions.listJobsForWorkflowRun,
+                {
+                  owner,
+                  repo,
+                  run_id: runId,
+                  per_page: 100,
+                },
+                { maxRetries: 3 }
+              );
               const failedJobs = jobs.filter(
                 (job) => (job.conclusion || '').toLowerCase() === 'failure'
               );
