@@ -1999,6 +1999,50 @@ jobs:
           fi
           echo "All checks passed!"
 
+      - name: Resolve primary python version
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          primary = (os.environ.get("PRIMARY_IN") or "").strip()
+          python_versions_raw = (os.environ.get("PYTHON_VERSIONS_IN") or "").strip()
+          python_version_fallback = (os.environ.get("PYTHON_VERSION_IN") or "").strip()
+
+          if not primary:
+            candidates: list[str] = []
+            if python_versions_raw and python_versions_raw != "[]":
+              if "[" in python_versions_raw:
+                try:
+                  parsed = json.loads(python_versions_raw)
+                except json.JSONDecodeError:
+                  parsed = []
+                if isinstance(parsed, list):
+                  candidates = [str(value) for value in parsed if str(value).strip()]
+              else:
+                candidates = [python_versions_raw]
+            if candidates:
+              primary = candidates[0]
+            elif python_version_fallback:
+              primary = python_version_fallback
+            else:
+              primary = "3.11"
+
+          output_path = os.environ.get("GITHUB_ENV")
+          if not output_path:
+            print("GITHUB_ENV is not set", file=sys.stderr)
+            sys.exit(1)
+
+          with open(output_path, "a", encoding="utf-8") as handle:
+            handle.write(f"PRIMARY_PYTHON_VERSION={primary}\n")
+          print(f"Resolved PRIMARY_PYTHON_VERSION={primary}")
+          PY
+        env:
+          PRIMARY_IN: ${{ inputs['primary-python-version'] || '' }}
+          PYTHON_VERSIONS_IN: ${{ inputs['python-versions'] || '' }}
+          PYTHON_VERSION_IN: ${{ inputs['python-version'] || '' }}
+
       - name: Build CI metrics payload
         if: >-
           ${{
@@ -2007,7 +2051,7 @@ jobs:
           || inputs['enable-history']
           || inputs['enable-classification']
           )
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/ci_metrics.py"
@@ -2021,7 +2065,7 @@ jobs:
         if: >-
           ${{
           inputs['enable-metrics']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         uses: actions/upload-artifact@v6
         with:
@@ -2038,7 +2082,7 @@ jobs:
           inputs['enable-history']
           || inputs['enable-classification']
           )
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/ci_history.py"
@@ -2053,7 +2097,7 @@ jobs:
         if: >-
           ${{
           inputs['enable-history']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         uses: actions/upload-artifact@v6
         with:
@@ -2067,7 +2111,7 @@ jobs:
         if: >-
           ${{
           inputs['enable-classification']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         uses: actions/upload-artifact@v6
         with:
@@ -2082,7 +2126,7 @@ jobs:
           ${{
           inputs.coverage
           && inputs['enable-coverage-delta']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/ci_coverage_delta.py"
@@ -2098,7 +2142,7 @@ jobs:
           ${{
           inputs.coverage
           && inputs['enable-coverage-delta']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         uses: actions/upload-artifact@v6
         with:
@@ -2113,7 +2157,7 @@ jobs:
           ${{
           inputs.coverage
           && inputs['enable-soft-gate']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         run: |
           # shellcheck disable=SC2086
@@ -2138,7 +2182,7 @@ jobs:
           ${{
           inputs.coverage
           && inputs['enable-soft-gate']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         run: |
           python - <<'PY'
@@ -2160,7 +2204,7 @@ jobs:
           ${{
           inputs.coverage
           && inputs['enable-soft-gate']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         run: |
           python "${GITHUB_WORKSPACE}/scripts/coverage_history_append.py"
@@ -2173,7 +2217,7 @@ jobs:
           ${{
           inputs.coverage
           && inputs['enable-soft-gate']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         uses: actions/upload-artifact@v6
         with:
@@ -2188,7 +2232,7 @@ jobs:
           ${{
           inputs.coverage
           && inputs['enable-soft-gate']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         uses: actions/upload-artifact@v6
         with:
@@ -2203,7 +2247,7 @@ jobs:
           ${{
           inputs.coverage
           && inputs['enable-soft-gate']
-          && matrix.python-version == inputs['primary-python-version']
+          && matrix.python-version == env.PRIMARY_PYTHON_VERSION
           }}
         uses: actions/upload-artifact@v6
         with:
