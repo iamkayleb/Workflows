@@ -440,10 +440,13 @@ jobs:
           path: |
             ~/.cache/uv
           key: >-
-            uv-${{ runner.os }}
-            -${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
-            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}
-            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
+            ${{ format(
+            'uv-{0}-{1}-{2}-{3}',
+            runner.os,
+            inputs['primary-python-version'] || inputs['python-version'] || '3.11',
+            hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')),
+            hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.'))
+            ) }}
           restore-keys: |
             uv-${{ runner.os }}-
 
@@ -724,10 +727,13 @@ jobs:
           path: |
             ~/.cache/uv
           key: >-
-            uv-${{ runner.os }}
-            -${{ inputs['primary-python-version'] || inputs['python-version'] || '3.11' }}
-            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}
-            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
+            ${{ format(
+            'uv-{0}-{1}-{2}-{3}',
+            runner.os,
+            inputs['primary-python-version'] || inputs['python-version'] || '3.11',
+            hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')),
+            hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.'))
+            ) }}
           restore-keys: |
             uv-${{ runner.os }}-
 
@@ -1023,10 +1029,13 @@ jobs:
           path: |
             ~/.cache/uv
           key: >-
-            uv-${{ runner.os }}
-            -${{ steps.mypy-pin.outputs.python-version }}
-            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}
-            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
+            ${{ format(
+            'uv-{0}-{1}-{2}-{3}',
+            runner.os,
+            steps.mypy-pin.outputs.python-version,
+            hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')),
+            hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.'))
+            ) }}
           restore-keys: |
             uv-${{ runner.os }}-
 
