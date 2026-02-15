@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       working-directory:
-        description: Working directory for all run steps (useful for monorepos).
+        description: Relative working directory ('.' for repo root).
         required: false
         default: '.'
         type: string
@@ -368,12 +368,9 @@ jobs:
       WORKDIR: ${{ inputs['working-directory'] || '.' }}
       WORKSPACE_ROOT: ${{ github.workspace }}
       PROJECT_ROOT: >-
-        ${{
-          inputs['working-directory'] != ''
-          && inputs['working-directory'] != '.'
-          && format('{0}/{1}', github.workspace, inputs['working-directory'])
-          || github.workspace
-        }}
+        ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' &&
+        format('{0}/{1}', github.workspace, inputs['working-directory'])
+        || github.workspace }}
     outputs:
       format_outcome: ${{ steps.finalize.outputs.outcome || steps.black.outcome || 'skipped' }}
     steps:
@@ -527,7 +524,6 @@ jobs:
           pytest_xdist_spec="pytest-xdist"
           # Do not install heavyweight "baseline" test deps implicitly.
           # Repos should declare their own runtime/test dependencies.
-          base_test_specs=()
 
           resolve_spec() {
             local package=$1
@@ -555,7 +551,6 @@ jobs:
             pytest_cov_spec=$(resolve_spec "pytest-cov" "${PYTEST_COV_VERSION:-}" "")
             coverage_spec=$(resolve_spec "coverage" "${COVERAGE_VERSION:-}" "7.13.2")
             pytest_xdist_spec=$(resolve_spec "pytest-xdist" "${PYTEST_XDIST_VERSION:-}" "3.6.1")
-            base_test_specs=()
           elif [ "$has_lock_file" = "false" ]; then
             echo "Warning: autofix-versions.env not found, installing latest tool versions" >&2
           fi
@@ -674,12 +669,9 @@ jobs:
       WORKDIR: ${{ inputs['working-directory'] || '.' }}
       WORKSPACE_ROOT: ${{ github.workspace }}
       PROJECT_ROOT: >-
-        ${{
-          inputs['working-directory'] != ''
-          && inputs['working-directory'] != '.'
-          && format('{0}/{1}', github.workspace, inputs['working-directory'])
-          || github.workspace
-        }}
+        ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' &&
+        format('{0}/{1}', github.workspace, inputs['working-directory'])
+        || github.workspace }}
     outputs:
       lint_outcome: ${{ steps.finalize.outputs.outcome || steps.ruff.outcome || 'skipped' }}
     steps:
@@ -816,7 +808,6 @@ jobs:
           pytest_xdist_spec="pytest-xdist"
           # Do not install heavyweight "baseline" test deps implicitly.
           # Repos should declare their own runtime/test dependencies.
-          base_test_specs=()
 
           resolve_spec() {
             local package=$1
@@ -844,7 +835,6 @@ jobs:
             pytest_cov_spec=$(resolve_spec "pytest-cov" "${PYTEST_COV_VERSION:-}" "")
             coverage_spec=$(resolve_spec "coverage" "${COVERAGE_VERSION:-}" "7.13.2")
             pytest_xdist_spec=$(resolve_spec "pytest-xdist" "${PYTEST_XDIST_VERSION:-}" "3.6.1")
-            base_test_specs=()
           elif [ "$has_lock_file" = "false" ]; then
             echo "Warning: autofix-versions.env not found, installing latest tool versions" >&2
           fi
@@ -964,12 +954,9 @@ jobs:
       WORKDIR: ${{ inputs['working-directory'] || '.' }}
       WORKSPACE_ROOT: ${{ github.workspace }}
       PROJECT_ROOT: >-
-        ${{
-          inputs['working-directory'] != ''
-          && inputs['working-directory'] != '.'
-          && format('{0}/{1}', github.workspace, inputs['working-directory'])
-          || github.workspace
-        }}
+        ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' &&
+        format('{0}/{1}', github.workspace, inputs['working-directory'])
+        || github.workspace }}
     outputs:
       mypy_outcome: ${{ steps.finalize.outputs.outcome || steps.mypy.outcome || 'skipped' }}
     steps:
@@ -1121,7 +1108,6 @@ jobs:
           pytest_xdist_spec="pytest-xdist"
           # Do not install heavyweight "baseline" test deps implicitly.
           # Repos should declare their own runtime/test dependencies.
-          base_test_specs=()
 
           resolve_spec() {
             local package=$1
@@ -1149,7 +1135,6 @@ jobs:
             pytest_cov_spec=$(resolve_spec "pytest-cov" "${PYTEST_COV_VERSION:-}" "")
             coverage_spec=$(resolve_spec "coverage" "${COVERAGE_VERSION:-}" "7.13.2")
             pytest_xdist_spec=$(resolve_spec "pytest-xdist" "${PYTEST_XDIST_VERSION:-}" "3.6.1")
-            base_test_specs=()
           elif [ "$has_lock_file" = "false" ]; then
             echo "Warning: autofix-versions.env not found, installing latest tool versions" >&2
           fi
@@ -1326,12 +1311,9 @@ jobs:
       WORKDIR: ${{ inputs['working-directory'] || '.' }}
       WORKSPACE_ROOT: ${{ github.workspace }}
       PROJECT_ROOT: >-
-        ${{
-          inputs['working-directory'] != ''
-          && inputs['working-directory'] != '.'
-          && format('{0}/{1}', github.workspace, inputs['working-directory'])
-          || github.workspace
-        }}
+        ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' &&
+        format('{0}/{1}', github.workspace, inputs['working-directory'])
+        || github.workspace }}
     steps:
       # Mint GitHub App token early to use for API calls (avoids rate limits)
       - name: Mint GitHub App Token
@@ -1467,7 +1449,6 @@ jobs:
           pytest_xdist_spec="pytest-xdist"
           # Do not install heavyweight "baseline" test deps implicitly.
           # Repos should declare their own runtime/test dependencies.
-          base_test_specs=()
 
           resolve_spec() {
             local package=$1
@@ -1495,7 +1476,6 @@ jobs:
             pytest_cov_spec=$(resolve_spec "pytest-cov" "${PYTEST_COV_VERSION:-}" "")
             coverage_spec=$(resolve_spec "coverage" "${COVERAGE_VERSION:-}" "7.13.2")
             pytest_xdist_spec=$(resolve_spec "pytest-xdist" "${PYTEST_XDIST_VERSION:-}" "3.6.1")
-            base_test_specs=()
           elif [ "$has_lock_file" = "false" ]; then
             echo "Warning: autofix-versions.env not found, installing latest tool versions" >&2
           fi
@@ -1511,24 +1491,15 @@ jobs:
             skip_tool "isort (format_check disabled)"
           fi
 
-          if [ "$lint_enabled" = "true" ]; then
-            add_tool "$ruff_spec" "ruff"
-          else
-            skip_tool "ruff (lint disabled)"
-          fi
-
           if [ "$mypy_enabled" = "true" ]; then
             add_tool "$mypy_spec" "mypy"
           else
             skip_tool "mypy (typecheck disabled)"
           fi
 
-          add_tool "$pytest_spec" "pytest"
-          add_tool "$pytest_xdist_spec" "pytest-xdist"
-
-          if [ "$coverage_enabled" = "true" ]; then
-            add_tool "$pytest_cov_spec" "pytest-cov"
-            add_tool "$coverage_spec" "coverage"
+              ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' &&
+              format('{0}/{1}', github.workspace, inputs['working-directory'])
+              || github.workspace }}
           else
             skip_tool "pytest-cov (coverage disabled)"
             skip_tool "coverage (coverage disabled)"
@@ -1939,8 +1910,8 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: >-
-            ${{ inputs['artifact-prefix'] }}coverage-${{ matrix.python-version }}-
-            ${{ github.run_attempt }}
+            ${{ inputs['artifact-prefix'] }}coverage-${{ matrix.python-version }}-${{
+            github.run_attempt }}
           path: ${{ env.PROJECT_ROOT }}/artifacts/coverage
           if-no-files-found: warn
           retention-days: 7
