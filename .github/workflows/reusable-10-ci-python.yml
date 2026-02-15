@@ -1222,8 +1222,8 @@ jobs:
             -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}
             -${{ hashFiles(format('{0}/src/**/*.py', inputs['working-directory'])) }}
           restore-keys: |
-            mypy-${{ runner.os }}-
             mypy-${{ runner.os }}-${{ steps.mypy-pin.outputs.python-version }}-
+            mypy-${{ runner.os }}-
 
       - name: Mypy (type check)
         id: mypy
@@ -1369,10 +1369,13 @@ jobs:
           path: |
             ~/.cache/uv
           key: >-
-            uv-${{ runner.os }}
-            -${{ matrix.python-version }}
-            -${{ hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')) }}
-            -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.')) }}
+            ${{ format(
+            'uv-{0}-{1}-{2}-{3}',
+            runner.os,
+            matrix.python-version,
+            hashFiles(format('{0}/requirements.lock', inputs['working-directory'] || '.')),
+            hashFiles(format('{0}/pyproject.toml', inputs['working-directory'] || '.'))
+            ) }}
           restore-keys: |
             uv-${{ runner.os }}-${{ matrix.python-version }}-
             uv-${{ runner.os }}-
@@ -1497,9 +1500,18 @@ jobs:
             skip_tool "mypy (typecheck disabled)"
           fi
 
-              ${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' &&
-              format('{0}/{1}', github.workspace, inputs['working-directory'])
-              || github.workspace }}
+          if [ "$lint_enabled" = "true" ]; then
+            add_tool "$ruff_spec" "ruff"
+          else
+            skip_tool "ruff (lint disabled)"
+          fi
+
+          add_tool "$pytest_spec" "pytest"
+          add_tool "$pytest_xdist_spec" "pytest-xdist"
+
+          if [ "$coverage_enabled" = "true" ]; then
+            add_tool "$pytest_cov_spec" "pytest-cov"
+            add_tool "$coverage_spec" "coverage"
           else
             skip_tool "pytest-cov (coverage disabled)"
             skip_tool "coverage (coverage disabled)"
@@ -1652,8 +1664,8 @@ jobs:
             -${{ hashFiles(format('{0}/pyproject.toml', inputs['working-directory'])) }}
             -${{ hashFiles(format('{0}/src/**/*.py', inputs['working-directory'])) }}
           restore-keys: |
-            mypy-${{ runner.os }}-
             mypy-${{ runner.os }}-${{ matrix.python-version }}-
+            mypy-${{ runner.os }}-
 
       - name: Cache pytest state
         if: ${{ inputs.cache }}
