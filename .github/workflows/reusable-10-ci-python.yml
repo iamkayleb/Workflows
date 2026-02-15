@@ -33,6 +33,11 @@ on:
         required: false
         default: ''
         type: string
+      pytest_args:
+        description: Additional pytest args/paths appended to the test command (workflow_call only).
+        required: false
+        default: ''
+        type: string
       coverage-min:
         description: Minimum coverage percentage required to pass.
         required: false
@@ -1700,6 +1705,7 @@ jobs:
               && inputs.pytest_markers
               || inputs.marker
             }}
+          PYTEST_ARGS: ${{ inputs['pytest_args'] || '' }}
           COVERAGE_ENABLED: ${{ inputs.coverage }}
           PYTHONPATH: ${{ github.workspace }}/${{ inputs['working-directory'] || '.' }}
         run: |
@@ -1717,6 +1723,21 @@ jobs:
           fi
           if [ -n "${PYTEST_MARKERS}" ]; then
             args=("-m" "${PYTEST_MARKERS}" "${args[@]}")
+          fi
+          if [ -n "${PYTEST_ARGS}" ]; then
+            mapfile -t extra_args < <(
+              python - <<'PY'
+              import os
+              import shlex
+
+              value = os.environ.get("PYTEST_ARGS", "")
+              for arg in shlex.split(value):
+                print(arg)
+              PY
+            )
+            if [ ${#extra_args[@]} -gt 0 ]; then
+              args+=("${extra_args[@]}")
+            fi
           fi
           if python -c "import xdist" 2>/dev/null; then
             args+=("-n" "auto" "--dist=loadgroup")
