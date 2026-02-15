@@ -835,7 +835,8 @@ jobs:
           }
 
           autofix_env="${GITHUB_WORKSPACE}/.github/workflows/autofix-versions.env"
-          if [ -f "$autofix_env" ] && [ "$has_lock_file" = "false" ]; then
+          # Always honor tool pins when present. Lock files typically only capture runtime deps.
+          if [ -f "$autofix_env" ]; then
             # shellcheck source=.github/workflows/autofix-versions.env
             source "$autofix_env"
             black_spec=$(resolve_spec "black" "${BLACK_VERSION:-}" "")
@@ -1138,7 +1139,8 @@ jobs:
           }
 
           autofix_env="${GITHUB_WORKSPACE}/.github/workflows/autofix-versions.env"
-          if [ -f "$autofix_env" ] && [ "$has_lock_file" = "false" ]; then
+          # Always honor tool pins when present. Lock files typically only capture runtime deps.
+          if [ -f "$autofix_env" ]; then
             # shellcheck source=.github/workflows/autofix-versions.env
             source "$autofix_env"
             black_spec=$(resolve_spec "black" "${BLACK_VERSION:-}" "")
@@ -1482,7 +1484,8 @@ jobs:
           }
 
           autofix_env="${GITHUB_WORKSPACE}/.github/workflows/autofix-versions.env"
-          if [ -f "$autofix_env" ] && [ "$has_lock_file" = "false" ]; then
+          # Always honor tool pins when present. Lock files typically only capture runtime deps.
+          if [ -f "$autofix_env" ]; then
             # shellcheck source=.github/workflows/autofix-versions.env
             source "$autofix_env"
             black_spec=$(resolve_spec "black" "${BLACK_VERSION:-}" "")
