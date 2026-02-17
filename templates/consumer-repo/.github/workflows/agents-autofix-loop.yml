@@ -359,8 +359,9 @@ jobs:
               return stop('autofix disabled for this pull request');
             }
 
-            // Phase 2: We only support Codex CLI autofix for now.
-            if ((outputs.agent_type || '') && outputs.agent_type !== 'codex') {
+            // Phase 2: Support both Codex and Claude autofix
+            const supportedAgents = ['codex', 'claude'];
+            if ((outputs.agent_type || '') && !supportedAgents.includes(outputs.agent_type)) {
               return stop(
                 `unsupported agent type for autofix loop: ${outputs.agent_type}`,
                 'unsupported_agent'

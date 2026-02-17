@@ -257,6 +257,9 @@ scripts:
   - source: .github/scripts/agent_registry.js
     description: "Agent registry helper - loads registry and resolves agent key from labels"
 
+  - source: .github/scripts/agent_delegation_policy.js
+    description: "Agent delegation policy - system-driven routing for agent:auto label"
+
   - source: .github/scripts/node_modules/minimatch/
     is_directory: true
     description: "Vendored minimatch dependency for .github scripts"
@@ -551,6 +554,10 @@ docs:
   - source: CLAUDE.md
     target: CLAUDE.md
     description: "Context file for Claude/AI assistants"
+
+  - source: docs/contracts/agent-runner-output.md
+    target: docs/contracts/agent-runner-output.md
+    description: "Agent runner output contract specification - required for implementing new agent runners"
 
 # Issue templates synced to consumer repos
 issue_templates:

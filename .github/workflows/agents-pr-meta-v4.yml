@@ -447,7 +447,14 @@ jobs:
             }}
           script: |
             const { run } = require('./.github/scripts/agents_pr_meta_update_body.js');
-            await run({
-              github, context, core,
-              inputs: { pr_number: '${{ inputs.pr_number || '' }}' }
-            });
+              try {
+                await run({
+                  github, context, core,
+                  inputs: { pr_number: '${{ inputs.pr_number || '' }}' }
+                });
+              } catch (error) {
+                core.warning(`PR body upsert failed (non-blocking): ${error?.message || error}`);
+                if (error?.stack) {
+                  core.warning(error.stack);
+                }
+              }

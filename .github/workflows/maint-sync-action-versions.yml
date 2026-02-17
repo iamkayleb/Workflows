@@ -87,11 +87,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          checkout="${{ steps.extract.outputs.checkout }}"
-          github_script="${{ steps.extract.outputs.github_script }}"
-          upload_artifact="${{ steps.extract.outputs.upload_artifact }}"
-          download_artifact="${{ steps.extract.outputs.download_artifact }}"
-          cache="${{ steps.extract.outputs.cache }}"
+          CHECKOUT_VERSION="${{ steps.extract.outputs.checkout }}"
+          GITHUB_SCRIPT_VERSION="${{ steps.extract.outputs.github_script }}"
+          UPLOAD_ARTIFACT_VERSION="${{ steps.extract.outputs.upload_artifact }}"
+          DOWNLOAD_ARTIFACT_VERSION="${{ steps.extract.outputs.download_artifact }}"
+          CACHE_VERSION="${{ steps.extract.outputs.cache }}"
+
+          export CHECKOUT_VERSION GITHUB_SCRIPT_VERSION UPLOAD_ARTIFACT_VERSION \
+            DOWNLOAD_ARTIFACT_VERSION CACHE_VERSION
 
           # Update all YAML files in templates/ (using find -exec for SC2044)
           find templates/ -name "*.yml" -type f -exec sh -c '
