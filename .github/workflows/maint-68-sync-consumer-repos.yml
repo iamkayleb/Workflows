@@ -727,11 +727,11 @@ jobs:
           # Must be configured before any git operations that need auth
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # shellcheck disable=SC2016 # GH_TOKEN expands at runtime
-          credential_helper='!f() { echo "username=x-access-token";'
-          credential_helper+=" echo \"password=${GH_TOKEN}\";"
-          credential_helper+=' }; f'
-          git config credential.helper "$credential_helper"
+            # shellcheck disable=SC2016 # GH_TOKEN expands at runtime
+            credential_helper='!f() { echo "username=x-access-token";'
+            credential_helper+=" echo \"password=${GH_TOKEN}\";"
+            credential_helper+=' }; f'
+            git config credential.helper "$credential_helper"
 
           # Remote branch exists but no PR was found
           # (likely from a failed previous run) - deleting and recreating
@@ -783,7 +783,7 @@ jobs:
           - [ ] No repo-specific customizations were overwritten
 
           **Source:** stranske/Workflows
-          **Manifest:** `.github/sync-manifest.yml`"
+          **Manifest:** \`.github/sync-manifest.yml\`"
 
           gh pr create \
             --head "$branch_name" \

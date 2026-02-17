@@ -301,8 +301,7 @@ jobs:
 
           extra_args=()
           if [ -n "${EXTRA_ARGS:-}" ]; then
-            # shellcheck disable=SC2206 # Intentional word splitting to build args array
-            extra_args=($EXTRA_ARGS)
+            read -r -a extra_args <<<"$EXTRA_ARGS"
           fi
 
           if [ "$PREFLIGHT_MISSING" = "true" ]; then

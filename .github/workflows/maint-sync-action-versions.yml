@@ -97,34 +97,35 @@ jobs:
             DOWNLOAD_ARTIFACT_VERSION CACHE_VERSION
 
           # Update all YAML files in templates/ (using find -exec for SC2044)
-          find templates/ -name "*.yml" -type f -exec env \
-            CHECKOUT_VERSION="$CHECKOUT_VERSION" \
-            GITHUB_SCRIPT_VERSION="$GITHUB_SCRIPT_VERSION" \
-            UPLOAD_ARTIFACT_VERSION="$UPLOAD_ARTIFACT_VERSION" \
-            DOWNLOAD_ARTIFACT_VERSION="$DOWNLOAD_ARTIFACT_VERSION" \
-            CACHE_VERSION="$CACHE_VERSION" \
-            sh -c '
-              for file do
-                orig_hash=$(md5sum "$file" | cut -d" " -f1)
+          find templates/ -name "*.yml" -type f -exec sh -c '
+            checkout="$1"
+            github_script="$2"
+            upload_artifact="$3"
+            download_artifact="$4"
+            cache="$5"
+            shift 5
 
-                update_action() {
-                  local name="$1"
-                  local version="$2"
-                  sed -i -e "s|${name}@v[0-9]\\+|${name}@${version}|g" "$file"
-                }
+            for file do
+              orig_hash=$(md5sum "$file" | cut -d" " -f1)
 
-                update_action actions/checkout "$CHECKOUT_VERSION"
-                update_action actions/github-script "$GITHUB_SCRIPT_VERSION"
-                update_action actions/upload-artifact "$UPLOAD_ARTIFACT_VERSION"
-                update_action actions/download-artifact "$DOWNLOAD_ARTIFACT_VERSION"
-                update_action actions/cache "$CACHE_VERSION"
+              update_action() {
+                local name="$1"
+                local version="$2"
+                sed -i -e "s|${name}@v[0-9]\\+|${name}@${version}|g" "$file"
+              }
 
-                new_hash=$(md5sum "$file" | cut -d" " -f1)
-                if [ "$orig_hash" != "$new_hash" ]; then
-                  echo "Updated: $file"
-                fi
-              done
-            ' sh {} +
+              update_action actions/checkout "$checkout"
+              update_action actions/github-script "$github_script"
+              update_action actions/upload-artifact "$upload_artifact"
+              update_action actions/download-artifact "$download_artifact"
+              update_action actions/cache "$cache"
+
+              new_hash=$(md5sum "$file" | cut -d" " -f1)
+              if [ "$orig_hash" != "$new_hash" ]; then
+                echo "Updated: $file"
+              fi
+            done
+          ' sh "$checkout" "$github_script" "$upload_artifact" "$download_artifact" "$cache" {} +
 
       - name: Check for changes
         id: check
