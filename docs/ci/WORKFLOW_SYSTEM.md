@@ -391,6 +391,10 @@ fires where” without diving into the full tables:
   - **Codex entry point.** `reusable-codex-run.yml` centralizes prompt-file execution,
     default sandbox settings, and post-run commit/push handling so keepalive, autofix,
     and verifier callers share the same behavior.
+  - **Claude entry point.** `reusable-claude-run.yml` wraps the Anthropic CLI with
+    prompt assembly, retries, appendix injection, and structured summary outputs so
+    Claude-only policies (delegation, prompts, policy plans) can reuse the same safety
+    harness.
   - **Where to inspect logs.** Reusable Python CI:
     [workflow history](https://github.com/stranske/Workflows/actions/workflows/reusable-10-ci-python.yml).
     Docker CI:

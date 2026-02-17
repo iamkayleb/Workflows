@@ -603,14 +603,14 @@ jobs:
           # Parse result
           if [ -f evaluation.json ]; then
             python3 - <<'PY' < evaluation.json > evaluation-outputs.env 2>/dev/null || true
-            import json
-            import sys
+import json
+import sys
 
-            data = json.load(sys.stdin)
-            print(f"verdict={data.get('verdict', 'CONCERNS')}")
-            print(f"trace_id={data.get('langsmith_trace_id', '')}")
-            print(f"trace_url={data.get('langsmith_trace_url', '')}")
-            PY
+data = json.load(sys.stdin)
+print(f"verdict={data.get('verdict', 'CONCERNS')}")
+print(f"trace_id={data.get('langsmith_trace_id', '')}")
+print(f"trace_url={data.get('langsmith_trace_url', '')}")
+PY
 
             if [ -s evaluation-outputs.env ]; then
               cat evaluation-outputs.env >> "$GITHUB_OUTPUT"
@@ -802,74 +802,74 @@ jobs:
           if [ -f comparison.json ] && [ -s comparison.json ]; then
             # Extract consensus verdict from available (used_llm) results
             verdict=$(python3 - <<'PY'
-          import json
+import json
 
-          try:
-              data = json.load(open('comparison.json'))
-          except Exception:
-              print('CONCERNS')
-              raise SystemExit
+try:
+data = json.load(open('comparison.json'))
+except Exception:
+print('CONCERNS')
+raise SystemExit
 
-          results = data.get('results', [])
-          usable = [r for r in results if r.get('used_llm') and r.get('verdict')]
-          if usable:
-              verdicts = [r.get('verdict') for r in usable]
-          else:
-              verdicts = [r.get('verdict') for r in results if r.get('verdict')]
-          if verdicts and all(v == 'PASS' for v in verdicts):
-              print('PASS')
-          else:
-              print('CONCERNS')
-          PY
+results = data.get('results', [])
+usable = [r for r in results if r.get('used_llm') and r.get('verdict')]
+if usable:
+verdicts = [r.get('verdict') for r in usable]
+else:
+verdicts = [r.get('verdict') for r in results if r.get('verdict')]
+if verdicts and all(v == 'PASS' for v in verdicts):
+print('PASS')
+else:
+print('CONCERNS')
+PY
             )
             echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
             # Extract trace IDs from all comparison results for logging
             python3 - <<'PY'
-          import json
+import json
 
-          try:
-              data = json.load(open('comparison.json'))
-              results = data.get('results', [])
-              for idx, result in enumerate(results):
-                  trace_url = result.get('langsmith_trace_url')
-                  provider = result.get('provider', f'provider-{idx}')
-                  if trace_url:
-                      print(f"::notice title=LangSmith Trace ({provider})::View trace: {trace_url}")
-          except Exception as e:
-              print(f"::debug::Could not extract trace URLs: {e}")
-          PY
+try:
+data = json.load(open('comparison.json'))
+results = data.get('results', [])
+for idx, result in enumerate(results):
+trace_url = result.get('langsmith_trace_url')
+provider = result.get('provider', f'provider-{idx}')
+if trace_url:
+print(f"::notice title=LangSmith Trace ({provider})::View trace: {trace_url}")
+except Exception as e:
+print(f"::debug::Could not extract trace URLs: {e}")
+PY
 
             has_results=$(python3 - <<'PY'
-          import json
+import json
 
-          try:
-              data = json.load(open('comparison.json'))
-          except Exception:
-              print('false')
-              raise SystemExit
+try:
+data = json.load(open('comparison.json'))
+except Exception:
+print('false')
+raise SystemExit
 
-          results = data.get('results', [])
-          usable = any(r.get('used_llm') for r in results)
-          print('true' if usable else 'false')
-          PY
+results = data.get('results', [])
+usable = any(r.get('used_llm') for r in results)
+print('true' if usable else 'false')
+PY
             )
             echo "has_results=$has_results" >> "$GITHUB_OUTPUT"
 
             # Extract the formatted report if needed
             if [ ! -f comparison-comment.md ]; then
               python3 - <<'PY' > comparison-comment.md
-          import json
+import json
 
-          try:
-              with open('comparison.json') as f:
-                  data = json.load(f)
-              report = data.get('report')
-          except Exception:
-              report = None
+try:
+with open('comparison.json') as f:
+data = json.load(f)
+report = data.get('report')
+except Exception:
+report = None
 
-          print(report or '## Comparison Report\n\nNo report generated.')
-          PY
+print(report or '## Comparison Report\n\nNo report generated.')
+PY
             fi
 
             cat comparison-comment.md
@@ -1103,54 +1103,54 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json, os, re
-          from pathlib import Path
-          from datetime import datetime, timezone
+import json, os, re
+from pathlib import Path
+from datetime import datetime, timezone
 
-          def count_checkboxes(text):
-              return sum(1 for line in text.splitlines() if re.match(r"^\s*[-*]\s+\[[ xX]\]", line))
+def count_checkboxes(text):
+return sum(1 for line in text.splitlines() if re.match(r"^\s*[-*]\s+\[[ xX]\]", line))
 
-          should_run = (os.environ.get("SHOULD_RUN") or "").lower() == "true"
-          pr_number = int(os.environ.get("PR_NUMBER") or 0)
-          verdict = os.environ.get("VERDICT") or "unknown"
-          context_path = Path(os.environ.get("CONTEXT_PATH") or "")
-          skip_reason = os.environ.get("SKIP_REASON") or ""
-          issue_number = os.environ.get("ISSUE_NUMBER") or ""
+should_run = (os.environ.get("SHOULD_RUN") or "").lower() == "true"
+pr_number = int(os.environ.get("PR_NUMBER") or 0)
+verdict = os.environ.get("VERDICT") or "unknown"
+context_path = Path(os.environ.get("CONTEXT_PATH") or "")
+skip_reason = os.environ.get("SKIP_REASON") or ""
+issue_number = os.environ.get("ISSUE_NUMBER") or ""
 
-          if not should_run:
-              verdict = "skipped"
+if not should_run:
+verdict = "skipped"
 
-          issues_created = 1 if issue_number else 0
-          issue_numbers = [issue_number] if issue_number else []
+issues_created = 1 if issue_number else 0
+issue_numbers = [issue_number] if issue_number else []
 
-          acceptance_criteria_count = 0
-          if context_path.is_file():
-              acceptance_criteria_count = count_checkboxes(context_path.read_text(encoding="utf-8"))
+acceptance_criteria_count = 0
+if context_path.is_file():
+acceptance_criteria_count = count_checkboxes(context_path.read_text(encoding="utf-8"))
 
-          checks_run = 0
-          codex_output = Path("codex-output.md")
-          if codex_output.is_file():
-              content = codex_output.read_text(encoding="utf-8")
-              # Count checkbox items (e.g., "- [x] ..." or "- [ ] ...") in verifier output
-              for line in content.splitlines():
-                  if re.match(r"^\s*[-*]\s+\[[ xX]\]", line):
-                      checks_run += 1
+checks_run = 0
+codex_output = Path("codex-output.md")
+if codex_output.is_file():
+content = codex_output.read_text(encoding="utf-8")
+# Count checkbox items (e.g., "- [x] ..." or "- [ ] ...") in verifier output
+for line in content.splitlines():
+if re.match(r"^\s*[-*]\s+\[[ xX]\]", line):
+checks_run += 1
 
-          metrics = {
-              "pr_number": pr_number,
-              "verdict": verdict,
-              "issues_created": issues_created,
-              "issue_numbers": issue_numbers,
-              "acceptance_criteria_count": acceptance_criteria_count,
-              "checks_run": checks_run,
-              "skip_reason": skip_reason,
-              "recorded_at": datetime.now(timezone.utc).isoformat(),
-          }
+metrics = {
+"pr_number": pr_number,
+"verdict": verdict,
+"issues_created": issues_created,
+"issue_numbers": issue_numbers,
+"acceptance_criteria_count": acceptance_criteria_count,
+"checks_run": checks_run,
+"skip_reason": skip_reason,
+"recorded_at": datetime.now(timezone.utc).isoformat(),
+}
 
-          print(json.dumps(metrics, indent=2))
-          with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
-              fp.write(f"metrics_json={json.dumps(metrics)}\n")
-          PY
+print(json.dumps(metrics, indent=2))
+with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
+fp.write(f"metrics_json={json.dumps(metrics)}\n")
+PY
 
       - name: Write verifier summary
         if: always()
@@ -1163,28 +1163,28 @@ jobs:
             exit 0
           fi
           python3 - <<'PY'
-          import json, os
-          metrics = json.loads(os.environ["METRICS_JSON"])
-          lines = ["## Verifier metrics", "", "| Field | Value |", "| --- | --- |"]
-            keys = [
-              "pr_number",
-              "verdict",
-              "issues_created",
-              "acceptance_criteria_count",
-              "checks_run",
-              "skip_reason",
-            ]
-            for key in keys:
-              lines.append(f"| {key} | `{metrics.get(key, '')}` |")
+import json, os
+metrics = json.loads(os.environ["METRICS_JSON"])
+lines = ["## Verifier metrics", "", "| Field | Value |", "| --- | --- |"]
+keys = [
+"pr_number",
+"verdict",
+"issues_created",
+"acceptance_criteria_count",
+"checks_run",
+"skip_reason",
+]
+for key in keys:
+lines.append(f"| {key} | `{metrics.get(key, '')}` |")
 
-          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-          if summary_path:
-              with open(summary_path, "a") as fp:
-                  fp.write("\n".join(lines) + "\n")
+summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+if summary_path:
+with open(summary_path, "a") as fp:
+fp.write("\n".join(lines) + "\n")
 
-          with open("verifier-metrics.ndjson", "a") as fp:
-              fp.write(json.dumps(metrics) + "\n")
-          PY
+with open("verifier-metrics.ndjson", "a") as fp:
+fp.write(json.dumps(metrics) + "\n")
+PY
 
       - name: Upload verifier metrics
         if: always()
