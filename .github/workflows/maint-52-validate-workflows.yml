@@ -103,6 +103,8 @@ jobs:
           PY
 
       - name: Run actionlint
+        env:
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           mapfile -t extra_args < <(sed -e 's/[[:space:]]*$//' -e '/^$/d' actionlint-allowlist.args)
