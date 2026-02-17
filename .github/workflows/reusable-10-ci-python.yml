@@ -463,6 +463,7 @@ jobs:
           WORKDIR: ${{ inputs['working-directory'] || '.' }}
           INPUT_LINT: ${{ inputs.lint }}
           INPUT_FORMAT_CHECK: ${{ inputs.format_check }}
+          INPUT_INSTALL_PROJECT_DEPS: 'false'
           INPUT_TYPECHECK: 'false'
           INPUT_RUN_MYPY: 'false'
           INPUT_COVERAGE: 'false'
@@ -488,6 +489,7 @@ jobs:
           typecheck_enabled=$(to_bool "$INPUT_TYPECHECK")
           run_mypy_enabled=$(to_bool "$INPUT_RUN_MYPY")
           coverage_enabled=$(to_bool "$INPUT_COVERAGE")
+          install_project_deps=$(to_bool "${INPUT_INSTALL_PROJECT_DEPS:-true}")
           mypy_enabled="false"
           if [ "$typecheck_enabled" = "true" ] && [ "$run_mypy_enabled" = "true" ]; then
             mypy_enabled="true"
@@ -512,13 +514,18 @@ jobs:
           has_lock_file=false
           if [ -f requirements.lock ]; then
             has_lock_file=true
-            specs+=('-r' 'requirements.lock')
           fi
 
-          if [ -f pyproject.toml ]; then
-            specs+=('-e' '.[app,dev]')
-          elif [ -f setup.cfg ] || [ -f setup.py ]; then
-            specs+=('-e' '.[app,dev]')
+          if [ "$install_project_deps" = "true" ]; then
+            if [ -f requirements.lock ]; then
+              specs+=('-r' 'requirements.lock')
+            fi
+
+            if [ -f pyproject.toml ]; then
+              specs+=('-e' '.[app,dev]')
+            elif [ -f setup.cfg ] || [ -f setup.py ]; then
+              specs+=('-e' '.[app,dev]')
+            fi
           fi
 
           black_spec="black"
@@ -751,6 +758,7 @@ jobs:
           WORKDIR: ${{ inputs['working-directory'] || '.' }}
           INPUT_LINT: ${{ inputs.lint }}
           INPUT_FORMAT_CHECK: 'false'
+          INPUT_INSTALL_PROJECT_DEPS: 'false'
           INPUT_TYPECHECK: 'false'
           INPUT_RUN_MYPY: 'false'
           INPUT_COVERAGE: 'false'
@@ -776,6 +784,7 @@ jobs:
           typecheck_enabled=$(to_bool "$INPUT_TYPECHECK")
           run_mypy_enabled=$(to_bool "$INPUT_RUN_MYPY")
           coverage_enabled=$(to_bool "$INPUT_COVERAGE")
+          install_project_deps=$(to_bool "${INPUT_INSTALL_PROJECT_DEPS:-true}")
           mypy_enabled="false"
           if [ "$typecheck_enabled" = "true" ] && [ "$run_mypy_enabled" = "true" ]; then
             mypy_enabled="true"
@@ -800,13 +809,18 @@ jobs:
           has_lock_file=false
           if [ -f requirements.lock ]; then
             has_lock_file=true
-            specs+=('-r' 'requirements.lock')
           fi
 
-          if [ -f pyproject.toml ]; then
-            specs+=('-e' '.[app,dev]')
-          elif [ -f setup.cfg ] || [ -f setup.py ]; then
-            specs+=('-e' '.[app,dev]')
+          if [ "$install_project_deps" = "true" ]; then
+            if [ -f requirements.lock ]; then
+              specs+=('-r' 'requirements.lock')
+            fi
+
+            if [ -f pyproject.toml ]; then
+              specs+=('-e' '.[app,dev]')
+            elif [ -f setup.cfg ] || [ -f setup.py ]; then
+              specs+=('-e' '.[app,dev]')
+            fi
           fi
 
           black_spec="black"
