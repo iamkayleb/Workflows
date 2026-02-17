@@ -9,24 +9,38 @@ on:
     #   - "src/**/*.ts"
 
 jobs:
+  detect-secret:
+    name: Detect Claude token
+    runs-on: ubuntu-latest
+    outputs:
+      has_token: ${{ steps.check.outputs.has_token }}
+    steps:
+      - id: check
+        env:
+          CLAUDE_CODE_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -n "${CLAUDE_CODE_TOKEN}" ]; then
+            echo "has_token=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >>"$GITHUB_OUTPUT"
+          fi
+
   claude-review:
+    needs: detect-secret
+    if: ${{ needs.detect-secret.outputs.has_token == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
+      issues: write
       id-token: write
-    env:
-      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
     steps:
       - name: Checkout repository
-        if: env.CLAUDE_CODE_OAUTH_TOKEN != ''
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
       - name: Run Claude Code Review
-        if: env.CLAUDE_CODE_OAUTH_TOKEN != ''
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -34,10 +48,16 @@ jobs:
           plugins: code-review@claude-code-plugins
           prompt: /code-review:code-review ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
 
+  claude-review-missing-secret:
+    needs: detect-secret
+    if: ${{ needs.detect-secret.outputs.has_token != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
       - name: Skip review (secret missing)
-        if: env.CLAUDE_CODE_OAUTH_TOKEN == ''
         run: |
-          cat <<'EOF' >>"$GITHUB_STEP_SUMMARY"
+          cat <<'MSG' >>"$GITHUB_STEP_SUMMARY"
           ### Claude Code Review skipped
           The `CLAUDE_CODE_OAUTH_TOKEN` secret is not configured. Add it to enable automated reviews.
-          EOF
+          MSG
