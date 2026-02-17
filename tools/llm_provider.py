@@ -138,6 +138,58 @@ def derive_langsmith_trace_url(trace_id: str | None) -> str | None:
     return f"{LANGSMITH_TRACE_URL_BASE}{trace_id}"
 
 
+def extract_trace_id(response) -> str | None:
+    """Extract LangSmith trace ID from a LangChain response object.
+
+    Works with responses from ChatOpenAI, ChatAnthropic, and other LangChain clients.
+    Returns None if no trace ID is available or LangSmith tracing is disabled.
+
+    Args:
+        response: LangChain response object (e.g., AIMessage from client.invoke())
+
+    Returns:
+        Trace ID string or None
+    """
+    if not LANGSMITH_ENABLED:
+        return None
+
+    # LangChain response objects have a response_metadata dict with run_id
+    # The run_id is the trace ID in LangSmith
+    try:
+        # Try to get run_id from response metadata (primary method)
+        if hasattr(response, "response_metadata"):
+            metadata = response.response_metadata
+            if isinstance(metadata, dict) and "run_id" in metadata:
+                return str(metadata["run_id"])
+
+        # Fallback: Some LangChain providers may use id attribute directly
+        # WARNING: This may not always correspond to the LangSmith trace ID
+        if hasattr(response, "id"):
+            trace_id = str(response.id)
+            logger.debug(
+                "Using response.id as trace ID (fallback). "
+                "Verify this corresponds to LangSmith trace for your provider."
+            )
+            return trace_id
+
+        # Additional fallback for compatibility
+        if hasattr(response, "__dict__"):
+            response_dict = response.__dict__
+            if "id" in response_dict:
+                trace_id = str(response_dict["id"])
+                logger.debug(
+                    "Using response.__dict__['id'] as trace ID (fallback). "
+                    "Verify this corresponds to LangSmith trace for your provider."
+                )
+                return trace_id
+
+    except Exception as e:
+        logger.debug(f"Failed to extract trace ID from response: {e}")
+        return None
+
+    return None
+
+
 def _is_token_limit_error(error: Exception) -> bool:
     """Check if error is a token limit (413) error from GitHub Models."""
     error_str = str(error).lower()
