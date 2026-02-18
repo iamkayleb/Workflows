@@ -9,7 +9,8 @@
 - ✅ Phase 2 — Registry-driven PR automation routing (keepalive/autofix done; bot-comment uses registry; `reusable-16-agents`/`reusable-pr-context` widened)
 - ✅ Phase 3 — Registry-driven issue→PR path (belt 71/72/73 refactored; auto-pilot/auto-label/orchestrators fixed; issue bridge assignees use registry; `agents_belt_scan.js` generalized; all backing scripts use registry-driven defaults; **API contracts preserved**)
 - ✅ Phase 4 — Verifier + follow-up chain (verifier/verify-to-issue/verify-to-new-pr all use registry-driven defaults; verify-assignment generalized; **Codex CLI runner section intentionally unchanged**)
-- 🟡 Phase 5 — Delegation / re-routing between agents (5A mostly complete: keepalive-loop + gate-followups both have run-claude; `agent:auto` label semantics established)
+- ✅ Phase 5A/5B/5C — Dual-runner routing complete; `reusable-claude-run.yml` now fully compliant with runner output contract; bot-comment-handler default registry-driven; all consumer workflows have `run-claude`/`autofix-claude`
+- 🟡 Phase 5D — Delegation policy (`agent:auto` heuristic not yet implemented)
 
 ### Scripts refactored (Feb 18, session 2)
 All `.github/scripts/` and `scripts/` modules now use registry-driven agent defaults
@@ -224,22 +225,17 @@ Claude verification path.
 
 ### Consumer template: `agents-81-gate-followups.yml`
 
-**Largest gap.** Mirrors keepalive-loop's pre-Phase-5A structure.
+**✅ Fixed.** Previously the largest gap; now has dual-runner support matching keepalive-loop.
 
-| Line(s) | Category | Issue |
-|---------|----------|-------|
-| 182 | prompt path | `.github/codex/prompts/keepalive_next_task.md` fallback |
-| 206–221 | auth | `HAS_CODEX_AUTH` / `CODEX_AUTH_JSON` check, error says "Cannot run Codex" |
-| 280–289 | routing | `run-codex` only, `if: agent_type == 'codex'` — no `run-claude` |
-| 292 | auth | `CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}` |
-| 318 | routing | `run-claude` commented out (placeholder) |
-| 327 | needs | `needs: [run-codex]` only — must also need `run-claude` |
-| 421–437 | outputs | Only reads `run-codex.outputs.*` for reconciliation |
-| 486 | variable | `CODEX_SUMMARY` env var (keepalive-loop already renamed to `AGENT_SUMMARY`) |
-| 503–516 | outputs | Summary uses only `run-codex` outputs |
-| 705 | label | `labels.includes('agent:codex')` hardcoded |
-| 713–738 | comment/text | "Escalate to Codex CLI" text |
-| 873–882 | routing | Autofix section: `Run Codex autofix` / `CODEX_AUTH_JSON` |
+| Item | Status | Notes |
+|------|--------|-------|
+| Keepalive routing | ✅ | `run-codex` + `run-claude` jobs with agent_type routing |
+| Summary merging | ✅ | Uses `AGENT_SUMMARY`, merges outputs from both runners |
+| Preflight auth | ✅ | Checks `CODEX_AUTH_JSON`, `CLAUDE_AUTH_JSON`, and APP secrets |
+| Autofix routing | ✅ | `autofix` (codex) + `autofix-claude` jobs with agent_type condition |
+| Prepare agent resolution | ✅ | Uses `resolveAgentFromLabels()` with registry |
+| Metrics merging | ✅ | `metrics` job needs both autofix jobs, merges results |
+| Prompt path | ⚠️ | `.github/codex/prompts/` — intentionally codex-branded directory (shared) |
 
 ### Consumer template: `agents-issue-intake.yml`
 
@@ -365,7 +361,7 @@ these test files must also be updated:
 
 - Keepalive prompt + task appendix is agent-agnostic.
 - Keepalive evaluate step extracts `agent_type` from `agent:*` labels.
-- `reusable-codex-run.yml` conforms to the runner output contract; `reusable-claude-run.yml` exists and is wired in but is only partially compliant (missing `error-category`, `error-type`, `error-recovery` outputs).
+- Both `reusable-codex-run.yml` and `reusable-claude-run.yml` conform to the runner output contract (including `error-category`, `error-type`, `error-recovery`).
 - Keepalive-loop has both `run-codex` and `run-claude` jobs with merged outputs.
 - Autofix-loop has both `autofix-codex` and `autofix-claude` jobs.
 - Capability check triggers on `agent:codex`, `agent:claude`, and `agent:auto`.
@@ -377,13 +373,13 @@ these test files must also be updated:
 
 - **Auto-pilot PR creation path:** Hardcodes `['agent:codex', ...]` labels on PR creation (line 2373) — Phase 3 gap.
 - **Auto-pilot PR meta dispatch:** Dispatches `agents-pr-meta-v4.yml` which doesn't exist in consumers — pre-existing bug.
-- **Gate-followups:** Entire workflow still codex-only (no `run-claude`, hardcoded labels/summary) — Phase 5A gap.
+- ~~**Gate-followups:** Entire workflow still codex-only~~ — **Fixed**: now has `run-claude`, `autofix-claude`, registry-driven agent resolution, widened auth check.
 - **Auto-label:** Guard condition only checks `agent:codex` — Phase 3 gap.
 - **Both orchestrators:** Hardcode `bootstrap_issues_label: "agent:codex"` — Phase 3 gap.
 - **reusable-16-agents:** Hardcodes `agent:codex` as default label — Phase 2 gap.
 - **reusable-pr-context:** Missing `agent:claude`/`agent:auto` in label check — Phase 5A gap.
-- **agents-64-verify-agent-assignment:** Entirely codex-specific — Phase 4 gap.
-- **Outdated comments** in keepalive-loop and gate-followups say "Future: agent:claude" when `run-claude` already exists.
+- ~~**agents-64-verify-agent-assignment:** Entirely codex-specific~~ — **Fixed** (Phase 4).
+- ~~**Outdated comments** in keepalive-loop and gate-followups~~ — **Fixed**: comments updated, auth messages agent-agnostic.
 
 ## Phase Plan
 
@@ -579,12 +575,10 @@ these test files must also be updated:
 > **Audit status (Feb 18):**
 > - ✅ `agents-capability-check.yml` — triggers on `["agent:codex","agent:claude","agent:auto"]`
 > - ✅ Labels added via Phase 5A commit (Feb 17)
-> - ❌ `agents-81-gate-followups.yml` — **completely missed by Phase 5A**.
->   Still has codex-only `run-codex` job (line 289: `if: agent_type == 'codex'`),
->   commented-out `run-claude` placeholder (line 318), hardcoded `CODEX_SUMMARY`
->   env var (line 486), and codex-only outputs in summary. This is the same
->   pattern keepalive-loop had before Phase 5A updated it, but gate-followups
->   was not updated.
+> - ✅ `agents-81-gate-followups.yml` — now has `run-claude` job, dual-output
+>   merging in summary, `AGENT_SUMMARY` env var, `autofix-claude` job, and
+>   registry-driven agent resolution in prepare step. Preflight auth check
+>   widened to accept `CLAUDE_AUTH_JSON`.
 
 ---
 
@@ -600,7 +594,8 @@ these test files must also be updated:
 - `agent:claude` can run at least one PR automation mode (start with keepalive) end-to-end in the Workflows repo when `CLAUDE_API_STRANSKE` is available.
 
 > **Audit status (Feb 18):**
-> - ✅ `reusable-claude-run.yml` exists and is referenced from keepalive-loop and autofix-loop
+> - ✅ `reusable-claude-run.yml` exists and is referenced from keepalive-loop, autofix-loop, and gate-followups
+> - ✅ Now fully compliant with runner output contract: `error-category`, `error-type`, `error-recovery` added via `error_classifier.js`
 
 ---
 
@@ -617,10 +612,10 @@ these test files must also be updated:
 - With `agent:auto`, the policy can select Claude only when safe.
 
 > **Audit status (Feb 18):**
-> - ✅ Keepalive-loop: `run-claude` job added, routes to `reusable-claude-run.yml`
+> - ✅ Keepalive-loop: `run-claude` job added, routes to `reusable-claude-run.yml`; preflight auth check widened
 > - ✅ Autofix-loop: `autofix-claude` job added, routes to `reusable-claude-run.yml`
-> - ❌ Gate-followups: still codex-only (mirrors pre-5A keepalive structure)
-> - ⚠️ Bot-comment-handler: checks labels by string but does route to Claude
+> - ✅ Gate-followups: `run-claude` + `autofix-claude` jobs added; prepare step resolves `agent_type` via registry; metrics merges both autofix results
+> - ✅ Bot-comment-handler: uses `resolveAgentFromLabels()` primary with string-comparison fallback; default agent now registry-driven via `loadAgentRegistry()`
 
 ---
 
