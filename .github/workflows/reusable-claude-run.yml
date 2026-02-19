@@ -86,7 +86,7 @@ on:
         type: string
     secrets:
       CLAUDE_AUTH_JSON:
-        description: 'JSON contents for Claude CLI auth (written to ~/.config/claude/auth.json)'
+        description: 'JSON contents for Claude CLI auth (written to ~/.claude/.credentials.json and ~/.config/claude-code/auth.json)'
         required: false
       WORKFLOWS_APP_ID:
         required: false
@@ -680,9 +680,26 @@ jobs:
           fi
           echo "missing=false" >> "$GITHUB_OUTPUT"
 
-          mkdir -p "$HOME/.config/claude"
-          printf '%s' "$AUTH_JSON" > "$HOME/.config/claude/auth.json"
-          chmod 0600 "$HOME/.config/claude/auth.json"
+          # Claude Code CLI reads credentials from ~/.claude/.credentials.json (primary)
+          # and may also check ~/.config/claude-code/auth.json (legacy).
+          # Normalize key name: CLI expects "accessToken" but some auth flows produce "token".
+          NORMALIZED=$(python3 -c "
+          import json, sys
+          data = json.loads(sys.stdin.read())
+          oauth = data.get('claudeAiOauth', {})
+          if 'token' in oauth and 'accessToken' not in oauth:
+              oauth['accessToken'] = oauth.pop('token')
+              data['claudeAiOauth'] = oauth
+          print(json.dumps(data))
+          " <<< "$AUTH_JSON")
+
+          for dir in "$HOME/.claude" "$HOME/.config/claude-code"; do
+            mkdir -p "$dir"
+            target="$dir/.credentials.json"
+            [ "$dir" = "$HOME/.config/claude-code" ] && target="$dir/auth.json"
+            printf '%s' "$NORMALIZED" > "$target"
+            chmod 0600 "$target"
+          done
 
       - name: Ensure Claude CLI
         if: steps.preflight.outputs.missing != 'true'

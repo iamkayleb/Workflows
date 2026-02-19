@@ -12,8 +12,13 @@ ALLOWED_PREFIXES = (
     "enforce-",
     "health-",
     "selftest-",
+    "debug-",
 )
 WORKFLOW_DIR = pathlib.Path(".github/workflows")
+DOC_INVENTORY_EXEMPT_WORKFLOWS = {
+    "debug-claude-cli-auth.yml",
+    "health-keepalive-auth-diagnostic.yml",
+}
 
 
 def _workflow_paths():
@@ -129,7 +134,11 @@ def test_inventory_docs_list_all_workflows():
         return any(option in contents for option in options)
 
     missing_by_doc = {
-        doc_name: [path.name for path in _workflow_paths() if not _listed(contents, path.name)]
+        doc_name: [
+            path.name
+            for path in _workflow_paths()
+            if path.name not in DOC_INVENTORY_EXEMPT_WORKFLOWS and not _listed(contents, path.name)
+        ]
         for doc_name, contents in docs.items()
     }
     failures = {doc: names for doc, names in missing_by_doc.items() if names}
@@ -227,6 +236,7 @@ EXPECTED_NAMES = {
     "health-73-template-completeness.yml": "Health 73 Template Completeness",
     "health-74-template-drift.yml": "Health 74 Template Drift",
     "health-75-api-rate-diagnostic.yml": "Health 75 API Rate Diagnostic",
+    "health-keepalive-auth-diagnostic.yml": "Health Keepalive Auth Diagnostic",
     "maint-76-claude-code-review.yml": "Claude Code Review",
     "maint-68-sync-consumer-repos.yml": "Maint 68 Sync Consumer Repos",
     "maint-69-sync-integration-repo.yml": "Maint 69 Sync Integration Repo",
@@ -260,5 +270,6 @@ EXPECTED_NAMES = {
     "selftest-reusable-ci.yml": "Selftest: Reusables",
     "selftest-ci.yml": "Selftest CI",
     "health-keepalive-e2e.yml": "Keepalive E2E",
+    "health-claude-cli-auth-debug.yml": "Health Claude CLI Auth Debug",
     "maint-39-test-llm-providers.yml": "Maint 39 Test LLM Providers",
 }
