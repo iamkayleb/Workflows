@@ -139,6 +139,7 @@ def test_filter_bookkeeping_files_leaves_legit_autofix_names():
     ]
 
 
+
 def test_zero_source_stop_on_empty_files():
     """review_progress returns STOP when no files changed for 2+ rounds."""
     result = progress_reviewer.review_progress(
