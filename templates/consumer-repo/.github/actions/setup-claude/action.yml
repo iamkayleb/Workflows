@@ -1,0 +1,104 @@
+name: Setup Claude CLI
+description: >
+  Install and configure the Claude Code CLI for agent workflows.
+  Writes credentials, installs the CLI via npm, and validates the setup.
+
+inputs:
+  auth_json:
+    description: >
+      JSON contents for Claude CLI auth.
+      Written to ~/.claude/.credentials.json and ~/.config/claude-code/auth.json.
+    required: true
+  cli_package:
+    description: 'npm package to install if claude CLI is not already present.'
+    required: false
+    default: '@anthropic-ai/claude-code'
+  cli_version:
+    description: 'npm version to install (empty = latest).'
+    required: false
+    default: ''
+
+outputs:
+  cli_command:
+    description: 'The CLI command name to invoke.'
+    value: claude
+  installed_version:
+    description: 'Installed CLI version string.'
+    value: ${{ steps.install.outputs.version }}
+  auth_ok:
+    description: 'Whether auth credentials were written successfully.'
+    value: ${{ steps.auth.outputs.ok }}
+
+runs:
+  using: composite
+  steps:
+    - name: Write Claude credentials
+      id: auth
+      shell: bash
+      env:
+        AUTH_JSON: ${{ inputs.auth_json }}
+      run: |
+        set -euo pipefail
+        if [ -z "$AUTH_JSON" ]; then
+          echo "::error::Missing required input auth_json"
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        # Normalize key name: CLI expects "accessToken" but some auth
+        # flows produce "token".
+        NORMALIZED=$(python3 -c "
+        import json, sys
+        data = json.loads(sys.stdin.read())
+        oauth = data.get('claudeAiOauth', {})
+        if 'token' in oauth and 'accessToken' not in oauth:
+            oauth['accessToken'] = oauth.pop('token')
+            data['claudeAiOauth'] = oauth
+        print(json.dumps(data))
+        " <<< "$AUTH_JSON")
+
+        for dir in "$HOME/.claude" "$HOME/.config/claude-code"; do
+          mkdir -p "$dir"
+          target="$dir/.credentials.json"
+          [ "$dir" = "$HOME/.config/claude-code" ] && target="$dir/auth.json"
+          printf '%s' "$NORMALIZED" > "$target"
+          chmod 0600 "$target"
+        done
+
+        echo "ok=true" >> "$GITHUB_OUTPUT"
+
+    - name: Install Claude CLI
+      id: install
+      shell: bash
+      env:
+        PACKAGE: ${{ inputs.cli_package }}
+        VERSION: ${{ inputs.cli_version }}
+      run: |
+        set -euo pipefail
+        if command -v claude >/dev/null 2>&1; then
+          ver="$(claude --version 2>/dev/null || echo unknown)"
+          echo "Claude CLI already present: $(command -v claude) ($ver)"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [ -z "$PACKAGE" ]; then
+          echo "::error::Claude CLI not found and cli_package is empty."
+          exit 1
+        fi
+
+        echo "Installing ${PACKAGE}${VERSION:+@${VERSION}}..."
+        if [ -n "$VERSION" ]; then
+          npm install -g "${PACKAGE}@${VERSION}"
+        else
+          npm install -g "${PACKAGE}"
+        fi
+
+        if ! command -v claude >/dev/null 2>&1; then
+          echo "::error::Claude CLI not found after install."
+          exit 1
+        fi
+
+        ver="$(claude --version 2>/dev/null || echo unknown)"
+        echo "Installed Claude CLI: $(command -v claude) ($ver)"
+        echo "version=$ver" >> "$GITHUB_OUTPUT"
