@@ -2636,7 +2636,11 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
     const zeroActivityTaskDelta = totalsStable ? Math.max(0, tasksCompletedThisRound) : 0;
     const actionRunsAgent = AGENT_EXECUTION_ACTIONS.has(action);
     const zeroActivityCandidate =
-      actionRunsAgent && agentFilesChanged === 0 && zeroActivityTaskDelta === 0 && !checklistChanged;
+      actionRunsAgent &&
+      currentIteration > 0 &&
+      agentFilesChanged === 0 &&
+      zeroActivityTaskDelta === 0 &&
+      !checklistChanged;
     const consecutiveZeroActivityRounds = zeroActivityCandidate
       ? previousZeroActivityRounds + 1
       : actionRunsAgent
