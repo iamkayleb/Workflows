@@ -566,27 +566,34 @@ def review_progress(
                 "were touched, so the agent produced no source changes."
             )
             blocking_issues = [
-                "Only bookkeeping/orchestrator artifacts changed despite multiple rounds without completion",
+                (
+                    "Only bookkeeping/orchestrator artifacts changed despite "
+                    f"{rounds_without_completion} consecutive rounds without completion"
+                ),
                 "Agent output is not reaching source files; likely stuck rerunning bookkeeping steps",
             ]
             feedback = (
-                "Recent rounds only generated bookkeeping artifacts (prompts, outputs, patches) "
-                "without touching any source files. Please investigate why the agent keeps "
-                "re-emitting orchestrator files instead of making code changes."
+                f"The last {rounds_without_completion} rounds only generated bookkeeping "
+                "artifacts (prompts, outputs, patches) without touching any source files. "
+                "Please investigate why the agent keeps re-emitting orchestrator files instead "
+                "of making code changes."
             )
         else:
             summary_detail = (
                 "Zero source files changed in the latest round — likely an infra or auth issue."
             )
             blocking_issues = [
-                "Zero source files changed in the latest round despite many rounds without task completion",
+                (
+                    "Zero source files changed in the latest round after "
+                    f"{rounds_without_completion} consecutive rounds without task completion"
+                ),
                 "Likely infrastructure failure: auth, permissions, or sandbox",
             ]
             feedback = (
-                "The latest round produced no source file changes after many rounds "
-                "without task completion. This likely indicates an infrastructure "
-                "issue (authentication, permissions, or sandbox configuration). "
-                "Human intervention is required."
+                f"The latest round produced no source file changes after "
+                f"{rounds_without_completion} consecutive rounds without task completion. "
+                "This likely indicates an infrastructure issue (authentication, permissions, "
+                "or sandbox configuration). Human intervention is required."
             )
 
         return ProgressReviewResult(

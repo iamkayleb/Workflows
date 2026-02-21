@@ -314,6 +314,9 @@ jobs:
               has_agent_label: String(result.hasAgentLabel ?? ''),
               has_high_privilege: String(result.hasHighPrivilege ?? 'false'),
               agent_type: String(result.agentType || ''),
+              agent_routing_mode: String(result.agentRoutingMode || ''),
+              delegation_reason: String(result.delegationReason || ''),
+              delegation_should_switch: String(result.delegationShouldSwitch ?? 'false'),
               trace: String(result.config?.trace || result.state?.trace || ''),
               prompt_mode: String(result.promptMode || 'normal'),
                 prompt_file: String(
@@ -520,8 +523,8 @@ jobs:
             await markAgentRunning({ github, context, core, inputs });
 
   # Route to appropriate agent based on agent:* label
-  # Currently supports: agent:codex -> CLI Codex
-  # Future: agent:claude, agent:gemini, etc. will have their own jobs
+  # Supports: agent:codex -> CLI Codex, agent:claude -> Claude agent
+  # Future: agent:gemini, etc. will have their own jobs
   run-codex:
     name: Keepalive next task (Codex)
     needs:
