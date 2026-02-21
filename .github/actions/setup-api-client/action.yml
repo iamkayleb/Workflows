@@ -142,9 +142,9 @@ runs:
 
         create_vendor_aliases
 
-        # npm scripts for vendored packages can invoke missing tools (tshy, etc.)
-        # so always disable lifecycle scripts during these installs.
-        NPM_INSTALL_PREFIX=(env npm_config_ignore_scripts=true)
+        # npm scripts for vendored packages can invoke missing tools (tshy, etc.).
+        # Disable lifecycle scripts globally for this step.
+        export npm_config_ignore_scripts=true
 
         # Track if we create package.json so we can clean it up
         CREATED_PACKAGE_JSON=false
@@ -176,7 +176,7 @@ runs:
           # Install with pinned versions for consistency
           # Capture stderr for debugging if the command fails
           npm_output=$(mktemp)
-          npm_cmd=("${NPM_INSTALL_PREFIX[@]}" npm install --no-save --location=project \
+          npm_cmd=(npm install --no-save --location=project \
             @octokit/rest@20.0.2 \
             @octokit/plugin-retry@6.0.1 \
             @octokit/plugin-paginate-rest@9.1.5 \
@@ -187,7 +187,7 @@ runs:
             echo "::warning::npm install failed with: $(cat "$npm_output")"
             echo "::warning::Retrying with --legacy-peer-deps"
             rm -f "$npm_output"
-            npm_cmd=("${NPM_INSTALL_PREFIX[@]}" npm install --no-save --legacy-peer-deps --location=project \
+            npm_cmd=(npm install --no-save --legacy-peer-deps --location=project \
               @octokit/rest@20.0.2 \
               @octokit/plugin-retry@6.0.1 \
               @octokit/plugin-paginate-rest@9.1.5 \
