@@ -168,7 +168,7 @@ function checkPrerequisites({ agent, agentConfig, secrets, core }) {
       );
       return {
         available: false,
-        reason: `missing-secret-${requiredSecrets[0]}`,
+        reason: 'missing-any-required-secret',
       };
     }
   } else {
