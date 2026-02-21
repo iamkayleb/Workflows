@@ -235,7 +235,6 @@ EXPECTED_NAMES = {
     "health-74-template-drift.yml": "Health 74 Template Drift",
     "health-75-api-rate-diagnostic.yml": "Health 75 API Rate Diagnostic",
     "health-keepalive-auth-diagnostic.yml": "Health Keepalive Auth Diagnostic",
-    "maint-76-claude-code-review.yml": "Claude Code Review",
     "maint-68-sync-consumer-repos.yml": "Maint 68 Sync Consumer Repos",
     "maint-69-sync-integration-repo.yml": "Maint 69 Sync Integration Repo",
     "maint-69-sync-labels.yml": "Maint 69 Sync Labels",
