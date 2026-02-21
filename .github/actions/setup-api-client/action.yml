@@ -142,10 +142,9 @@ runs:
 
         create_vendor_aliases
 
-        NPM_INSTALL_PREFIX=()
-        if [ "${#VENDORED_ALIAS_DIRS[@]}" -gt 0 ]; then
-          NPM_INSTALL_PREFIX=(env NPM_CONFIG_IGNORE_SCRIPTS=true)
-        fi
+        # npm scripts for vendored packages can invoke missing tools (tshy, etc.)
+        # so always disable lifecycle scripts during these installs.
+        NPM_INSTALL_PREFIX=(env NPM_CONFIG_IGNORE_SCRIPTS=true)
 
         # Track if we create package.json so we can clean it up
         CREATED_PACKAGE_JSON=false
