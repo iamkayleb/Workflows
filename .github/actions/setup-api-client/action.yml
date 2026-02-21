@@ -137,7 +137,7 @@ runs:
           for (const alias of seen) {
             console.log(alias);
           }
-NODE
+          NODE
 ) || true
 
           for vendored_alias in "${aliases[@]}"; do
