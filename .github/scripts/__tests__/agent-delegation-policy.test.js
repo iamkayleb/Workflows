@@ -24,7 +24,8 @@ const mockRegistry = {
       runner_workflow: '.github/workflows/reusable-codex-run.yml',
     },
     claude: {
-      required_secrets: ['CLAUDE_AUTH_JSON'],
+      required_secrets: ['CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_AUTH_JSON'],
+      required_secrets_mode: 'any',
       runner_workflow: '.github/workflows/reusable-claude-run.yml',
     },
   },
@@ -32,7 +33,7 @@ const mockRegistry = {
 
 const mockSecrets = {
   CODEX_AUTH_JSON: 'present',
-  CLAUDE_AUTH_JSON: 'present',
+  CLAUDE_CODE_OAUTH_TOKEN: 'present',
 };
 
 test('checkPrerequisites returns available=true when secrets present', () => {
@@ -55,6 +56,38 @@ test('checkPrerequisites returns available=false when secret missing', () => {
 
   assert.equal(result.available, false);
   assert.equal(result.reason, 'missing-secret-CODEX_AUTH_JSON');
+});
+
+test('checkPrerequisites with mode=any returns available=true when one secret present', () => {
+  const result = checkPrerequisites({
+    agent: 'claude',
+    agentConfig: mockRegistry.agents.claude,
+    secrets: { CLAUDE_CODE_OAUTH_TOKEN: 'present' },
+  });
+
+  assert.equal(result.available, true);
+  assert.equal(result.reason, 'prerequisites-met');
+});
+
+test('checkPrerequisites with mode=any returns available=true with fallback secret', () => {
+  const result = checkPrerequisites({
+    agent: 'claude',
+    agentConfig: mockRegistry.agents.claude,
+    secrets: { CLAUDE_AUTH_JSON: 'present' },
+  });
+
+  assert.equal(result.available, true);
+  assert.equal(result.reason, 'prerequisites-met');
+});
+
+test('checkPrerequisites with mode=any returns available=false when no secrets present', () => {
+  const result = checkPrerequisites({
+    agent: 'claude',
+    agentConfig: mockRegistry.agents.claude,
+    secrets: {},
+  });
+
+  assert.equal(result.available, false);
 });
 
 test('calculateEffectiveness returns effective=true when commits made', () => {

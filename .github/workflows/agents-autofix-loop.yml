@@ -539,6 +539,7 @@ jobs:
         }}
     secrets:
       CLAUDE_AUTH_JSON: ${{ secrets.CLAUDE_AUTH_JSON }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
       WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
 

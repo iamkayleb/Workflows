@@ -95,6 +95,12 @@ on:
       CLAUDE_AUTH_JSON:
         description: 'JSON contents for Claude CLI auth (written to ~/.claude/.credentials.json and ~/.config/claude-code/auth.json)'
         required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: >-
+          Long-lived OAuth token from `claude setup-token` (valid ~1 year).
+          Preferred over CLAUDE_AUTH_JSON because it does not expire quickly.
+          Set via env var so the CLI picks it up automatically.
+        required: false
       WORKFLOWS_APP_ID:
         required: false
       WORKFLOWS_APP_PRIVATE_KEY:
@@ -678,35 +684,48 @@ jobs:
         id: preflight
         env:
           AUTH_JSON: ${{ secrets.CLAUDE_AUTH_JSON || '' }}
+          OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: |
           set -euo pipefail
-          if [ -z "$AUTH_JSON" ]; then
+
+          # Prefer CLAUDE_CODE_OAUTH_TOKEN (long-lived, from `claude setup-token`)
+          # over CLAUDE_AUTH_JSON (credentials.json with short-lived OAuth tokens).
+          if [ -n "$OAUTH_TOKEN" ]; then
+            echo "auth-method=oauth-token" >> "$GITHUB_OUTPUT"
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+            # Ensure the CLI skips onboarding prompts in headless mode
+            mkdir -p "$HOME/.claude"
+            printf '{"hasCompletedOnboarding":true}' > "$HOME/.claude.json"
+            chmod 0600 "$HOME/.claude.json"
+          elif [ -n "$AUTH_JSON" ]; then
+            echo "auth-method=credentials-json" >> "$GITHUB_OUTPUT"
+            echo "missing=false" >> "$GITHUB_OUTPUT"
+
+            # Claude Code CLI reads credentials from ~/.claude/.credentials.json (primary)
+            # and may also check ~/.config/claude-code/auth.json (legacy).
+            # Normalize key name: CLI expects "accessToken" but some auth flows produce "token".
+            NORMALIZED=$(python3 -c "
+            import json, sys
+            data = json.loads(sys.stdin.read())
+            oauth = data.get('claudeAiOauth', {})
+            if 'token' in oauth and 'accessToken' not in oauth:
+                oauth['accessToken'] = oauth.pop('token')
+                data['claudeAiOauth'] = oauth
+            print(json.dumps(data))
+            " <<< "$AUTH_JSON")
+
+            for dir in "$HOME/.claude" "$HOME/.config/claude-code"; do
+              mkdir -p "$dir"
+              target="$dir/.credentials.json"
+              [ "$dir" = "$HOME/.config/claude-code" ] && target="$dir/auth.json"
+              printf '%s' "$NORMALIZED" > "$target"
+              chmod 0600 "$target"
+            done
+          else
             echo "missing=true" >> "$GITHUB_OUTPUT"
-            echo "error=Missing required secret CLAUDE_AUTH_JSON" >> "$GITHUB_OUTPUT"
+            echo "error=Missing Claude auth: set CLAUDE_CODE_OAUTH_TOKEN (preferred) or CLAUDE_AUTH_JSON secret" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "missing=false" >> "$GITHUB_OUTPUT"
-
-          # Claude Code CLI reads credentials from ~/.claude/.credentials.json (primary)
-          # and may also check ~/.config/claude-code/auth.json (legacy).
-          # Normalize key name: CLI expects "accessToken" but some auth flows produce "token".
-          NORMALIZED=$(python3 -c "
-          import json, sys
-          data = json.loads(sys.stdin.read())
-          oauth = data.get('claudeAiOauth', {})
-          if 'token' in oauth and 'accessToken' not in oauth:
-              oauth['accessToken'] = oauth.pop('token')
-              data['claudeAiOauth'] = oauth
-          print(json.dumps(data))
-          " <<< "$AUTH_JSON")
-
-          for dir in "$HOME/.claude" "$HOME/.config/claude-code"; do
-            mkdir -p "$dir"
-            target="$dir/.credentials.json"
-            [ "$dir" = "$HOME/.config/claude-code" ] && target="$dir/auth.json"
-            printf '%s' "$NORMALIZED" > "$target"
-            chmod 0600 "$target"
-          done
 
       - name: Ensure Claude CLI
         if: steps.preflight.outputs.missing != 'true'
@@ -752,6 +771,7 @@ jobs:
           EXTRA_ARGS_RAW: ${{ inputs.claude_args }}
           PR_NUMBER: ${{ inputs.pr_number }}
           SKIP_PERMISSIONS: ${{ inputs.skip_permissions }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
         run: |
           set -euo pipefail
 
