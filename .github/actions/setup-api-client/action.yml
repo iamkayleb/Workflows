@@ -144,7 +144,7 @@ runs:
 
         # npm scripts for vendored packages can invoke missing tools (tshy, etc.)
         # so always disable lifecycle scripts during these installs.
-        NPM_INSTALL_PREFIX=(env NPM_CONFIG_IGNORE_SCRIPTS=true)
+        NPM_INSTALL_PREFIX=(env npm_config_ignore_scripts=true)
 
         # Track if we create package.json so we can clean it up
         CREATED_PACKAGE_JSON=false
