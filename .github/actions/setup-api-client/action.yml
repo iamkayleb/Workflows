@@ -138,7 +138,7 @@ runs:
             console.log(alias);
           }
           NODE
-) || true
+          ) || true
 
           for vendored_alias in "${aliases[@]}"; do
             if [ -z "$vendored_alias" ]; then
