@@ -37,7 +37,6 @@ env:
 concurrency:
   group: >-
     agents-autofix-loop-${{
-      github.event.workflow_run &&
       github.event.workflow_run.pull_requests[0].number ||
       inputs.pr_number ||
       github.run_id
@@ -360,11 +359,9 @@ jobs:
                 }))
                 .filter(({ key }) => key && !nonRoutingAgentKeys.has(key));
 
-              const registryEntries = routingEntries.filter(({ key }) =>
-                validAgentKeys.has(key),
-              );
-              const entriesForRouting =
-                registryEntries.length > 0 ? registryEntries : routingEntries;
+              const registryEntries = routingEntries.filter(({ key }) => validAgentKeys.has(key));
+                const entriesForRouting =
+                  registryEntries.length > 0 ? registryEntries : routingEntries;
 
               routingLabelCandidates = entriesForRouting.map(({ label }) => label);
               routingAgentKeys = Array.from(
@@ -393,10 +390,9 @@ jobs:
             let agentType = '';
             try {
               const { resolveAgentFromLabels } = require('./.github/scripts/agent_registry.js');
-              const labelsForAgent = routingLabelCandidates.length
-                ? routingLabelCandidates
-                : prData.labels;
-              agentType = resolveAgentFromLabels(labelsForAgent);
+              agentType = resolveAgentFromLabels(
+                routingLabelCandidates.length ? routingLabelCandidates : prData.labels,
+              );
             } catch (error) {
               const fallbackAgent = routingAgentKeys[0];
               agentType = fallbackAgent || 'codex';
@@ -614,7 +610,9 @@ jobs:
 
   autofix-claude:
     needs: prepare
-    if: needs.prepare.outputs.should_run == 'true' && needs.prepare.outputs.agent_type == 'claude'
+    if: >-
+      needs.prepare.outputs.should_run == 'true' &&
+      needs.prepare.outputs.agent_type == 'claude'
     name: Run Claude autofix
     uses: stranske/Workflows/.github/workflows/reusable-claude-run.yml@main
     with:
@@ -623,6 +621,12 @@ jobs:
       pr_number: ${{ needs.prepare.outputs.pr_number }}
       pr_ref: ${{ needs.prepare.outputs.head_ref }}
       appendix: ${{ needs.prepare.outputs.appendix }}
+      environment: >-
+        ${{
+          needs.prepare.outputs.has_high_privilege == 'true' &&
+          'agent-high-privilege' ||
+          'agent-standard'
+        }}
     secrets:
       CLAUDE_AUTH_JSON: ${{ secrets.CLAUDE_AUTH_JSON }}
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

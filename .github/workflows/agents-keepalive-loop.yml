@@ -233,6 +233,9 @@ jobs:
                  github.event.label.name == 'agent:retry') ||
                 github.event.inputs.force_retry ||
                 'false' }}
+          HAS_CODEX_AUTH: ${{ secrets.CODEX_AUTH_JSON != '' }}
+          HAS_CLAUDE_AUTH: ${{ secrets.CLAUDE_AUTH_JSON != '' }}
+          HAS_CLAUDE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -424,8 +427,13 @@ jobs:
                 agent_auth_ok=true
               fi
               ;;
-            codex|*)
+            codex)
               if [ "$HAS_CODEX_AUTH" = "true" ]; then
+                agent_auth_ok=true
+              fi
+              ;;
+            *)
+              if [ "$HAS_CODEX_AUTH" = "true" ] || [ "$HAS_CLAUDE_AUTH" = "true" ] || [ "$HAS_CLAUDE_OAUTH" = "true" ]; then
                 agent_auth_ok=true
               fi
               ;;
@@ -434,7 +442,18 @@ jobs:
             agent_auth_ok=true
           fi
           if [ "$agent_auth_ok" != "true" ]; then
-            echo "::error::Missing credentials for agent '$AGENT_TYPE'. Set CLAUDE_CODE_OAUTH_TOKEN (preferred), CLAUDE_AUTH_JSON, or configure KEEPALIVE/WORKFLOWS_APP credentials."
+            case "$AGENT_TYPE" in
+              claude)
+                missing_msg="Missing credentials for agent 'claude'. Set CLAUDE_CODE_OAUTH_TOKEN (preferred), CLAUDE_AUTH_JSON, or configure KEEPALIVE/WORKFLOWS_APP credentials."
+                ;;
+              codex)
+                missing_msg="Missing credentials for agent 'codex'. Set CODEX_AUTH_JSON, or configure KEEPALIVE/WORKFLOWS_APP credentials."
+                ;;
+              *)
+                missing_msg="Missing credentials for agent '${AGENT_TYPE}'. Configure that agent's credentials or KEEPALIVE/WORKFLOWS_APP credentials."
+                ;;
+            esac
+            echo "::error::$missing_msg"
             echo "secrets_ok=false" >> "$GITHUB_OUTPUT"
             exit 1
           fi
