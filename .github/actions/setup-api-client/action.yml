@@ -115,28 +115,28 @@ runs:
 
           local aliases=()
           mapfile -t aliases < <(node <<'NODE'
-const fs = require('fs');
-const path = require('path');
-const pkgPath = path.resolve('package.json');
-if (!fs.existsSync(pkgPath)) {
-  process.exit(0);
-}
-const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-const sections = [pkg.dependencies || {}, pkg.devDependencies || {}];
-const seen = new Set();
-for (const section of sections) {
-  for (const spec of Object.values(section)) {
-    if (typeof spec === 'string' && spec.startsWith('file:node_modules/')) {
-      const trimmed = spec.slice('file:node_modules/'.length).replace(/\/+$/, '');
-      if (trimmed) {
-        seen.add(trimmed);
+  const fs = require('fs');
+  const path = require('path');
+  const pkgPath = path.resolve('package.json');
+  if (!fs.existsSync(pkgPath)) {
+    process.exit(0);
+  }
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+  const sections = [pkg.dependencies || {}, pkg.devDependencies || {}];
+  const seen = new Set();
+  for (const section of sections) {
+    for (const spec of Object.values(section)) {
+      if (typeof spec === 'string' && spec.startsWith('file:node_modules/')) {
+        const trimmed = spec.slice('file:node_modules/'.length).replace(/\/+$/, '');
+        if (trimmed) {
+          seen.add(trimmed);
+        }
       }
     }
   }
-}
-for (const alias of seen) {
-  console.log(alias);
-}
+  for (const alias of seen) {
+    console.log(alias);
+  }
 NODE
 ) || true
 
