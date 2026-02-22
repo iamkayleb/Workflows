@@ -3,7 +3,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 
 | Review | Workflow | Notes |
 | --- | --- | --- |
-| [ ] | `agents-63-issue-intake.yml` | |
+| [x] | `agents-63-issue-intake.yml` | Still required as the Codex issue front door; removed four unused GitHub App token mints so queue sync + bridge runs stay within the shared token balancer. |
 | [ ] | `agents-64-verify-agent-assignment.yml` | |
 | [ ] | `agents-70-orchestrator.yml` | |
 | [ ] | `agents-71-codex-belt-dispatcher.yml` | |
