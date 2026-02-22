@@ -129,29 +129,49 @@ done
 echo ""
 echo "=== Summary ==="
 echo ""
-echo "✅ Ready to merge: ${#READY_TO_MERGE[@]}"
-for item in "${READY_TO_MERGE[@]}"; do
-  echo "   - stranske/${item%%:*} #${item##*:}"
-done
-echo ""
-echo "❌ Has failures: ${#HAS_FAILURES[@]}"
-for item in "${HAS_FAILURES[@]}"; do
-  echo "   - stranske/${item%%:*} #${item##*:}"
-done
-echo ""
-echo "⏳ Checks pending: ${#CHECKS_PENDING[@]}"
-for item in "${CHECKS_PENDING[@]}"; do
-  echo "   - stranske/${item%%:*} #${item##*:}"
-done
+ready_count=0
+if [ "${READY_TO_MERGE+x}" = x ]; then
+  ready_count=${#READY_TO_MERGE[@]}
+fi
+echo "✅ Ready to merge: $ready_count"
+if [ "$ready_count" -gt 0 ]; then
+  for item in "${READY_TO_MERGE[@]}"; do
+    echo "   - stranske/${item%%:*} #${item##*:}"
+  done
+fi
 echo ""
 
-if [ ${#HAS_FAILURES[@]} -gt 0 ]; then
+fail_count=0
+if [ "${HAS_FAILURES+x}" = x ]; then
+  fail_count=${#HAS_FAILURES[@]}
+fi
+echo "❌ Has failures: $fail_count"
+if [ "$fail_count" -gt 0 ]; then
+  for item in "${HAS_FAILURES[@]}"; do
+    echo "   - stranske/${item%%:*} #${item##*:}"
+  done
+fi
+echo ""
+
+pending_count=0
+if [ "${CHECKS_PENDING+x}" = x ]; then
+  pending_count=${#CHECKS_PENDING[@]}
+fi
+echo "⏳ Checks pending: $pending_count"
+if [ "$pending_count" -gt 0 ]; then
+  for item in "${CHECKS_PENDING[@]}"; do
+    echo "   - stranske/${item%%:*} #${item##*:}"
+  done
+fi
+echo ""
+
+if [ "$fail_count" -gt 0 ]; then
   echo "❌ Some PRs have failing checks - investigation needed"
   exit 1
 fi
 
-if [ ${#READY_TO_MERGE[@]} -gt 0 ]; then
-  echo "✅ ${#READY_TO_MERGE[@]} PR(s) ready to merge"
+if [ "$ready_count" -gt 0 ]; then
+  echo "✅ ${ready_count} PR(s) ready to merge"
   echo ""
   echo "To merge all ready PRs, run:"
   for item in "${READY_TO_MERGE[@]}"; do
