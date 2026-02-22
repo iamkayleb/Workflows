@@ -39,7 +39,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [ ] | `autofix.yml` | |
 | [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
 | [x] | `health-40-sweep.yml` | Keeps actionlint + guard coverage; manual runs can now skip guard to save API calls via `run_branch_protection=false`. |
-| [x] | `health-41-repo-health.yml` | Added manual inputs to skip branch/PR scans so targeted reruns avoid the high-volume API queries. |
+| [x] | `health-41-repo-health.yml` | Added manual inputs to skip branch/PR scans and fixed the env wiring so dispatch overrides no longer break scheduled runs. |
 | [x] | `health-42-actionlint.yml` | Removed unused GitHub App token mint so lint reruns skip an extra API call. |
 | [x] | `health-43-ci-signature-guard.yml` | Signature fixtures now verified without minting an extra GitHub App token each run. |
 | [x] | `health-44-gate-branch-protection.yml` | Removed redundant GitHub App token mint; enforcement already uses `BRANCH_PROTECTION_TOKEN`. |

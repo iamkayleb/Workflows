@@ -100,18 +100,8 @@ jobs:
       STALE_BRANCH_DAYS: ${{ vars.REPO_HEALTH_STALE_BRANCH_DAYS || '30' }}
       STALE_PR_DAYS: ${{ vars.REPO_HEALTH_STALE_PR_DAYS || '30' }}
       MAX_TABLE_ROWS: '20'
-      INCLUDE_BRANCHES: >-
-        ${{
-          github.event_name == 'workflow_dispatch' && github.event.inputs.include_branches == 'false'
-            ? 'false'
-            : 'true'
-        }}
-      INCLUDE_PRS: >-
-        ${{
-          github.event_name == 'workflow_dispatch' && github.event.inputs.include_prs == 'false'
-            ? 'false'
-            : 'true'
-        }}
+      INCLUDE_BRANCHES: 'true'
+      INCLUDE_PRS: 'true'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -520,3 +510,31 @@ jobs:
             await summary.write();
 
             core.info('Branch protection configuration matches expectations.');
+      - name: Apply workflow_dispatch overrides
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+
+          def normalize(value: str | None, default: str) -> str:
+              if value is None:
+                  return default
+              return 'false' if str(value).lower() == 'false' else 'true'
+
+          event_path = os.environ["GITHUB_EVENT_PATH"]
+          include_branches = os.environ.get("INCLUDE_BRANCHES", "true")
+          include_prs = os.environ.get("INCLUDE_PRS", "true")
+
+          with open(event_path, encoding="utf-8") as handle:
+              data = json.load(handle)
+
+          inputs = data.get("inputs") or {}
+          include_branches = normalize(inputs.get("include_branches"), include_branches)
+          include_prs = normalize(inputs.get("include_prs"), include_prs)
+
+          env_path = os.environ["GITHUB_ENV"]
+          with open(env_path, "a", encoding="utf-8") as handle:
+              handle.write(f"INCLUDE_BRANCHES={include_branches}\n")
+              handle.write(f"INCLUDE_PRS={include_prs}\n")
+          PY
