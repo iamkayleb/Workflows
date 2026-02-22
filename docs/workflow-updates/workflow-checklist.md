@@ -30,7 +30,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-keepalive-dispatch-handler.yml` | Left as-is; needs the explicit token selection to honor compat overrides when handling keepalive repository_dispatch events. |
 | [x] | `agents-keepalive-loop-reporter.yml` | Removed the App-token mint; reporter only needs the shared API client to update keepalive summary comments. |
 | [x] | `agents-keepalive-loop.yml` | Core keepalive orchestrator; already enforces guardrails/task appendix/agent dispatching via the shared API client, so it stayed as-is and was documented. |
-| [ ] | `agents-moderate-connector.yml` | |
+| [x] | `agents-moderate-connector.yml` | Keeps connector noise off PRs by deleting deny-listed bot comments unless they contain real status updates; documented behavior, no workflow change needed. |
 | [ ] | `agents-pr-meta-v4.yml` | |
 | [ ] | `agents-verifier.yml` | |
 | [ ] | `agents-verify-to-issue-v2.yml` | |
