@@ -113,6 +113,7 @@ _Inline Gate helper_
 - **`agents-keepalive-dispatch-handler.yml`** — Repository dispatch handler for keepalive events.
 - **`agents-debug-issue-event.yml`** — Debug workflow that dumps GitHub context on issue events (labeled, unlabeled, opened, reopened). Useful for troubleshooting label triggers; it never mutates issues and simply echoes payload details for humans.
 - **`agents-decompose.yml`** — Handles the `agents:decompose` label by running LangChain’s `task_decomposer.py`, posting suggested subtasks, and removing the trigger label. It now relies entirely on the shared API client/token load balancer (no bespoke GitHub App mint) for checkout and label cleanup.
+- **`agents-dedup.yml`** — Runs when new issues open (non-bot authors). It builds embeddings via `scripts/langchain/issue_dedup.py`, flags near-duplicate open issues, and posts guidance for merging/closing duplicates. The redundant GitHub App mint was removed so the shared API client handles all API traffic.
 
 ### Autofix
 - **`autofix.yml`** — CI Autofix Loop triggered on `pull_request` and `pull_request_target`. It now treats lint/format, Ruff, type-check (`mypy`), and pytest/test failures as “relevant,” automatically re-running when those jobs fail so most routine regressions are handled before humans see Gate noise. Commits still land directly on the PR branch via the shared token load balancer.
