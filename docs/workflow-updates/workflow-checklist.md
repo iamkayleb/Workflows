@@ -48,7 +48,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-68-consumer-sync-drift.yml` | Shared helper now lists registered repos, removing inline parsing + easing reuse. |
 | [x] | `health-70-validate-sync-manifest.yml` | Switched to shared validator script (now emits summaries + reuse with Health 73). |
 | [x] | `health-71-sync-health-check.yml` | Shares the consumer repo helper + no longer mints an app token; only the needed checks run per dispatch knobs. |
-| [ ] | `health-72-template-sync.yml` | |
+| [x] | `health-72-template-sync.yml` | Dropped the unused GitHub App token mint; template sync now relies only on the default GITHUB_TOKEN. |
 | [ ] | `health-73-template-completeness.yml` | |
 | [ ] | `health-74-template-drift.yml` | |
 | [ ] | `health-75-api-rate-diagnostic.yml` | |

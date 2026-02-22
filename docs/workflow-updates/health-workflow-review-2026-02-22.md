@@ -65,7 +65,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 ### `health-72-template-sync.yml`
 - **Purpose**: Ensures `.github/scripts/**/*.js` in the repo stay synced to `templates/consumer-repo/.github/scripts`.
 - **Extras**: Autocommits template deltas back onto PR branches.
-- **Next steps**: None; script is already pip-installing `pyyaml` and re-using `validate_template_sync.py`.
+- **Optimizations applied**: Removed the unused GitHub App token mint so sync checks run with the default installation token, and left the auto-sync logic gated to PRs that originate from this repo.
 
 ### `health-73-template-completeness.yml`
 - **Purpose**: Runs `scripts/validate_template_completeness.py --strict` on pushes/PRs.
