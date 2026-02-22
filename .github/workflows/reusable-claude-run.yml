@@ -265,7 +265,15 @@ jobs:
       - name: Ensure Workflows script deps
         run: |
           set -euo pipefail
-          if [ ! -d ".workflows-lib/.github/scripts/node_modules" ]; then
+          # Check for @octokit/rest specifically rather than just directory existence.
+          # With --filter=blob:none, git writes tree entries (so the directory appears)
+          # but may not materialize file blobs — leaving node_modules/minimatch/ empty.
+          # create_vendor_aliases.js then copies that empty dir, minimatch/package.json
+          # is absent, and npm exits 254 with ENOENT. Checking for @octokit/rest avoids
+          # treating a blobless-clone ghost directory as a fully-installed vendor tree.
+          if [ ! -d ".workflows-lib/.github/scripts/node_modules/@octokit/rest" ]; then
+            # Remove any empty/partial dir so we can either symlink or reinstall cleanly.
+            rm -rf ".workflows-lib/.github/scripts/node_modules"
             if [ ! -d ".github/scripts/node_modules" ]; then
               mkdir -p ".github/scripts"
               echo "Installing fallback @octokit deps for workspace scripts..."
