@@ -66,7 +66,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-52-validate-workflows.yml` | Removed the App-token mint; actionlint now runs with repo-only access since it never hits the API. |
 | [x] | `maint-60-release.yml` | Floating-tag update + release now uses only the default token (removed the App-token mint). |
 | [x] | `maint-61-create-floating-v1-tag.yml` | Deprecated fallback—removed the redundant App-token mint; consider archiving since maint-73 owns floating tags. |
-| [ ] | `maint-62-integration-consumer.yml` | |
+| [x] | `maint-62-integration-consumer.yml` | Removed the extra App-token mint; issue updates now rely on the reusable API client already in the job. |
 | [ ] | `maint-65-sync-label-docs.yml` | |
 | [ ] | `maint-66-monthly-audit.yml` | |
 | [ ] | `maint-68-sync-consumer-repos.yml` | |

@@ -61,3 +61,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Legacy manual fallback for updating the floating `v1` tag; superseded by `maint-73-refresh-reusable-tags.yml`.
 - **Optimizations applied (2026-02-22)**: Removed the unused GitHub App token mint—the step only ever checked out the repo before calling `scripts/update-floating-tag.sh`, so the default workflow token is sufficient.
 - **Next steps**: Archive this workflow after confirming maint-73 has fully replaced it (or wire it to fail-fast with a deprecated notice so no one runs it by mistake).
+
+### `maint-62-integration-consumer.yml`
+- **Purpose**: Runs the integration-consumer scenarios via `reusable-10-ci-python.yml` and opens/closes the `integration-test` issue when failures occur.
+- **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint; the job already installs the full API client + token load balancer, so minting an extra token for the helper checkout provided no benefit.
+- **Next steps**: Inline the summary step into the GitHub Script output so issue updates include direct links to the failed matrix leg.
