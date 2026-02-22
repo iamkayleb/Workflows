@@ -115,3 +115,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Weekly/manual cleanup that deletes stray `pr_body.md` files and enforces `.gitignore` entries across every consumer repo.
 - **Optimizations applied (2026-02-22)**: Replaced the inline repo-list parser with `scripts/list_registered_consumer_repos.py`, removed the GitHub App token mint, and added PAT detection so the job skips (with a warning) whenever no push-capable PAT is available.
 - **Next steps**: Add a run summary table listing repos cleaned vs. skipped to simplify follow-up.
+
+### `maint-73-refresh-reusable-tags.yml`
+- **Purpose**: Formerly ensured floating `v*` tags stayed aligned with `main`; now deprecated because repos consume `@main` directly.
+- **Optimizations applied (2026-02-22)**: Replaced the full tag-refresh logic with a single skip step so the workflow exits immediately with a notice instead of minting tokens and running git commands.
+- **Next steps**: Remove the workflow entirely once all references are confirmed dead.
