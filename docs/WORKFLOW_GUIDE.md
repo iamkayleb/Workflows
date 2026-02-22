@@ -46,6 +46,7 @@ _Inline Gate helper_
 - **Gate summary job (`pr-00-gate.yml`)** — Post-CI job that downloads artifacts, computes coverage deltas, runs the label-gated autofix routine, and updates the PR summary comment with a stable marker.
 
 ### Maintenance & Repo Health
+- **`maint-39-test-llm-providers.yml`** — Manual dispatch harness to smoke-test GitHub Models and OpenAI credentials via `tools.llm_provider` before other maintenance runs; the workflow now avoids minting redundant GitHub App tokens so the test stays lightweight.
 - **`maint-45-cosmetic-repair.yml`** — Manual dispatch utility that runs `pytest -q`, applies guard-gated cosmetic fixes via `scripts/ci_cosmetic_repair.py`, and opens a labelled PR when changes exist.
 - **`maint-46-post-ci.yml`** — Post-CI summary recovery workflow triggered by `workflow_run` on Gate completion. Propagates Gate commit status and posts summaries when the Gate's own summary job doesn't complete.
 - **`maint-47-disable-legacy-workflows.yml`** — Manual dispatch utility to disable retired workflows that still appear in the Actions UI.

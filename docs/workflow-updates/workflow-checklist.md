@@ -56,7 +56,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-codex-auth-check.yml` | Removed the extra GitHub App token mint so the twice-daily expiry check only makes the issue list/create calls it actually needs. |
 | [x] | `health-keepalive-auth-diagnostic.yml` | Archived alongside the Claude CLI diagnostic so the health roster only tracks automated monitors; manual keepalive auth drills now live under `archives/diagnostics/`. |
 | [x] | `health-keepalive-e2e.yml` | Dropped the duplicate GitHub App token mints so orchestration-only runs stick to the default installation token while keeping the Codex ping path unchanged. |
-| [ ] | `maint-39-test-llm-providers.yml` | |
+| [x] | `maint-39-test-llm-providers.yml` | Manual LLM credential test no longer mints a GitHub App token or overrides checkout auth, so the diagnostic run stays lightweight. |
 | [ ] | `maint-45-cosmetic-repair.yml` | |
 | [ ] | `maint-46-post-ci.yml` | |
 | [ ] | `maint-47-disable-legacy-workflows.yml` | |
