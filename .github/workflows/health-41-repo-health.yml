@@ -5,6 +5,15 @@ on:
     # 07:15 UTC each Monday keeps results inside a quiet window.
     - cron: '15 7 * * 1'
   workflow_dispatch:
+    inputs:
+      include_branches:
+        description: 'Include stale-branch scan (set false to skip heavy branch enumeration)'
+        type: boolean
+        default: true
+      include_prs:
+        description: 'Include stale PR scan (set false to skip PR enumeration)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -91,6 +100,18 @@ jobs:
       STALE_BRANCH_DAYS: ${{ vars.REPO_HEALTH_STALE_BRANCH_DAYS || '30' }}
       STALE_PR_DAYS: ${{ vars.REPO_HEALTH_STALE_PR_DAYS || '30' }}
       MAX_TABLE_ROWS: '20'
+      INCLUDE_BRANCHES: >-
+        ${{
+          github.event_name == 'workflow_dispatch' && github.event.inputs.include_branches == 'false'
+            ? 'false'
+            : 'true'
+        }}
+      INCLUDE_PRS: >-
+        ${{
+          github.event_name == 'workflow_dispatch' && github.event.inputs.include_prs == 'false'
+            ? 'false'
+            : 'true'
+        }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -120,6 +141,10 @@ jobs:
                 };
             const { withRetry, paginateWithRetry } = retryHelpers;
 
+            const includeBranches =
+              (process.env.INCLUDE_BRANCHES || 'true').toLowerCase() !== 'false';
+            const includePrs = (process.env.INCLUDE_PRS || 'true').toLowerCase() !== 'false';
+
             const staleBranchDays = parseInt(process.env.STALE_BRANCH_DAYS || '30', 10);
             const stalePrDays = parseInt(process.env.STALE_PR_DAYS || '30', 10);
             const maxRows = parseInt(process.env.MAX_TABLE_ROWS || '20', 10);
@@ -133,82 +158,90 @@ jobs:
             core.setOutput('default-branch', defaultBranch);
 
             // --- Stale Branches ---
-            const branches = await paginateWithRetry(github, github.rest.repos.listBranches, {
-              ...context.repo,
-              per_page: 100,
-            });
+            let staleBranches = [];
+            if (includeBranches) {
+              const branches = await paginateWithRetry(github, github.rest.repos.listBranches, {
+                ...context.repo,
+                per_page: 100,
+              });
 
-            const staleBranches = [];
-            for (const branch of branches) {
-              if (!branch || branch.name === defaultBranch) {
-                continue;
+              for (const branch of branches) {
+                if (!branch || branch.name === defaultBranch) {
+                  continue;
+                }
+
+                try {
+                  const commitSha = branch.commit?.sha;
+                  if (!commitSha) {
+                    continue;
+                  }
+
+                  const commit = await withRetry(() => github.rest.repos.getCommit({
+                    ...context.repo,
+                    ref: commitSha,
+                  }));
+
+                  const commitDateRaw =
+                    commit.data.commit?.committer?.date ||
+                    commit.data.commit?.author?.date;
+                  if (!commitDateRaw) {
+                    continue;
+                  }
+
+                  const commitDate = new Date(commitDateRaw);
+                  if (Number.isNaN(commitDate.getTime())) {
+                    continue;
+                  }
+
+                  if (commitDate <= staleCutoff) {
+                    const ageDays = Math.floor(
+                      (now.getTime() - commitDate.getTime()) / (24 * 60 * 60 * 1000),
+                    );
+                    staleBranches.push({
+                      name: branch.name,
+                      lastCommit: commitDate.toISOString().slice(0, 10),
+                      ageDays,
+                    });
+                  }
+                } catch (error) {
+                  core.warning(`Failed to inspect branch ${branch.name}: ${error.message}`);
+                }
               }
 
-              try {
-                const commitSha = branch.commit?.sha;
-                if (!commitSha) {
-                  continue;
-                }
-
-                const commit = await withRetry(() => github.rest.repos.getCommit({
-                  ...context.repo,
-                  ref: commitSha,
-                }));
-
-                const commitDateRaw =
-                  commit.data.commit?.committer?.date ||
-                  commit.data.commit?.author?.date;
-                if (!commitDateRaw) {
-                  continue;
-                }
-
-                const commitDate = new Date(commitDateRaw);
-                if (Number.isNaN(commitDate.getTime())) {
-                  continue;
-                }
-
-                if (commitDate <= staleCutoff) {
-                  const ageDays = Math.floor(
-                    (now.getTime() - commitDate.getTime()) / (24 * 60 * 60 * 1000),
-                  );
-                  staleBranches.push({
-                    name: branch.name,
-                    lastCommit: commitDate.toISOString().slice(0, 10),
-                    ageDays,
-                  });
-                }
-              } catch (error) {
-                core.warning(`Failed to inspect branch ${branch.name}: ${error.message}`);
-              }
+              staleBranches.sort((a, b) => b.ageDays - a.ageDays);
+            } else {
+              core.info('Skipping stale branch scan per workflow_dispatch input.');
             }
-
-            staleBranches.sort((a, b) => b.ageDays - a.ageDays);
 
             // --- Stale PRs ---
-            const openPrs = await paginateWithRetry(github, github.rest.pulls.list, {
-              ...context.repo,
-              state: 'open',
-              per_page: 100,
-            });
+            let stalePrs = [];
+            if (includePrs) {
+              const openPrs = await paginateWithRetry(github, github.rest.pulls.list, {
+                ...context.repo,
+                state: 'open',
+                per_page: 100,
+              });
 
-            const stalePrs = [];
-            for (const pr of openPrs) {
-              const updatedDate = new Date(pr.updated_at);
-              if (updatedDate <= stalePrCutoff) {
-                const ageDays = Math.floor(
-                  (now.getTime() - updatedDate.getTime()) / (24 * 60 * 60 * 1000),
-                );
-                stalePrs.push({
-                  number: pr.number,
-                  title: pr.title,
-                  url: pr.html_url,
-                  updatedAt: updatedDate.toISOString().slice(0, 10),
-                  ageDays,
-                  user: pr.user.login,
-                });
+              for (const pr of openPrs) {
+                const updatedDate = new Date(pr.updated_at);
+                if (updatedDate <= stalePrCutoff) {
+                  const ageDays = Math.floor(
+                    (now.getTime() - updatedDate.getTime()) / (24 * 60 * 60 * 1000),
+                  );
+                  stalePrs.push({
+                    number: pr.number,
+                    title: pr.title,
+                    url: pr.html_url,
+                    updatedAt: updatedDate.toISOString().slice(0, 10),
+                    ageDays,
+                    user: pr.user.login,
+                  });
+                }
               }
+              stalePrs.sort((a, b) => b.ageDays - a.ageDays);
+            } else {
+              core.info('Skipping stale PR scan per workflow_dispatch input.');
             }
-            stalePrs.sort((a, b) => b.ageDays - a.ageDays);
 
             // --- Unassigned Issues ---
             const openItems = await paginateWithRetry(github, github.rest.issues.listForRepo, {

@@ -24,7 +24,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 ### `health-41-repo-health.yml`
 - **Purpose**: Monday sweep for stale branches/PRs with rate-limit awareness.
 - **Highlights**: Skips automatically if API quota drops below 2,000 to avoid starving keepalive; writes summaries to `GITHUB_STEP_SUMMARY`.
-- **Next steps**: None; consider wiring summary output into `/Projects` tracker if we want historical trends.
+- **Optimizations applied**: Manual dispatchers can now pass `include_branches=false` and/or `include_prs=false` to bypass the multi-page listings and commit lookups when they only need part of the report, significantly reducing API calls during targeted reruns while keeping the scheduled sweep unchanged.
 
 ### `health-42-actionlint.yml`
 - **Purpose**: Central actionlint runner (v1.7.3) with reviewdog integration.
