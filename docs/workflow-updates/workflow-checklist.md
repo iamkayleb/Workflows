@@ -5,20 +5,22 @@ This checklist will track optimization, consolidation, or archival work for ever
 | --- | --- | --- |
 | [x] | `agents-63-issue-intake.yml` | Still required as the Codex issue front door; removed four unused GitHub App token mints so queue sync + bridge runs stay within the shared token balancer. |
 | [x] | `agents-64-verify-agent-assignment.yml` | Still useful for belt/orchestrator sanity checks; removed the unused GitHub App token mint so it relies solely on the shared token-balanced client. |
-| [ ] | `agents-70-orchestrator.yml` | |
-| [ ] | `agents-71-codex-belt-dispatcher.yml` | |
+| [x] | `agents-70-orchestrator.yml` | Still required; delegates to the reusable init/main stack and just sequences cron/manual dispatch without extra token churn. |
+| [x] | `agents-71-codex-belt-dispatcher.yml` | Keeps GitHub App → PAT → `GITHUB_TOKEN` precedence, dry-run controls, and per-agent concurrency intact—no workflow edits needed. |
 | [ ] | `agents-72-codex-belt-worker-dispatch.yml` | |
-| [ ] | `agents-72-codex-belt-worker.yml` | |
-| [ ] | `agents-73-codex-belt-conveyor.yml` | |
-| [ ] | `agents-auto-label.yml` | |
-| [ ] | `agents-auto-pilot.yml` | |
-| [ ] | `agents-autofix-dispatcher.yml` | |
-| [ ] | `agents-autofix-loop.yml` | |
-| [ ] | `agents-belt-conveyor.yml` | |
-| [ ] | `agents-belt-dispatcher.yml` | |
-| [ ] | `agents-belt-worker.yml` | |
-| [ ] | `agents-bot-comment-handler.yml` | |
-| [ ] | `agents-capability-check.yml` | |
+| [x] | `agents-72-codex-belt-worker.yml` | Worker already re-validates labels, enforces token fallback order, guards concurrency, and exposes dry-run flags. |
+| [x] | `agents-73-codex-belt-conveyor.yml` | Conveyor already checks Gate status, blocks bootstrap-only placeholders, mirrors token/dry-run protections, and re-dispatches the queue. |
+| [x] | `agents-auto-label.yml` | Still the LangChain-based labeler; removed the redundant App mint so it runs entirely on the shared API client. |
+| [x] | `agents-auto-pilot.yml` | Remains the canonical issue-to-PR pipeline—documented behavior; no YAML edits needed. |
+| [x] | `agents-autofix-dispatcher.yml` | Dispatch path still needed (Gate autofix failure → loop); kept as-is and documented that it simply forwards run metadata using the App token. |
+| [x] | `agents-autofix-loop.yml` | Handles heavy repairs/pyproject sync/conflict tagging already; documented current behavior. |
+| [x] | `agents-autofix-rebase.yml` | New helper keeps PRs rebased via the App token and files `autofix:conflict` only when manual work is needed. |
+| [x] | `agents-bot-comment-autolabel.yml` | Auto-labels trusted bot review comments with `autofix:bot-comments` so inline fixes run without human input. |
+| [x] | `agents-belt-conveyor.yml` | Alias wrapper around the Codex conveyor; documented accordingly. |
+| [x] | `agents-belt-dispatcher.yml` | Alias wrapper around the Codex dispatcher; documented accordingly. |
+| [x] | `agents-belt-worker.yml` | Alias wrapper around the Codex worker; documented accordingly. |
+| [x] | `agents-bot-comment-handler.yml` | Workflow now auto-runs when trusted bots comment (plus existing triggers); documented the new behavior. |
+| [x] | `agents-capability-check.yml` | Still needed as the pre-agent guard; runs the LangChain capability classifier, posts a structured comment, and applies `needs-human` when tasks are blocked. |
 | [ ] | `agents-debug-issue-event.yml` | |
 | [ ] | `agents-decompose.yml` | |
 | [ ] | `agents-dedup.yml` | |
@@ -36,7 +38,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [ ] | `agents-verify-to-new-pr-autopilot.yml` | |
 | [ ] | `agents-verify-to-new-pr.yml` | |
 | [ ] | `agents-weekly-metrics.yml` | |
-| [ ] | `autofix.yml` | |
+| [x] | `autofix.yml` | CI autofix now treats lint/format/Ruff/mypy/pytest failures as relevant so it auto-reruns before humans intervene. |
 | [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
 | [x] | `health-40-sweep.yml` | Keeps actionlint + guard coverage; manual runs can now skip guard to save API calls via `run_branch_protection=false`. |
 | [x] | `health-41-repo-health.yml` | Added manual inputs to skip branch/PR scans and fixed the env wiring so dispatch overrides no longer break scheduled runs. |
