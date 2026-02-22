@@ -147,3 +147,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 ### `maint-dependabot-auto-lock.yml`
 - **Purpose**: When Dependabot updates `pyproject.toml`, this job regenerates `requirements.lock` with `uv` and pushes the update back to the PR branch.
 - **Notes (2026-02-22)**: Process already uses the default token, a single checkout, and targeted `uv` commands—no adjustments needed this pass.
+
+### `maint-dependabot-weekly-sweep.yml`
+- **Purpose**: Weekly automation that scans consumer repos for open Dependabot PRs and auto-merges them when checks pass.
+- **Optimizations applied (2026-02-22)**: Replaced the inline YAML parser with the shared `scripts/list_registered_consumer_repos.py`, keeping the roster consistent with other maintenance workflows.
+- **Next steps**: Add a run summary listing repos merged vs. skipped so we can track sweep coverage.

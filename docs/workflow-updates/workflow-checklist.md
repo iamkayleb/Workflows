@@ -83,7 +83,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-coverage-guard.yml` | Removed rate-limit + guard job App-token mints; shared API client handles retries. |
 | [x] | `maint-dependabot-auto-label.yml` | Reviewed – already minimal (gh CLI adds label via default token). |
 | [x] | `maint-dependabot-auto-lock.yml` | Reviewed – regenerates requirements.lock via uv when Dependabot touches pyproject. |
-| [ ] | `maint-dependabot-weekly-sweep.yml` | |
+| [x] | `maint-dependabot-weekly-sweep.yml` | Uses the shared repo helper instead of an inline parser for consumer roster. |
 | [ ] | `maint-sync-action-versions.yml` | |
 | [ ] | `maint-sync-env-from-pyproject.yml` | |
 | [ ] | `pr-00-gate.yml` | |
