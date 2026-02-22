@@ -56,36 +56,36 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-codex-auth-check.yml` | Removed the extra GitHub App token mint so the twice-daily expiry check only makes the issue list/create calls it actually needs. |
 | [x] | `health-keepalive-auth-diagnostic.yml` | Archived alongside the Claude CLI diagnostic so the health roster only tracks automated monitors; manual keepalive auth drills now live under `archives/diagnostics/`. |
 | [x] | `health-keepalive-e2e.yml` | Dropped the duplicate GitHub App token mints so orchestration-only runs stick to the default installation token while keeping the Codex ping path unchanged. |
-| [ ] | `maint-39-test-llm-providers.yml` | |
-| [ ] | `maint-45-cosmetic-repair.yml` | |
-| [ ] | `maint-46-post-ci.yml` | |
-| [ ] | `maint-47-disable-legacy-workflows.yml` | |
-| [ ] | `maint-50-tool-version-check.yml` | |
-| [ ] | `maint-51-dependency-refresh.yml` | |
-| [ ] | `maint-52-sync-dev-versions.yml` | |
-| [ ] | `maint-52-validate-workflows.yml` | |
-| [ ] | `maint-60-release.yml` | |
-| [ ] | `maint-61-create-floating-v1-tag.yml` | |
-| [ ] | `maint-62-integration-consumer.yml` | |
-| [ ] | `maint-65-sync-label-docs.yml` | |
-| [ ] | `maint-66-monthly-audit.yml` | |
-| [ ] | `maint-68-sync-consumer-repos.yml` | |
-| [ ] | `maint-69-sync-integration-repo.yml` | |
-| [ ] | `maint-69-sync-labels.yml` | |
-| [ ] | `maint-70-fix-integration-formatting.yml` | |
-| [ ] | `maint-71-auto-fix-integration.yml` | |
-| [ ] | `maint-71-merge-sync-prs.yml` | |
-| [ ] | `maint-72-fix-pr-body-conflicts.yml` | |
-| [ ] | `maint-73-refresh-reusable-tags.yml` | |
-| [ ] | `maint-74-ledger-base-sync.yml` | |
-| [ ] | `maint-80-langsmith-metrics-dashboard.yml` | |
-| [ ] | `maint-auto-update-pypi-versions.yml` | |
-| [ ] | `maint-coverage-guard.yml` | |
-| [ ] | `maint-dependabot-auto-label.yml` | |
-| [ ] | `maint-dependabot-auto-lock.yml` | |
-| [ ] | `maint-dependabot-weekly-sweep.yml` | |
-| [ ] | `maint-sync-action-versions.yml` | |
-| [ ] | `maint-sync-env-from-pyproject.yml` | |
+| [x] | `maint-39-test-llm-providers.yml` | Manual LLM credential test no longer mints a GitHub App token or overrides checkout auth, so the diagnostic run stays lightweight. |
+| [x] | `maint-45-cosmetic-repair.yml` | Dropped the App token mint and only create PRs when not in dry-run mode to save API calls. |
+| [x] | `maint-46-post-ci.yml` | Only boots the helper checkout + token-balanced client when Gate's summary is missing, removing the extra app-token mint. |
+| [x] | `maint-47-disable-legacy-workflows.yml` | Removed the unused App-token mint; the disable helper now relies on the default workflow token only. |
+| [x] | `maint-50-tool-version-check.yml` | Dropped the app-token mint + duplicate checkout; now relies on the default token + load-balanced client for issuing updates. |
+| [x] | `maint-51-dependency-refresh.yml` | Removed the extra App token mint; dependency refresh now relies on the default workflow token for checkout + PR pushes. |
+| [x] | `maint-52-sync-dev-versions.yml` | Removed all App-token mints and now reuse `list_registered_consumer_repos.py` for repo discovery. |
+| [x] | `maint-52-validate-workflows.yml` | Removed the App-token mint; actionlint now runs with repo-only access since it never hits the API. |
+| [x] | `maint-60-release.yml` | Floating-tag update + release now uses only the default token (removed the App-token mint). |
+| [x] | `maint-61-create-floating-v1-tag.yml` | Deprecated fallback—removed the redundant App-token mint; consider archiving since maint-73 owns floating tags. |
+| [x] | `maint-62-integration-consumer.yml` | Removed the extra App-token mint; issue updates now rely on the reusable API client already in the job. |
+| [x] | `maint-65-sync-label-docs.yml` | Reused the registered-repo helper and dropped the App-token mint for the doc sync. |
+| [x] | `maint-66-monthly-audit.yml` | Dropped the App-token mint + redundant npm install; audit uses the shared API client only. |
+| [x] | `maint-68-sync-consumer-repos.yml` | Removed all App-token mints; sync jobs rely on PATs + the shared API client now. |
+| [x] | `maint-69-sync-integration-repo.yml` | Removed the App-token mint; integration sync now relies on the default token + PAT used for pushes. |
+| [x] | `maint-69-sync-labels.yml` | Removed the App-token mint + duplicate checkout and now reuse the registered-repo helper for targets. |
+| [x] | `maint-70-fix-integration-formatting.yml` | Uses the shared API client + PAT discovery; skips safely when no integration token is available. |
+| [x] | `maint-71-auto-fix-integration.yml` | Uses the shared API client + PAT discovery and skips safely when no integration token exists. |
+| [x] | `maint-71-merge-sync-prs.yml` | Uses the shared repo helper + PATs; no App-token mints and cleaner repo parsing. |
+| [x] | `maint-72-fix-pr-body-conflicts.yml` | Uses shared repo list + PAT detection; skips safely when no push token exists. |
+| [x] | `maint-73-refresh-reusable-tags.yml` | Deprecated; workflow now exits immediately with a notice instead of touching tags. |
+| [x] | `maint-74-ledger-base-sync.yml` | No longer mints an App token; relies on the default token + shared client. |
+| [x] | `maint-80-langsmith-metrics-dashboard.yml` | Reviewed; no changes needed—the dashboard already aggregates autopilot artifacts + refreshes docs weekly. |
+| [x] | `maint-auto-update-pypi-versions.yml` | Removed the App-token mint; workflow now relies on the default token for repo operations. |
+| [x] | `maint-coverage-guard.yml` | Removed rate-limit + guard job App-token mints; shared API client handles retries. |
+| [x] | `maint-dependabot-auto-label.yml` | Reviewed – already minimal (gh CLI adds label via default token). |
+| [x] | `maint-dependabot-auto-lock.yml` | Reviewed – regenerates requirements.lock via uv when Dependabot touches pyproject. |
+| [x] | `maint-dependabot-weekly-sweep.yml` | Uses the shared repo helper instead of an inline parser for consumer roster. |
+| [x] | `maint-sync-action-versions.yml` | Reviewed – already syncing template action pins via automated PRs. |
+| [x] | `maint-sync-env-from-pyproject.yml` | Dropped the app-token mint; env sync now commits with the default token. |
 | [ ] | `pr-00-gate.yml` | |
 | [ ] | `pr-11-ci-smoke.yml` | |
 | [ ] | `reusable-10-ci-python.yml` | |

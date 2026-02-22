@@ -66,16 +66,6 @@ jobs:
   merge_sync_prs:
     runs-on: ubuntu-latest
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout
         uses: actions/checkout@v6
 
@@ -90,19 +80,16 @@ jobs:
       - name: Extract consumer repos from sync workflow
         id: repos
         run: |
-          # Read REGISTERED_CONSUMER_REPOS from maint-68-sync-consumer-repos.yml
-          repos=$(yq eval '.env.REGISTERED_CONSUMER_REPOS' \
-            .github/workflows/maint-68-sync-consumer-repos.yml | \
-            grep -v '^#' | grep -v '^$' | sed 's/stranske\///' | tr '\n' ',' | sed 's/,$//')
+          repos=$(python scripts/list_registered_consumer_repos.py --separator ',')
           echo "list=${repos}" >> "$GITHUB_OUTPUT"
           echo "Extracted repos: ${repos}"
 
       - name: Check and merge sync PRs
         uses: actions/github-script@v8
         with:
-          github-token: ${{ steps.app_token.outputs.token || github.token }}
+          github-token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS || github.token }}
           script: |
-            const owner = context.repo.owner;
+            const defaultOwner = context.repo.owner;
             // Support repository_dispatch (no inputs) with sensible defaults
             const inputRepos = '${{ inputs.repos }}' || 'all';
             const autoMerge =
@@ -134,7 +121,10 @@ jobs:
               : { github, withRetry: (fn) => fn(github) };
 
             // Parse repos from previous step
-            const registeredRepos = '${{ steps.repos.outputs.list }}'.split(',').map(r => r.trim());
+            const registeredRepos = '${{ steps.repos.outputs.list }}'
+              .split(',')
+              .map(r => r.trim())
+              .filter(Boolean);
 
             // Determine which repos to process
             const targetRepos = inputRepos === 'all'
@@ -147,8 +137,14 @@ jobs:
 
             const results = [];
 
-            for (const repo of targetRepos) {
-              console.log(`\n=== ${repo} ===`);
+            for (const repoEntry of targetRepos) {
+              const [entryOwner, entryRepo] = repoEntry.includes('/')
+                ? repoEntry.split('/')
+                : [defaultOwner, repoEntry];
+              const owner = entryOwner || defaultOwner;
+              const repo = entryRepo;
+
+              console.log(`\n=== ${owner}/${repo} ===`);
 
               try {
                 // Find open sync PRs

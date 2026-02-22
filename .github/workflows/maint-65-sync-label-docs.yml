@@ -28,22 +28,12 @@ jobs:
     name: Sync labels documentation
     runs-on: ubuntu-latest
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout source
         uses: actions/checkout@v6
         with:
-
-          token: ${{ steps.app_token.outputs.token || github.token }}
-          sparse-checkout: docs/LABELS.md
+          sparse-checkout: |
+            docs/LABELS.md
+            scripts/list_registered_consumer_repos.py
           sparse-checkout-cone-mode: false
 
       - name: Verify source file exists
@@ -75,44 +65,7 @@ jobs:
       - name: Load default consumer repos
         id: repos
         run: |
-          canonical_repos=$(python - <<'PY'
-          from __future__ import annotations
-
-          import re
-          from pathlib import Path
-
-          path = Path('.github/workflows/maint-68-sync-consumer-repos.yml')
-          lines = path.read_text(encoding='utf-8').splitlines()
-
-          start_index = None
-          for index, line in enumerate(lines):
-            if re.search(r'\bREGISTERED_CONSUMER_REPOS\s*:\s*\|\s*$', line):
-              start_index = index + 1
-              break
-
-          if start_index is None:
-            raise SystemExit('Could not find REGISTERED_CONSUMER_REPOS: | block')
-
-          block_indent = None
-          repos: list[str] = []
-          for raw_line in lines[start_index:]:
-            if raw_line.strip() == '':
-              continue
-
-            indent = len(raw_line) - len(raw_line.lstrip(' '))
-            if block_indent is None:
-              block_indent = indent
-
-            if indent < (block_indent or 0):
-              break
-
-            value = raw_line.strip()
-            if value:
-              repos.append(value)
-
-          print(','.join(repos))
-          PY
-          )
+          canonical_repos=$(python scripts/list_registered_consumer_repos.py --separator ',')
           combined_repos="stranske/Workflows-Integration-Tests,${canonical_repos}"
           echo "default_repos=${combined_repos}" >> "$GITHUB_OUTPUT"
 
