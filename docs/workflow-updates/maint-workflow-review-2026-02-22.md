@@ -88,3 +88,10 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Syncs the integration test repository with template workflows/scripts and regenerates requirements to keep CI parity.
 - **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint so the workflow just checks out templates with the default token (PAT handles pushes to the integration repo).
 - **Next steps**: Capture the files touched in the run summary so dry-run previews don't require digging through raw logs.
+
+### `maint-69-sync-labels.yml`
+- **Purpose**: Pushes the required `labels-core.yml` set into all consumer repos so workflows have the expected triggers/markers.
+- **Optimizations applied (2026-02-22)**:
+  - Dropped the GitHub App token mint + duplicate checkout; the workflow now performs a single checkout and uses the shared API client for retries.
+  - Replaced the inline repo-list parser with `scripts/list_registered_consumer_repos.py` so consumer roster changes propagate automatically.
+- **Next steps**: Extend the run summary to list which repos were updated vs. skipped when running in dry-run mode.

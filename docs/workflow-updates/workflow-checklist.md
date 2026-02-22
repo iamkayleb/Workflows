@@ -71,7 +71,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-66-monthly-audit.yml` | Dropped the App-token mint + redundant npm install; audit uses the shared API client only. |
 | [x] | `maint-68-sync-consumer-repos.yml` | Removed all App-token mints; sync jobs rely on PATs + the shared API client now. |
 | [x] | `maint-69-sync-integration-repo.yml` | Removed the App-token mint; integration sync now relies on the default token + PAT used for pushes. |
-| [ ] | `maint-69-sync-labels.yml` | |
+| [x] | `maint-69-sync-labels.yml` | Removed the App-token mint + duplicate checkout and now reuse the registered-repo helper for targets. |
 | [ ] | `maint-70-fix-integration-formatting.yml` | |
 | [ ] | `maint-71-auto-fix-integration.yml` | |
 | [ ] | `maint-71-merge-sync-prs.yml` | |

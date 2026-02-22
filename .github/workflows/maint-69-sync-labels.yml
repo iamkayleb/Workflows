@@ -32,38 +32,12 @@ jobs:
   sync-labels:
     runs-on: ubuntu-latest
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - uses: actions/checkout@v6
-        with:
-          token: ${{ steps.app_token.outputs.token || github.token }}
       - name: Setup API client
         uses: ./.github/actions/setup-api-client
         with:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
-
-
-
-
-      - name: Checkout retry helpers
-        uses: actions/checkout@v6
-        with:
-
-          token: ${{ steps.app_token.outputs.token || github.token }}
-          sparse-checkout: |
-            .github/actions/setup-api-client
-            .github/scripts/github-api-with-retry.js
-            .github/scripts/token_load_balancer.js
-          sparse-checkout-cone-mode: false
 
       - name: Install js-yaml
         run: npm install -g js-yaml
@@ -72,7 +46,7 @@ jobs:
         id: parse
         uses: actions/github-script@v8
         with:
-          github-token: ${{ steps.app_token.outputs.token || github.token }}
+          github-token: ${{ github.token }}
           script: |
             const fs = require('fs');
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
@@ -93,57 +67,22 @@ jobs:
 
       - name: Determine target repos
         id: repos
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ steps.app_token.outputs.token || github.token }}
-          script: |
-            const fs = require('fs');
-            const retryHelperPath = './.github/scripts/github-api-with-retry.js';
-            const retryHelpers = fs.existsSync(retryHelperPath)
-              ? require(retryHelperPath)
-              : {
-                  withRetry: (fn) => fn(),
-                  paginateWithRetry: (githubInstance, method, params) =>
-                    githubInstance.paginate(method, params),
-                };
-            const input = '${{ inputs.repos }}' || 'all';
-
-            // Canonical list comes from maint-68-sync-consumer-repos.yml
-            const workflowPath = '.github/workflows/maint-68-sync-consumer-repos.yml';
-            const workflowContent = fs.readFileSync(workflowPath, 'utf8');
-            const lines = workflowContent.split('\n');
-            const allConsumerRepos = [];
-            let collecting = false;
-
-            for (const line of lines) {
-              if (!collecting && line.includes('REGISTERED_CONSUMER_REPOS: |')) {
-                collecting = true;
-                continue;
-              }
-              if (collecting) {
-                if (/^[^\s]/.test(line)) {
-                  break;
-                }
-                const repo = line.trim();
-                if (repo) {
-                  allConsumerRepos.push(repo);
-                }
-              }
-            }
-
-            if (allConsumerRepos.length === 0) {
-              throw new Error(`Failed to load consumer repos from ${workflowPath}`);
-            }
-
-            let repos;
-            if (input === 'all') {
-              repos = allConsumerRepos;
-            } else {
-              repos = input.split(',').map(r => r.trim());
-            }
-
-            core.info(`Target repos: ${repos.join(', ')}`);
-            core.setOutput('repos', JSON.stringify(repos));
+        run: |
+          if [ "${{ inputs.repos }}" != "all" ] && [ -n "${{ inputs.repos }}" ]; then
+            repos="${{ inputs.repos }}"
+          else
+            repos=$(python scripts/list_registered_consumer_repos.py --separator ',')
+          fi
+          json_array=$(echo "$repos" \
+            | tr ',' '\n' \
+            | grep -v '^$' \
+            | jq -R -s -c '
+              split("\n")
+              | map(select(. != ""))
+              | map(gsub("^\\s+|\\s+$"; ""))
+            ')
+          echo "repos=${json_array}" >> "$GITHUB_OUTPUT"
+          echo "Target repos: $json_array"
 
       - name: Sync labels to repos
         uses: actions/github-script@v8
@@ -152,7 +91,7 @@ jobs:
           REPOS_JSON: ${{ steps.repos.outputs.repos }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         with:
-          github-token: ${{ steps.app_token.outputs.token || github.token }}
+          github-token: ${{ github.token }}
           script: |
             const labels = JSON.parse(process.env.LABELS_JSON);
             const repos = JSON.parse(process.env.REPOS_JSON);
