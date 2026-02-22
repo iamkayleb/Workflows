@@ -74,6 +74,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 ### `health-74-template-drift.yml`
 - **Purpose**: Compares production `agents-*` workflows with their template counterparts and warns if they diverge by >50 lines.
 - **Next steps**: After the outstanding drift is cleared, flip the workflow to fail instead of warn so regressions are blocked earlier.
+- **Optimizations applied**: Expanded the drift mapping to include every current agents workflow so the comparison stays comprehensive as new agent jobs land.
 
 ### `health-75-api-rate-diagnostic.yml`
 - **Purpose**: Every 30 minutes, reports rate-limit usage across all configured PATs and GitHub Apps; optionally hydrates historical summaries.

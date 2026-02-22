@@ -50,7 +50,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-71-sync-health-check.yml` | Shares the consumer repo helper + no longer mints an app token; only the needed checks run per dispatch knobs. |
 | [x] | `health-72-template-sync.yml` | Dropped the unused GitHub App token mint; template sync now relies only on the default GITHUB_TOKEN. |
 | [x] | `health-73-template-completeness.yml` | Already uses the shared validator script; dropped the unused GitHub App token mint. |
-| [ ] | `health-74-template-drift.yml` | |
+| [x] | `health-74-template-drift.yml` | Drift mapping now includes every agents workflow; still warning-only until residual drift is cleared. |
 | [ ] | `health-75-api-rate-diagnostic.yml` | |
 | [ ] | `health-claude-cli-auth-debug.yml` | |
 | [ ] | `health-codex-auth-check.yml` | |
