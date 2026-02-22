@@ -1,6 +1,9 @@
 name: CI Autofix Loop
 
 on:
+  push:
+    branches:
+      - '**'
   workflow_run:
     workflows: ["Gate", "CI", "Python CI"]
     types: [completed]
@@ -22,7 +25,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  push-noop:
+    name: Push noop
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Autofix workflow ignores push events; nothing to do."
+
   resolve:
+    if: ${{ github.event_name != 'push' }}
     name: Resolve Context
     runs-on: ubuntu-latest
     outputs:

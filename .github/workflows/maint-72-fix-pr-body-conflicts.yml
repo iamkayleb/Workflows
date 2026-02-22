@@ -53,8 +53,45 @@ jobs:
       - name: Build repo matrix from canonical list
         id: repos
         run: |
-          repos_json=$(python scripts/list_registered_consumer_repos.py | jq -R -s '
-            split("\n") | map(select(. != ""))')
+          repos_json=$(python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import re
+          from pathlib import Path
+
+          path = Path('.github/workflows/maint-68-sync-consumer-repos.yml')
+          lines = path.read_text(encoding='utf-8').splitlines()
+
+          start_index = None
+          for index, line in enumerate(lines):
+            if re.search(r'\bREGISTERED_CONSUMER_REPOS\s*:\s*\|\s*$', line):
+              start_index = index + 1
+              break
+
+          if start_index is None:
+            raise SystemExit('Could not find REGISTERED_CONSUMER_REPOS: | block')
+
+          block_indent = None
+          repos: list[str] = []
+          for raw_line in lines[start_index:]:
+            if raw_line.strip() == '':
+              continue
+
+            indent = len(raw_line) - len(raw_line.lstrip(' '))
+            if block_indent is None:
+              block_indent = indent
+
+            if indent < (block_indent or 0):
+              break
+
+            value = raw_line.strip()
+            if value:
+              repos.append(value)
+
+          print(json.dumps(repos))
+          PY
+          )
           echo "matrix=$repos_json" >> "$GITHUB_OUTPUT"
 
   fix-repos:
@@ -77,38 +114,48 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Extract repo name
+        if: steps.check.outputs.skip != 'true'
+        id: repo-info
+        run: |
+          echo "repo_name=$(echo '${{ matrix.repo }}' | cut -d'/' -f2)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate GitHub App token
+        if: steps.check.outputs.skip != 'true'
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+          owner: stranske
+          repositories: ${{ steps.repo-info.outputs.repo_name }}
+
+      - name: Checkout retry helpers
+        if: steps.check.outputs.skip != 'true'
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github/actions/setup-api-client
+            .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
+          sparse-checkout-cone-mode: false
+
       - name: Setup API client
         uses: ./.github/actions/setup-api-client
         with:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
 
-      - name: Prepare repo token
-        if: steps.check.outputs.skip != 'true'
-        id: repo-token
-        env:
-          CODESPACES_PAT: ${{ secrets.CODESPACES_WORKFLOWS }}
-          SERVICE_PAT: ${{ secrets.SERVICE_BOT_PAT }}
-        run: |
-          if [ -n "${CODESPACES_PAT}" ]; then
-            echo "token_available=true" >> "$GITHUB_OUTPUT"
-            echo "TARGET_TOKEN=${CODESPACES_PAT}" >> "$GITHUB_ENV"
-          elif [ -n "${SERVICE_PAT}" ]; then
-            echo "token_available=true" >> "$GITHUB_OUTPUT"
-            echo "TARGET_TOKEN=${SERVICE_PAT}" >> "$GITHUB_ENV"
-          else
-            echo "token_available=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No PAT available for repo ${{ matrix.repo }}; skipping cleanup."
-          fi
+
 
       - name: Check and fix pr_body.md
-        if: steps.check.outputs.skip != 'true' && steps.repo-token.outputs.token_available == 'true'
+        if: steps.check.outputs.skip != 'true'
         uses: actions/github-script@v8
         env:
           DRY_RUN: ${{ inputs.dry_run || 'true' }}
           REPO_FULL: ${{ matrix.repo }}
         with:
-          github-token: ${{ env.TARGET_TOKEN }}
+          github-token: ${{ steps.app_token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPO_FULL.split('/');
             const dryRun = process.env.DRY_RUN === 'true';
