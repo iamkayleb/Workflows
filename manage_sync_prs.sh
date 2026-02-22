@@ -58,7 +58,7 @@ for repo in "${REPOS[@]}"; do
   echo "  → Found $pr_count sync PRs, closing $((pr_count - 1)) stale..."
 
   # Process all except the last one
-  stale_prs=$(echo "$prs" | head -n -1)
+  stale_prs=$(printf '%s\n' "$prs" | sed '$d')
   latest_pr=$(echo "$prs" | tail -n 1 | cut -d: -f1)
 
   while IFS=: read -r pr_num branch_name; do
