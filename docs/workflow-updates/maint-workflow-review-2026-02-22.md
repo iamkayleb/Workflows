@@ -100,3 +100,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Manual formatter that applies `black`/`ruff` fixes to Workflows-Integration-Tests when its CI fails due to styling drift.
 - **Optimizations applied (2026-02-22)**: Uses the shared API client + PAT discovery instead of minting an App token, and skips the entire clone/fix flow when no PAT is available (updating the summary accordingly).
 - **Next steps**: Detect which files were changed and include them in the run summary for faster follow-up reviews.
+
+### `maint-71-auto-fix-integration.yml`
+- **Purpose**: Watches “Integration CI failed” issues/comments and automatically reruns the formatting routine against Workflows-Integration-Tests when the latest run concluded as failure.
+- **Optimizations applied (2026-02-22)**: Dropped the App token mint + ad-hoc Octokit install; the job now reuses the shared API client and explicitly discovers PAT availability, skipping clone/push work (with a summary notice) when no PAT is configured.
+- **Next steps**: Consider auto-closing the source issue when the follow-up run passes to keep the queue tidy.

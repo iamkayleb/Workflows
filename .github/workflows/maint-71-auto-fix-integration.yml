@@ -44,8 +44,6 @@ jobs:
         uses: actions/checkout@v6
       - name: Export load-balancer tokens
         uses: ./.github/actions/setup-api-client
-      - name: Install GitHub API dependencies
-        run: npm install --no-save --no-package-lock @octokit/rest @octokit/auth-app
       - name: Extract run information
         id: extract
         run: |
@@ -119,8 +117,26 @@ jobs:
             echo "should_fix=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Resolve integration repo default branch
+      - name: Prepare integration repo token
         if: steps.check_status.outputs.should_fix == 'true'
+        id: integration_token
+        env:
+          CODESPACES_PAT: ${{ secrets.CODESPACES_WORKFLOWS }}
+          SERVICE_PAT: ${{ secrets.SERVICE_BOT_PAT }}
+        run: |
+          if [ -n "${CODESPACES_PAT}" ]; then
+            echo "token_available=true" >> "$GITHUB_OUTPUT"
+            echo "SYNC_TOKEN=${CODESPACES_PAT}" >> "$GITHUB_ENV"
+          elif [ -n "${SERVICE_PAT}" ]; then
+            echo "token_available=true" >> "$GITHUB_OUTPUT"
+            echo "SYNC_TOKEN=${SERVICE_PAT}" >> "$GITHUB_ENV"
+          else
+            echo "token_available=false" >> "$GITHUB_OUTPUT"
+            echo "WARNING: No PAT available for integration repo pushes. Skipping auto-fix." >&2
+          fi
+
+      - name: Resolve integration repo default branch
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         id: integration_ref
         uses: actions/github-script@v8
         with:
@@ -144,27 +160,27 @@ jobs:
             core.setOutput('ref', data.default_branch);
 
       - name: Checkout Integration-Tests repo
-        if: steps.check_status.outputs.should_fix == 'true'
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows-Integration-Tests
           ref: ${{ steps.integration_ref.outputs.ref }}
-          token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS }}
+          token: ${{ env.SYNC_TOKEN }}
           path: integration-tests
 
       - name: Set up Python
-        if: steps.check_status.outputs.should_fix == 'true'
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Install formatting tools
-        if: steps.check_status.outputs.should_fix == 'true'
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         run: |
           python3 -m pip install black ruff
 
       - name: Apply formatting fixes
-        if: steps.check_status.outputs.should_fix == 'true'
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         id: format
         run: |
           cd integration-tests
@@ -190,6 +206,7 @@ jobs:
       - name: Commit and push changes
         if: >-
           steps.check_status.outputs.should_fix == 'true'
+          && steps.integration_token.outputs.token_available == 'true'
           && steps.format.outputs.has_changes == 'true'
         run: |
           cd integration-tests
@@ -210,6 +227,7 @@ jobs:
       - name: Comment on issue
         if: >-
           steps.check_status.outputs.should_fix == 'true'
+          && steps.integration_token.outputs.token_available == 'true'
           && steps.format.outputs.has_changes == 'true'
           && github.event.issue.number
         env:
@@ -238,7 +256,9 @@ jobs:
           {
             echo "## Integration Tests Auto-Fix"
             echo ""
-            if [ "${{ steps.format.outputs.has_changes }}" = "true" ]; then
+            if [ "${{ steps.integration_token.outputs.token_available }}" != "true" ]; then
+              echo "⚠️ Skipped: No integration PAT available for pushes."
+            elif [ "${{ steps.format.outputs.has_changes }}" = "true" ]; then
               echo "✅ Formatting fixes applied and pushed to Integration-Tests repository"
               echo ""
               echo "### Next Steps"
