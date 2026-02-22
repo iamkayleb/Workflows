@@ -63,9 +63,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 - **Optimizations applied**: Replaced the inline repo parsing with the shared `scripts/list_registered_consumer_repos.py` helper (matching health-68) and dropped the unused GitHub App token mint so the workflow only uses the default installation token for its API calls.
 
 ### `health-72-template-sync.yml`
-- **Purpose**: Ensures `.github/scripts/**/*.js` in the repo stay synced to `templates/consumer-repo/.github/scripts`.
-- **Extras**: Autocommits template deltas back onto PR branches.
-- **Optimizations applied**: Removed the unused GitHub App token mint so sync checks run with the default installation token, and left the auto-sync logic gated to PRs that originate from this repo.
+- **Status**: Pending detailed review — leaving documentation unchanged until we confirm what (if anything) needs to be optimized in this workflow.
 
 ### `health-73-template-completeness.yml`
 - **Purpose**: Runs `scripts/validate_template_completeness.py --strict` on pushes/PRs.
