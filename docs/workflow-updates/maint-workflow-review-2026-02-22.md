@@ -73,3 +73,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
   - Removed the needless GitHub App token mint; the workflow now just checks out the needed files and relies on PATs for cross-repo pushes.
   - Reused `scripts/list_registered_consumer_repos.py` so repo discovery stays centralized instead of re-parsing YAML inline.
 - **Next steps**: Capture per-repo sync results and include them in the summary table to make dry-run validation faster.
+
+### `maint-66-monthly-audit.yml`
+- **Purpose**: Monthly workflow that scans workflow runs, highlights failures, runs the API wrapper guard, and files/updates the `workflow-audit` issue with a checklist.
+- **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint and the manual `npm install` of Octokit packages; the shared API client already installs and balances tokens for the audit scripts.
+- **Next steps**: Cache the workflow run JSON so multiple audit reruns in the same day don't hammer the Actions API.

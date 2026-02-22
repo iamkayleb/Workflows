@@ -68,7 +68,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-61-create-floating-v1-tag.yml` | Deprecated fallback—removed the redundant App-token mint; consider archiving since maint-73 owns floating tags. |
 | [x] | `maint-62-integration-consumer.yml` | Removed the extra App-token mint; issue updates now rely on the reusable API client already in the job. |
 | [x] | `maint-65-sync-label-docs.yml` | Reused the registered-repo helper and dropped the App-token mint for the doc sync. |
-| [ ] | `maint-66-monthly-audit.yml` | |
+| [x] | `maint-66-monthly-audit.yml` | Dropped the App-token mint + redundant npm install; audit uses the shared API client only. |
 | [ ] | `maint-68-sync-consumer-repos.yml` | |
 | [ ] | `maint-69-sync-integration-repo.yml` | |
 | [ ] | `maint-69-sync-labels.yml` | |
