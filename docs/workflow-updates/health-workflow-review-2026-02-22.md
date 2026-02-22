@@ -29,7 +29,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 ### `health-42-actionlint.yml`
 - **Purpose**: Central actionlint runner (v1.7.3) with reviewdog integration.
 - **Observations**: Supports workflow_call + manual dispatch + PR review. Cache plumbing + allowlist already in place.
-- **Next steps**: Review actionlint/reviewdog version pins quarterly; no additional optimizations needed right now.
+- **Optimizations applied**: Dropped the unused GitHub App token mint step so ad-hoc lint runs no longer spend an API call before doing any work; caches + install fallbacks already cover the actual compute cost.
 
 ### `health-43-ci-signature-guard.yml`
 - **Purpose**: Ensures `pr-00-gate` stays wired to `signature-verify` fixtures whenever guard logic changes.
