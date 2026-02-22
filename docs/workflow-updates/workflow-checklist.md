@@ -37,7 +37,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [ ] | `agents-verify-to-new-pr.yml` | |
 | [ ] | `agents-weekly-metrics.yml` | |
 | [ ] | `autofix.yml` | |
-| [ ] | `health-40-repo-selfcheck.yml` | |
+| [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
 | [ ] | `health-40-sweep.yml` | |
 | [ ] | `health-41-repo-health.yml` | |
 | [ ] | `health-42-actionlint.yml` | |
