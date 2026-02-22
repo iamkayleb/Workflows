@@ -69,6 +69,7 @@ _Inline Gate helper_
 - **`health-claude-cli-auth-debug.yml`** — Archived manual Claude CLI auth harness (now lives in `archives/diagnostics/`). Run it ad-hoc only when investigating Claude CLI regressions; otherwise leave it out of the automated health rotation.
 - **`health-codex-auth-check.yml`** — Twice-daily JWT expiry guard for `CODEX_AUTH_JSON`. Lists any open `auth-expiring` issue before running, then decodes the stored token and files/updates an issue when the remaining lifetime drops below 48 h (or has already expired). Manual reruns can force a check even if an issue already exists.
 - **`health-keepalive-auth-diagnostic.yml`** — Archived manual harness for verifying GitHub App push scopes + Claude/Codex secrets across consumer repos. Lives under `archives/diagnostics/` and should only be run when debugging keepalive auth not covered by automated monitors.
+- **`health-keepalive-e2e.yml`** — PR-only safeguard that runs through the keepalive orchestration helpers on every workflow change and, when labeled `e2e:codex-ping`, executes a minimal real Codex call to prove the reusable runner still works. The default orchestration leg now uses just the installation token (no extra GitHub App mints) to keep API load low.
 
 ### Agents & Issues
 - **`agents-63-issue-intake.yml`** — Canonical front door that seeds Codex bootstrap PRs on `agent:codex`/`agents:codex` labels, exposes manual dispatch inputs, and services ChatGPT sync via `workflow_call`.

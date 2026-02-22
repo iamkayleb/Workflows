@@ -98,4 +98,4 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-keepalive-e2e.yml`
 - **Purpose**: Validates keepalive orchestration logic and (optionally) executes a real Codex CLI ping when labeled with `e2e:codex-ping`.
-- **Next steps**: None — provides strong coverage for keepalive loop regression testing.
+- **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mints in both the detect + orchestration jobs so the fast path only uses the installation token it already has, shaving two auth calls off every run without changing coverage.
