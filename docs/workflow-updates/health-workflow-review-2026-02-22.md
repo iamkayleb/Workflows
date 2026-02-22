@@ -90,7 +90,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-codex-auth-check.yml`
 - **Purpose**: Twice-daily guard that inspects `CODEX_AUTH_JSON` JWT expiry, filing `auth-expiring` issues before tokens lapse.
-- **Next steps**: None — script already masks secrets and respects `force_check`.
+- **Optimizations applied (2026-02-22)**: Dropped the unnecessary GitHub App token mint + checkout override so each run now uses the default installation token for its two API calls (list issue + create issue), shaving an API request per run without changing behavior.
 
 ### `health-keepalive-auth-diagnostic.yml`
 - **Purpose**: Manual runner that validates GitHub App PATs (WORKFLOWS_APP/KEEPALIVE_APP) and Claude auth secrets end-to-end.
