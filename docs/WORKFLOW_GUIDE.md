@@ -63,6 +63,7 @@ _Inline Gate helper_
 - **`health-50-security-scan.yml`** — Security scanning workflow triggered on push, PR, and schedule. Runs CodeQL vulnerability scans using the configured PAT priority list without minting additional GitHub App tokens.
 - **`health-67-integration-sync-check.yml`** — Daily + event-driven comparison between `templates/integration-repo/` and the Workflows-Integration-Tests repo. Manual dispatchers can now toggle the CI/versions/input checks individually to avoid cloning/running sections they don't need while still filing drift issues when enabled checks detect problems.
 - **`health-68-consumer-sync-drift.yml`** — Daily + change-triggered drift detector for consumer repos. Uses the shared `scripts/list_registered_consumer_repos.py` helper to build the repo list (also accepts a manual override) before running `scripts/check_consumer_sync_drift.py`, and files/updates the `consumer-sync` issue when inconsistencies surface.
+- **`health-71-sync-health-check.yml`** — Daily monitor that inspects the recent `maint-68-sync-consumer-repos` runs. Manual dispatches can tweak `lookback_runs`/`max_age_hours`, and the workflow now reuses `scripts/list_registered_consumer_repos.py` (instead of ad-hoc parsing) without minting an extra GitHub App token.
 
 ### Agents & Issues
 - **`agents-63-issue-intake.yml`** — Canonical front door that seeds Codex bootstrap PRs on `agent:codex`/`agents:codex` labels, exposes manual dispatch inputs, and services ChatGPT sync via `workflow_call`.

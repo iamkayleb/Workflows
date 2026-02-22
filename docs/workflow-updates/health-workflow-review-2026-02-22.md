@@ -60,7 +60,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-71-sync-health-check.yml`
 - **Purpose**: Daily monitor for the `maint-68-sync-consumer-repos` workflow; creates/updates GitHub issues when the sync fails repeatedly or goes stale.
-- **Next steps**: None — leverages Octokit + grouped outputs effectively.
+- **Optimizations applied**: Replaced the inline repo parsing with the shared `scripts/list_registered_consumer_repos.py` helper (matching health-68) and dropped the unused GitHub App token mint so the workflow only uses the default installation token for its API calls.
 
 ### `health-72-template-sync.yml`
 - **Purpose**: Ensures `.github/scripts/**/*.js` in the repo stay synced to `templates/consumer-repo/.github/scripts`.

@@ -38,20 +38,8 @@ jobs:
     name: Check sync workflow health
     runs-on: ubuntu-latest
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          token: ${{ steps.app_token.outputs.token || github.token }}
       - name: Export load-balancer tokens
         uses: ./.github/actions/setup-api-client
       - name: Install GitHub API dependencies
@@ -60,34 +48,9 @@ jobs:
       - name: Load registered consumer repos
         id: consumer-repos
         run: |
-          repos_markdown=$(python3 - <<'PY'
-          from __future__ import annotations
-
-          path = '.github/workflows/maint-68-sync-consumer-repos.yml'
-          with open(path, encoding='utf-8') as handle:
-            lines = handle.read().splitlines()
-
-          repos: list[str] = []
-          in_block = False
-
-          for line in lines:
-            if not in_block:
-              starts_marker = line.strip().startswith('REGISTERED_CONSUMER_REPOS:')
-              ends_block = line.rstrip().endswith('|')
-              if starts_marker and ends_block:
-                in_block = True
-              continue
-
-            if line and not line.startswith(' '):
-              break
-
-            value = line.strip()
-            if value:
-              repos.append(value)
-
-          for repo in repos:
-            print(f'          - {repo}')
-          PY
+          repos_markdown=$(
+            python3 scripts/list_registered_consumer_repos.py --separator=$'\n' |
+            sed 's/^/          - /'
           )
           {
             echo "repos_markdown<<EOF"
