@@ -61,7 +61,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-46-post-ci.yml` | Only boots the helper checkout + token-balanced client when Gate's summary is missing, removing the extra app-token mint. |
 | [x] | `maint-47-disable-legacy-workflows.yml` | Removed the unused App-token mint; the disable helper now relies on the default workflow token only. |
 | [x] | `maint-50-tool-version-check.yml` | Dropped the app-token mint + duplicate checkout; now relies on the default token + load-balanced client for issuing updates. |
-| [ ] | `maint-51-dependency-refresh.yml` | |
+| [x] | `maint-51-dependency-refresh.yml` | Removed the extra App token mint; dependency refresh now relies on the default workflow token for checkout + PR pushes. |
 | [ ] | `maint-52-sync-dev-versions.yml` | |
 | [ ] | `maint-52-validate-workflows.yml` | |
 | [ ] | `maint-60-release.yml` | |

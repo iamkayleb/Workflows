@@ -34,3 +34,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
   - Removed the redundant GitHub App token mint + duplicate sparse checkout; the workflow now relies on the default token and the existing `setup-api-client` load balancer for issue API traffic.
   - Simplified the GitHub Script invocation to use one checkout, keeping the repo workspace hot for both the Python env file and helper scripts.
 - **Next steps**: Cache the PyPI JSON responses (or add timeouts/backoffs) so transient PyPI outages don't fail the entire run.
+
+### `maint-51-dependency-refresh.yml`
+- **Purpose**: Twice-monthly/manual dependency refresh that compiles `requirements.lock`, verifies tool pins, and (when not in dry-run) opens a helper PR with the refreshed snapshot.
+- **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint + checkout override so the workflow now reuses the default workflow token for both checkout and the PR helper (the run already needs `fetch-depth: 0` for branch pushes).
+- **Next steps**: Capture the normalized compile output during the upgrade step so the verification leg can diff against a temp file instead of running `uv pip compile` twice.

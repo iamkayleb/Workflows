@@ -51,7 +51,7 @@ _Inline Gate helper_
 - **`maint-46-post-ci.yml`** — Post-CI recovery watcher triggered by `workflow_run` on Gate completion. It inspects the Gate summary job before touching the repo, and only checks out helpers / installs the token-balanced API client when the summary leg actually failed, keeping the default token pool free unless recovery is required.
 - **`maint-47-disable-legacy-workflows.yml`** — Manual dispatch utility to disable retired workflows that still appear in the Actions UI (with a dry-run preview + allowlist overrides); now relies solely on the default workflow token because the helper script never leaves the repository.
 - **`maint-50-tool-version-check.yml`** — Weekly/manual tool-version audit that reads `autofix-versions.env`, hits PyPI to detect drifts, and files/refreshes the maintenance issue via the default token + load-balanced helper (no extra App mint).
-- **`maint-51-dependency-refresh.yml`** — Scheduled + manual dispatch workflow for dependency updates.
+- **`maint-51-dependency-refresh.yml`** — Twice-monthly/manual dependency snapshot refresh that compiles `requirements.lock`, verifies tool pins, and opens a helper PR using the default workflow token (no extra App mint).
 - **`maint-52-validate-workflows.yml`** — PR/push workflow that validates workflow YAML syntax and structure.
 - **`maint-60-release.yml`** — Tag-triggered release workflow for publishing packages.
 - **`maint-coverage-guard.yml`** — Daily cron + dispatch workflow that monitors Gate coverage artifacts and maintains the rolling coverage baseline breach issue.
