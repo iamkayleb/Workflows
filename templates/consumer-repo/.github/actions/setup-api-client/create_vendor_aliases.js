@@ -88,7 +88,7 @@ for (const alias of seen) {
   }
   const destination = path.join(installDir, sanitized);
   const normalizedDestination = path.normalize(destination);
-  if (!normalizedDestination.startsWith(installDir + path.sep) && normalizedDestination !== installDir) {
+  if (!normalizedDestination.startsWith(installDir + path.sep)) {
     throw new Error(`Resolved vendored alias outside install dir: "${sanitized}"`);
   }
   fs.rmSync(destination, { recursive: true, force: true });
