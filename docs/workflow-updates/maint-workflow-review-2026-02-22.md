@@ -105,3 +105,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Watches “Integration CI failed” issues/comments and automatically reruns the formatting routine against Workflows-Integration-Tests when the latest run concluded as failure.
 - **Optimizations applied (2026-02-22)**: Dropped the App token mint + ad-hoc Octokit install; the job now reuses the shared API client and explicitly discovers PAT availability, skipping clone/push work (with a summary notice) when no PAT is configured.
 - **Next steps**: Consider auto-closing the source issue when the follow-up run passes to keep the queue tidy.
+
+### `maint-71-merge-sync-prs.yml`
+- **Purpose**: Closes stale sync PRs and merges the latest passing sync PR in each consumer repo.
+- **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint, switched to the shared API client, and now rely on `scripts/list_registered_consumer_repos.py` so repo discovery stays centralized. Merge operations run via PAT (`SERVICE_BOT_PAT`/`CODESPACES_WORKFLOWS`) with a fallback to the default token for read-only runs.
+- **Next steps**: Surface per-repo merge outcomes in the run summary for quicker triage.
