@@ -66,3 +66,10 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Runs the integration-consumer scenarios via `reusable-10-ci-python.yml` and opens/closes the `integration-test` issue when failures occur.
 - **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint; the job already installs the full API client + token load balancer, so minting an extra token for the helper checkout provided no benefit.
 - **Next steps**: Inline the summary step into the GitHub Script output so issue updates include direct links to the failed matrix leg.
+
+### `maint-65-sync-label-docs.yml`
+- **Purpose**: Pushes the canonical `docs/LABELS.md` from Workflows into every consumer repo plus Workflows-Integration-Tests whenever the source doc changes (or on manual dispatch).
+- **Optimizations applied (2026-02-22)**:
+  - Removed the needless GitHub App token mint; the workflow now just checks out the needed files and relies on PATs for cross-repo pushes.
+  - Reused `scripts/list_registered_consumer_repos.py` so repo discovery stays centralized instead of re-parsing YAML inline.
+- **Next steps**: Capture per-repo sync results and include them in the summary table to make dry-run validation faster.
