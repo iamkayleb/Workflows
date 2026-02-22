@@ -6,14 +6,14 @@ name: Health 75 API Rate Diagnostic
 
 on:
   schedule:
-    - cron: '*/30 * * * *'  # Every 30 minutes for continuous monitoring
+    - cron: '0 * * * *'  # Hourly snapshots strike a balance between coverage and API usage
   workflow_dispatch:
     inputs:
       include_consumer_repos:
         description: 'Include consumer repos in diagnostic (true/false)'
         type: boolean
         required: false
-        default: true
+        default: false
       verbose:
         description: 'Include detailed resource breakdown'
         type: boolean
@@ -37,6 +37,16 @@ on:
         type: string
         required: false
         default: 'now'
+      run_load_sharing_checks:
+        description: 'Run the token rotation verification job (extra compute + auth mints)'
+        type: boolean
+        required: false
+        default: false
+      verify_actions_access:
+        description: 'Query workflow runs with every token to verify scopes (extra API calls)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -837,6 +847,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Verify Actions runs access per token
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_actions_access != false }}
         env:
           GITHUB_TOKEN_VALUE: ${{ github.token }}
           CODESPACES_WORKFLOWS_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
@@ -1047,7 +1058,7 @@ jobs:
   verify-load-sharing:
     name: Verify Load-Sharing (Token Rotation)
     runs-on: ubuntu-latest
-    if: ${{ inputs.report_mode != 'historical' }}
+    if: ${{ inputs.report_mode != 'historical' && github.event_name == 'workflow_dispatch' && inputs.run_load_sharing_checks != false }}
     needs: collect-rate-limits
     env:
       CODESPACES_WORKFLOWS: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
@@ -1245,20 +1256,21 @@ jobs:
   check-consumer-repos:
     name: Check Consumer Repo Activity
     runs-on: ubuntu-latest
-    # Only run for current mode with consumer repos enabled
-    if: ${{ inputs.report_mode != 'historical' && inputs.include_consumer_repos != false }}
+    # Always run for current mode; steps short-circuit unless manual dispatch requests it
+    if: ${{ inputs.report_mode != 'historical' }}
     needs: collect-rate-limits
     outputs:
       consumer_activity: ${{ steps.activity.outputs.activity_json }}
     env:
       CODESPACES_WORKFLOWS: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+      RUN_CONSUMER_CHECKS: ${{ github.event_name == 'workflow_dispatch' && inputs.include_consumer_repos != false }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Setup API client
-        if: ${{ env.CODESPACES_WORKFLOWS != '' }}
+        if: ${{ env.RUN_CONSUMER_CHECKS == 'true' && env.CODESPACES_WORKFLOWS != '' }}
         uses: ./.github/actions/setup-api-client
         with:
           secrets: ${{ toJSON(secrets) }}
@@ -1266,7 +1278,7 @@ jobs:
 
       - name: Load registered consumer repos
         id: consumer-repos
-        if: ${{ env.CODESPACES_WORKFLOWS != '' }}
+        if: ${{ env.RUN_CONSUMER_CHECKS == 'true' && env.CODESPACES_WORKFLOWS != '' }}
         run: |
           repos=$(
             awk '
@@ -1288,13 +1300,26 @@ jobs:
 
       - name: Check recent workflow runs across consumer repos
         id: activity
-        if: ${{ env.CODESPACES_WORKFLOWS != '' }}
         env:
           GH_TOKEN: ${{ env.CODESPACES_WORKFLOWS }}
           REGISTERED_CONSUMER_REPOS: ${{ steps.consumer-repos.outputs.list }}
+          RUN_CONSUMER_CHECKS: ${{ env.RUN_CONSUMER_CHECKS }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          if [ "${RUN_CONSUMER_CHECKS}" != "true" ] || [ -z "${GH_TOKEN}" ]; then
+            echo "::notice::Consumer repo diagnostics disabled for this run."
+            printf 'activity_json=%s\n' '[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          trimmed="${REGISTERED_CONSUMER_REPOS//[[:space:]]/}"
+          if [ -z "$trimmed" ]; then
+            echo "::notice::No registered consumer repos resolved; returning empty payload."
+            printf 'activity_json=%s\n' '[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "::group::Consumer Repo Activity"
 
           activity_json='[]'
@@ -1702,8 +1727,11 @@ jobs:
 
             for token_path in \
               ".tokens.github_token" \
-              ".tokens.pat" \
-              ".tokens.app"; do
+              ".tokens.codespaces_workflows_pat" \
+              ".tokens.service_bot_pat" \
+              ".tokens.workflows_app" \
+              ".tokens.keepalive_app" \
+              ".tokens.gh_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
               core_pct=$(echo "$token_data" | jq -r '.core.pct // "0"' | sed 's/[^0-9.]//g')

@@ -77,8 +77,12 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 - **Optimizations applied**: Expanded the drift mapping to include every current agents workflow so the comparison stays comprehensive as new agent jobs land.
 
 ### `health-75-api-rate-diagnostic.yml`
-- **Purpose**: Every 30 minutes, reports rate-limit usage across all configured PATs and GitHub Apps; optionally hydrates historical summaries.
-- **Next steps**: Leave in place; ensure summaries are rotated/archived so the `Summary` tab does not balloon indefinitely.
+- **Purpose**: Hourly snapshots of PAT/App rate-limit pools plus optional consumer-repo churn + load-balancer drill-downs.
+- **Optimizations applied (2026-02-22)**:
+  - Dialed the cron back to hourly and made consumer repo scans/manual-only (`include_consumer_repos=true` on dispatch) so the workflow stops hammering every registered repo by default.
+  - Added two new dispatch inputs (`run_load_sharing_checks`, `verify_actions_access`) so the expensive token-rotation simulation and per-token workflow-run probes only fire when explicitly requested.
+  - Patched the `alert-on-high-usage` job to inspect the real summary keys (`codespaces_workflows_pat`, `workflows_app`, etc.) so high-utilization alerts finally trigger when those pools exceed 85%.
+- **Next steps**: Keep building historical storage for the summary JSON and consider pushing consumer-repo metrics into a reusable helper so health-67/68 can share it.
 
 ### `health-claude-cli-auth-debug.yml`
 - **Purpose**: Manual debugging harness for the Claude Code CLI auth path (explicitly labelled “delete after debugging”).
