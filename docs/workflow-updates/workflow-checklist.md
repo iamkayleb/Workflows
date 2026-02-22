@@ -52,7 +52,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-73-template-completeness.yml` | Already uses the shared validator script; dropped the unused GitHub App token mint. |
 | [x] | `health-74-template-drift.yml` | Drift mapping now includes every agents workflow; still warning-only until residual drift is cleared. |
 | [x] | `health-75-api-rate-diagnostic.yml` | Hourly snapshots only; consumer repo scans + load-sharing/access probes now manual inputs to avoid constant PAT/app churn, and the alert job finally reads the correct summary keys. |
-| [ ] | `health-claude-cli-auth-debug.yml` | |
+| [x] | `health-claude-cli-auth-debug.yml` | Archived under `archives/diagnostics/` so the active health roster only contains automated monitors. |
 | [ ] | `health-codex-auth-check.yml` | |
 | [ ] | `health-keepalive-auth-diagnostic.yml` | |
 | [ ] | `health-keepalive-e2e.yml` | |

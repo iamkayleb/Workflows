@@ -86,7 +86,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-claude-cli-auth-debug.yml`
 - **Purpose**: Manual debugging harness for the Claude Code CLI auth path (explicitly labelled “delete after debugging”).
-- **Recommendation**: Move to `archives/` or delete once Claude auth is stable; keeping it in active health workflows dilutes the signal.
+- **Status (2026-02-22)**: Archived to `archives/diagnostics/health-claude-cli-auth-debug.yml` so the health namespace only lists automated monitors.
 
 ### `health-codex-auth-check.yml`
 - **Purpose**: Twice-daily guard that inspects `CODEX_AUTH_JSON` JWT expiry, filing `auth-expiring` issues before tokens lapse.
