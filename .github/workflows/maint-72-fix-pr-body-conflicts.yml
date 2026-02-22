@@ -108,7 +108,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run || 'true' }}
           REPO_FULL: ${{ matrix.repo }}
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
+          github-token: ${{ env.TARGET_TOKEN }}
           script: |
             const [owner, repo] = process.env.REPO_FULL.split('/');
             const dryRun = process.env.DRY_RUN === 'true';
