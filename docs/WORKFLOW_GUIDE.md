@@ -104,7 +104,7 @@ _Inline Gate helper_
 - **`agents-bot-comment-autolabel.yml`** — Watches review comments and automatically applies `autofix:bot-comments` whenever a trusted bot (Copilot, Claude, CodeRabbit, etc.) suggests changes. This guarantees the bot-comment handler fires without waiting for a human to apply the label.
 - **`agents-belt-dispatcher.yml`**, **`agents-belt-worker.yml`**, **`agents-belt-conveyor.yml`** — Aliases for the Codex belt workflows above; they exist so future agents can reuse the same dispatch/worker/conveyor plumbing without duplicating YAML.
 - **`agents-bot-comment-handler.yml`** — Runs the existing inline-comment application logic. In addition to the prior label/Gate/manual triggers it now auto-runs when trusted bot review comments land, so inline suggestions on non-agent PRs are applied without manual relabeling. Override the trusted logins via `BOT_COMMENT_LOGINS` when repositories add more bots.
-- **`agents-guard.yml`** (aka Health 45 Agents Guard) — PR workflow that validates agent-related labels and permissions.
+- **`agents-guard.yml`** (aka Health 45 Agents Guard) — PR workflow that validates agent-related labels and permissions for both `pull_request` and `pull_request_target`. It now relies entirely on the shared API client/token balancer, so there’s no bespoke App-token mint ahead of safety checks.
 - **`agents-80-pr-event-hub.yml`** — Consolidated PR event hub that fans out keepalive metadata, bot-comment handling, and verification follow-ups after a single PR context fetch.
 - **`agents-81-gate-followups.yml`** — Consolidated Gate follow-up hub that coordinates keepalive, autofix, and post-CI recovery.
 - **`agents-pr-meta.yml`** — Legacy PR metadata manager (deprecated; remove no earlier than 2026-02-15).

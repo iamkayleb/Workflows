@@ -24,7 +24,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-debug-issue-event.yml` | Kept as-is; purely dumps GitHub context for label debugging and doesn’t mutate issues. |
 | [x] | `agents-decompose.yml` | Removed the redundant GitHub App mint; decomposition now runs entirely via the shared API client before posting subtasks/removing the trigger label. |
 | [x] | `agents-dedup.yml` | Dropped the manual App-token mint; duplicate detection now relies on the shared API client while posting warnings for near matches. |
-| [ ] | `agents-guard.yml` | |
+| [x] | `agents-guard.yml` | Removed the redundant App-token mint; guard now relies fully on the shared API client for its safety and label checks. |
 | [ ] | `agents-issue-optimizer.yml` | |
 | [ ] | `agents-keepalive-branch-sync.yml` | |
 | [ ] | `agents-keepalive-dispatch-handler.yml` | |
