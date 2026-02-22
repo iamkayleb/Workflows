@@ -15,3 +15,10 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
   - Removed the redundant GitHub App token mint + checkout override; the workflow already has `contents:write` and only needs the default token to push the cosmetic branch, so skipping the mint drops an API call from every run.
   - Guarded the PR-creation step behind `dry-run != true` so exploratory runs don't waste time/requests trying to open a no-op helper PR.
 - **Next steps**: Extend the run summary to include whether pytest failed and whether fixes were applied so dispatchers know if a manual follow-up is still required.
+
+### `maint-46-post-ci.yml`
+- **Purpose**: Gate follower that rebuilds/post the coverage + CI summary whenever the Gate run's own summary leg fails or is missing, then reapplies the commit status.
+- **Optimizations applied (2026-02-22)**:
+  - Removed the unconditional GitHub App token mint plus the always-on checkout; the workflow now inspects the Gate summary first and only checks out helper scripts if recovery is actually required.
+  - Moved the `setup-api-client` install behind the same condition so we only install Octokit dependencies and load-balance additional tokens when there is real recovery work to do.
+- **Next steps**: Hook the coverage artifact download into `run-id` detection for other required workflows so Maint 46 can heal more than just Gate summaries.

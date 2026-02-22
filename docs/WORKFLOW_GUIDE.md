@@ -48,7 +48,7 @@ _Inline Gate helper_
 ### Maintenance & Repo Health
 - **`maint-39-test-llm-providers.yml`** — Manual dispatch harness to smoke-test GitHub Models and OpenAI credentials via `tools.llm_provider` before other maintenance runs; the workflow now avoids minting redundant GitHub App tokens so the test stays lightweight.
 - **`maint-45-cosmetic-repair.yml`** — Manual dispatch utility that runs `pytest -q`, applies guard-gated cosmetic fixes via `scripts/ci_cosmetic_repair.py`, and (when not in dry-run mode) opens a labelled PR with the default workflow token—no extra GitHub App mint required.
-- **`maint-46-post-ci.yml`** — Post-CI summary recovery workflow triggered by `workflow_run` on Gate completion. Propagates Gate commit status and posts summaries when the Gate's own summary job doesn't complete.
+- **`maint-46-post-ci.yml`** — Post-CI recovery watcher triggered by `workflow_run` on Gate completion. It inspects the Gate summary job before touching the repo, and only checks out helpers / installs the token-balanced API client when the summary leg actually failed, keeping the default token pool free unless recovery is required.
 - **`maint-47-disable-legacy-workflows.yml`** — Manual dispatch utility to disable retired workflows that still appear in the Actions UI.
 - **`maint-50-tool-version-check.yml`** — Scheduled + manual dispatch workflow that checks for tool version updates.
 - **`maint-51-dependency-refresh.yml`** — Scheduled + manual dispatch workflow for dependency updates.

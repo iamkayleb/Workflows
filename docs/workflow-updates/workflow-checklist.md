@@ -58,7 +58,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-keepalive-e2e.yml` | Dropped the duplicate GitHub App token mints so orchestration-only runs stick to the default installation token while keeping the Codex ping path unchanged. |
 | [x] | `maint-39-test-llm-providers.yml` | Manual LLM credential test no longer mints a GitHub App token or overrides checkout auth, so the diagnostic run stays lightweight. |
 | [x] | `maint-45-cosmetic-repair.yml` | Dropped the App token mint and only create PRs when not in dry-run mode to save API calls. |
-| [ ] | `maint-46-post-ci.yml` | |
+| [x] | `maint-46-post-ci.yml` | Only boots the helper checkout + token-balanced client when Gate's summary is missing, removing the extra app-token mint. |
 | [ ] | `maint-47-disable-legacy-workflows.yml` | |
 | [ ] | `maint-50-tool-version-check.yml` | |
 | [ ] | `maint-51-dependency-refresh.yml` | |
