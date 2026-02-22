@@ -27,3 +27,10 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Manual dispatch shim that disables legacy workflows left in the Actions UI after archival, with dry-run and allowlist overrides.
 - **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint. The helper script only reads repository files plus the default installation token for API writes, so minting a separate App token wasted an API call without providing extra capabilities.
 - **Next steps**: Flesh out `tools/disable_legacy_workflows.py` so it actually hits the Actions REST API before re-enabling automatic disablement.
+
+### `maint-50-tool-version-check.yml`
+- **Purpose**: Weekly/manual audit that reads `autofix-versions.env`, hits PyPI for the latest formatter/test tool versions, and opens/refreshes the maintenance issue when drift exists.
+- **Optimizations applied (2026-02-22)**:
+  - Removed the redundant GitHub App token mint + duplicate sparse checkout; the workflow now relies on the default token and the existing `setup-api-client` load balancer for issue API traffic.
+  - Simplified the GitHub Script invocation to use one checkout, keeping the repo workspace hot for both the Python env file and helper scripts.
+- **Next steps**: Cache the PyPI JSON responses (or add timeouts/backoffs) so transient PyPI outages don't fail the entire run.
