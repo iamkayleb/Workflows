@@ -157,3 +157,7 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Keeps `.github/workflows/autofix-versions.env` aligned with `pyproject.toml` whenever main receives dependency updates.
 - **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint; the workflow commits directly to main with the default token.
 - **Next steps**: Deduplicate the inline TOML parsing with `scripts/update_versions_from_pypi.py` to avoid two separate parsers.
+
+### `maint-sync-action-versions.yml`
+- **Purpose**: Scans `.github/workflows/*.yml` for action pins and syncs them into the template workflows via an automated PR.
+- **Notes (2026-02-22)**: Already uses the shared API client, a single checkout, and scoped sed updates; no changes required this pass.

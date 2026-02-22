@@ -84,7 +84,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-dependabot-auto-label.yml` | Reviewed – already minimal (gh CLI adds label via default token). |
 | [x] | `maint-dependabot-auto-lock.yml` | Reviewed – regenerates requirements.lock via uv when Dependabot touches pyproject. |
 | [x] | `maint-dependabot-weekly-sweep.yml` | Uses the shared repo helper instead of an inline parser for consumer roster. |
-| [ ] | `maint-sync-action-versions.yml` | |
+| [x] | `maint-sync-action-versions.yml` | Reviewed – already syncing template action pins via automated PRs. |
 | [x] | `maint-sync-env-from-pyproject.yml` | Dropped the app-token mint; env sync now commits with the default token. |
 | [ ] | `pr-00-gate.yml` | |
 | [ ] | `pr-11-ci-smoke.yml` | |
