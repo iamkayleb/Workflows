@@ -139,3 +139,7 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Runs the coverage baseline monitor after Gate, with a rate-limit gate that defers when API quota is low.
 - **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint from both the gate and guard jobs; both already use the shared API client and installation token for API calls.
 - **Next steps**: Consider persisting historical coverage metrics to compare against prior weeks automatically.
+
+### `maint-dependabot-auto-label.yml`
+- **Purpose**: Adds `agents:allow-change` to Dependabot PRs so automation workflows can touch them.
+- **Notes (2026-02-22)**: Workflow is already minimal (pure `gh pr edit` with the default token); no changes required.

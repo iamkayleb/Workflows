@@ -81,7 +81,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-80-langsmith-metrics-dashboard.yml` | Reviewed; no changes needed—the dashboard already aggregates autopilot artifacts + refreshes docs weekly. |
 | [x] | `maint-auto-update-pypi-versions.yml` | Removed the App-token mint; workflow now relies on the default token for repo operations. |
 | [x] | `maint-coverage-guard.yml` | Removed rate-limit + guard job App-token mints; shared API client handles retries. |
-| [ ] | `maint-dependabot-auto-label.yml` | |
+| [x] | `maint-dependabot-auto-label.yml` | Reviewed – already minimal (gh CLI adds label via default token). |
 | [ ] | `maint-dependabot-auto-lock.yml` | |
 | [ ] | `maint-dependabot-weekly-sweep.yml` | |
 | [ ] | `maint-sync-action-versions.yml` | |
