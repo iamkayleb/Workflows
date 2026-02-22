@@ -38,7 +38,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 ### `health-44-gate-branch-protection.yml`
 - **Purpose**: Enforces and verifies required contexts for the default branch using `tools/enforce_gate_branch_protection.py`.
 - **Observations**: Supports both workflow_call (for reuse) and PR events. Admin token optional but required for enforcement.
-- **Next steps**: None beyond ensuring `BRANCH_PROTECTION_TOKEN` remains configured; snapshots already restored post-run.
+- **Optimizations applied**: Removed the unused GitHub App token mint step; the workflow already relies on `BRANCH_PROTECTION_TOKEN` (when present) plus `GITHUB_TOKEN` for read-only verification, so skipping the extra mint saves an API roundtrip on every run.
 
 ### `health-50-security-scan.yml`
 - **Purpose**: CodeQL Python scan on push/PR plus weekly schedule.

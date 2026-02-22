@@ -59,7 +59,7 @@ _Inline Gate helper_
 - **`health-41-repo-health.yml`** — Weekly repository health sweep that writes a single run-summary report covering stale branches, unassigned issues, and default-branch protection drift, with optional `workflow_dispatch` reruns. Manual runs can now toggle the branch and PR scans (`include_branches` / `include_prs`) to avoid the expensive enumeration APIs when only part of the report is needed.
 - **`health-42-actionlint.yml`** — Underlying Actionlint job invoked by the sweep (and still runnable via manual dispatch when you need a focused lint dry run). Uses tool caches instead of minting extra GitHub App tokens so retries don't burn API quota.
 - **`health-43-ci-signature-guard.yml`** — Guards the Gate workflow manifest by hashing `.github/signature-fixtures/**` and verifying them through the `signature-verify` composite, ensuring Gate job wiring stays tamper-proof without minting extra GitHub App tokens.
-- **`health-44-gate-branch-protection.yml`** — Enforces branch-protection policy via `tools/enforce_gate_branch_protection.py` when the PAT is configured (now triggered on PRs or by the consolidated sweep).
+- **`health-44-gate-branch-protection.yml`** — Enforces branch-protection policy via `tools/enforce_gate_branch_protection.py` when the PAT is configured (now triggered on PRs or by the consolidated sweep) and skips minting extra GitHub App tokens because enforcement already runs with the configured `BRANCH_PROTECTION_TOKEN`.
 - **`health-50-security-scan.yml`** — Security scanning workflow triggered on push, PR, and schedule. Runs vulnerability checks and security audits.
 
 ### Agents & Issues
