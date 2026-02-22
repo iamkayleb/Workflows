@@ -46,3 +46,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
   - Dropped all GitHub App token mint steps; the workflow now relies on the existing PAT inputs (`OWNER_PR_PAT`/`SERVICE_BOT_PAT`) and the default token for read-only operations.
   - Replaced the inline YAML parsing logic with the shared `scripts/list_registered_consumer_repos.py` helper so repo discovery stays consistent with other health/maint workflows.
 - **Next steps**: Emit a structured run summary that lists which repos were updated vs. skipped (pyproject missing) to make dry-run reviews faster.
+
+### `maint-52-validate-workflows.yml`
+- **Purpose**: Push/PR workflow that parses all workflow files with `yq` and runs `actionlint` with the repo allowlist to prevent syntax errors from landing.
+- **Optimizations applied (2026-02-22)**: Removed the unnecessary GitHub App token mint and `GITHUB_TOKEN` override for actionlint; the job only reads repository files, so minting an app token wasted an API call each run.
+- **Next steps**: Consider running actionlint directly via the reusable composite under `health-42` to share caching/configuration code.

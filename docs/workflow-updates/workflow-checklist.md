@@ -63,7 +63,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-50-tool-version-check.yml` | Dropped the app-token mint + duplicate checkout; now relies on the default token + load-balanced client for issuing updates. |
 | [x] | `maint-51-dependency-refresh.yml` | Removed the extra App token mint; dependency refresh now relies on the default workflow token for checkout + PR pushes. |
 | [x] | `maint-52-sync-dev-versions.yml` | Removed all App-token mints and now reuse `list_registered_consumer_repos.py` for repo discovery. |
-| [ ] | `maint-52-validate-workflows.yml` | |
+| [x] | `maint-52-validate-workflows.yml` | Removed the App-token mint; actionlint now runs with repo-only access since it never hits the API. |
 | [ ] | `maint-60-release.yml` | |
 | [ ] | `maint-61-create-floating-v1-tag.yml` | |
 | [ ] | `maint-62-integration-consumer.yml` | |
