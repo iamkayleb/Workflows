@@ -83,3 +83,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Manifest-driven sync engine that validates templates/scripts, then pushes PRs to every registered consumer repository with the latest workflows, prompts, scripts, and docs.
 - **Optimizations applied (2026-02-22)**: Removed all GitHub App token mint steps; the workflow already uses PATs for repo pushes and the load-balanced API client for GitHub calls, so minting extra tokens only added latency.
 - **Next steps**: Move `REGISTERED_CONSUMER_REPOS` into the manifest helper so repo additions only need to land in one place.
+
+### `maint-69-sync-integration-repo.yml`
+- **Purpose**: Syncs the integration test repository with template workflows/scripts and regenerates requirements to keep CI parity.
+- **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint so the workflow just checks out templates with the default token (PAT handles pushes to the integration repo).
+- **Next steps**: Capture the files touched in the run summary so dry-run previews don't require digging through raw logs.
