@@ -110,7 +110,7 @@ _Inline Gate helper_
 - **`agents-81-gate-followups.yml`** — Consolidated Gate follow-up hub that coordinates keepalive, autofix, and post-CI recovery.
 - **`agents-pr-meta.yml`** — Legacy PR metadata manager (deprecated; remove no earlier than 2026-02-15).
 - **`agents-moderate-connector.yml`** — Comment moderation workflow that filters connector-authored comments based on allow/deny lists.
-- **`agents-keepalive-branch-sync.yml`** — Dispatch-triggered utility that syncs PR branches with their base branch (merges base into head).
+- **`agents-keepalive-branch-sync.yml`** — Dispatch-triggered utility that syncs PR branches with their base branch (merges base into head). It still selects an App token/PAT for git pushes because keepalive needs to merge into automation-owned branches, but all logic stays confined to git + summary updates—no extra API calls beyond pushing the merge.
 - **`agents-keepalive-dispatch-handler.yml`** — Repository dispatch handler for keepalive events.
 - **`agents-debug-issue-event.yml`** — Debug workflow that dumps GitHub context on issue events (labeled, unlabeled, opened, reopened). Useful for troubleshooting label triggers; it never mutates issues and simply echoes payload details for humans.
 - **`agents-decompose.yml`** — Handles the `agents:decompose` label by running LangChain’s `task_decomposer.py`, posting suggested subtasks, and removing the trigger label. It now relies entirely on the shared API client/token load balancer (no bespoke GitHub App mint) for checkout and label cleanup.
