@@ -22,7 +22,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-bot-comment-handler.yml` | Workflow now auto-runs when trusted bots comment (plus existing triggers); documented the new behavior. |
 | [x] | `agents-capability-check.yml` | Still needed as the pre-agent guard; runs the LangChain capability classifier, posts a structured comment, and applies `needs-human` when tasks are blocked. |
 | [x] | `agents-debug-issue-event.yml` | Kept as-is; purely dumps GitHub context for label debugging and doesn’t mutate issues. |
-| [ ] | `agents-decompose.yml` | |
+| [x] | `agents-decompose.yml` | Removed the redundant GitHub App mint; decomposition now runs entirely via the shared API client before posting subtasks/removing the trigger label. |
 | [ ] | `agents-dedup.yml` | |
 | [ ] | `agents-guard.yml` | |
 | [ ] | `agents-issue-optimizer.yml` | |
