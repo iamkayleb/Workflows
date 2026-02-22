@@ -80,7 +80,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-74-ledger-base-sync.yml` | No longer mints an App token; relies on the default token + shared client. |
 | [x] | `maint-80-langsmith-metrics-dashboard.yml` | Reviewed; no changes needed—the dashboard already aggregates autopilot artifacts + refreshes docs weekly. |
 | [x] | `maint-auto-update-pypi-versions.yml` | Removed the App-token mint; workflow now relies on the default token for repo operations. |
-| [ ] | `maint-coverage-guard.yml` | |
+| [x] | `maint-coverage-guard.yml` | Removed rate-limit + guard job App-token mints; shared API client handles retries. |
 | [ ] | `maint-dependabot-auto-label.yml` | |
 | [ ] | `maint-dependabot-auto-lock.yml` | |
 | [ ] | `maint-dependabot-weekly-sweep.yml` | |
