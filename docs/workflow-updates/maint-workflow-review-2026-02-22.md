@@ -78,3 +78,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Monthly workflow that scans workflow runs, highlights failures, runs the API wrapper guard, and files/updates the `workflow-audit` issue with a checklist.
 - **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint and the manual `npm install` of Octokit packages; the shared API client already installs and balances tokens for the audit scripts.
 - **Next steps**: Cache the workflow run JSON so multiple audit reruns in the same day don't hammer the Actions API.
+
+### `maint-68-sync-consumer-repos.yml`
+- **Purpose**: Manifest-driven sync engine that validates templates/scripts, then pushes PRs to every registered consumer repository with the latest workflows, prompts, scripts, and docs.
+- **Optimizations applied (2026-02-22)**: Removed all GitHub App token mint steps; the workflow already uses PATs for repo pushes and the load-balanced API client for GitHub calls, so minting extra tokens only added latency.
+- **Next steps**: Move `REGISTERED_CONSUMER_REPOS` into the manifest helper so repo additions only need to land in one place.
