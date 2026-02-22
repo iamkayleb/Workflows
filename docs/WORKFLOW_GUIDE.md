@@ -52,6 +52,7 @@ _Inline Gate helper_
 - **`maint-47-disable-legacy-workflows.yml`** — Manual dispatch utility to disable retired workflows that still appear in the Actions UI (with a dry-run preview + allowlist overrides); now relies solely on the default workflow token because the helper script never leaves the repository.
 - **`maint-50-tool-version-check.yml`** — Weekly/manual tool-version audit that reads `autofix-versions.env`, hits PyPI to detect drifts, and files/refreshes the maintenance issue via the default token + load-balanced helper (no extra App mint).
 - **`maint-51-dependency-refresh.yml`** — Twice-monthly/manual dependency snapshot refresh that compiles `requirements.lock`, verifies tool pins, and opens a helper PR using the default workflow token (no extra App mint).
+- **`maint-52-sync-dev-versions.yml`** — Fans out to each registered consumer repo (or a supplied subset) after verifying `autofix-versions.env` is current, then syncs the dev-dependency pins using the PAT provided via `REPO_TOKEN`; now reuses `scripts/list_registered_consumer_repos.py` and avoids redundant GitHub App token mints.
 - **`maint-52-validate-workflows.yml`** — PR/push workflow that validates workflow YAML syntax and structure.
 - **`maint-60-release.yml`** — Tag-triggered release workflow for publishing packages.
 - **`maint-coverage-guard.yml`** — Daily cron + dispatch workflow that monitors Gate coverage artifacts and maintains the rolling coverage baseline breach issue.

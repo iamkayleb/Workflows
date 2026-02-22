@@ -39,3 +39,10 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Twice-monthly/manual dependency refresh that compiles `requirements.lock`, verifies tool pins, and (when not in dry-run) opens a helper PR with the refreshed snapshot.
 - **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint + checkout override so the workflow now reuses the default workflow token for both checkout and the PR helper (the run already needs `fetch-depth: 0` for branch pushes).
 - **Next steps**: Capture the normalized compile output during the upgrade step so the verification leg can diff against a temp file instead of running `uv pip compile` twice.
+
+### `maint-52-sync-dev-versions.yml`
+- **Purpose**: Keeps consumer repos' dev-tool pins aligned with `autofix-versions.env` by verifying versions, building a repo matrix, and pushing PRs via PAT-backed clones.
+- **Optimizations applied (2026-02-22)**:
+  - Dropped all GitHub App token mint steps; the workflow now relies on the existing PAT inputs (`OWNER_PR_PAT`/`SERVICE_BOT_PAT`) and the default token for read-only operations.
+  - Replaced the inline YAML parsing logic with the shared `scripts/list_registered_consumer_repos.py` helper so repo discovery stays consistent with other health/maint workflows.
+- **Next steps**: Emit a structured run summary that lists which repos were updated vs. skipped (pyproject missing) to make dry-run reviews faster.

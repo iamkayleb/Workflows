@@ -44,19 +44,9 @@ jobs:
     name: Verify versions are current
     runs-on: ubuntu-latest
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-
       - name: Checkout Workflows
         uses: actions/checkout@v6
         with:
-          token: ${{ steps.app_token.outputs.token || github.token }}
           sparse-checkout: |
             .github/workflows/autofix-versions.env
             scripts/update_versions_from_pypi.py
@@ -82,23 +72,12 @@ jobs:
       repos: ${{ steps.repos.outputs.matrix }}
       versions_hash: ${{ steps.hash.outputs.hash }}
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout Workflows
         uses: actions/checkout@v6
         with:
-
-          token: ${{ steps.app_token.outputs.token || github.token }}
           sparse-checkout: |
             .github/workflows/autofix-versions.env
+            scripts/list_registered_consumer_repos.py
             scripts/sync_dev_dependencies.py
           sparse-checkout-cone-mode: false
 
@@ -118,44 +97,7 @@ jobs:
           if [ -n "${{ inputs.repos }}" ]; then
             repos="${{ inputs.repos }}"
           else
-            repos=$(python - <<'PY'
-          from __future__ import annotations
-
-          import re
-          from pathlib import Path
-
-          path = Path('.github/workflows/maint-68-sync-consumer-repos.yml')
-          lines = path.read_text(encoding='utf-8').splitlines()
-
-          start_index = None
-          for index, line in enumerate(lines):
-            if re.search(r'\bREGISTERED_CONSUMER_REPOS\s*:\s*\|\s*$', line):
-              start_index = index + 1
-              break
-
-          if start_index is None:
-            raise SystemExit('Could not find REGISTERED_CONSUMER_REPOS: | block')
-
-          block_indent = None
-          repos: list[str] = []
-          for raw_line in lines[start_index:]:
-            if raw_line.strip() == '':
-              continue
-
-            indent = len(raw_line) - len(raw_line.lstrip(' '))
-            if block_indent is None:
-              block_indent = indent
-
-            if indent < (block_indent or 0):
-              break
-
-            value = raw_line.strip()
-            if value:
-              repos.append(value)
-
-          print(','.join(repos))
-          PY
-            )
+            repos=$(python scripts/list_registered_consumer_repos.py --separator ',')
           fi
           json_array=$(echo "$repos" \
             | tr ',' '\n' \
@@ -187,16 +129,6 @@ jobs:
     env:
       REPO_TOKEN: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT }}
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Clone consumer repo
         env:
           GH_TOKEN: ${{ env.REPO_TOKEN }}
@@ -393,16 +325,6 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Generate summary
         run: |
           {
