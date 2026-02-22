@@ -98,19 +98,28 @@ runs:
             return 0
           fi
 
-          for vendored_alias in "${VENDORED_ALIAS_DIRS[@]}"; do
-            if [ -z "$vendored_alias" ]; then
-              continue
-            fi
-            rm -rf "$vendored_alias" || true
-            local parent_dir
-            parent_dir=$(dirname "$vendored_alias")
-            # Remove empty parent directories that may have been created for scoped packages
-            while [ "$parent_dir" != "." ] && [ "$parent_dir" != "/" ]; do
-              rmdir "$parent_dir" 2>/dev/null || break
-              parent_dir=$(dirname "$parent_dir")
+          local cleanup_dir="$INSTALL_DIR"
+          if [ -z "$cleanup_dir" ]; then
+            echo "::warning::Install dir is empty, skipping vendored alias cleanup"
+            return 0
+          fi
+
+          (
+            cd "$cleanup_dir" 2>/dev/null || exit 0
+            for vendored_alias in "${VENDORED_ALIAS_DIRS[@]}"; do
+              if [ -z "$vendored_alias" ]; then
+                continue
+              fi
+              rm -rf "$vendored_alias" || true
+              local parent_dir
+              parent_dir=$(dirname "$vendored_alias")
+              # Remove empty parent directories that may have been created for scoped packages
+              while [ "$parent_dir" != "." ] && [ "$parent_dir" != "/" ]; do
+                rmdir "$parent_dir" 2>/dev/null || break
+                parent_dir=$(dirname "$parent_dir")
+              done
             done
-          done
+          )
         }
 
         trap cleanup_vendor_aliases EXIT
