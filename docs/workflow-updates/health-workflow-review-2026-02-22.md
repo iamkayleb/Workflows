@@ -47,7 +47,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 ### `health-67-integration-sync-check.yml`
 - **Purpose**: Validates `Workflows-Integration-Tests` stays aligned with template workflows + `autofix-versions.env`.
 - **Observations**: Automatically files `integration-sync` drift issues with clear action lists.
-- **Next steps**: Factor repo list parsing (currently shell/grep) into a helper script shared with related workflows.
+- **Optimizations applied**: Added workflow_dispatch inputs (`run_ci_check`, `run_version_check`, `run_input_check`) so targeted reruns can skip the expensive clone/compare loops they don't need while still reporting drift for the enabled sections.
 
 ### `health-68-consumer-sync-drift.yml`
 - **Purpose**: Compares registered consumer repos against the template files and opens/updates `consumer-sync` drift issues.

@@ -19,6 +19,19 @@ on:
   schedule:
     - cron: '30 5 * * *'  # Daily at 5:30 UTC
   workflow_dispatch:
+    inputs:
+      run_ci_check:
+        description: 'Run the CI workflow structure comparison'
+        type: boolean
+        default: true
+      run_version_check:
+        description: 'Run the autofix-versions.env comparison'
+        type: boolean
+        default: true
+      run_input_check:
+        description: 'Run the CI input-parameter validation'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -35,6 +48,25 @@ jobs:
   check-sync:
     name: Validate Integration-Tests sync
     runs-on: ubuntu-latest
+    env:
+      RUN_CI_CHECK: >-
+        ${{
+          github.event_name == 'workflow_dispatch' && github.event.inputs.run_ci_check == 'false'
+            ? 'false'
+            : 'true'
+        }}
+      RUN_VERSION_CHECK: >-
+        ${{
+          github.event_name == 'workflow_dispatch' && github.event.inputs.run_version_check == 'false'
+            ? 'false'
+            : 'true'
+        }}
+      RUN_INPUT_CHECK: >-
+        ${{
+          github.event_name == 'workflow_dispatch' && github.event.inputs.run_input_check == 'false'
+            ? 'false'
+            : 'true'
+        }}
     steps:
       - name: Checkout Workflows repo
         uses: actions/checkout@v6
@@ -57,6 +89,7 @@ jobs:
 
       - name: Compare CI workflow structure
         id: compare-ci
+        if: env.RUN_CI_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -92,6 +125,7 @@ jobs:
 
       - name: Compare autofix-versions.env
         id: compare-versions
+        if: env.RUN_VERSION_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -131,6 +165,7 @@ jobs:
 
       - name: Compare input parameters used
         id: compare-inputs
+        if: env.RUN_INPUT_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -165,9 +200,9 @@ jobs:
         if: >-
           ${{
             failure() ||
-            steps.compare-ci.outputs.drift == 'true' ||
-            steps.compare-versions.outputs.drift == 'true' ||
-            steps.compare-inputs.outputs.drift == 'true'
+            (env.RUN_CI_CHECK != 'false' && steps.compare-ci.outputs.drift == 'true') ||
+            (env.RUN_VERSION_CHECK != 'false' && steps.compare-versions.outputs.drift == 'true') ||
+            (env.RUN_INPUT_CHECK != 'false' && steps.compare-inputs.outputs.drift == 'true')
           }}
         uses: actions/github-script@v8
         with:
