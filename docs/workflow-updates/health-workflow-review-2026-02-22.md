@@ -69,7 +69,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-73-template-completeness.yml`
 - **Purpose**: Runs `scripts/validate_template_completeness.py --strict` on pushes/PRs.
-- **Next steps**: Merge with `health-70` (same validation domain) or at least shift both to use the script rather than duplicating Python inline.
+- **Optimizations applied**: Shares the same script as Health 70 (no inline duplication) and now skips minting a GitHub App token, since the validator runs locally without extra API calls.
 
 ### `health-74-template-drift.yml`
 - **Purpose**: Compares production `agents-*` workflows with their template counterparts and warns if they diverge by >50 lines.
