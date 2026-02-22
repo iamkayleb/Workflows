@@ -42,7 +42,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-50-security-scan.yml`
 - **Purpose**: CodeQL Python scan on push/PR plus weekly schedule.
-- **Next steps**: None — continues to run with PAT fallback order; we can revisit languages if repo expands.
+- **Optimizations applied**: Removed the unnecessary GitHub App token mint; CodeQL already runs with the prioritized PAT (`CODEQL_TOKEN`) or falls back to the installation token, so skipping the extra mint saves an API roundtrip per run.
 
 ### `health-67-integration-sync-check.yml`
 - **Purpose**: Validates `Workflows-Integration-Tests` stays aligned with template workflows + `autofix-versions.env`.

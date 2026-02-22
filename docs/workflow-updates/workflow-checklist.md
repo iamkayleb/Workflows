@@ -43,7 +43,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-42-actionlint.yml` | Removed unused GitHub App token mint so lint reruns skip an extra API call. |
 | [x] | `health-43-ci-signature-guard.yml` | Signature fixtures now verified without minting an extra GitHub App token each run. |
 | [x] | `health-44-gate-branch-protection.yml` | Removed redundant GitHub App token mint; enforcement already uses `BRANCH_PROTECTION_TOKEN`. |
-| [ ] | `health-50-security-scan.yml` | |
+| [x] | `health-50-security-scan.yml` | Dropped redundant GitHub App token mint; CodeQL already uses PAT fallback chain. |
 | [ ] | `health-67-integration-sync-check.yml` | |
 | [ ] | `health-68-consumer-sync-drift.yml` | |
 | [ ] | `health-70-validate-sync-manifest.yml` | |

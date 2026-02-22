@@ -60,7 +60,7 @@ _Inline Gate helper_
 - **`health-42-actionlint.yml`** — Underlying Actionlint job invoked by the sweep (and still runnable via manual dispatch when you need a focused lint dry run). Uses tool caches instead of minting extra GitHub App tokens so retries don't burn API quota.
 - **`health-43-ci-signature-guard.yml`** — Guards the Gate workflow manifest by hashing `.github/signature-fixtures/**` and verifying them through the `signature-verify` composite, ensuring Gate job wiring stays tamper-proof without minting extra GitHub App tokens.
 - **`health-44-gate-branch-protection.yml`** — Enforces branch-protection policy via `tools/enforce_gate_branch_protection.py` when the PAT is configured (now triggered on PRs or by the consolidated sweep) and skips minting extra GitHub App tokens because enforcement already runs with the configured `BRANCH_PROTECTION_TOKEN`.
-- **`health-50-security-scan.yml`** — Security scanning workflow triggered on push, PR, and schedule. Runs vulnerability checks and security audits.
+- **`health-50-security-scan.yml`** — Security scanning workflow triggered on push, PR, and schedule. Runs CodeQL vulnerability scans using the configured PAT priority list without minting additional GitHub App tokens.
 
 ### Agents & Issues
 - **`agents-63-issue-intake.yml`** — Canonical front door that seeds Codex bootstrap PRs on `agent:codex`/`agents:codex` labels, exposes manual dispatch inputs, and services ChatGPT sync via `workflow_call`.
