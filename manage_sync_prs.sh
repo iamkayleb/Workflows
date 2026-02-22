@@ -80,9 +80,9 @@ echo "Step 2: Checking status of remaining PRs..."
 echo ""
 
 # Step 2: Check status of remaining PRs
-READY_TO_MERGE=()
-HAS_FAILURES=()
-CHECKS_PENDING=()
+declare -a READY_TO_MERGE=()
+declare -a HAS_FAILURES=()
+declare -a CHECKS_PENDING=()
 
 for repo in "${REPOS[@]}"; do
   # Get the open sync PR (should be only one now)
