@@ -41,7 +41,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-40-sweep.yml` | Keeps actionlint + guard coverage; manual runs can now skip guard to save API calls via `run_branch_protection=false`. |
 | [x] | `health-41-repo-health.yml` | Added manual inputs to skip branch/PR scans so targeted reruns avoid the high-volume API queries. |
 | [x] | `health-42-actionlint.yml` | Removed unused GitHub App token mint so lint reruns skip an extra API call. |
-| [ ] | `health-43-ci-signature-guard.yml` | |
+| [x] | `health-43-ci-signature-guard.yml` | Signature fixtures now verified without minting an extra GitHub App token each run. |
 | [ ] | `health-44-gate-branch-protection.yml` | |
 | [ ] | `health-50-security-scan.yml` | |
 | [ ] | `health-67-integration-sync-check.yml` | |

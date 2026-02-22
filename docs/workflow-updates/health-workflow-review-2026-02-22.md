@@ -33,7 +33,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-43-ci-signature-guard.yml`
 - **Purpose**: Ensures `pr-00-gate` stays wired to `signature-verify` fixtures whenever guard logic changes.
-- **Next steps**: None — minimal job that feeds summaries through `health_summarize.py`.
+- **Optimizations applied**: Removed the unused GitHub App token mint step; the workflow only needs repository read access to fetch fixture files, so skipping the token mint avoids a gratuitous API call on every run.
 
 ### `health-44-gate-branch-protection.yml`
 - **Purpose**: Enforces and verifies required contexts for the default branch using `tools/enforce_gate_branch_protection.py`.
