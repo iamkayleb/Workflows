@@ -45,7 +45,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-44-gate-branch-protection.yml` | Removed redundant GitHub App token mint; enforcement already uses `BRANCH_PROTECTION_TOKEN`. |
 | [x] | `health-50-security-scan.yml` | Dropped redundant GitHub App token mint; CodeQL already uses PAT fallback chain. |
 | [x] | `health-67-integration-sync-check.yml` | Manual runs can toggle CI/version/input checks to avoid unnecessary clone/compare passes. |
-| [ ] | `health-68-consumer-sync-drift.yml` | |
+| [x] | `health-68-consumer-sync-drift.yml` | Shared helper now lists registered repos, removing inline parsing + easing reuse. |
 | [ ] | `health-70-validate-sync-manifest.yml` | |
 | [ ] | `health-71-sync-health-check.yml` | |
 | [ ] | `health-72-template-sync.yml` | |

@@ -51,7 +51,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-68-consumer-sync-drift.yml`
 - **Purpose**: Compares registered consumer repos against the template files and opens/updates `consumer-sync` drift issues.
-- **Next steps**: Same repo list parsing refactor as above; otherwise healthy.
+- **Optimizations applied**: Added `scripts/list_registered_consumer_repos.py` and updated the workflow to call it, so the manifest parsing logic is reusable (and shared with future workflows) instead of embedding bespoke inline Python.
 
 ### `health-70-validate-sync-manifest.yml`
 - **Purpose**: Enforces that templates, prompts, scripts, and workflows are represented in `.github/sync-manifest.yml`.
