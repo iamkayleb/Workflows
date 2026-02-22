@@ -129,3 +129,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 ### `maint-80-langsmith-metrics-dashboard.yml`
 - **Purpose**: Weekly/manual LangSmith trace coverage roll-up that scrapes recent `agents-auto-pilot` artifacts, aggregates metrics, uploads a combined report, and refreshes `docs/dashboards/langsmith-metrics.md`.
 - **Notes (2026-02-22)**: Workflow already scopes API usage to the default token + `gh` CLI, generates artifacts, and supports manual reruns. No code changes required during this pass; documentation captures current behavior for traceability.
+
+### `maint-auto-update-pypi-versions.yml`
+- **Purpose**: Daily automation that checks PyPI via `scripts/update_versions_from_pypi.py`, updates `autofix-versions.env`, regenerates supporting files, and opens a helper PR when new tool versions exist.
+- **Optimizations applied (2026-02-22)**: Removed the unnecessary GitHub App token mint; the workflow uses the default installation token + PAT for pushes, so the extra mint was redundant.
+- **Next steps**: Surface the updated versions (tool → old → new) in the PR body without relying on raw script output.
