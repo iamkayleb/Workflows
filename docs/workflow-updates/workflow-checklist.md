@@ -59,7 +59,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-39-test-llm-providers.yml` | Manual LLM credential test no longer mints a GitHub App token or overrides checkout auth, so the diagnostic run stays lightweight. |
 | [x] | `maint-45-cosmetic-repair.yml` | Dropped the App token mint and only create PRs when not in dry-run mode to save API calls. |
 | [x] | `maint-46-post-ci.yml` | Only boots the helper checkout + token-balanced client when Gate's summary is missing, removing the extra app-token mint. |
-| [ ] | `maint-47-disable-legacy-workflows.yml` | |
+| [x] | `maint-47-disable-legacy-workflows.yml` | Removed the unused App-token mint; the disable helper now relies on the default workflow token only. |
 | [ ] | `maint-50-tool-version-check.yml` | |
 | [ ] | `maint-51-dependency-refresh.yml` | |
 | [ ] | `maint-52-sync-dev-versions.yml` | |

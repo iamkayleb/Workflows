@@ -22,3 +22,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
   - Removed the unconditional GitHub App token mint plus the always-on checkout; the workflow now inspects the Gate summary first and only checks out helper scripts if recovery is actually required.
   - Moved the `setup-api-client` install behind the same condition so we only install Octokit dependencies and load-balance additional tokens when there is real recovery work to do.
 - **Next steps**: Hook the coverage artifact download into `run-id` detection for other required workflows so Maint 46 can heal more than just Gate summaries.
+
+### `maint-47-disable-legacy-workflows.yml`
+- **Purpose**: Manual dispatch shim that disables legacy workflows left in the Actions UI after archival, with dry-run and allowlist overrides.
+- **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint. The helper script only reads repository files plus the default installation token for API writes, so minting a separate App token wasted an API call without providing extra capabilities.
+- **Next steps**: Flesh out `tools/disable_legacy_workflows.py` so it actually hits the Actions REST API before re-enabling automatic disablement.
