@@ -56,3 +56,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Creates GitHub Releases whenever a `v*` tag lands and, for `v1.*` tags, refreshes the floating `v1` branch pointer.
 - **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint + checkout override; the workflow only needs the default token to update floating tags and publish releases via `softprops/action-gh-release`.
 - **Next steps**: Add a sanity guard so floating-tag updates only run when the push originated from this repo (not forks) to avoid surprise ref moves.
+
+### `maint-61-create-floating-v1-tag.yml`
+- **Purpose**: Legacy manual fallback for updating the floating `v1` tag; superseded by `maint-73-refresh-reusable-tags.yml`.
+- **Optimizations applied (2026-02-22)**: Removed the unused GitHub App token mint—the step only ever checked out the repo before calling `scripts/update-floating-tag.sh`, so the default workflow token is sufficient.
+- **Next steps**: Archive this workflow after confirming maint-73 has fully replaced it (or wire it to fail-fast with a deprecated notice so no one runs it by mistake).
