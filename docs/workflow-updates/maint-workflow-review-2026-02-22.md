@@ -51,3 +51,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Push/PR workflow that parses all workflow files with `yq` and runs `actionlint` with the repo allowlist to prevent syntax errors from landing.
 - **Optimizations applied (2026-02-22)**: Removed the unnecessary GitHub App token mint and `GITHUB_TOKEN` override for actionlint; the job only reads repository files, so minting an app token wasted an API call each run.
 - **Next steps**: Consider running actionlint directly via the reusable composite under `health-42` to share caching/configuration code.
+
+### `maint-60-release.yml`
+- **Purpose**: Creates GitHub Releases whenever a `v*` tag lands and, for `v1.*` tags, refreshes the floating `v1` branch pointer.
+- **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint + checkout override; the workflow only needs the default token to update floating tags and publish releases via `softprops/action-gh-release`.
+- **Next steps**: Add a sanity guard so floating-tag updates only run when the push originated from this repo (not forks) to avoid surprise ref moves.
