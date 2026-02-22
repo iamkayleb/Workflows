@@ -72,7 +72,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-68-sync-consumer-repos.yml` | Removed all App-token mints; sync jobs rely on PATs + the shared API client now. |
 | [x] | `maint-69-sync-integration-repo.yml` | Removed the App-token mint; integration sync now relies on the default token + PAT used for pushes. |
 | [x] | `maint-69-sync-labels.yml` | Removed the App-token mint + duplicate checkout and now reuse the registered-repo helper for targets. |
-| [ ] | `maint-70-fix-integration-formatting.yml` | |
+| [x] | `maint-70-fix-integration-formatting.yml` | Uses the shared API client + PAT discovery; skips safely when no integration token is available. |
 | [ ] | `maint-71-auto-fix-integration.yml` | |
 | [ ] | `maint-71-merge-sync-prs.yml` | |
 | [ ] | `maint-72-fix-pr-body-conflicts.yml` | |

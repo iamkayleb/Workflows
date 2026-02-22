@@ -95,3 +95,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
   - Dropped the GitHub App token mint + duplicate checkout; the workflow now performs a single checkout and uses the shared API client for retries.
   - Replaced the inline repo-list parser with `scripts/list_registered_consumer_repos.py` so consumer roster changes propagate automatically.
 - **Next steps**: Extend the run summary to list which repos were updated vs. skipped when running in dry-run mode.
+
+### `maint-70-fix-integration-formatting.yml`
+- **Purpose**: Manual formatter that applies `black`/`ruff` fixes to Workflows-Integration-Tests when its CI fails due to styling drift.
+- **Optimizations applied (2026-02-22)**: Uses the shared API client + PAT discovery instead of minting an App token, and skips the entire clone/fix flow when no PAT is available (updating the summary accordingly).
+- **Next steps**: Detect which files were changed and include them in the run summary for faster follow-up reviews.
