@@ -46,7 +46,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-50-security-scan.yml` | Dropped redundant GitHub App token mint; CodeQL already uses PAT fallback chain. |
 | [x] | `health-67-integration-sync-check.yml` | Manual runs can toggle CI/version/input checks to avoid unnecessary clone/compare passes. |
 | [x] | `health-68-consumer-sync-drift.yml` | Shared helper now lists registered repos, removing inline parsing + easing reuse. |
-| [ ] | `health-70-validate-sync-manifest.yml` | |
+| [x] | `health-70-validate-sync-manifest.yml` | Switched to shared validator script (now emits summaries + reuse with Health 73). |
 | [ ] | `health-71-sync-health-check.yml` | |
 | [ ] | `health-72-template-sync.yml` | |
 | [ ] | `health-73-template-completeness.yml` | |

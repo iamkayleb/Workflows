@@ -55,7 +55,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-70-validate-sync-manifest.yml`
 - **Purpose**: Enforces that templates, prompts, scripts, and workflows are represented in `.github/sync-manifest.yml`.
-- **Observation**: Uses inline Python identical to `scripts/validate_template_completeness.py` (see health-73). Opportunity to convert both workflows to call the shared script instead of embedding almost-identical validation logic.
+- **Optimizations applied**: Replaced the inline Python with a call to `scripts/validate_template_completeness.py --strict --source sync-manifest` so Health 70 now shares its validator with Health 73 and auto-writes clearer run summaries.
 
 ### `health-71-sync-health-check.yml`
 - **Purpose**: Daily monitor for the `maint-68-sync-consumer-repos` workflow; creates/updates GitHub issues when the sync fails repeatedly or goes stale.
