@@ -85,7 +85,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-dependabot-auto-lock.yml` | Reviewed – regenerates requirements.lock via uv when Dependabot touches pyproject. |
 | [x] | `maint-dependabot-weekly-sweep.yml` | Uses the shared repo helper instead of an inline parser for consumer roster. |
 | [ ] | `maint-sync-action-versions.yml` | |
-| [ ] | `maint-sync-env-from-pyproject.yml` | |
+| [x] | `maint-sync-env-from-pyproject.yml` | Dropped the app-token mint; env sync now commits with the default token. |
 | [ ] | `pr-00-gate.yml` | |
 | [ ] | `pr-11-ci-smoke.yml` | |
 | [ ] | `reusable-10-ci-python.yml` | |

@@ -152,3 +152,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Weekly automation that scans consumer repos for open Dependabot PRs and auto-merges them when checks pass.
 - **Optimizations applied (2026-02-22)**: Replaced the inline YAML parser with the shared `scripts/list_registered_consumer_repos.py`, keeping the roster consistent with other maintenance workflows.
 - **Next steps**: Add a run summary listing repos merged vs. skipped so we can track sweep coverage.
+
+### `maint-sync-env-from-pyproject.yml`
+- **Purpose**: Keeps `.github/workflows/autofix-versions.env` aligned with `pyproject.toml` whenever main receives dependency updates.
+- **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint; the workflow commits directly to main with the default token.
+- **Next steps**: Deduplicate the inline TOML parsing with `scripts/update_versions_from_pypi.py` to avoid two separate parsers.
