@@ -49,24 +49,9 @@ jobs:
     name: Validate Integration-Tests sync
     runs-on: ubuntu-latest
     env:
-      RUN_CI_CHECK: >-
-        ${{
-          github.event_name == 'workflow_dispatch' && github.event.inputs.run_ci_check == 'false'
-            ? 'false'
-            : 'true'
-        }}
-      RUN_VERSION_CHECK: >-
-        ${{
-          github.event_name == 'workflow_dispatch' && github.event.inputs.run_version_check == 'false'
-            ? 'false'
-            : 'true'
-        }}
-      RUN_INPUT_CHECK: >-
-        ${{
-          github.event_name == 'workflow_dispatch' && github.event.inputs.run_input_check == 'false'
-            ? 'false'
-            : 'true'
-        }}
+      RUN_CI_CHECK: 'true'
+      RUN_VERSION_CHECK: 'true'
+      RUN_INPUT_CHECK: 'true'
     steps:
       - name: Checkout Workflows repo
         uses: actions/checkout@v6
@@ -78,6 +63,45 @@ jobs:
         with:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
+
+      - name: Apply workflow_dispatch overrides
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+
+          def normalize(value: str | None, default: str) -> str:
+              if value is None:
+                  return default
+              return 'false' if str(value).lower() == 'false' else 'true'
+
+          event_path = os.environ["GITHUB_EVENT_PATH"]
+          env_defaults = {
+              "RUN_CI_CHECK": os.environ.get("RUN_CI_CHECK", "true"),
+              "RUN_VERSION_CHECK": os.environ.get("RUN_VERSION_CHECK", "true"),
+              "RUN_INPUT_CHECK": os.environ.get("RUN_INPUT_CHECK", "true"),
+          }
+
+          with open(event_path, encoding="utf-8") as handle:
+              data = json.load(handle)
+
+          inputs = data.get("inputs") or {}
+          overrides = {
+              "RUN_CI_CHECK": normalize(inputs.get("run_ci_check"), env_defaults["RUN_CI_CHECK"]),
+              "RUN_VERSION_CHECK": normalize(
+                  inputs.get("run_version_check"), env_defaults["RUN_VERSION_CHECK"]
+              ),
+              "RUN_INPUT_CHECK": normalize(
+                  inputs.get("run_input_check"), env_defaults["RUN_INPUT_CHECK"]
+              ),
+          }
+
+          env_path = os.environ["GITHUB_ENV"]
+          with open(env_path, "a", encoding="utf-8") as handle:
+              for key, value in overrides.items():
+                  handle.write(f"{key}={value}\n")
+          PY
 
 
 
