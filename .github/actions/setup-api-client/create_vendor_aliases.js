@@ -14,10 +14,18 @@ const installDir = path.resolve(installDirArg);
 const pkgPath = path.join(installDir, 'package.json');
 
 if (!fs.existsSync(pkgPath)) {
+  console.info(`::notice::setup-api-client: ${pkgPath} not found; skipping vendored alias creation.`);
   process.exit(0);
 }
 
-const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+let pkg;
+try {
+  const pkgRaw = fs.readFileSync(pkgPath, 'utf8');
+  pkg = JSON.parse(pkgRaw);
+} catch (error) {
+  console.error(`::error::Failed to parse ${pkgPath}: ${error.message}`);
+  process.exit(1);
+}
 const sections = [pkg.dependencies || {}, pkg.devDependencies || {}];
 const seen = new Set();
 
@@ -78,6 +86,15 @@ const sanitize = (value) => {
   return segments.join('/');
 };
 
+const resolveInsideInstallDir = (target, label) => {
+  const resolved = path.resolve(target);
+  const relative = path.relative(installDir, resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Resolved vendored alias outside install dir: "${label}"`);
+  }
+  return resolved;
+};
+
 const created = [];
 for (const alias of seen) {
   const sanitized = sanitize(alias);
@@ -87,14 +104,14 @@ for (const alias of seen) {
     continue;
   }
   const destination = path.join(installDir, sanitized);
-  const normalizedDestination = path.normalize(destination);
-  if (!normalizedDestination.startsWith(installDir + path.sep)) {
-    throw new Error(`Resolved vendored alias outside install dir: "${sanitized}"`);
-  }
-  fs.rmSync(destination, { recursive: true, force: true });
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.cpSync(source, destination, { recursive: true });
+  const normalizedDestination = resolveInsideInstallDir(destination, sanitized);
+  const destinationDir = path.dirname(normalizedDestination);
+  fs.rmSync(normalizedDestination, { recursive: true, force: true });
+  fs.mkdirSync(destinationDir, { recursive: true });
+  fs.cpSync(source, normalizedDestination, { recursive: true });
   created.push(sanitized);
 }
 
-process.stdout.write(created.join('\n'));
+if (created.length > 0) {
+  process.stdout.write(`${created.join('\n')}\n`);
+}

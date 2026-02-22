@@ -104,22 +104,26 @@ runs:
             return 0
           fi
 
-          (
-            cd "$cleanup_dir" 2>/dev/null || exit 0
-            for vendored_alias in "${VENDORED_ALIAS_DIRS[@]}"; do
-              if [ -z "$vendored_alias" ]; then
-                continue
-              fi
-              rm -rf "$vendored_alias" || true
-              local parent_dir
-              parent_dir=$(dirname "$vendored_alias")
-              # Remove empty parent directories that may have been created for scoped packages
-              while [ "$parent_dir" != "." ] && [ "$parent_dir" != "/" ]; do
-                rmdir "$parent_dir" 2>/dev/null || break
-                parent_dir=$(dirname "$parent_dir")
-              done
+          if ! pushd "$cleanup_dir" >/dev/null 2>&1; then
+            echo "::warning::Failed to enter install dir \"$cleanup_dir\"; skipping vendored alias cleanup"
+            return 0
+          fi
+
+          for vendored_alias in "${VENDORED_ALIAS_DIRS[@]}"; do
+            if [ -z "$vendored_alias" ]; then
+              continue
+            fi
+            rm -rf -- "$vendored_alias" || true
+            local parent_dir
+            parent_dir=$(dirname "$vendored_alias")
+            # Remove empty parent directories that may have been created for scoped packages
+            while [ "$parent_dir" != "." ] && [ "$parent_dir" != "/" ]; do
+              rmdir -- "$parent_dir" 2>/dev/null || break
+              parent_dir=$(dirname "$parent_dir")
             done
-          )
+          done
+
+          popd >/dev/null 2>&1 || true
         }
 
         trap cleanup_vendor_aliases EXIT
@@ -143,7 +147,7 @@ runs:
           if node "$alias_helper" "$INSTALL_DIR" >"$alias_tmp"; then
             :
           else
-            echo "::warning::Failed to prepare vendored dependency aliases"
+            echo "::error::Failed to prepare vendored dependency aliases"
             rm -f "$alias_tmp"
             return 1
           fi
@@ -160,8 +164,9 @@ runs:
 
         create_vendor_aliases
 
-        # npm scripts for vendored packages can invoke missing tools (tshy, etc.).
-        # Disable lifecycle scripts globally for this step.
+        # Vendored packages often ship lifecycle scripts (tshy builds, custom bundlers, etc.)
+        # that expect repo-specific tooling. Disable lifecycle scripts globally so npm install
+        # never invokes those hooks inside CI.
         export npm_config_ignore_scripts=true
 
         # Track if we create package.json so we can clean it up
