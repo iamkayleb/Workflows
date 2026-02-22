@@ -28,7 +28,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-issue-optimizer.yml` | Removed the bespoke App-token mint; optimizer now relies on the shared API client for GH CLI access while keeping the analyze/apply/format flow unchanged. |
 | [x] | `agents-keepalive-branch-sync.yml` | Left intact—needs the App/PAT token selection to push merges into keepalive branches, but documented the behavior. |
 | [x] | `agents-keepalive-dispatch-handler.yml` | Left as-is; needs the explicit token selection to honor compat overrides when handling keepalive repository_dispatch events. |
-| [ ] | `agents-keepalive-loop-reporter.yml` | |
+| [x] | `agents-keepalive-loop-reporter.yml` | Removed the App-token mint; reporter only needs the shared API client to update keepalive summary comments. |
 | [ ] | `agents-keepalive-loop.yml` | |
 | [ ] | `agents-moderate-connector.yml` | |
 | [ ] | `agents-pr-meta-v4.yml` | |
