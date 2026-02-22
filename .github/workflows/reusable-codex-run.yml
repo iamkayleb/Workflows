@@ -280,13 +280,6 @@ jobs:
             scripts
           token: ${{ steps.auth_token.outputs.checkout_token }}
 
-      - name: Setup Workflows API client
-        uses: ./.github/actions/setup-api-client
-        with:
-          secrets: ${{ toJSON(secrets) }}
-          github_token: ${{ github.token }}
-          install_dir: ${{ github.workspace }}/.workflows-lib/.github/scripts
-
       - name: Ensure Workflows script deps
         run: |
           set -euo pipefail
@@ -351,6 +344,13 @@ jobs:
               @octokit/auth-app@6.0.3
             popd >/dev/null
           fi
+
+      - name: Setup Workflows API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+          install_dir: ${{ github.workspace }}/.workflows-lib/.github/scripts
 
       - name: Validate workflows tooling
         run: |
