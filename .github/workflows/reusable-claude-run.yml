@@ -262,6 +262,9 @@ jobs:
             scripts
           token: ${{ steps.auth_token.outputs.checkout_token }}
 
+      # Ensure Workflows deps BEFORE calling setup-api-client for .workflows-lib.
+      # setup-api-client invokes create_vendor_aliases.js + npm and will fail
+      # with ENOENT exit 254 if it runs first against a blobless-clone ghost dir.
       - name: Ensure Workflows script deps
         run: |
           set -euo pipefail
