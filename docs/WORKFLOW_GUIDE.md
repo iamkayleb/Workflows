@@ -111,7 +111,7 @@ _Inline Gate helper_
 - **`agents-moderate-connector.yml`** — Comment moderation workflow that filters connector-authored comments based on allow/deny lists.
 - **`agents-keepalive-branch-sync.yml`** — Dispatch-triggered utility that syncs PR branches with their base branch (merges base into head).
 - **`agents-keepalive-dispatch-handler.yml`** — Repository dispatch handler for keepalive events.
-- **`agents-debug-issue-event.yml`** — Debug workflow that dumps GitHub context on issue events (labeled, unlabeled, opened, reopened). Useful for troubleshooting label triggers.
+- **`agents-debug-issue-event.yml`** — Debug workflow that dumps GitHub context on issue events (labeled, unlabeled, opened, reopened). Useful for troubleshooting label triggers; it never mutates issues and simply echoes payload details for humans.
 
 ### Autofix
 - **`autofix.yml`** — CI Autofix Loop triggered on `pull_request` and `pull_request_target`. It now treats lint/format, Ruff, type-check (`mypy`), and pytest/test failures as “relevant,” automatically re-running when those jobs fail so most routine regressions are handled before humans see Gate noise. Commits still land directly on the PR branch via the shared token load balancer.

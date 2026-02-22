@@ -21,7 +21,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-belt-worker.yml` | Alias wrapper around the Codex worker; documented accordingly. |
 | [x] | `agents-bot-comment-handler.yml` | Workflow now auto-runs when trusted bots comment (plus existing triggers); documented the new behavior. |
 | [x] | `agents-capability-check.yml` | Still needed as the pre-agent guard; runs the LangChain capability classifier, posts a structured comment, and applies `needs-human` when tasks are blocked. |
-| [ ] | `agents-debug-issue-event.yml` | |
+| [x] | `agents-debug-issue-event.yml` | Kept as-is; purely dumps GitHub context for label debugging and doesn’t mutate issues. |
 | [ ] | `agents-decompose.yml` | |
 | [ ] | `agents-dedup.yml` | |
 | [ ] | `agents-guard.yml` | |
