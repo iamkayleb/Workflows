@@ -143,3 +143,7 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 ### `maint-dependabot-auto-label.yml`
 - **Purpose**: Adds `agents:allow-change` to Dependabot PRs so automation workflows can touch them.
 - **Notes (2026-02-22)**: Workflow is already minimal (pure `gh pr edit` with the default token); no changes required.
+
+### `maint-dependabot-auto-lock.yml`
+- **Purpose**: When Dependabot updates `pyproject.toml`, this job regenerates `requirements.lock` with `uv` and pushes the update back to the PR branch.
+- **Notes (2026-02-22)**: Process already uses the default token, a single checkout, and targeted `uv` commands—no adjustments needed this pass.

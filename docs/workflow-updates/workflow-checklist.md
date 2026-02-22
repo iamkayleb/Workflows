@@ -82,7 +82,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-auto-update-pypi-versions.yml` | Removed the App-token mint; workflow now relies on the default token for repo operations. |
 | [x] | `maint-coverage-guard.yml` | Removed rate-limit + guard job App-token mints; shared API client handles retries. |
 | [x] | `maint-dependabot-auto-label.yml` | Reviewed – already minimal (gh CLI adds label via default token). |
-| [ ] | `maint-dependabot-auto-lock.yml` | |
+| [x] | `maint-dependabot-auto-lock.yml` | Reviewed – regenerates requirements.lock via uv when Dependabot touches pyproject. |
 | [ ] | `maint-dependabot-weekly-sweep.yml` | |
 | [ ] | `maint-sync-action-versions.yml` | |
 | [ ] | `maint-sync-env-from-pyproject.yml` | |
