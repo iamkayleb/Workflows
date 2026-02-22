@@ -159,6 +159,8 @@ removals:
     description: "Remove deprecated issue intake workflow (replaced by agents-64/70)"
   - target: .workflows-lib
     description: "Remove deprecated workflows lib submodule"
+  - target: .github/workflows/maint-76-claude-code-review.yml
+    description: "Remove deprecated Claude code review workflow (replaced by agents autofix dispatch)"
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md
