@@ -38,7 +38,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [ ] | `agents-weekly-metrics.yml` | |
 | [ ] | `autofix.yml` | |
 | [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
-| [ ] | `health-40-sweep.yml` | |
+| [x] | `health-40-sweep.yml` | Keeps actionlint + guard coverage; manual runs can now skip guard to save API calls via `run_branch_protection=false`. |
 | [ ] | `health-41-repo-health.yml` | |
 | [ ] | `health-42-actionlint.yml` | |
 | [ ] | `health-43-ci-signature-guard.yml` | |

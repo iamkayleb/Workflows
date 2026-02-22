@@ -19,7 +19,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 ### `health-40-sweep.yml`
 - **Purpose**: Gatekeeper for workflow edits; fans out to actionlint (`health-42`) and branch-protection verification (`health-44`) when `.github/workflows/**` changes.
 - **Triggers**: Pull requests touching workflows, pushes to `main`, and a weekly cron at 05:05 UTC.
-- **Next steps**: None — the detection + fan-out path is working and already de-duplicates pr-only runs.
+- **Optimizations applied**: Added a `run_branch_protection` manual-dispatch input plus downstream gating so maintainers can skip the API-heavy branch guard leg when they only need to re-run actionlint. The detect job now parses the dispatch inputs once and reuses the flag across jobs, avoiding unnecessary workflow invocations and API calls on ad-hoc lint runs.
 
 ### `health-41-repo-health.yml`
 - **Purpose**: Monday sweep for stale branches/PRs with rate-limit awareness.
@@ -93,4 +93,3 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 ### `health-keepalive-e2e.yml`
 - **Purpose**: Validates keepalive orchestration logic and (optionally) executes a real Codex CLI ping when labeled with `e2e:codex-ping`.
 - **Next steps**: None — provides strong coverage for keepalive loop regression testing.
-
