@@ -78,7 +78,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-72-fix-pr-body-conflicts.yml` | Uses shared repo list + PAT detection; skips safely when no push token exists. |
 | [x] | `maint-73-refresh-reusable-tags.yml` | Deprecated; workflow now exits immediately with a notice instead of touching tags. |
 | [x] | `maint-74-ledger-base-sync.yml` | No longer mints an App token; relies on the default token + shared client. |
-| [ ] | `maint-80-langsmith-metrics-dashboard.yml` | |
+| [x] | `maint-80-langsmith-metrics-dashboard.yml` | Reviewed; no changes needed—the dashboard already aggregates autopilot artifacts + refreshes docs weekly. |
 | [ ] | `maint-auto-update-pypi-versions.yml` | |
 | [ ] | `maint-coverage-guard.yml` | |
 | [ ] | `maint-dependabot-auto-label.yml` | |

@@ -125,3 +125,7 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Runs `scripts/ledger_migrate_base.py` to realign `.agents` ledger base entries with the default branch and opens a helper PR when changes exist.
 - **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint; the workflow already uses the shared API client + default token for repo operations, so the extra mint was redundant.
 - **Next steps**: Include a summary of which ledgers changed to speed up PR reviews.
+
+### `maint-80-langsmith-metrics-dashboard.yml`
+- **Purpose**: Weekly/manual LangSmith trace coverage roll-up that scrapes recent `agents-auto-pilot` artifacts, aggregates metrics, uploads a combined report, and refreshes `docs/dashboards/langsmith-metrics.md`.
+- **Notes (2026-02-22)**: Workflow already scopes API usage to the default token + `gh` CLI, generates artifacts, and supports manual reruns. No code changes required during this pass; documentation captures current behavior for traceability.
