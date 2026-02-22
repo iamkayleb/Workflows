@@ -2,6 +2,11 @@ name: Health 40 Sweep
 
 on:
   workflow_dispatch:
+    inputs:
+      run_branch_protection:
+        description: 'Run branch-protection verification during manual sweeps'
+        type: boolean
+        default: true
   schedule:
     - cron: '5 5 * * 1'
   pull_request:
@@ -25,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       workflows: ${{ steps.result.outputs.workflows }}
+      run_branch_protection: ${{ steps.result.outputs.run_branch_protection || 'true' }}
     steps:
       - name: Detect workflow file changes
         id: filter
@@ -42,6 +48,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           FILTER_OUTCOME: ${{ steps.filter.outcome }}
           FILTER_WORKFLOWS: ${{ steps.filter.outputs.workflows }}
+          EVENT_INPUTS_JSON: ${{ toJSON(github.event.inputs) }}
         run: |
           set -euo pipefail
           note() {
@@ -65,6 +72,16 @@ jobs:
             echo "workflows=true" >> "$GITHUB_OUTPUT"
           fi
 
+          run_branch_protection="true"
+          inputs_json="${EVENT_INPUTS_JSON:-null}"
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${inputs_json}" != "null" ]; then
+            parsed=$(echo "${inputs_json}" | jq -r '.run_branch_protection // empty')
+            if [ -n "${parsed}" ]; then
+              run_branch_protection="${parsed}"
+            fi
+          fi
+          echo "run_branch_protection=${run_branch_protection}" >> "$GITHUB_OUTPUT"
+
   actionlint:
     name: workflow lint (maint-36)
     needs: detect
@@ -77,6 +94,6 @@ jobs:
   branch-protection-verify:
     name: branch protection sweep
     needs: detect
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && needs.detect.outputs.run_branch_protection != 'false'
     uses: ./.github/workflows/health-44-gate-branch-protection.yml
     secrets: inherit

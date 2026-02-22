@@ -167,18 +167,33 @@ jobs:
               .filter(Boolean);
 
             const timestamp = new Date().toISOString();
-            let defaultBranch = context.payload?.repository?.default_branch || '';
-            try {
-              const repoInfo = await withRetry(() => github.rest.repos.get({ owner, repo }));
-              defaultBranch = repoInfo.data.default_branch || defaultBranch;
-            } catch (error) {
-              const message =
-                'Failed to resolve default branch via GitHub API: ' +
-                `${error?.message || error}`;
-              core.warning(message);
-              if (!defaultBranch) {
-                defaultBranch = 'main';
+            const envDefaultBranch = (process.env.DEFAULT_BRANCH || '').trim();
+            let defaultBranch =
+              envDefaultBranch || context.payload?.repository?.default_branch || '';
+
+            if (!envDefaultBranch) {
+              try {
+                const repoInfo = await withRetry(() => github.rest.repos.get({ owner, repo }));
+                defaultBranch = repoInfo.data.default_branch || defaultBranch;
+              } catch (error) {
+                const message =
+                  'Failed to resolve default branch via GitHub API: ' +
+                  `${error?.message || error}`;
+                core.warning(message);
+                if (!defaultBranch) {
+                  defaultBranch = 'main';
+                }
               }
+            } else if (!defaultBranch) {
+              // Env var existed but empty; fall back to sane default without another API call.
+              defaultBranch = 'main';
+              core.warning(
+                'DEFAULT_BRANCH env variable was empty; falling back to main for branch probes.'
+              );
+            } else {
+              core.debug(
+                `Using default branch "${defaultBranch}" from DEFAULT_BRANCH env; skipping extra lookup.`
+              );
             }
 
             const missingLabels = [];

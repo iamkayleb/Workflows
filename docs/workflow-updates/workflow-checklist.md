@@ -37,25 +37,25 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [ ] | `agents-verify-to-new-pr.yml` | |
 | [ ] | `agents-weekly-metrics.yml` | |
 | [ ] | `autofix.yml` | |
-| [ ] | `health-40-repo-selfcheck.yml` | |
-| [ ] | `health-40-sweep.yml` | |
-| [ ] | `health-41-repo-health.yml` | |
-| [ ] | `health-42-actionlint.yml` | |
-| [ ] | `health-43-ci-signature-guard.yml` | |
-| [ ] | `health-44-gate-branch-protection.yml` | |
-| [ ] | `health-50-security-scan.yml` | |
-| [ ] | `health-67-integration-sync-check.yml` | |
-| [ ] | `health-68-consumer-sync-drift.yml` | |
-| [ ] | `health-70-validate-sync-manifest.yml` | |
-| [ ] | `health-71-sync-health-check.yml` | |
-| [ ] | `health-72-template-sync.yml` | |
-| [ ] | `health-73-template-completeness.yml` | |
-| [ ] | `health-74-template-drift.yml` | |
-| [ ] | `health-75-api-rate-diagnostic.yml` | |
-| [ ] | `health-claude-cli-auth-debug.yml` | |
-| [ ] | `health-codex-auth-check.yml` | |
-| [ ] | `health-keepalive-auth-diagnostic.yml` | |
-| [ ] | `health-keepalive-e2e.yml` | |
+| [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
+| [x] | `health-40-sweep.yml` | Keeps actionlint + guard coverage; manual runs can now skip guard to save API calls via `run_branch_protection=false`. |
+| [x] | `health-41-repo-health.yml` | Added manual inputs to skip branch/PR scans and fixed the env wiring so dispatch overrides no longer break scheduled runs. |
+| [x] | `health-42-actionlint.yml` | Removed unused GitHub App token mint so lint reruns skip an extra API call. |
+| [x] | `health-43-ci-signature-guard.yml` | Signature fixtures now verified without minting an extra GitHub App token each run. |
+| [x] | `health-44-gate-branch-protection.yml` | Removed redundant GitHub App token mint; enforcement already uses `BRANCH_PROTECTION_TOKEN`. |
+| [x] | `health-50-security-scan.yml` | Dropped redundant GitHub App token mint; CodeQL already uses PAT fallback chain. |
+| [x] | `health-67-integration-sync-check.yml` | Manual runs can toggle CI/version/input checks to avoid unnecessary clone/compare passes. |
+| [x] | `health-68-consumer-sync-drift.yml` | Shared helper now lists registered repos, removing inline parsing + easing reuse. |
+| [x] | `health-70-validate-sync-manifest.yml` | Switched to shared validator script (now emits summaries + reuse with Health 73). |
+| [x] | `health-71-sync-health-check.yml` | Shares the consumer repo helper + no longer mints an app token; only the needed checks run per dispatch knobs. |
+| [ ] | `health-72-template-sync.yml` | Review pending (no workflow updates landed yet). |
+| [x] | `health-73-template-completeness.yml` | Already uses the shared validator script; dropped the unused GitHub App token mint. |
+| [x] | `health-74-template-drift.yml` | Drift mapping now includes every agents workflow; still warning-only until residual drift is cleared. |
+| [x] | `health-75-api-rate-diagnostic.yml` | Hourly snapshots only; consumer repo scans + load-sharing/access probes now manual inputs to avoid constant PAT/app churn, and the alert job finally reads the correct summary keys. |
+| [x] | `health-claude-cli-auth-debug.yml` | Archived under `archives/diagnostics/` so the active health roster only contains automated monitors. |
+| [x] | `health-codex-auth-check.yml` | Removed the extra GitHub App token mint so the twice-daily expiry check only makes the issue list/create calls it actually needs. |
+| [x] | `health-keepalive-auth-diagnostic.yml` | Archived alongside the Claude CLI diagnostic so the health roster only tracks automated monitors; manual keepalive auth drills now live under `archives/diagnostics/`. |
+| [x] | `health-keepalive-e2e.yml` | Dropped the duplicate GitHub App token mints so orchestration-only runs stick to the default installation token while keeping the Codex ping path unchanged. |
 | [ ] | `maint-39-test-llm-providers.yml` | |
 | [ ] | `maint-45-cosmetic-repair.yml` | |
 | [ ] | `maint-46-post-ci.yml` | |

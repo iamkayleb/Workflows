@@ -19,6 +19,19 @@ on:
   schedule:
     - cron: '30 5 * * *'  # Daily at 5:30 UTC
   workflow_dispatch:
+    inputs:
+      run_ci_check:
+        description: 'Run the CI workflow structure comparison'
+        type: boolean
+        default: true
+      run_version_check:
+        description: 'Run the autofix-versions.env comparison'
+        type: boolean
+        default: true
+      run_input_check:
+        description: 'Run the CI input-parameter validation'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -35,6 +48,10 @@ jobs:
   check-sync:
     name: Validate Integration-Tests sync
     runs-on: ubuntu-latest
+    env:
+      RUN_CI_CHECK: 'true'
+      RUN_VERSION_CHECK: 'true'
+      RUN_INPUT_CHECK: 'true'
     steps:
       - name: Checkout Workflows repo
         uses: actions/checkout@v6
@@ -47,6 +64,45 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
 
+      - name: Apply workflow_dispatch overrides
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+
+          def normalize(value: str | None, default: str) -> str:
+              if value is None:
+                  return default
+              return 'false' if str(value).lower() == 'false' else 'true'
+
+          event_path = os.environ["GITHUB_EVENT_PATH"]
+          env_defaults = {
+              "RUN_CI_CHECK": os.environ.get("RUN_CI_CHECK", "true"),
+              "RUN_VERSION_CHECK": os.environ.get("RUN_VERSION_CHECK", "true"),
+              "RUN_INPUT_CHECK": os.environ.get("RUN_INPUT_CHECK", "true"),
+          }
+
+          with open(event_path, encoding="utf-8") as handle:
+              data = json.load(handle)
+
+          inputs = data.get("inputs") or {}
+          overrides = {
+              "RUN_CI_CHECK": normalize(inputs.get("run_ci_check"), env_defaults["RUN_CI_CHECK"]),
+              "RUN_VERSION_CHECK": normalize(
+                  inputs.get("run_version_check"), env_defaults["RUN_VERSION_CHECK"]
+              ),
+              "RUN_INPUT_CHECK": normalize(
+                  inputs.get("run_input_check"), env_defaults["RUN_INPUT_CHECK"]
+              ),
+          }
+
+          env_path = os.environ["GITHUB_ENV"]
+          with open(env_path, "a", encoding="utf-8") as handle:
+              for key, value in overrides.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+
 
 
       - name: Clone Integration-Tests repo
@@ -57,6 +113,7 @@ jobs:
 
       - name: Compare CI workflow structure
         id: compare-ci
+        if: env.RUN_CI_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -92,6 +149,7 @@ jobs:
 
       - name: Compare autofix-versions.env
         id: compare-versions
+        if: env.RUN_VERSION_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -131,6 +189,7 @@ jobs:
 
       - name: Compare input parameters used
         id: compare-inputs
+        if: env.RUN_INPUT_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -165,9 +224,9 @@ jobs:
         if: >-
           ${{
             failure() ||
-            steps.compare-ci.outputs.drift == 'true' ||
-            steps.compare-versions.outputs.drift == 'true' ||
-            steps.compare-inputs.outputs.drift == 'true'
+            (env.RUN_CI_CHECK != 'false' && steps.compare-ci.outputs.drift == 'true') ||
+            (env.RUN_VERSION_CHECK != 'false' && steps.compare-versions.outputs.drift == 'true') ||
+            (env.RUN_INPUT_CHECK != 'false' && steps.compare-inputs.outputs.drift == 'true')
           }}
         uses: actions/github-script@v8
         with:

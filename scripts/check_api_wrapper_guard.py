@@ -30,6 +30,8 @@ SKIP_FILES = {
     # Health/diagnostic workflows that intentionally test raw API auth
     ROOT / ".github" / "workflows" / "health-keepalive-auth-diagnostic.yml",
     ROOT / ".github" / "workflows" / "health-claude-cli-auth-debug.yml",
+    ROOT / "archives" / "diagnostics" / "health-keepalive-auth-diagnostic.yml",
+    ROOT / "archives" / "diagnostics" / "health-claude-cli-auth-debug.yml",
 }
 
 DIRECT_PATTERNS = [
