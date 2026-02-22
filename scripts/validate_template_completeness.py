@@ -56,7 +56,6 @@ WORKFLOWS_ONLY = {
 
 
 def parse_args() -> argparse.Namespace:
-def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Validate that workflows intended for consumers are in the template"
     )
