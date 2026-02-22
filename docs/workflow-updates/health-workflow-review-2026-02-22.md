@@ -94,7 +94,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 
 ### `health-keepalive-auth-diagnostic.yml`
 - **Purpose**: Manual runner that validates GitHub App PATs (WORKFLOWS_APP/KEEPALIVE_APP) and Claude auth secrets end-to-end.
-- **Recommendation**: Similar to the Claude CLI debug workflow, consider relocating it to a diagnostics folder so health workflows remain strictly automated monitors.
+- **Status (2026-02-22)**: Relocated to `archives/diagnostics/health-keepalive-auth-diagnostic.yml`; run it manually when troubleshooting keepalive auth, but keep it out of the automated health roster.
 
 ### `health-keepalive-e2e.yml`
 - **Purpose**: Validates keepalive orchestration logic and (optionally) executes a real Codex CLI ping when labeled with `e2e:codex-ping`.
