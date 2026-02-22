@@ -120,3 +120,8 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Purpose**: Formerly ensured floating `v*` tags stayed aligned with `main`; now deprecated because repos consume `@main` directly.
 - **Optimizations applied (2026-02-22)**: Replaced the full tag-refresh logic with a single skip step so the workflow exits immediately with a notice instead of minting tokens and running git commands.
 - **Next steps**: Remove the workflow entirely once all references are confirmed dead.
+
+### `maint-74-ledger-base-sync.yml`
+- **Purpose**: Runs `scripts/ledger_migrate_base.py` to realign `.agents` ledger base entries with the default branch and opens a helper PR when changes exist.
+- **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint; the workflow already uses the shared API client + default token for repo operations, so the extra mint was redundant.
+- **Next steps**: Include a summary of which ledgers changed to speed up PR reviews.
