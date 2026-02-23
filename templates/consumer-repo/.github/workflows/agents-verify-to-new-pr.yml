@@ -781,13 +781,20 @@ jobs:
         with:
           github-token: ${{ steps.select-token.outputs.token }}
           script: |
+            const fs = require('fs');
+            const helperPath = './.github/scripts/github-api-with-retry.js';
+            const retryHelpers = fs.existsSync(helperPath)
+              ? require(helperPath)
+              : { withRetry: (fn) => fn() };
+            const { withRetry } = retryHelpers;
+
             const issueNumber = process.env.ISSUE_NUMBER;
             if (!issueNumber) {
               core.setFailed('Missing issue number; cannot dispatch auto-pilot.');
               return;
             }
             const ref = process.env.DEFAULT_BRANCH || 'main';
-            await github.rest.actions.createWorkflowDispatch({
+            await withRetry((client) => (client || github).rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'agents-auto-pilot.yml',
@@ -796,7 +803,7 @@ jobs:
                 issue_number: String(issueNumber),
                 force_step: 'optimize'
               }
-            });
+            }));
             core.info(`Dispatched agents-auto-pilot for follow-up issue #${issueNumber}.`);
 
       - name: Comment on original PR

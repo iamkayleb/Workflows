@@ -106,9 +106,7 @@ workflows:
     description: "Verify to issue v2 - creates follow-up issues from verification feedback with LLM curation (Phase 4E; deprecated for agents-80-pr-event-hub.yml, removal no earlier than 2026-02-15)"
 
   - source: .github/workflows/agents-verify-to-new-pr.yml
-    description: "Verify to new PR - creates follow-up issue and triggers auto-pilot to prepare a new PR"
-
-    description: "Verify to new PR continuation - workflow_run bridge to auto-pilot after follow-up issue creation"
+    description: "Verify to new PR - creates follow-up issue and immediately dispatches auto-pilot to prepare a replacement PR (bridge inlined)"
 
   - source: .github/workflows/agents-auto-label.yml
     description: "Auto-label - suggests/applies labels based on semantic matching (Phase 5A)"
@@ -158,8 +156,8 @@ removals:
     description: "Remove deprecated issue intake workflow (replaced by agents-64/70)"
   - target: .workflows-lib
     description: "Remove deprecated workflows lib submodule"
-  - target: .github/workflows/maint-76-claude-code-review.yml
-    description: "Remove deprecated Claude code review workflow (replaced by agents autofix dispatch)"
+  - target: .github/workflows/agents-verify-to-new-pr-autopilot.yml
+    description: "Remove the retired verify-to-new-pr auto-pilot bridge (logic now lives in agents-verify-to-new-pr.yml)"
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md
