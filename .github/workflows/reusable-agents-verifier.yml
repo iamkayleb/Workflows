@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
+      - name: Mint GitHub App token
         id: app_token
         uses: actions/create-github-app-token@v2
         continue-on-error: true
@@ -101,7 +101,6 @@ jobs:
       - name: Checkout caller repository
         uses: actions/checkout@v6
         with:
-
           token: ${{ steps.app_token.outputs.token || github.token }}
           fetch-depth: 0
 
@@ -133,7 +132,6 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
-
           token: ${{ steps.app_token.outputs.token || github.token }}
           repository: stranske/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}

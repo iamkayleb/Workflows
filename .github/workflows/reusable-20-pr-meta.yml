@@ -109,16 +109,6 @@ jobs:
       agent_alias: ${{ steps.pre_gate.outputs.agent_alias }}
       head_sha: ${{ steps.pre_gate.outputs.head_sha }}
     steps:
-      # Mint GitHub App token early to use for checkouts (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token_dispatch
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       # Dual checkout pattern: consumer repo for context, Workflows repo for scripts
       - name: Checkout consumer repository
         uses: actions/checkout@v6
@@ -127,7 +117,6 @@ jobs:
           path: consumer
           token: >-
             ${{
-              steps.app_token_dispatch.outputs.token ||
               secrets.ACTIONS_BOT_PAT ||
               secrets.service_bot_pat ||
               github.token
@@ -198,7 +187,6 @@ jobs:
           fetch-depth: 1
           token: >-
             ${{
-              steps.app_token_dispatch.outputs.token ||
               secrets.ACTIONS_BOT_PAT ||
               secrets.service_bot_pat ||
               github.token
@@ -302,15 +290,6 @@ jobs:
       ACTIONS_BOT_PAT: ${{ secrets.ACTIONS_BOT_PAT || '' }}
       AGENTS_AUTOMATION_PAT: ${{ secrets.AGENTS_AUTOMATION_PAT || '' }}
     steps:
-      - name: Mint GitHub App Token
-        id: app_token_orchestrator
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
@@ -323,7 +302,6 @@ jobs:
           path: workflows-lib
           token: >-
             ${{
-              steps.app_token_orchestrator.outputs.token ||
               secrets.ACTIONS_BOT_PAT ||
               secrets.service_bot_pat ||
               github.token
@@ -341,14 +319,6 @@ jobs:
           github_token: ${{ github.token }}
           install_dir: ${{ github.workspace }}/workflows-lib/.github/scripts
 
-      - name: Mint GitHub App token (preferred)
-        id: app_token_orchestrator_preferred
-        continue-on-error: true
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
-
       - name: Run orchestrator
         uses: actions/github-script@v8
         env:
@@ -356,7 +326,6 @@ jobs:
         with:
           github-token: >-
             ${{
-              steps.app_token_orchestrator_preferred.outputs.token ||
               secrets.ACTIONS_BOT_PAT ||
               secrets.SERVICE_BOT_PAT ||
               secrets.AGENTS_AUTOMATION_PAT ||
@@ -398,15 +367,6 @@ jobs:
       dispatch: ${{ steps.detect.outputs.dispatch }}
       reason: ${{ steps.gate.outputs.reason }}
     steps:
-      - name: Mint GitHub App Token
-        id: app_token_from_gate
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
@@ -419,7 +379,6 @@ jobs:
           path: workflows-lib
           token: >-
             ${{
-              steps.app_token_from_gate.outputs.token ||
               secrets.ACTIONS_BOT_PAT ||
               secrets.service_bot_pat ||
               github.token
@@ -496,15 +455,6 @@ jobs:
             };
             await detectKeepalive({ core, github, context: detectionContext, env: process.env });
 
-      - name: Mint GitHub App token for gate orchestrator
-        id: app_token_gate
-        if: steps.gate.outputs.ok == 'true' && steps.detect.outputs.dispatch == 'true'
-        continue-on-error: true
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
-
       - name: Run orchestrator from gate
         if: steps.gate.outputs.ok == 'true' && steps.detect.outputs.dispatch == 'true'
         uses: actions/github-script@v8
@@ -516,7 +466,6 @@ jobs:
         with:
           github-token: >-
             ${{
-              steps.app_token_gate.outputs.token ||
               secrets.ACTIONS_BOT_PAT ||
               secrets.service_bot_pat ||
               secrets.AGENTS_AUTOMATION_PAT ||
@@ -575,15 +524,6 @@ jobs:
     runs-on: ubuntu-latest
     if: inputs.event_name == 'pull_request'
     steps:
-      - name: Mint GitHub App Token
-        id: app_token_body_update
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
@@ -596,7 +536,6 @@ jobs:
           path: workflows-lib
           token: >-
             ${{
-              steps.app_token_body_update.outputs.token ||
               secrets.ACTIONS_BOT_PAT ||
               secrets.service_bot_pat ||
               github.token

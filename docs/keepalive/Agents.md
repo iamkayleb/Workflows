@@ -1,6 +1,6 @@
 # Agents Guidance — Keepalive Changes
 
-Automation agents touching **any** keepalive code path must consult the following documents before making changes:
+Automation agents touching **any** keepalive code path must consult the following documents before making changes. Keepalive is **multi-agent** by design—Codex and Claude share the same orchestration surfaces—so every change must read from `.github/agents/registry.yml` (or `agent_registry.js`) instead of hard-coding provider-specific behavior.
 
 ## Required Reading
 
