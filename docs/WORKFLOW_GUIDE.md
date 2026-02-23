@@ -143,6 +143,7 @@ _Inline Gate helper_
 
 ### Reusable Composites
 - **`reusable-10-ci-python.yml`** — Python lint/type/test reusable invoked by Gate and downstream repositories.
+- **`reusable-11-ci-node.yml`** — Node lint/type/test reusable that powers JavaScript/TypeScript consumers (ESLint, Prettier, tsc, Jest/Vitest). Runs entirely within the repo using the default workflow token, so callers don’t burn extra API calls just to fetch sources.
 - **`reusable-12-ci-docker.yml`** — Docker smoke reusable invoked by Gate and external consumers.
 - **`reusable-16-agents.yml`** — Reusable agent automation stack.
 - **`reusable-18-autofix.yml`** — Autofix harness used by the Gate summary job.

@@ -89,7 +89,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `pr-00-gate.yml` | Still the required PR orchestrator; ledger-validation now inherits the doc-only fast-path so README-only PRs skip the Python boot/install cycle while full runs continue to guard `.agents/**` ledgers. |
 | [x] | `pr-11-ci-smoke.yml` | Keeps the YAML + scripts sanity checks on every push/PR, and now skips minting a GitHub App token since the job never leaves the repo (default token is enough). |
 | [ ] | `reusable-10-ci-python.yml` | |
-| [ ] | `reusable-11-ci-node.yml` | |
+| [x] | `reusable-11-ci-node.yml` | Node lint/type/test reusable stays the JS/TS CI entry point (ESLint, Prettier, tsc, Jest/Vitest) and now relies solely on the default workflow token since it never touches other repos. |
 | [ ] | `reusable-12-ci-docker.yml` | |
 | [ ] | `reusable-16-agents.yml` | |
 | [ ] | `reusable-18-autofix.yml` | |
