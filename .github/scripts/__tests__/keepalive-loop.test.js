@@ -419,6 +419,40 @@ test('evaluateKeepaliveLoop dispatches fix when gate fails with lint failures', 
   assert.equal(result.reason, 'fix-lint');
 });
 
+test('evaluateKeepaliveLoop bypasses gate fix after consecutive fix rounds exhausted', async () => {
+  const pr = {
+    number: 508,
+    head: { ref: 'feature/lint-bypass', sha: 'sha-lb' },
+    labels: [{ name: 'agent:codex' }],
+    body: '## Tasks\n- [ ] one\n## Acceptance Criteria\n- [ ] a',
+  };
+  // State shows 2 consecutive fix rounds already attempted
+  const stateComment = formatStateComment({
+    trace: '',
+    iteration: 3,
+    consecutive_fix_rounds: 2,
+  });
+  const comments = [
+    { id: 33, body: stateComment, html_url: 'https://example.com/33' },
+  ];
+  const github = buildGithubStub({
+    pr,
+    comments,
+    workflowRuns: [{ id: 2001, head_sha: 'sha-lb', conclusion: 'failure' }],
+  });
+  // Override to return lint failures
+  github.rest.actions.listJobsForWorkflowRun = async () => ({
+    data: { jobs: [{ name: 'lint (ruff)', status: 'completed', conclusion: 'failure' }] },
+  });
+  const result = await evaluateKeepaliveLoop({
+    github,
+    context: buildContext(pr.number),
+    core: buildCore(),
+  });
+  assert.equal(result.action, 'run', 'Should bypass gate fix and continue with tasks');
+  assert.equal(result.reason, 'bypass-fix-lint', 'Should report bypass reason');
+});
+
 test('evaluateKeepaliveLoop waits when gate is pending', async () => {
   const pr = {
     number: 507,

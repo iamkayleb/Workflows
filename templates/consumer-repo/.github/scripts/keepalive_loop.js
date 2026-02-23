@@ -2068,6 +2068,12 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
       ? prevCompleteGateFailureRounds + 1
       : 0;
 
+    // Track consecutive fix attempts.  After fixAttemptMax rounds of trying
+    // to fix the same gate failure, bypass the gate and continue with tasks.
+    // This prevents lint/type-check/test failures from blocking all progress.
+    const fixAttemptMax = 2;
+    const consecutiveFixRounds = toNumber(state.consecutive_fix_rounds, 0);
+
     // Progress review threshold: trigger after N rounds of activity without task completion
     // This catches "productive but unfocused" patterns where agent makes changes but doesn't advance criteria
     // Default is 4 rounds - enough leeway for prep work but early enough for course correction
@@ -2172,7 +2178,14 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
       } else {
         // Gate failed - check if failure is rate-limit related vs code quality
         const gateFailure = await classifyGateFailure({ github, context, pr, core });
-        if (gateFailure.shouldFixMode && gateNormalized === 'failure') {
+        if (gateFailure.shouldFixMode && gateNormalized === 'failure' && consecutiveFixRounds >= fixAttemptMax && tasksRemaining) {
+          // Already tried to fix this gate failure type — continue with tasks.
+          // The gate failure can be addressed later or by a future iteration
+          // that incidentally resolves it.
+          action = 'run';
+          reason = `bypass-fix-${gateFailure.failureType}`;
+          if (core) core.info(`Bypassing gate fix after ${consecutiveFixRounds} consecutive fix rounds — continuing with tasks.`);
+        } else if (gateFailure.shouldFixMode && gateNormalized === 'failure') {
           action = 'fix';
           reason = `fix-${gateFailure.failureType}`;
         } else if (forceRetry && tasksRemaining) {
@@ -2633,6 +2646,13 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       allTasksComplete && gateConclusion && gateConclusion !== 'success'
         ? previousCompleteGateFailureRounds + 1
         : 0;
+    // Track consecutive fix rounds: increment when action is 'fix', reset otherwise.
+    // evaluateKeepaliveLoop reads this to bypass gate failures after N fix attempts.
+    const previousFixRounds = toNumber(previousState?.consecutive_fix_rounds, 0);
+    const consecutiveFixRounds = action === 'fix'
+      ? previousFixRounds + 1
+      : 0;
+
     const previousZeroActivityRounds = toNumber(previousState?.consecutive_zero_activity_rounds, 0);
     const previousTasksTotal = toNumber(previousTasks.total, tasksTotal);
     const previousTasksUnchecked = toNumber(previousTasks.unchecked, tasksUnchecked);
@@ -3095,6 +3115,8 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       consecutive_zero_activity_rounds: consecutiveZeroActivityRounds,
       complete_gate_failure_rounds: completeGateFailureRounds,
       complete_gate_failure_rounds_max: completeGateFailureMax,
+      // Track consecutive fix attempts so evaluate can bypass after threshold
+      consecutive_fix_rounds: consecutiveFixRounds,
       // Quality metrics for analysis validation
       last_effort_score: sessionEffortScore,
       last_data_quality: sessionDataQuality,
