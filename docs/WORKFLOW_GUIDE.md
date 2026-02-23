@@ -149,6 +149,7 @@ _Inline Gate helper_
 - **`reusable-18-autofix.yml`** — Autofix harness used by the Gate summary job: determines auth path (App token → Service bot PAT → default token), applies formatter fixes directly for same-repo branches, uploads patches when pushes aren’t allowed, and records mode/delivery metadata so callers know whether changes landed or a patch artifact was produced.
 - **`reusable-20-pr-meta.yml`** — PR metadata/keepalive reusable for consumer repos. Dual-checks out the consumer repo + Workflows scripts, detects keepalive activations from comments/Gate runs, updates PR body sections, and dispatches the keepalive orchestrator using the provided PATs/default token (no App mint required).
 - **`reusable-agents-issue-bridge.yml`** — Shared issue→PR bridge used by `agents-63-issue-intake.yml`; reads `.github/agents/registry.yml` to honor each agent’s branch prefix + assignee list, applies invite/create modes, and now relies solely on the shared token chain (service bot / owner PAT / default token) without minting extra App tokens.
+- **`reusable-agents-verifier.yml`** — Post-merge verifier reusable that waits for CI, builds PR context, runs checkbox/evaluate/compare modes via the agent verifier stack, and opens follow-up issues when acceptance criteria fail. Uses the caller’s token + provided LLM secrets; no GitHub App mint required.
 
 ### Self-tests
 - **`selftest-reusable-ci.yml`** — Manual entry point that houses the verification matrix and comment/summary/dual-runtime publication logic.

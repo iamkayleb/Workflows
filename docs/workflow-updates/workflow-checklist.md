@@ -97,7 +97,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [ ] | `reusable-70-orchestrator-init.yml` | |
 | [ ] | `reusable-70-orchestrator-main.yml` | |
 | [x] | `reusable-agents-issue-bridge.yml` | Multi-agent issue → PR bridge already reads the agent registry; removed the unused GitHub App token mint so it runs on the provided PAT/default token chain only. |
-| [ ] | `reusable-agents-verifier.yml` | |
+| [x] | `reusable-agents-verifier.yml` | Verifier reusable already handles CI wait + checkbox/evaluate/compare modes; dropped the unused GitHub App token mint so it runs on the caller’s default token/PATs only. |
 | [ ] | `reusable-bot-comment-handler.yml` | |
 | [ ] | `reusable-claude-run.yml` | |
 | [ ] | `reusable-codex-run.yml` | |
