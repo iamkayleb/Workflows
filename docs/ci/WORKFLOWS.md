@@ -153,8 +153,7 @@ The agent workflows coordinate Codex and chat orchestration across topics:
 * [`agents-capability-check.yml`](../../.github/workflows/agents-capability-check.yml) performs pre-flight checks before agent assignment to identify blockers like ambiguous scope or missing context.
 * [`agents-decompose.yml`](../../.github/workflows/agents-decompose.yml) decomposes large issues into actionable sub-tasks using LLM analysis.
 * [`agents-dedup.yml`](../../.github/workflows/agents-dedup.yml) detects duplicate issues using semantic similarity analysis and posts findings as a comment.
-* [`agents-verify-to-issue.yml`](../../.github/workflows/agents-verify-to-issue.yml) creates follow-up issues from verification feedback when PRs receive CONCERNS or FAIL verdicts.
-* [`agents-verify-to-issue-v2.yml`](../../.github/workflows/agents-verify-to-issue-v2.yml) enhanced follow-up issue creation using LangChain LLM for multi-round analysis (deployed as `agents-verify-to-issue.yml` to consumers).
+* [`agents-verify-to-issue-v2.yml`](../../.github/workflows/agents-verify-to-issue-v2.yml) creates follow-up issues from verification feedback when PRs receive CONCERNS or FAIL verdicts using the enhanced LangChain analyzer. (Legacy `agents-verify-to-issue.yml` has been removed.)
 * [`agents-verify-to-new-pr.yml`](../../.github/workflows/agents-verify-to-new-pr.yml) creates a follow-up issue from verification feedback and emits metadata to kick off a new PR.
 * [`agents-verify-to-new-pr-autopilot.yml`](../../.github/workflows/agents-verify-to-new-pr-autopilot.yml) bridges the follow-up issue into auto-pilot via `workflow_run` to continue optimize → apply → agent → PR creation.
 * [`maint-dependabot-auto-label.yml`](../../.github/workflows/maint-dependabot-auto-label.yml) automatically applies the `agents:allow-change` label to Dependabot PRs.

@@ -294,7 +294,7 @@ These labels trigger the post-merge verifier workflow on a merged PR.
 
 **Use Case:** User-triggered creation of follow-up work from verification feedback. Replaces automatic issue creation which was too aggressive.
 
-**Workflow:** `agents-verify-to-issue.yml`
+**Workflow:** `agents-verify-to-issue-v2.yml`
 
 ---
 
@@ -365,7 +365,7 @@ These labels are used for categorization but do not trigger workflows.
 
 **Effect:** Indicates this issue was created as follow-up to another issue or PR.
 
-**Applied by:** `agents-verify-to-issue.yml` workflow
+**Applied by:** `agents-verify-to-issue-v2.yml` workflow
 
 ---
 
