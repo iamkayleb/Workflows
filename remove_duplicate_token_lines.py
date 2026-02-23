@@ -3,7 +3,6 @@ import re
 
 files = [
     "agents-capability-check.yml",
-    "agents-verify-to-new-pr-autopilot.yml",
     "health-40-repo-selfcheck.yml",
     "health-41-repo-health.yml",
     "health-43-ci-signature-guard.yml",

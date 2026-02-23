@@ -108,7 +108,6 @@ workflows:
   - source: .github/workflows/agents-verify-to-new-pr.yml
     description: "Verify to new PR - creates follow-up issue and triggers auto-pilot to prepare a new PR"
 
-  - source: .github/workflows/agents-verify-to-new-pr-autopilot.yml
     description: "Verify to new PR continuation - workflow_run bridge to auto-pilot after follow-up issue creation"
 
   - source: .github/workflows/agents-auto-label.yml

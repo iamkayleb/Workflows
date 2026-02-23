@@ -34,8 +34,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-pr-meta-v4.yml` | Still required until the consolidated orchestrator lands; handles @agent/Gate activations, dispatch summaries, and keepalive re-dispatch with the expected token chain. |
 | [x] | `agents-verifier.yml` | Removed the redundant App-token mint; verifier already uses the shared API client to guard merged PRs and trigger checkbox/evaluate/compare modes. |
 | [x] | `agents-verify-to-issue-v2.yml` | Still needed for convert-verify→issue flow; documented behavior with existing PAT/App token chain for opening follow-up issues. |
-| [x] | `agents-verify-to-new-pr-autopilot.yml` | Still needed to auto-dispatch agents-auto-pilot after the “Create New PR from Verification” workflow succeeds; documented behavior. |
-| [x] | `agents-verify-to-new-pr.yml` | Still owns the verify:create-new-pr flow (issue creation + artifact + auto-pilot dispatch); documented behavior. |
+| [x] | `agents-verify-to-new-pr.yml` | Handles verify:create-new-pr end-to-end; now dispatches agents-auto-pilot directly so no bridge workflow is required. |
 | [x] | `agents-weekly-metrics.yml` | Removed the redundant App-token mint; weekly metrics now uses the shared API client/installation token to download artifacts and update the tracking issue. |
 | [x] | `autofix.yml` | CI autofix now treats lint/format/Ruff/mypy/pytest failures as relevant so it auto-reruns before humans intervene. |
 | [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
