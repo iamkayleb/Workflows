@@ -166,7 +166,10 @@ runs:
 
         # Strip unresolvable file: dependencies from package.json so npm install
         # doesn't choke when vendored packages are missing (e.g. sparse checkout
-        # that doesn't include node_modules/).
+        # that doesn't include node_modules/).  Back up the original first so we
+        # can restore it after npm install — avoids leaking modified state into
+        # downstream steps that expect a clean workspace.
+        STRIPPED_PKG_JSON=false
         if [ -f "package.json" ]; then
           node -e '
             const fs = require("fs");
@@ -191,9 +194,14 @@ runs:
               }
             }
             if (changed) {
+              fs.copyFileSync("package.json", "package.json.bak");
               fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+              process.stdout.write("STRIPPED");
             }
           '
+          if [ -f "package.json.bak" ]; then
+            STRIPPED_PKG_JSON=true
+          fi
         fi
 
         # Vendored packages often ship lifecycle scripts (tshy builds, custom bundlers, etc.)
@@ -270,6 +278,12 @@ runs:
           fi
 
           echo "✅ @octokit dependencies installed"
+        fi
+
+        # Restore original package.json if we stripped file: deps earlier,
+        # so downstream steps see an unmodified workspace.
+        if [ "$STRIPPED_PKG_JSON" = "true" ] && [ -f "package.json.bak" ]; then
+          mv "package.json.bak" "package.json"
         fi
 
         cleanup_vendor_aliases
