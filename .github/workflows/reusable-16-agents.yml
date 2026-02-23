@@ -40,6 +40,11 @@ on:
         required: false
         default: ''
         type: string
+      preflight_overrides_json:
+        description: 'JSON map of per-agent overrides for preflight ({"codex":{"assign_user":"bot","command_phrase":"/ping"}})'
+        required: false
+        default: '{}'
+        type: string
       enable_diagnostic:
         description: 'Run bootstrap diagnostic job (true/false)'
         required: false
@@ -356,7 +361,7 @@ jobs:
 
   preflight:
     if: inputs.enable_preflight == 'true'
-    name: Codex Preflight
+    name: Agent Preflight
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -365,9 +370,11 @@ jobs:
         with:
           sparse-checkout: |
             .github/scripts/github-api-with-retry.js
+            .github/scripts/agent_registry.js
             .github/actions/setup-api-client
             .github/scripts/github-rate-limited-wrapper.js
             .github/scripts/token_load_balancer.js
+            .github/agents/registry.yml
           sparse-checkout-cone-mode: false
 
       - name: Setup API client
@@ -376,9 +383,11 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
 
-      - name: Preflight probe
+      - name: Run agent preflight probes
+        id: agent_preflight
         uses: actions/github-script@v8
         env:
+          PREFLIGHT_OVERRIDES: ${{ inputs.preflight_overrides_json }}
           CODEX_USER: ${{ inputs.codex_user }}
           CODEX_COMMAND: ${{ inputs.codex_command_phrase }}
         with:
@@ -394,55 +403,163 @@ jobs:
                     githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
-              const user = (process.env.CODEX_USER || '').trim();
-              const command = (process.env.CODEX_COMMAND || '').trim();
-              if (!user) {
-                core.warning('No CODEX_USER provided');
-                return;
+            const { getAgentPreflightConfigs } = require('./.github/scripts/agent_registry.js');
+
+            let overrides = {};
+            try {
+              overrides = JSON.parse(process.env.PREFLIGHT_OVERRIDES || '{}');
+            } catch (error) {
+              core.warning(`Failed to parse preflight_overrides_json: ${error?.message || error}`);
+            }
+            const codexUser = (process.env.CODEX_USER || '').trim();
+            if (codexUser) {
+              overrides.codex = {
+                ...(overrides.codex || {}),
+                assign_user: codexUser,
+              };
+              const codexCmd = (process.env.CODEX_COMMAND || '').trim();
+              if (codexCmd) {
+                overrides.codex.command_phrase = codexCmd;
+              }
+            }
+
+            const configs = getAgentPreflightConfigs();
+            if (!configs.length) {
+              core.warning('No agents with preflight configuration were found in the registry.');
+            }
+
+            const results = [];
+            for (const entry of configs) {
+              const override = overrides[entry.key] || {};
+              const assignUser =
+                (override.assign_user || override.user || entry.assign_user || '').trim();
+              const commandPhrase =
+                (override.command_phrase || override.command || entry.command_phrase || '').trim();
+
+              if (!assignUser) {
+                results.push({
+                  key: entry.key,
+                  user: '',
+                  status: 'skipped',
+                  reason: 'missing-assign-user',
+                  command_sent: false,
+                });
+                continue;
               }
 
-              const { data: issue } = await withRetry(() =>
-                github.rest.issues.create({
-                  owner,
-                  repo,
-                  title: '[probe] codex-assignability',
-                  body: 'temp',
-                }),
-              );
+              const title = `[probe] ${entry.key}-assignability`;
+              let issueNumber = null;
+              let assignable = false;
+              let errorMessage = '';
+              let commentSent = false;
+
+              try {
+                const { data: issue } = await withRetry(() =>
+                  github.rest.issues.create({
+                    owner,
+                    repo,
+                    title,
+                    body: 'temp',
+                  }),
+                );
+                issueNumber = issue.number;
+              } catch (createError) {
+                errorMessage = createError?.message || String(createError);
+                results.push({
+                  key: entry.key,
+                  user: assignUser,
+                  status: 'error',
+                  error: errorMessage,
+                  command_sent: false,
+                });
+                continue;
+              }
 
               try {
                 await withRetry(() =>
                   github.rest.issues.addAssignees({
                     owner,
                     repo,
-                    issue_number: issue.number,
-                    assignees: [user],
+                    issue_number: issueNumber,
+                    assignees: [assignUser],
                   }),
                 );
-                core.info('Assignable');
-              } catch (error) {
-                core.warning(`Not assignable: ${error?.message || error}`);
+                assignable = true;
+              } catch (assignError) {
+                errorMessage = assignError?.message || String(assignError);
+                core.warning(
+                  `Agent ${entry.key} (${assignUser}) not assignable: ${errorMessage}`,
+                );
               }
 
-              if (command) {
+              if (commandPhrase) {
+                try {
+                  await withRetry(() =>
+                    github.rest.issues.createComment({
+                      owner,
+                      repo,
+                      issue_number: issueNumber,
+                      body: commandPhrase,
+                    }),
+                  );
+                  commentSent = true;
+                } catch (commentError) {
+                  core.warning(
+                    `Failed to post command for ${entry.key}: ${commentError?.message || commentError}`,
+                  );
+                }
+              }
+
+              try {
                 await withRetry(() =>
-                  github.rest.issues.createComment({
+                  github.rest.issues.update({
                     owner,
                     repo,
-                    issue_number: issue.number,
-                    body: command,
+                    issue_number: issueNumber,
+                    state: 'closed',
                   }),
+                );
+              } catch (closeError) {
+                core.warning(
+                  `Failed to close probe issue for ${entry.key}: ${closeError?.message || closeError}`,
                 );
               }
 
-              await withRetry(() =>
-                github.rest.issues.update({
-                  owner,
-                  repo,
-                  issue_number: issue.number,
-                  state: 'closed',
-                }),
-              );
+              results.push({
+                key: entry.key,
+                user: assignUser,
+                status: assignable ? 'assignable' : 'unassignable',
+                error: assignable ? '' : errorMessage,
+                command_sent: commentSent,
+              });
+            }
+
+            const header = '| Agent | Assignable | User | Command Sent | Notes |';
+            const sep = '|---|---|---|---|---|';
+            const rows = results.map((row) => {
+              const ok = row.status === 'assignable' ? '✅' : row.status === 'skipped' ? '—' : '';
+              const note = row.error || row.reason || '';
+              return `| ${row.key} | ${ok || row.status} | ${row.user || ''} | ${
+                row.command_sent ? 'yes' : ''
+              } | ${note} |`;
+            });
+            const table = [header, sep, ...rows].join('\n');
+            core.setOutput('json', JSON.stringify(results));
+            core.setOutput('table', table);
+            if (!results.length) {
+              core.warning('No preflight probes executed.');
+            }
+      - name: Summarize preflight probes
+        if: always()
+        run: |
+          {
+            printf '### Agent Preflight Report\n\n'
+            if [ -n "${{ steps.agent_preflight.outputs.table }}" ]; then
+              printf '%s\n\n' "${{ steps.agent_preflight.outputs.table }}"
+            else
+              printf '_No preflight data available_\n\n'
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
 
   diagnostic:
     if: inputs.enable_diagnostic == 'true'
