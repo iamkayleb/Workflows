@@ -128,6 +128,7 @@ Start with:
 - `docs/INTEGRATION_GUIDE.md`
 - `docs/ci-workflow.md`
 - `docs/keepalive/SETUP_CHECKLIST.md`
+- `docs/guides/ADD_NEW_AGENT.md` — Checklist for onboarding new automation agents
 - `docs/analysis/verify-compare-40pr-evaluation-feb-2026.md` - Verify:compare pipeline evaluation (Feb 2026)
 
 ## Getting Started

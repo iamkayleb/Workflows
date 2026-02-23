@@ -233,6 +233,7 @@ This is **working as designed**. If a PR with `agent:codex` isn't progressing, t
 - `docs/keepalive/GoalsAndPlumbing.md` - **Canonical contract** (READ THIS FIRST)
 - `docs/keepalive/MULTI_AGENT_ROUTING.md` - Agent routing architecture
 - `docs/keepalive/Agents.md` - Required reading before keepalive changes
+- `docs/guides/ADD_NEW_AGENT.md` - Step-by-step guide for onboarding additional agents (tokens, registry, runner wiring)
 
 ## Auto-Pilot Pipeline (`agents-auto-pilot.yml`)
 
@@ -906,4 +907,3 @@ When changing rate limiting behavior:
 | Token not available | Not exported by setup-api-client | Add to action inputs |
 | Registry empty | Secrets not passed to action | Use `secrets: ${{ toJSON(secrets) }}` |
 | Rate limit despite tokens | Wrong token for exclusive task | Check TOKEN_SPECIALIZATIONS |
-
