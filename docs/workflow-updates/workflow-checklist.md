@@ -34,7 +34,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-pr-meta-v4.yml` | Still required until the consolidated orchestrator lands; handles @agent/Gate activations, dispatch summaries, and keepalive re-dispatch with the expected token chain. |
 | [x] | `agents-verifier.yml` | Removed the redundant App-token mint; verifier already uses the shared API client to guard merged PRs and trigger checkbox/evaluate/compare modes. |
 | [x] | `agents-verify-to-issue-v2.yml` | Still needed for convert-verify→issue flow; documented behavior with existing PAT/App token chain for opening follow-up issues. |
-| [ ] | `agents-verify-to-issue.yml` | |
+| [x] | `agents-verify-to-issue.yml` | Legacy stub is disabled (`if: false`); kept only to avoid breaking old references, documented as such. |
 | [ ] | `agents-verify-to-new-pr-autopilot.yml` | |
 | [ ] | `agents-verify-to-new-pr.yml` | |
 | [ ] | `agents-weekly-metrics.yml` | |
