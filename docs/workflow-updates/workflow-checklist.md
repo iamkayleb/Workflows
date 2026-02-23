@@ -98,9 +98,9 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `reusable-70-orchestrator-main.yml` | Runs the orchestrator stages (keepalive gate, readiness, bootstrap, keepalive, etc.) using the init outputs; App token mint is still required when PATs are absent because keepalive writes must run as `agents-workflows-bot`. |
 | [x] | `reusable-agents-issue-bridge.yml` | Multi-agent issue → PR bridge already reads the agent registry; removed the unused GitHub App token mint so it runs on the provided PAT/default token chain only. |
 | [x] | `reusable-agents-verifier.yml` | Verifier reusable already handles CI wait + checkbox/evaluate/compare modes; dropped the unused GitHub App token mint so it runs on the caller’s default token/PATs only. |
-| [ ] | `reusable-bot-comment-handler.yml` | |
+| [x] | `reusable-bot-comment-handler.yml` | Multi-agent bot comment resolver; still needs the optional App token mint for consumer installs, so no changes required beyond documentation. |
 | [ ] | `reusable-claude-run.yml` | |
-| [ ] | `reusable-codex-run.yml` | |
+| [x] | `reusable-codex-run.yml` | Codex runner keeps the App-token-first auth chain so it can push commits when available; falls back to read-only runs with `GITHUB_TOKEN`, so no YAML edits were needed. |
 | [ ] | `reusable-pr-context.yml` | |
 | [ ] | `selftest-ci.yml` | |
 | [ ] | `selftest-reusable-ci.yml` | |
