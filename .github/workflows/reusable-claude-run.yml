@@ -893,7 +893,8 @@ jobs:
           echo "Git status after Claude run:"
           git status --short || true
           echo "Unpushed commits (if any):"
-          diag_branch="${PR_REF#refs/heads/}"
+          diag_branch="${PR_REF:-}"
+          diag_branch="${diag_branch#refs/heads/}"
           git log --oneline "origin/${diag_branch:-HEAD}"..HEAD 2>/dev/null || \
             git log --oneline -5 2>/dev/null || true
           echo "::endgroup::"
@@ -1115,6 +1116,17 @@ jobs:
           done
           echo "::error::Failed to push after 3 attempts."
           exit 1
+
+      - name: Upload Claude output
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: claude-output-${{ inputs.pr_number || github.run_id }}
+          path: |
+            claude-output*.md
+            claude-session*.jsonl
+            claude-analysis*.json
+          if-no-files-found: ignore
 
       - name: Compatibility outputs (LLM analysis placeholders)
         id: compat
