@@ -7,7 +7,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-64-verify-agent-assignment.yml` | Still useful for belt/orchestrator sanity checks; removed the unused GitHub App token mint so it relies solely on the shared token-balanced client. |
 | [x] | `agents-70-orchestrator.yml` | Still required; delegates to the reusable init/main stack and just sequences cron/manual dispatch without extra token churn. |
 | [x] | `agents-71-codex-belt-dispatcher.yml` | Keeps GitHub App → PAT → `GITHUB_TOKEN` precedence, dry-run controls, and per-agent concurrency intact—no workflow edits needed. |
-| [ ] | `agents-72-codex-belt-worker-dispatch.yml` | |
+| [x] | `agents-72-codex-belt-worker-dispatch.yml` | Wrapper that forwards workflow_dispatch inputs to the belt worker; documented behavior (no YAML change needed). |
 | [x] | `agents-72-codex-belt-worker.yml` | Worker already re-validates labels, enforces token fallback order, guards concurrency, and exposes dry-run flags. |
 | [x] | `agents-73-codex-belt-conveyor.yml` | Conveyor already checks Gate status, blocks bootstrap-only placeholders, mirrors token/dry-run protections, and re-dispatches the queue. |
 | [x] | `agents-auto-label.yml` | Still the LangChain-based labeler; removed the redundant App mint so it runs entirely on the shared API client. |
