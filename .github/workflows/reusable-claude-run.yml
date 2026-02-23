@@ -859,18 +859,44 @@ jobs:
             perm_flag=("--dangerously-skip-permissions")
           fi
 
+          # Use PR-specific session JSONL filename (mirrors Codex runner pattern)
+          if [ -n "${PR_NUMBER:-}" ]; then
+            SESSION_JSONL="claude-session-${PR_NUMBER}.jsonl"
+          else
+            SESSION_JSONL="claude-session.jsonl"
+          fi
+
+          echo "Running Claude Code in agentic mode..."
+          echo "Prompt file: $PROMPT_FILE"
+          echo "Output file: $output_file"
+          echo "Session log: $SESSION_JSONL"
+
+          # Build the command.  claude -p (--print) runs in non-interactive
+          # agentic mode: tools execute on disk and the final text response
+          # goes to stdout.  --output-format stream-json writes structured
+          # JSONL events (including tool calls) to stdout so we can capture
+          # them for debugging, while --output-file captures the final
+          # human-readable response separately.
           set +e
-          claude -p "$prompt_content" "${perm_flag[@]}" "${extra_args[@]}" >"$output_file" 2>&1
+          claude -p "$prompt_content" \
+            "${perm_flag[@]}" \
+            "${extra_args[@]}" \
+            --output-format stream-json \
+            --output-file "$output_file" \
+            > "$SESSION_JSONL" 2>&1
           status=$?
-          if [ $status -ne 0 ]; then
-            claude --prompt "$prompt_content" "${perm_flag[@]}" "${extra_args[@]}" >"$output_file" 2>&1
-            status=$?
-          fi
-          if [ $status -ne 0 ]; then
-            printf '%s' "$prompt_content" | claude "${perm_flag[@]}" "${extra_args[@]}" >"$output_file" 2>&1
-            status=$?
-          fi
           set -e
+
+          # Diagnostic: show what Claude did to the workspace
+          echo "::group::Post-Claude workspace diagnostics"
+          echo "Claude exit code: $status"
+          echo "Git status after Claude run:"
+          git status --short || true
+          echo "Unpushed commits (if any):"
+          diag_branch="${PR_REF#refs/heads/}"
+          git log --oneline "origin/${diag_branch:-HEAD}"..HEAD 2>/dev/null || \
+            git log --oneline -5 2>/dev/null || true
+          echo "::endgroup::"
 
           output=""
           if [ -f "$output_file" ]; then
@@ -909,15 +935,70 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "$(git status --porcelain)" ]; then
+          REMOTE_URL="https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          target_branch="${PR_REF:-$(git rev-parse --abbrev-ref HEAD)}"
+          target_branch="${target_branch#refs/heads/}"
+
+          # Count uncommitted changes
+          CHANGED_FILES=$(git status --porcelain | wc -l | tr -d ' ')
+          echo "files-changed=${CHANGED_FILES}" >> "$GITHUB_OUTPUT"
+
+          if [ "$CHANGED_FILES" -eq 0 ]; then
+            echo "No uncommitted changes."
+            # Claude Code in agentic mode (--dangerously-skip-permissions) can
+            # create its own git commits via the Bash tool.  Check for unpushed
+            # commits that need pushing — mirrors the Codex runner pattern.
+            git fetch "$REMOTE_URL" "$target_branch" 2>/dev/null || true
+
+            UNPUSHED_COMMITS=0
+            if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+              UNPUSHED_COMMITS=$(git rev-list FETCH_HEAD..HEAD --count 2>/dev/null || echo "0")
+            else
+              # Remote branch doesn't exist yet — all local commits are unpushed
+              UNPUSHED_COMMITS=$(git rev-list HEAD --count 2>/dev/null || echo "0")
+            fi
+
+            if [ "$UNPUSHED_COMMITS" -gt 0 ]; then
+              echo "Found ${UNPUSHED_COMMITS} unpushed commit(s) from Claude — pushing them."
+              COMMIT_SHA=$(git rev-parse HEAD)
+              echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+              echo "changes-made=true" >> "$GITHUB_OUTPUT"
+              # Count files changed across unpushed commits so keepalive
+              # does not treat this as a zero-activity round.
+              if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+                AGENT_FILES=$(git diff --name-only FETCH_HEAD..HEAD | wc -l | tr -d ' ')
+              else
+                AGENT_FILES=$(git diff --name-only HEAD~"${UNPUSHED_COMMITS}"..HEAD 2>/dev/null | wc -l | tr -d ' ' || echo "1")
+              fi
+              echo "files-changed=${AGENT_FILES:-1}" >> "$GITHUB_OUTPUT"
+              if [ "$PUSH_ALLOWED" != "true" ] || [ -z "$PUSH_TOKEN" ]; then
+                echo "::error::GitHub App token missing; refusing to push without app identity."
+                exit 1
+              fi
+              if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+                echo "Rebasing unpushed commits onto ${target_branch} before push."
+                if ! git rebase FETCH_HEAD; then
+                  echo "::warning::Rebase failed; attempting merge strategy before push."
+                  git rebase --abort 2>/dev/null || true
+                  if ! git pull --no-rebase "$REMOTE_URL" "$target_branch" \
+                    --allow-unrelated-histories; then
+                    echo "::error::Merge fallback failed; refusing to push an inconsistent state."
+                    exit 1
+                  fi
+                fi
+                COMMIT_SHA=$(git rev-parse HEAD)
+                echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+              fi
+              git push --force-with-lease "$REMOTE_URL" "HEAD:${target_branch}"
+              echo "::notice::Pushed ${UNPUSHED_COMMITS} commit(s) from Claude (SHA: ${COMMIT_SHA})"
+              exit 0
+            fi
+
+            echo "No uncommitted changes and no unpushed commits."
             echo "changes-made=false" >> "$GITHUB_OUTPUT"
             echo "commit-sha=" >> "$GITHUB_OUTPUT"
-            echo "files-changed=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          files_changed=$(git status --porcelain | wc -l | tr -d ' ')
-          echo "files-changed=$files_changed" >> "$GITHUB_OUTPUT"
 
           if [ "$PUSH_ALLOWED" != "true" ] || [ -z "$PUSH_TOKEN" ]; then
             echo "changes-made=true" >> "$GITHUB_OUTPUT"
@@ -951,9 +1032,24 @@ jobs:
             poetry.lock \
             2>/dev/null || true
 
-          # Bail if all changes were artifacts
+          # Bail if all changes were artifacts — but still check for unpushed
+          # commits from Claude (it may have committed via Bash tool).
           if git diff --cached --quiet; then
             echo "::notice::No non-artifact changes to commit after filtering."
+            # Fetch remote so FETCH_HEAD is current (mirrors Codex runner pattern).
+            git fetch "$REMOTE_URL" "$target_branch" 2>/dev/null || true
+            UNPUSHED=$(git rev-list FETCH_HEAD..HEAD --count 2>/dev/null || echo "0")
+            if [ "$UNPUSHED" -gt 0 ]; then
+              echo "::notice::Found ${UNPUSHED} unpushed commit(s) from Claude — pushing them."
+              sha=$(git rev-parse HEAD)
+              echo "commit-sha=$sha" >> "$GITHUB_OUTPUT"
+              echo "changes-made=true" >> "$GITHUB_OUTPUT"
+              AGENT_FILES=$(git diff --name-only FETCH_HEAD..HEAD | wc -l | tr -d ' ')
+              echo "files-changed=${AGENT_FILES:-1}" >> "$GITHUB_OUTPUT"
+              git push --force-with-lease "$REMOTE_URL" "HEAD:${target_branch}"
+              echo "::notice::Pushed ${UNPUSHED} commit(s) (SHA: ${sha})"
+              exit 0
+            fi
             echo "changes-made=false" >> "$GITHUB_OUTPUT"
             echo "commit-sha=" >> "$GITHUB_OUTPUT"
             echo "files-changed=0" >> "$GITHUB_OUTPUT"
@@ -972,20 +1068,6 @@ jobs:
           sha="$(git rev-parse HEAD)"
           echo "commit-sha=$sha" >> "$GITHUB_OUTPUT"
           echo "changes-made=true" >> "$GITHUB_OUTPUT"
-
-          target_branch=""
-          if [ -n "${PR_REF:-}" ]; then
-            target_branch="$PR_REF"
-          else
-            target_branch="$(git rev-parse --abbrev-ref HEAD)"
-          fi
-          target_branch="${target_branch#refs/heads/}"
-          if [ -z "$target_branch" ]; then
-            echo "::error::Could not determine target branch for push."
-            exit 1
-          fi
-
-          REMOTE_URL="https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
           # Sync with remote before push — the branch may have advanced
           # during the Claude run. Mirrors reusable-codex-run.yml pattern.
