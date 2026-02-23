@@ -146,7 +146,7 @@ _Inline Gate helper_
 - **`reusable-11-ci-node.yml`** — Node lint/type/test reusable that powers JavaScript/TypeScript consumers (ESLint, Prettier, tsc, Jest/Vitest). Runs entirely within the repo using the default workflow token, so callers don’t burn extra API calls just to fetch sources.
 - **`reusable-12-ci-docker.yml`** — Docker smoke reusable invoked by Gate and external consumers. Builds the repo’s container image, runs a local health probe, and now relies solely on the default workflow token (no extra GitHub App mint) because it only needs repo read access.
 - **`reusable-16-agents.yml`** — Agents toolkit composite that powers orchestrator/agents-70 by faning out optional stages: readiness probes, Codex preflight, bootstrap diagnostics, watchdogs, keepalive sweeps, and issue verification. Handles token fallbacks (SERVICE_BOT_PAT, ACTIONS_BOT_PAT, GitHub App) and exposes `options_json` so callers can toggle dry-runs or extra automation without rewriting YAML.
-- **`reusable-18-autofix.yml`** — Autofix harness used by the Gate summary job.
+- **`reusable-18-autofix.yml`** — Autofix harness used by the Gate summary job: determines auth path (App token → Service bot PAT → default token), applies formatter fixes directly for same-repo branches, uploads patches when pushes aren’t allowed, and records mode/delivery metadata so callers know whether changes landed or a patch artifact was produced.
 - **`reusable-agents-issue-bridge.yml`** — Reusable workflow for bridging issues to agent automation, called by `agents-63-issue-intake.yml`.
 
 ### Self-tests
