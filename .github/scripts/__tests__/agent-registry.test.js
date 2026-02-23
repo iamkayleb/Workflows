@@ -3,6 +3,8 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
+const fs = require('node:fs');
+const os = require('node:os');
 
 const {
   getAgentConfig,
@@ -11,6 +13,8 @@ const {
   parseRegistryYaml,
   resolveAgentFromLabels,
   resolveAgentRoutingFromLabels,
+  getAgentEntries,
+  getAgentPreflightConfigs,
 } = require('../agent_registry');
 
 const REGISTRY_PATH = path.resolve(__dirname, '..', '..', 'agents', 'registry.yml');
@@ -142,4 +146,46 @@ test('getAgentConfig returns config for codex', () => {
 test('getRunnerWorkflow returns configured workflow path', () => {
   const workflow = getRunnerWorkflow('codex', { registryPath: REGISTRY_PATH });
   assert.equal(workflow, '.github/workflows/reusable-codex-run.yml');
+});
+
+test('getAgentEntries returns key/config pairs for each agent', () => {
+  const entries = getAgentEntries({ registryPath: REGISTRY_PATH });
+  assert.ok(Array.isArray(entries));
+  assert.ok(entries.length >= 2);
+  const codexEntry = entries.find((entry) => entry.key === 'codex');
+  assert.ok(codexEntry);
+  assert.equal(codexEntry.config.branch_prefix, 'codex/issue-');
+});
+
+test('getAgentPreflightConfigs honors enabled flag and readiness fallback', () => {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-registry-'));
+  const tmpPath = path.join(tmpDir, 'registry.yml');
+  fs.writeFileSync(
+    tmpPath,
+    [
+      'version: 1',
+      'default_agent: codex',
+      'agents:',
+      '  enabled:',
+      '    readiness_candidates:',
+      '      - fallback-user',
+      '    preflight:',
+      '      command_phrase: ping',
+      '  disabled:',
+      '    preflight:',
+      '      assign_user: disabled-user',
+      '      enabled: false',
+    ].join('\n'),
+  );
+
+  const configs = getAgentPreflightConfigs({ registryPath: tmpPath });
+  assert.equal(configs.length, 1);
+  assert.equal(configs[0].key, 'enabled');
+  assert.equal(configs[0].assign_user, 'fallback-user');
+  assert.equal(configs[0].command_phrase, 'ping');
+
+  const configsWithDisabled = getAgentPreflightConfigs({ registryPath: tmpPath, includeDisabled: true });
+  assert.equal(configsWithDisabled.length, 2);
+  assert.equal(configsWithDisabled[1].key, 'disabled');
+  assert.equal(configsWithDisabled[1].assign_user, 'disabled-user');
 });

@@ -411,16 +411,29 @@ jobs:
             } catch (error) {
               core.warning(`Failed to parse preflight_overrides_json: ${error?.message || error}`);
             }
+            if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+              core.warning('preflight_overrides_json must be a JSON object; ignoring non-object input.');
+              overrides = {};
+            }
+
+            const ensureOverride = (agentKey) => {
+              if (!agentKey) {
+                return null;
+              }
+              const current = overrides[agentKey];
+              if (!current || typeof current !== 'object' || Array.isArray(current)) {
+                overrides[agentKey] = {};
+              }
+              return overrides[agentKey];
+            };
+
             const codexUser = (process.env.CODEX_USER || '').trim();
             if (codexUser) {
-              overrides.codex = {
-                ...(overrides.codex || {}),
-                assign_user: codexUser,
-              };
-              const codexCmd = (process.env.CODEX_COMMAND || '').trim();
-              if (codexCmd) {
-                overrides.codex.command_phrase = codexCmd;
-              }
+              ensureOverride('codex').assign_user = codexUser;
+            }
+            const codexCmd = (process.env.CODEX_COMMAND || '').trim();
+            if (codexCmd) {
+              ensureOverride('codex').command_phrase = codexCmd;
             }
 
             const configs = getAgentPreflightConfigs();
@@ -430,7 +443,11 @@ jobs:
 
             const results = [];
             for (const entry of configs) {
-              const override = overrides[entry.key] || {};
+              const overrideEntry = overrides[entry.key];
+              const override =
+                overrideEntry && typeof overrideEntry === 'object' && !Array.isArray(overrideEntry)
+                  ? overrideEntry
+                  : {};
               const assignUser =
                 (override.assign_user || override.user || entry.assign_user || '').trim();
               const commandPhrase =
