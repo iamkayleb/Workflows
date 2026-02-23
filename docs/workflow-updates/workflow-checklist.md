@@ -3,40 +3,40 @@ This checklist will track optimization, consolidation, or archival work for ever
 
 | Review | Workflow | Notes |
 | --- | --- | --- |
-| [ ] | `agents-63-issue-intake.yml` | |
-| [ ] | `agents-64-verify-agent-assignment.yml` | |
-| [ ] | `agents-70-orchestrator.yml` | |
-| [ ] | `agents-71-codex-belt-dispatcher.yml` | |
-| [ ] | `agents-72-codex-belt-worker-dispatch.yml` | |
-| [ ] | `agents-72-codex-belt-worker.yml` | |
-| [ ] | `agents-73-codex-belt-conveyor.yml` | |
-| [ ] | `agents-auto-label.yml` | |
-| [ ] | `agents-auto-pilot.yml` | |
-| [ ] | `agents-autofix-dispatcher.yml` | |
-| [ ] | `agents-autofix-loop.yml` | |
-| [ ] | `agents-belt-conveyor.yml` | |
-| [ ] | `agents-belt-dispatcher.yml` | |
-| [ ] | `agents-belt-worker.yml` | |
-| [ ] | `agents-bot-comment-handler.yml` | |
-| [ ] | `agents-capability-check.yml` | |
-| [ ] | `agents-debug-issue-event.yml` | |
-| [ ] | `agents-decompose.yml` | |
-| [ ] | `agents-dedup.yml` | |
-| [ ] | `agents-guard.yml` | |
-| [ ] | `agents-issue-optimizer.yml` | |
-| [ ] | `agents-keepalive-branch-sync.yml` | |
-| [ ] | `agents-keepalive-dispatch-handler.yml` | |
-| [ ] | `agents-keepalive-loop-reporter.yml` | |
-| [ ] | `agents-keepalive-loop.yml` | |
-| [ ] | `agents-moderate-connector.yml` | |
-| [ ] | `agents-pr-meta-v4.yml` | |
-| [ ] | `agents-verifier.yml` | |
-| [ ] | `agents-verify-to-issue-v2.yml` | |
-| [ ] | `agents-verify-to-issue.yml` | |
-| [ ] | `agents-verify-to-new-pr-autopilot.yml` | |
-| [ ] | `agents-verify-to-new-pr.yml` | |
-| [ ] | `agents-weekly-metrics.yml` | |
-| [ ] | `autofix.yml` | |
+| [x] | `agents-63-issue-intake.yml` | Still required as the Codex issue front door; removed four unused GitHub App token mints so queue sync + bridge runs stay within the shared token balancer. |
+| [x] | `agents-64-verify-agent-assignment.yml` | Still useful for belt/orchestrator sanity checks; removed the unused GitHub App token mint so it relies solely on the shared token-balanced client. |
+| [x] | `agents-70-orchestrator.yml` | Still required; delegates to the reusable init/main stack and just sequences cron/manual dispatch without extra token churn. |
+| [x] | `agents-71-codex-belt-dispatcher.yml` | Keeps GitHub App → PAT → `GITHUB_TOKEN` precedence, dry-run controls, and per-agent concurrency intact—no workflow edits needed. |
+| [x] | `agents-72-codex-belt-worker-dispatch.yml` | Wrapper that forwards workflow_dispatch inputs to the belt worker; documented behavior (no YAML change needed). |
+| [x] | `agents-72-codex-belt-worker.yml` | Worker already re-validates labels, enforces token fallback order, guards concurrency, and exposes dry-run flags. |
+| [x] | `agents-73-codex-belt-conveyor.yml` | Conveyor already checks Gate status, blocks bootstrap-only placeholders, mirrors token/dry-run protections, and re-dispatches the queue. |
+| [x] | `agents-auto-label.yml` | Still the LangChain-based labeler; removed the redundant App mint so it runs entirely on the shared API client. |
+| [x] | `agents-auto-pilot.yml` | Remains the canonical issue-to-PR pipeline—documented behavior; no YAML edits needed. |
+| [x] | `agents-autofix-dispatcher.yml` | Dispatch path still needed (Gate autofix failure → loop); kept as-is and documented that it simply forwards run metadata using the App token. |
+| [x] | `agents-autofix-loop.yml` | Handles heavy repairs/pyproject sync/conflict tagging already; documented current behavior. |
+| [x] | `agents-autofix-rebase.yml` | New helper keeps PRs rebased via the App token and files `autofix:conflict` only when manual work is needed. |
+| [x] | `agents-bot-comment-autolabel.yml` | Auto-labels trusted bot review comments with `autofix:bot-comments` so inline fixes run without human input. |
+| [x] | `agents-belt-conveyor.yml` | Alias wrapper around the Codex conveyor; documented accordingly. |
+| [x] | `agents-belt-dispatcher.yml` | Alias wrapper around the Codex dispatcher; documented accordingly. |
+| [x] | `agents-belt-worker.yml` | Alias wrapper around the Codex worker; documented accordingly. |
+| [x] | `agents-bot-comment-handler.yml` | Workflow now auto-runs when trusted bots comment (plus existing triggers); documented the new behavior. |
+| [x] | `agents-capability-check.yml` | Still needed as the pre-agent guard; runs the LangChain capability classifier, posts a structured comment, and applies `needs-human` when tasks are blocked. |
+| [x] | `agents-debug-issue-event.yml` | Kept as-is; purely dumps GitHub context for label debugging and doesn’t mutate issues. |
+| [x] | `agents-decompose.yml` | Removed the redundant GitHub App mint; decomposition now runs entirely via the shared API client before posting subtasks/removing the trigger label. |
+| [x] | `agents-dedup.yml` | Dropped the manual App-token mint; duplicate detection now relies on the shared API client while posting warnings for near matches. |
+| [x] | `agents-guard.yml` | Removed the redundant App-token mint; guard now relies fully on the shared API client for its safety and label checks. |
+| [x] | `agents-issue-optimizer.yml` | Removed the bespoke App-token mint; optimizer now relies on the shared API client for GH CLI access while keeping the analyze/apply/format flow unchanged. |
+| [x] | `agents-keepalive-branch-sync.yml` | Left intact—needs the App/PAT token selection to push merges into keepalive branches, but documented the behavior. |
+| [x] | `agents-keepalive-dispatch-handler.yml` | Left as-is; needs the explicit token selection to honor compat overrides when handling keepalive repository_dispatch events. |
+| [x] | `agents-keepalive-loop-reporter.yml` | Removed the App-token mint; reporter only needs the shared API client to update keepalive summary comments. |
+| [x] | `agents-keepalive-loop.yml` | Core keepalive orchestrator; already enforces guardrails/task appendix/agent dispatching via the shared API client, so it stayed as-is and was documented. |
+| [x] | `agents-moderate-connector.yml` | Keeps connector noise off PRs by deleting deny-listed bot comments unless they contain real status updates; documented behavior, no workflow change needed. |
+| [x] | `agents-pr-meta-v4.yml` | Still required until the consolidated orchestrator lands; handles @agent/Gate activations, dispatch summaries, and keepalive re-dispatch with the expected token chain. |
+| [x] | `agents-verifier.yml` | Removed the redundant App-token mint; verifier already uses the shared API client to guard merged PRs and trigger checkbox/evaluate/compare modes. |
+| [x] | `agents-verify-to-issue-v2.yml` | Still needed for convert-verify→issue flow; documented behavior with existing PAT/App token chain for opening follow-up issues. |
+| [x] | `agents-verify-to-new-pr.yml` | Handles verify:create-new-pr end-to-end; now dispatches agents-auto-pilot directly so no bridge workflow is required. |
+| [x] | `agents-weekly-metrics.yml` | Removed the redundant App-token mint; weekly metrics now uses the shared API client/installation token to download artifacts and update the tracking issue. |
+| [x] | `autofix.yml` | CI autofix now treats lint/format/Ruff/mypy/pytest failures as relevant so it auto-reruns before humans intervene. |
 | [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
 | [x] | `health-40-sweep.yml` | Keeps actionlint + guard coverage; manual runs can now skip guard to save API calls via `run_branch_protection=false`. |
 | [x] | `health-41-repo-health.yml` | Added manual inputs to skip branch/PR scans and fixed the env wiring so dispatch overrides no longer break scheduled runs. |
@@ -48,7 +48,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `health-68-consumer-sync-drift.yml` | Shared helper now lists registered repos, removing inline parsing + easing reuse. |
 | [x] | `health-70-validate-sync-manifest.yml` | Switched to shared validator script (now emits summaries + reuse with Health 73). |
 | [x] | `health-71-sync-health-check.yml` | Shares the consumer repo helper + no longer mints an app token; only the needed checks run per dispatch knobs. |
-| [ ] | `health-72-template-sync.yml` | Review pending (no workflow updates landed yet). |
+| [x] | `health-72-template-sync.yml` | Still needed to auto-sync/validate `.github/scripts` between Workflows and the consumer template; documented behavior (no YAML change required). |
 | [x] | `health-73-template-completeness.yml` | Already uses the shared validator script; dropped the unused GitHub App token mint. |
 | [x] | `health-74-template-drift.yml` | Drift mapping now includes every agents workflow; still warning-only until residual drift is cleared. |
 | [x] | `health-75-api-rate-diagnostic.yml` | Hourly snapshots only; consumer repo scans + load-sharing/access probes now manual inputs to avoid constant PAT/app churn, and the alert job finally reads the correct summary keys. |

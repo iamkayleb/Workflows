@@ -34,23 +34,13 @@ jobs:
       models: read
 
     steps:
-      # Mint GitHub App token early to use for API calls (avoids rate limits)
-      - name: Mint GitHub App Token
-        id: app_token
-        uses: actions/create-github-app-token@v2
-        continue-on-error: true
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
-          owner: ${{ github.repository_owner }}
-
       - name: Check trigger conditions
         id: check
         env:
           EVENT_NAME: ${{ github.event_name }}
           LABEL_NAME: ${{ github.event.label.name }}
           DISPATCH_PHASE: ${{ inputs.phase }}
-          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
@@ -149,7 +139,7 @@ jobs:
         if: steps.check.outputs.should_run == 'true'
         id: recursion_guard
         env:
-          GH_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
+          GH_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ steps.check.outputs.issue_number }}
         run: |
           # Check how many optimizer runs for this issue in last hour
