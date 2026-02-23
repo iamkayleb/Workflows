@@ -66,6 +66,7 @@ Auto-pilot pipeline:
 1. **Task Focus**: Agents must work on PR tasks, not unrelated improvements. Tasks are explicitly injected via the task appendix.
 
 2. **Agent Agnostic**: The keepalive prompt is agent-agnostic. Routing is determined by the `agent:*` label, not hardcoded agent names.
+   - Apply `agents:auto-pilot` together with an explicit `agent:codex`, `agent:claude`, etc. label when you want to pin the runner. If no `agent:*` label exists, auto-pilot uses the registry default and adds the matching label so keepalive, autofix, and verifier flows all stay aligned.
 
 3. **No `@codex` in Prompts**: Do not use `@codex` or other agent mentions in automated prompts—this can trigger the UI version of agents. Let the routing handle which agent runs.
 
