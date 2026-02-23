@@ -90,7 +90,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `pr-11-ci-smoke.yml` | Keeps the YAML + scripts sanity checks on every push/PR, and now skips minting a GitHub App token since the job never leaves the repo (default token is enough). |
 | [ ] | `reusable-10-ci-python.yml` | |
 | [x] | `reusable-11-ci-node.yml` | Node lint/type/test reusable stays the JS/TS CI entry point (ESLint, Prettier, tsc, Jest/Vitest) and now relies solely on the default workflow token since it never touches other repos. |
-| [ ] | `reusable-12-ci-docker.yml` | |
+| [x] | `reusable-12-ci-docker.yml` | Docker smoke reusable builds the repo image and curls the health endpoint; dropped the unused GitHub App mint so it runs entirely with the default token. |
 | [ ] | `reusable-16-agents.yml` | |
 | [ ] | `reusable-18-autofix.yml` | |
 | [ ] | `reusable-20-pr-meta.yml` | |
