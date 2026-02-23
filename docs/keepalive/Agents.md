@@ -26,6 +26,7 @@ Automation agents touching **any** keepalive code path must consult the followin
    - 40-PR sample analysis (Workflows + TMP repos)
    - Component-by-component assessment
    - Recommendations and elements to preserve
+5. **[`../guides/ADD_NEW_AGENT.md`](../guides/ADD_NEW_AGENT.md)** — Checklist for onboarding new agents (registry entries, runner workflows, docs/tests) so every automation surface treats Codex, Claude, and future agents consistently.
 
 ## Auto-Pilot Integration
 
