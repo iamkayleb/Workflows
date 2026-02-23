@@ -93,7 +93,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `reusable-12-ci-docker.yml` | Docker smoke reusable builds the repo image and curls the health endpoint; dropped the unused GitHub App mint so it runs entirely with the default token. |
 | [x] | `reusable-16-agents.yml` | Shared agents toolkit invoked by orchestrator; no YAML edits needed since it already gates readiness, diagnostics, bootstrap, watchdog, keepalive, and verify flows with PAT/App fallbacks + `options_json` for dry-runs. |
 | [x] | `reusable-18-autofix.yml` | Gate’s formatter harness already handles App/PAT/default-token fallback, writes commits for same-repo PRs, uploads patches when push is blocked, and surfaces delivery metadata—no YAML changes required. |
-| [ ] | `reusable-20-pr-meta.yml` | |
+| [x] | `reusable-20-pr-meta.yml` | Consumer PR meta/keepalive reusable; removed GitHub App token mints so comment/gate/PR-body lanes rely on the provided PATs/default token only. |
 | [ ] | `reusable-70-orchestrator-init.yml` | |
 | [ ] | `reusable-70-orchestrator-main.yml` | |
 | [ ] | `reusable-agents-issue-bridge.yml` | |
