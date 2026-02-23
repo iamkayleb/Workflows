@@ -211,8 +211,8 @@ jobs:
     if: needs.check.outputs.should_run == 'true'
     uses: stranske/Workflows/.github/workflows/reusable-agents-verifier.yml@main
     with:
-      # CI workflows to wait for before running verifier (Gate workflow for Workflows repo)
-      ci_workflows: '["pr-00-gate.yml", "Gate"]'
+      # CI workflows to wait for before running verifier (Gate + PR 11 + selftest CI)
+      ci_workflows: '["pr-00-gate.yml", "pr-11-ci-smoke.yml", "selftest-ci.yml"]'
       # Verification mode from label or manual input
       mode: ${{ needs.check.outputs.mode }}
       # Model selection (empty string uses default)

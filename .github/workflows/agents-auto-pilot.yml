@@ -1761,6 +1761,10 @@ jobs:
             const runnerOverride = issueLabels
               .map((label) => toLabelName(label).toLowerCase())
               .find((name) => name.startsWith('runner:'));
+            const runnerOverrideKey = runnerOverride
+              ? runnerOverride.slice('runner:'.length).trim().toLowerCase()
+              : '';
+            let warnedAboutRunnerOverride = false;
 
             try {
               const registryLib = require('./.github/scripts/agent_registry.js');
@@ -1771,6 +1775,23 @@ jobs:
 
               if (Array.isArray(issueLabels) && issueLabels.length) {
                 const knownAgents = new Set(Object.keys(registry.agents || {}));
+                knownAgents.add('auto');
+                const runnerOverrideResolver = () => {
+                  if (!runnerOverrideKey) {
+                    return null;
+                  }
+                  if (!knownAgents.has(runnerOverrideKey)) {
+                    if (!warnedAboutRunnerOverride) {
+                      core.warning(
+                        `Ignoring runner override label ${runnerOverride} because ` +
+                          `${runnerOverrideKey || '(empty)'} is not a registered agent.`,
+                      );
+                      warnedAboutRunnerOverride = true;
+                    }
+                    return null;
+                  }
+                  return runnerOverrideKey;
+                };
                 recognizedAgentLabels = issueLabels
                   .map((label) => {
                     const normalized = toLabelName(label).toLowerCase();
@@ -1790,9 +1811,9 @@ jobs:
                   ? recognizedAgentLabels.map(({ normalized }) => normalized)
                   : issueLabels;
 
-                if (runnerOverride) {
-                  const runnerKey = runnerOverride.slice('runner:'.length).trim();
-                  agentKey = runnerKey || defaultAgent;
+                const overrideKey = runnerOverrideResolver();
+                if (overrideKey) {
+                  agentKey = overrideKey;
                 } else if (routingLabels.length) {
                   try {
                     agentKey =
@@ -1813,9 +1834,18 @@ jobs:
                 } else {
                   agentKey = defaultAgent;
                 }
-              } else if (runnerOverride) {
-                const runnerKey = runnerOverride.slice('runner:'.length).trim();
-                agentKey = runnerKey || defaultAgent;
+              } else if (runnerOverrideKey) {
+                const knownAgents = new Set(Object.keys(registry.agents || {}));
+                knownAgents.add('auto');
+                if (knownAgents.has(runnerOverrideKey)) {
+                  agentKey = runnerOverrideKey;
+                } else {
+                  core.warning(
+                    `Ignoring runner override label ${runnerOverride} because ` +
+                      `${runnerOverrideKey || '(empty)'} is not a registered agent.`,
+                  );
+                  agentKey = defaultAgent;
+                }
               } else {
                 agentKey = defaultAgent;
               }
@@ -2155,10 +2185,32 @@ jobs:
               const runnerOverride = issueLabels
                 .map((label) => toLabelName(label).toLowerCase())
                 .find((name) => name.startsWith('runner:'));
+              const runnerOverrideKey = runnerOverride
+                ? runnerOverride.slice('runner:'.length).trim().toLowerCase()
+                : '';
+              let warnedAboutRunnerOverride = false;
 
               let recognizedAgentLabels = [];
+              let runnerOverrideResolver = null;
               if (Array.isArray(issueLabels) && issueLabels.length) {
                 const knownAgents = new Set(Object.keys(registry.agents || {}));
+                knownAgents.add('auto');
+                runnerOverrideResolver = () => {
+                  if (!runnerOverrideKey) {
+                    return null;
+                  }
+                  if (!knownAgents.has(runnerOverrideKey)) {
+                    if (!warnedAboutRunnerOverride) {
+                      core.warning(
+                        `Ignoring runner override label ${runnerOverride} because ` +
+                          `${runnerOverrideKey || '(empty)'} is not a registered agent.`,
+                      );
+                      warnedAboutRunnerOverride = true;
+                    }
+                    return null;
+                  }
+                  return runnerOverrideKey;
+                };
                 recognizedAgentLabels = issueLabels
                   .map((label) => {
                     const normalized = toLabelName(label).toLowerCase();
@@ -2178,9 +2230,30 @@ jobs:
                 ? recognizedAgentLabels
                 : issueLabels;
 
-              if (runnerOverride) {
-                const runnerKey = runnerOverride.slice('runner:'.length).trim();
-                agentKey = runnerKey || defaultAgent;
+              const overrideKeyResolver = () => {
+                if (!runnerOverrideKey) {
+                  return null;
+                }
+                const knownAgents = new Set(Object.keys(registry.agents || {}));
+                knownAgents.add('auto');
+                if (!knownAgents.has(runnerOverrideKey)) {
+                  if (!warnedAboutRunnerOverride) {
+                    core.warning(
+                      `Ignoring runner override label ${runnerOverride} because ` +
+                        `${runnerOverrideKey || '(empty)'} is not a registered agent.`,
+                    );
+                    warnedAboutRunnerOverride = true;
+                  }
+                  return null;
+                }
+                return runnerOverrideKey;
+              };
+              const overrideKey = runnerOverrideResolver
+                ? runnerOverrideResolver()
+                : overrideKeyResolver();
+
+              if (overrideKey) {
+                agentKey = overrideKey;
               } else if (routingLabels.length) {
                 try {
                   agentKey =

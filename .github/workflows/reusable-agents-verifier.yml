@@ -192,20 +192,33 @@ jobs:
             }
 
             const ciWorkflows = JSON.parse(process.env.CI_WORKFLOWS || '[]');
+            if (!Array.isArray(ciWorkflows) || ciWorkflows.length === 0) {
+              core.info('No CI workflows configured; skipping wait.');
+              return;
+            }
             const maxWaitMs = Number(process.env.CI_WAIT_TIMEOUT_MS) || 300000;
             const pollIntervalMs = 15000;
             const startTime = Date.now();
             let rateLimitHits = 0;
             const maxRateLimitHits = 3;  // Give up after 3 consecutive rate limits
+            const workflowState = new Map(
+              ciWorkflows.map((workflow) => [
+                workflow,
+                { found: false, completed: false },
+              ]),
+            );
 
             core.info(`Waiting for CI workflows to complete for SHA ${targetSha}...`);
 
             while (Date.now() - startTime < maxWaitMs) {
-              let allComplete = true;
-              let anyFound = false;
+              let cycleFound = false;
               let hitRateLimit = false;
 
               for (const workflowFile of ciWorkflows) {
+                const state = workflowState.get(workflowFile) || {
+                  found: false,
+                  completed: false,
+                };
                 try {
                   const { data: runs } = await withRetry(() =>
                     github.rest.actions.listWorkflowRuns({
@@ -217,16 +230,16 @@ jobs:
                   );
 
                   if (runs.workflow_runs.length > 0) {
-                    anyFound = true;
+                    cycleFound = true;
+                    state.found = true;
                     const run = runs.workflow_runs[0];
                     const conclusion = run.conclusion || 'pending';
                     core.info(
                       `${workflowFile}: status=${run.status}, conclusion=${conclusion}`,
                     );
-                    if (run.status !== 'completed') {
-                      allComplete = false;
-                    }
+                    state.completed = run.status === 'completed';
                   }
+                  workflowState.set(workflowFile, state);
                   rateLimitHits = 0;  // Reset on success
                 } catch (err) {
                   // Check for rate limit error
@@ -237,6 +250,8 @@ jobs:
                     );
                   } else {
                     core.warning(`Failed to check ${workflowFile}: ${err.message}`);
+                  } else {
+                    workflowState.set(workflowFile, state);
                   }
                 }
               }
@@ -250,12 +265,29 @@ jobs:
                 }
               }
 
-              if (anyFound && allComplete) {
+              const allFound = ciWorkflows.every(
+                (workflow) => workflowState.get(workflow)?.found,
+              );
+              const allComplete = allFound
+                ? ciWorkflows.every(
+                    (workflow) => workflowState.get(workflow)?.completed,
+                  )
+                : false;
+
+              if (allComplete) {
                 core.info('All CI workflows have completed.');
                 return;
               }
 
-              core.info(`Waiting ${pollIntervalMs / 1000}s for CI to complete...`);
+              const pendingWorkflows = ciWorkflows.filter(
+                (workflow) => !(workflowState.get(workflow)?.completed),
+              );
+              const waitReason = allFound
+                ? `waiting for workflows still running: ${pendingWorkflows.join(', ')}`
+                : 'waiting for workflows to start';
+              core.info(
+                `Waiting ${pollIntervalMs / 1000}s for CI to complete (${waitReason})...`,
+              );
               await new Promise((resolve) =>
                 setTimeout(resolve, pollIntervalMs),
               );
@@ -337,7 +369,9 @@ jobs:
               agentKey = _defaultAgent;
             }
 
-            const normalized = String(agentKey || _defaultAgent).trim().toLowerCase() || _defaultAgent;
+            const normalized =
+              String(agentKey || _defaultAgent).trim().toLowerCase() ||
+              _defaultAgent;
             core.setOutput('agent_key', normalized);
             core.setOutput('agent_label', `agent:${normalized}`);
             core.setOutput('from_label', `from:${normalized}`);
@@ -994,7 +1028,8 @@ jobs:
             const prUrl = process.env.PR_URL || '';
             const runUrl = process.env.RUN_URL || '';
 
-            // Agent labels resolved in the 'agent' step; derive from agent_key if label output missing
+            // Agent labels resolved in the 'agent' step; derive from agent_key
+            // when the label output is missing.
             const agentKey = '${{ steps.agent.outputs.agent_key }}' || 'codex';
             const agentLabel = '${{ steps.agent.outputs.agent_label }}' || `agent:${agentKey}`;
             const fromLabel = '${{ steps.agent.outputs.from_label }}' || `from:${agentKey}`;

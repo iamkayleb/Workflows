@@ -112,6 +112,21 @@ This document describes all labels that trigger automated workflows or affect CI
 
 ---
 
+### `runner:<agent>`
+
+**Applies to:** Issues
+
+**Trigger:** When applied to an issue that also has `agents:auto-pilot`
+
+**Effect:**
+1. Overrides the agent that auto-pilot will use (`runner:claude`, `runner:codex`, etc.)
+2. Auto-pilot reads this label during capability/check-pr steps and adds the matching `agent:<name>` label when it dispatches the belt
+3. Does **not** trigger the issue intake workflow by itself, so manual `agent:<name>` behavior is unaffected
+
+**Workflow:** `agents-auto-pilot.yml`
+
+---
+
 ### `agent:needs-attention`
 
 **Applies to:** Issues and Pull Requests
