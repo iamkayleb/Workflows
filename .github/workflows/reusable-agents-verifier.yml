@@ -250,7 +250,6 @@ jobs:
                     );
                   } else {
                     core.warning(`Failed to check ${workflowFile}: ${err.message}`);
-                  } else {
                     workflowState.set(workflowFile, state);
                   }
                 }
