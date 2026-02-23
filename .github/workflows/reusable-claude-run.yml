@@ -956,6 +956,7 @@ jobs:
             echo "::notice::No non-artifact changes to commit after filtering."
             echo "changes-made=false" >> "$GITHUB_OUTPUT"
             echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            echo "files-changed=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
