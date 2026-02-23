@@ -930,17 +930,44 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Remove orchestrator artifacts before staging — these are diagnostic
-          # files written by the runner, not agent work product.
-          rm -f claude-output*.md claude-prompt*.md claude-session*.jsonl claude-analysis*.json 2>/dev/null || true
-          rm -f codex-output*.md codex-prompt*.md 2>/dev/null || true
-
           git add -A
+          # Unstage non-agent artifacts to prevent committing workflow noise.
+          # Mirrors the exclusion list from reusable-codex-run.yml.
+          git reset HEAD -- \
+            claude-output*.md \
+            claude-prompt*.md \
+            claude-session*.jsonl \
+            claude-analysis*.json \
+            codex-output*.md \
+            codex-prompt*.md \
+            .coverage \
+            .workflows-lib \
+            .github/scripts/node_modules \
+            .workflows-lib/.github/scripts/node_modules \
+            node_modules \
+            coverage.xml \
+            pr_body.md \
+            autofix_report_enriched.json \
+            poetry.lock \
+            2>/dev/null || true
+
+          # Bail if all changes were artifacts
+          if git diff --cached --quiet; then
+            echo "::notice::No non-artifact changes to commit after filtering."
+            echo "changes-made=false" >> "$GITHUB_OUTPUT"
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "::group::Changes being committed"
+          git diff --cached --stat
+          echo "::endgroup::"
+
           commit_message="Claude (${MODE}) automated update"
           if [ -n "${PR_NUMBER:-}" ]; then
             commit_message+=" for PR #${PR_NUMBER}"
           fi
-          git commit -m "$commit_message" || true
+          git commit -m "$commit_message" || { echo "::error::git commit failed"; exit 1; }
           sha="$(git rev-parse HEAD)"
           echo "commit-sha=$sha" >> "$GITHUB_OUTPUT"
           echo "changes-made=true" >> "$GITHUB_OUTPUT"
@@ -952,10 +979,59 @@ jobs:
             target_branch="$(git rev-parse --abbrev-ref HEAD)"
           fi
           target_branch="${target_branch#refs/heads/}"
+          if [ -z "$target_branch" ]; then
+            echo "::error::Could not determine target branch for push."
+            exit 1
+          fi
 
-          git remote set-url origin \
-            "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push origin "HEAD:${target_branch}"
+          REMOTE_URL="https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # Sync with remote before push — the branch may have advanced
+          # during the Claude run. Mirrors reusable-codex-run.yml pattern.
+          echo "::group::Sync with remote before push"
+          git fetch "$REMOTE_URL" "$target_branch" 2>/dev/null || true
+          if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+            REMOTE_AHEAD=$(git rev-list HEAD..FETCH_HEAD --count 2>/dev/null || echo "0")
+            if [ "$REMOTE_AHEAD" -gt 0 ]; then
+              echo "Remote is ${REMOTE_AHEAD} commit(s) ahead — rebasing."
+              if ! git rebase FETCH_HEAD; then
+                echo "::warning::Rebase failed; attempting merge strategy."
+                git rebase --abort 2>/dev/null || true
+                git pull --no-rebase "$REMOTE_URL" "$target_branch" \
+                  --allow-unrelated-histories || true
+              fi
+              sha="$(git rev-parse HEAD)"
+              echo "commit-sha=$sha" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          echo "::endgroup::"
+
+          # Push with retry (3 attempts). On each retry, re-fetch and
+          # re-rebase in case the branch advanced again.
+          for attempt in 1 2 3; do
+            echo "Push attempt ${attempt}/3..."
+            if git push "$REMOTE_URL" "HEAD:${target_branch}"; then
+              echo "::notice::Push succeeded (attempt ${attempt}, SHA: ${sha})"
+              exit 0
+            fi
+            echo "::warning::Push failed (attempt ${attempt})"
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 5))
+              git fetch "$REMOTE_URL" "$target_branch" 2>/dev/null || true
+              if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+                if ! git rebase FETCH_HEAD; then
+                  echo "::warning::Rebase failed on retry; attempting merge."
+                  git rebase --abort 2>/dev/null || true
+                  git pull --no-rebase "$REMOTE_URL" "$target_branch" \
+                    --allow-unrelated-histories || true
+                fi
+                sha="$(git rev-parse HEAD)"
+                echo "commit-sha=$sha" >> "$GITHUB_OUTPUT"
+              fi
+            fi
+          done
+          echo "::error::Failed to push after 3 attempts."
+          exit 1
 
       - name: Compatibility outputs (LLM analysis placeholders)
         id: compat
