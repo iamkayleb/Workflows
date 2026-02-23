@@ -32,7 +32,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-keepalive-loop.yml` | Core keepalive orchestrator; already enforces guardrails/task appendix/agent dispatching via the shared API client, so it stayed as-is and was documented. |
 | [x] | `agents-moderate-connector.yml` | Keeps connector noise off PRs by deleting deny-listed bot comments unless they contain real status updates; documented behavior, no workflow change needed. |
 | [x] | `agents-pr-meta-v4.yml` | Still required until the consolidated orchestrator lands; handles @agent/Gate activations, dispatch summaries, and keepalive re-dispatch with the expected token chain. |
-| [ ] | `agents-verifier.yml` | |
+| [x] | `agents-verifier.yml` | Removed the redundant App-token mint; verifier already uses the shared API client to guard merged PRs and trigger checkbox/evaluate/compare modes. |
 | [ ] | `agents-verify-to-issue-v2.yml` | |
 | [ ] | `agents-verify-to-issue.yml` | |
 | [ ] | `agents-verify-to-new-pr-autopilot.yml` | |
