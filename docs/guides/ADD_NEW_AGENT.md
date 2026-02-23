@@ -31,6 +31,7 @@ This checklist covers every step required to bring a new automation agent (for e
 ## 4. Wire the Agent into the Pipeline
 1. **Labels & Templates**
    - Add `agent:newagent` (or similar) to `docs/LABELS.md`, `.github/labels*.yml`, and issue templates so Auto-Pilot can assign the agent.
+   - Add a `runner:newagent` label so auto-pilot users can request the agent without triggering the issue intake workflow.
 2. **Keepalive / Orchestrator**
    - Ensure `reusable-16-agents.yml` (agents toolkit) automatically sees the agent via the registry (no code changes should be needed if it loops over the registry).
    - Update `agents-70-orchestrator.yml` options, if necessary, to mention the new agent in readiness tables or toggles.

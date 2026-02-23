@@ -768,7 +768,7 @@ jobs:
               repo: context.repo.repo,
               title: title,
               body: body,
-              labels: ['follow-up', agentLabel, fromLabel, 'agents:auto-pilot']
+              labels: ['follow-up', agentLabel, fromLabel, `runner:${normalized}`, 'agents:auto-pilot']
             }));
 
             core.info(`Created issue #${issue.data.number}`);

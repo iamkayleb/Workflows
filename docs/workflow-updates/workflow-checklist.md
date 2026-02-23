@@ -11,9 +11,9 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-72-codex-belt-worker.yml` | Worker already re-validates labels, enforces token fallback order, guards concurrency, and exposes dry-run flags. |
 | [x] | `agents-73-codex-belt-conveyor.yml` | Conveyor already checks Gate status, blocks bootstrap-only placeholders, mirrors token/dry-run protections, and re-dispatches the queue. |
 | [x] | `agents-auto-label.yml` | Still the LangChain-based labeler; removed the redundant App mint so it runs entirely on the shared API client. |
-| [x] | `agents-auto-pilot.yml` | Remains the canonical issue-to-PR pipeline—documented behavior; no YAML edits needed. |
+| [x] | `agents-auto-pilot.yml` | Remains the canonical issue-to-PR pipeline and now validates `runner:*` overrides against the registry before honoring them so stray runner labels can’t misroute agent selection. |
 | [x] | `agents-autofix-dispatcher.yml` | Dispatch path still needed (Gate autofix failure → loop); kept as-is and documented that it simply forwards run metadata using the App token. |
-| [x] | `agents-autofix-loop.yml` | Handles heavy repairs/pyproject sync/conflict tagging already; documented current behavior. |
+| [x] | `agents-autofix-loop.yml` | Re-added the Gate `workflow_run` trigger (alongside the dispatcher path) so Gate failures still launch repairs even in repos that haven’t adopted the new dispatch event, and updated every `withRetry` call to use the token-aware client so rate-limit rotation actually works. |
 | [x] | `agents-autofix-rebase.yml` | New helper keeps PRs rebased via the App token and files `autofix:conflict` only when manual work is needed. |
 | [x] | `agents-bot-comment-autolabel.yml` | Auto-labels trusted bot review comments with `autofix:bot-comments` so inline fixes run without human input. |
 | [x] | `agents-belt-conveyor.yml` | Alias wrapper around the Codex conveyor; documented accordingly. |
@@ -36,7 +36,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-verify-to-issue-v2.yml` | Still needed for convert-verify→issue flow; documented behavior with existing PAT/App token chain for opening follow-up issues. |
 | [x] | `agents-verify-to-new-pr.yml` | Handles verify:create-new-pr end-to-end; now dispatches agents-auto-pilot directly so no bridge workflow is required. |
 | [x] | `agents-weekly-metrics.yml` | Removed the redundant App-token mint; weekly metrics now uses the shared API client/installation token to download artifacts and update the tracking issue. |
-| [x] | `autofix.yml` | CI autofix now treats lint/format/Ruff/mypy/pytest failures as relevant so it auto-reruns before humans intervene. |
+| [x] | `autofix.yml` | CI autofix now treats lint/format/Ruff/mypy/pytest failures as relevant so it auto-reruns before humans intervene, and the redundant push trigger was removed to avoid spawning no-op runs on every commit. |
 | [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
 | [x] | `health-40-sweep.yml` | Keeps actionlint + guard coverage; manual runs can now skip guard to save API calls via `run_branch_protection=false`. |
 | [x] | `health-41-repo-health.yml` | Added manual inputs to skip branch/PR scans and fixed the env wiring so dispatch overrides no longer break scheduled runs. |

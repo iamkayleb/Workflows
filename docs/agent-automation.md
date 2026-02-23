@@ -403,6 +403,7 @@ Labels in auto-pilot are **hybrid: status markers with functional side effects**
 - `agents:apply-suggestions` - Apply step completed (suggestions have been applied)
 - `agent:codex` - Agent capability check completed
 - `agents:auto-pilot` - Auto-pilot orchestration is active
+- `runner:<agent>` - Optional auto-pilot override (`runner:claude`, `runner:codex`, etc.) that selects the agent without triggering the issue intake workflow
 
 **Prevention:**
 - Workflows triggered by auto-pilot status labels MUST check for `agents:auto-pilot` presence
