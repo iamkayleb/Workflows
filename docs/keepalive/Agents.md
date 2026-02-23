@@ -90,3 +90,7 @@ The repository supports two keepalive implementations. The **Codex CLI keepalive
 See [`Keepalive_Approaches.md`](Keepalive_Approaches.md) for a full comparison and the rationale for preferring the CLI approach.
 
 Do not mark checklist items complete or dispatch new keepalive rounds until the acceptance criteria in the canonical guide are satisfied. Update all relevant documents together if the contract evolves.
+
+## Implementation-Level Details
+
+For the technical patterns inside each agent runner workflow — CLI invocation flags, unpushed commit detection, artifact filtering, commit/push retry logic — see the **[Agent Runner Implementation Guide](../guides/AGENT_RUNNER_IMPLEMENTATION.md)**. That guide covers the mechanics that this document intentionally omits.

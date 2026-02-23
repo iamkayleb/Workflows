@@ -12,7 +12,8 @@ This folder is intentionally small right now; most “getting started” and int
 
 ## Available Guides
 
-_(None yet in this folder.)_
+- **[Agent Runner Implementation](AGENT_RUNNER_IMPLEMENTATION.md)** - Technical patterns for building and debugging agent runner workflows (CLI invocation, unpushed commit detection, artifact filtering, push retry)
+- **[Dual-Location Sync Gotcha](dual-location-sync-gotcha.md)** - Critical gotcha when updating files that exist in both `.github/` and `templates/consumer-repo/`
 
 ## Planned Guides
 
