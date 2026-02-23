@@ -255,7 +255,7 @@ test('evaluateKeepaliveLoop stops when max iterations reached AND unproductive',
   assert.equal(result.reason, 'max-iterations-unproductive');
 });
 
-test('evaluateKeepaliveLoop stops at max iterations even when productive', async () => {
+test('evaluateKeepaliveLoop continues past max iterations when productive with tasks remaining', async () => {
   const pr = {
     number: 405,
     head: { ref: 'feature/extended', sha: 'sha-ext' },
@@ -283,8 +283,8 @@ test('evaluateKeepaliveLoop stops at max iterations even when productive', async
     context: buildContext(pr.number),
     core: buildCore(),
   });
-  assert.equal(result.action, 'stop', 'Should stop at max iterations even when productive');
-  assert.equal(result.reason, 'max-iterations', 'Should report max-iterations reason');
+  assert.equal(result.action, 'run', 'Should continue past max iterations when productive');
+  assert.equal(result.reason, 'ready-extended', 'Should report ready-extended reason');
 });
 
 test('evaluateKeepaliveLoop triggers progress review without file changes', async () => {
@@ -395,7 +395,7 @@ test('evaluateKeepaliveLoop honors prompt scenario overrides from config', async
   assert.equal(result.promptMode, 'verify');
 });
 
-test('evaluateKeepaliveLoop waits when gate fails with lint failures', async () => {
+test('evaluateKeepaliveLoop dispatches fix when gate fails with lint failures', async () => {
   const pr = {
     number: 506,
     head: { ref: 'feature/lint', sha: 'sha-lint' },
@@ -415,8 +415,8 @@ test('evaluateKeepaliveLoop waits when gate fails with lint failures', async () 
     context: buildContext(pr.number),
     core: buildCore(),
   });
-  assert.equal(result.action, 'wait');
-  assert.equal(result.reason, 'gate-not-success');
+  assert.equal(result.action, 'fix');
+  assert.equal(result.reason, 'fix-lint');
 });
 
 test('evaluateKeepaliveLoop waits when gate is pending', async () => {

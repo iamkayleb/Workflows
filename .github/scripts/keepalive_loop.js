@@ -1306,9 +1306,13 @@ async function classifyGateFailure({ github, context, pr, core }) {
       failureType = 'lint';
     }
 
-    // Only route to fix mode for test/mypy failures
-    // Lint failures should go to autofix
-    const shouldFixMode = failureType === 'test' || failureType === 'mypy' || failureType === 'unknown';
+    // Route all classifiable failures to fix mode so the keepalive loop
+    // can dispatch a CI-fix iteration.  Previously lint was excluded on
+    // the assumption that a separate autofix chain would handle it, but
+    // that chain is fragile (depends on repository_dispatch + dispatcher
+    // + autofix-loop) and has broken in practice, leaving PRs stalled
+    // when lint is the only gate failure.
+    const shouldFixMode = failureType === 'test' || failureType === 'mypy' || failureType === 'lint' || failureType === 'unknown';
 
     if (core) {
       core.info(`[keepalive] Gate failure classification: type=${failureType}, shouldFixMode=${shouldFixMode}, failedJobs=[${failedJobs.join(', ')}]`);
@@ -2081,12 +2085,14 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
     // An iteration is productive if it has a reasonable productivity score
     const isProductive = productivityScore >= 20 && !hasRecentFailures;
 
-    // max_iterations is a hard cap on agent runs.
-    // Productive agents at max iterations are stopped with a clear reason;
-    // use the agent:retry label to explicitly continue past the cap.
+    // max_iterations is a soft cap on agent runs.  Productive agents
+    // (recent file changes, no persistent failures) with remaining tasks
+    // continue in "extended mode" (reason: ready-extended) past the cap.
+    // Unproductive agents are hard-stopped to avoid wasting compute.
+    // Use the agent:retry label to force-continue regardless.
     const hasMaxIterations = maxIterations > 0;
     const reachedMaxIterations = hasMaxIterations && iteration >= maxIterations;
-    const shouldStopForMaxIterations = reachedMaxIterations;
+    const shouldStopForMaxIterations = reachedMaxIterations && !isProductive;
 
     // Build task appendix for the agent prompt (after state load for reconciliation info)
     const taskAppendix = buildTaskAppendix(normalisedSections, checkboxCounts, state, { prBody: pr.body });
