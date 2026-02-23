@@ -86,7 +86,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-dependabot-weekly-sweep.yml` | Uses the shared repo helper instead of an inline parser for consumer roster. |
 | [x] | `maint-sync-action-versions.yml` | Reviewed – already syncing template action pins via automated PRs. |
 | [x] | `maint-sync-env-from-pyproject.yml` | Dropped the app-token mint; env sync now commits with the default token. |
-| [ ] | `pr-00-gate.yml` | |
+| [x] | `pr-00-gate.yml` | Still the required PR orchestrator; ledger-validation now inherits the doc-only fast-path so README-only PRs skip the Python boot/install cycle while full runs continue to guard `.agents/**` ledgers. |
 | [ ] | `pr-11-ci-smoke.yml` | |
 | [ ] | `reusable-10-ci-python.yml` | |
 | [ ] | `reusable-11-ci-node.yml` | |
