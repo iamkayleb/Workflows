@@ -32,7 +32,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-keepalive-loop.yml` | Core keepalive orchestrator; already enforces guardrails/task appendix/agent dispatching via the shared API client, so it stayed as-is and was documented. |
 | [x] | `agents-moderate-connector.yml` | Keeps connector noise off PRs by deleting deny-listed bot comments unless they contain real status updates; documented behavior, no workflow change needed. |
 | [x] | `agents-pr-meta-v4.yml` | Still required until the consolidated orchestrator lands; handles @agent/Gate activations, dispatch summaries, and keepalive re-dispatch with the expected token chain. |
-| [x] | `agents-verifier.yml` | Removed the redundant App-token mint; verifier already uses the shared API client to guard merged PRs and trigger checkbox/evaluate/compare modes. |
+| [x] | `agents-verifier.yml` | Restored the GitHub App token mint so cross-repo verification checkouts succeed under the service account while still falling back to the shared installation token when App secrets are missing. |
 | [x] | `agents-verify-to-issue-v2.yml` | Still needed for convert-verify→issue flow; documented behavior with existing PAT/App token chain for opening follow-up issues. |
 | [x] | `agents-verify-to-new-pr.yml` | Handles verify:create-new-pr end-to-end; now dispatches agents-auto-pilot directly so no bridge workflow is required. |
 | [x] | `agents-weekly-metrics.yml` | Removed the redundant App-token mint; weekly metrics now uses the shared API client/installation token to download artifacts and update the tracking issue. |
@@ -97,7 +97,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `reusable-70-orchestrator-init.yml` | Handles rate-limit checks, idle detection, keepalive token selection, and parameter resolution; uses GitHub App token only when needed for keepalive writes, so no changes were required. |
 | [x] | `reusable-70-orchestrator-main.yml` | Runs the orchestrator stages (keepalive gate, readiness, bootstrap, keepalive, etc.) using the init outputs; App token mint is still required when PATs are absent because keepalive writes must run as `agents-workflows-bot`. |
 | [x] | `reusable-agents-issue-bridge.yml` | Multi-agent issue → PR bridge already reads the agent registry; removed the unused GitHub App token mint so it runs on the provided PAT/default token chain only. |
-| [x] | `reusable-agents-verifier.yml` | Verifier reusable already handles CI wait + checkbox/evaluate/compare modes; dropped the unused GitHub App token mint so it runs on the caller’s default token/PATs only. |
+| [x] | `reusable-agents-verifier.yml` | Verifier reusable now mints the Workflows App token up front so it can clone both the caller repo and the Workflows scripts even for private consumers, with automatic fallback to the caller token when App creds aren’t wired. |
 | [x] | `reusable-bot-comment-handler.yml` | Multi-agent bot comment resolver; still needs the optional App token mint for consumer installs, so no changes required beyond documentation. |
 | [ ] | `reusable-claude-run.yml` | |
 | [x] | `reusable-codex-run.yml` | Codex runner keeps the App-token-first auth chain so it can push commits when available; falls back to read-only runs with `GITHUB_TOKEN`, so no YAML edits were needed. |
