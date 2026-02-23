@@ -164,6 +164,38 @@ runs:
 
         create_vendor_aliases
 
+        # Strip unresolvable file: dependencies from package.json so npm install
+        # doesn't choke when vendored packages are missing (e.g. sparse checkout
+        # that doesn't include node_modules/).
+        if [ -f "package.json" ]; then
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const raw = fs.readFileSync("package.json", "utf8");
+            const pkg = JSON.parse(raw);
+            let changed = false;
+            for (const section of ["dependencies", "devDependencies"]) {
+              if (!pkg[section]) continue;
+              for (const [name, spec] of Object.entries(pkg[section])) {
+                if (typeof spec === "string" && spec.startsWith("file:")) {
+                  const target = path.resolve(spec.slice(5));
+                  if (!fs.existsSync(target)) {
+                    delete pkg[section][name];
+                    changed = true;
+                    console.log("::notice::Stripped unresolvable vendored dep: " + name + " (" + spec + ")");
+                  }
+                }
+              }
+              if (pkg[section] && Object.keys(pkg[section]).length === 0) {
+                delete pkg[section];
+              }
+            }
+            if (changed) {
+              fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2) + "\n");
+            }
+          '
+        fi
+
         # Vendored packages often ship lifecycle scripts (tshy builds, custom bundlers, etc.)
         # that expect repo-specific tooling. Disable lifecycle scripts globally so npm install
         # never invokes those hooks inside CI.
