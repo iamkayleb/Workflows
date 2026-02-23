@@ -1708,15 +1708,39 @@ jobs:
             const stepCount = parseInt(process.env.STEP_COUNT || '0') + 1;
 
             let agentKey = 'codex';
+            let issueLabels = [];
             try {
-              const { loadAgentRegistry } = require('./.github/scripts/agent_registry.js');
+              const { data: issue } = await withRetry((client) =>
+                client.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                })
+              );
+              issueLabels = issue.labels || [];
+            } catch (fetchError) {
+              core.warning(`Failed to load issue labels before capability check: ${fetchError?.message || fetchError}`);
+            }
+            try {
+              const { loadAgentRegistry, resolveAgentFromLabels } = require('./.github/scripts/agent_registry.js');
               const registry = loadAgentRegistry();
-              const defaultAgent = registry.default_agent || agentKey;
-              agentKey = String(defaultAgent).trim().toLowerCase() || agentKey;
-              } catch (error) {
-                const prefix = `Failed to load agent registry; defaulting to ${agentKey}:`;
-                core.warning(`${prefix} ${error.message}`);
+              const defaultAgent = String(registry.default_agent || agentKey).trim().toLowerCase() || agentKey;
+              if (issueLabels.length) {
+                try {
+                  agentKey =
+                    resolveAgentFromLabels(issueLabels, { registryPath: './.github/agents/registry.yml' }) ||
+                    defaultAgent;
+                } catch (resolveError) {
+                  core.warning(`Failed to resolve agent label; defaulting to ${defaultAgent}: ${resolveError?.message || resolveError}`);
+                  agentKey = defaultAgent;
+                }
+              } else {
+                agentKey = defaultAgent;
               }
+            } catch (error) {
+              const prefix = `Failed to load agent registry; defaulting to ${agentKey}:`;
+              core.warning(`${prefix} ${error.message}`);
+            }
 
             await withRetry((client) => client.rest.issues.createComment({
               owner: context.repo.owner,
@@ -1969,13 +1993,37 @@ jobs:
             const issueTitle = process.env.ISSUE_TITLE || `Issue #${issueNumber}`;
             const stepCount = parseInt(process.env.STEP_COUNT || '0') + 1;
             let agentKey = 'codex';
+            let issueLabels = [];
             let branchPrefix = 'codex/issue-';
             try {
+              const { data: issue } = await withRetry((client) =>
+                client.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                })
+              );
+              issueLabels = issue.labels || [];
+            } catch (fetchError) {
+              core.warning(`Failed to load issue labels before create-pr: ${fetchError?.message || fetchError}`);
+            }
+            try {
               const registryLib = require('./.github/scripts/agent_registry.js');
-              const { loadAgentRegistry, getAgentConfig } = registryLib;
+              const { loadAgentRegistry, getAgentConfig, resolveAgentFromLabels } = registryLib;
               const registry = loadAgentRegistry();
-              const defaultAgent = registry.default_agent || agentKey;
-              agentKey = String(defaultAgent).trim().toLowerCase() || agentKey;
+              const defaultAgent = String(registry.default_agent || agentKey).trim().toLowerCase() || agentKey;
+              if (issueLabels.length) {
+                try {
+                  agentKey =
+                    resolveAgentFromLabels(issueLabels, { registryPath: './.github/agents/registry.yml' }) ||
+                    defaultAgent;
+                } catch (resolveError) {
+                  core.warning(`Failed to resolve agent label; defaulting to ${defaultAgent}: ${resolveError?.message || resolveError}`);
+                  agentKey = defaultAgent;
+                }
+              } else {
+                agentKey = defaultAgent;
+              }
               const cfg = getAgentConfig(agentKey);
               branchPrefix = String(cfg.branch_prefix || branchPrefix);
             } catch (error) {
