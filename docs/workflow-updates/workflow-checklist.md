@@ -88,7 +88,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `maint-sync-env-from-pyproject.yml` | Dropped the app-token mint; env sync now commits with the default token. |
 | [x] | `pr-00-gate.yml` | Still the required PR orchestrator; ledger-validation now inherits the doc-only fast-path so README-only PRs skip the Python boot/install cycle while full runs continue to guard `.agents/**` ledgers. |
 | [x] | `pr-11-ci-smoke.yml` | Keeps the YAML + scripts sanity checks on every push/PR, and now skips minting a GitHub App token since the job never leaves the repo (default token is enough). |
-| [ ] | `reusable-10-ci-python.yml` | |
+| [x] | `reusable-10-ci-python.yml` | Python lint/type/test reusable already supports uv caching + PAT/App fallback; the optional App token mint remains useful for repos that installed the Workflows app, so only documentation updates were needed. |
 | [x] | `reusable-11-ci-node.yml` | Node lint/type/test reusable stays the JS/TS CI entry point (ESLint, Prettier, tsc, Jest/Vitest) and now relies solely on the default workflow token since it never touches other repos. |
 | [x] | `reusable-12-ci-docker.yml` | Docker smoke reusable builds the repo image and curls the health endpoint; dropped the unused GitHub App mint so it runs entirely with the default token. |
 | [x] | `reusable-16-agents.yml` | Shared agents toolkit invoked by orchestrator; no YAML edits needed since it already gates readiness, diagnostics, bootstrap, watchdog, keepalive, and verify flows with PAT/App fallbacks + `options_json` for dry-runs. |
@@ -101,6 +101,6 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `reusable-bot-comment-handler.yml` | Multi-agent bot comment resolver; still needs the optional App token mint for consumer installs, so no changes required beyond documentation. |
 | [ ] | `reusable-claude-run.yml` | |
 | [x] | `reusable-codex-run.yml` | Codex runner keeps the App-token-first auth chain so it can push commits when available; falls back to read-only runs with `GITHUB_TOKEN`, so no YAML edits were needed. |
-| [ ] | `reusable-pr-context.yml` | |
-| [ ] | `selftest-ci.yml` | |
-| [ ] | `selftest-reusable-ci.yml` | |
+| [x] | `reusable-pr-context.yml` | GraphQL PR context fetcher already minimizes API calls; optional App token usage is still beneficial for higher rate limits, so only documentation updates were required. |
+| [x] | `selftest-ci.yml` | Removed the redundant GitHub App token mints from JS, Python, and lint jobs—selftests now run entirely on the default workflow token since they only operate on this repo. |
+| [x] | `selftest-reusable-ci.yml` | Self-test harness already reuses the Python CI composite via matrix scenarios; no App tokens or extra plumbing required, so documentation-only update. |

@@ -235,3 +235,7 @@ These outputs land in the Actions run summary, with any follow-up issue filed in
 - `.github/workflows/README.md` — Architecture snapshot for the CI + agent stack.
 - `docs/ci/WORKFLOWS.md` — Acceptance-criteria checklist for the final workflow set.
 - `docs/agent-automation.md` — Detailed description of the agent orchestrator and options.
+- **`reusable-10-ci-python.yml`** — Primary Python CI composite (lint → format → mypy → pytest + coverage). Accepts matrix inputs and installs uv caches; optionally uses the GitHub App token for checkout when provided, but callers can rely on the default token.
+- **`reusable-pr-context.yml`** — GraphQL-based PR context fetcher used across workflows to gather labels/files/CI state in one call. Falls back to the caller’s token but prefers the GitHub App token or owner PAT when available to reduce per-run API limits.
+- **`selftest-ci.yml`** — Workflows’ own CI smoke (JS tests, Python tests, lint/YAML validation). Now relies solely on the default workflow token because the jobs only read this repo.
+- **`selftest-reusable-ci.yml`** — Scheduled/manual harness that drives `reusable-10-ci-python.yml` across multiple feature combinations (metrics, history, coverage delta, soft gate) and posts summary/comment outputs. Relies on the default workflow token plus inherited secrets—no extra token plumbing needed.
