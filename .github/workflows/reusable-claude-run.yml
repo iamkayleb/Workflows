@@ -893,7 +893,8 @@ jobs:
           echo "Git status after Claude run:"
           git status --short || true
           echo "Unpushed commits (if any):"
-          git log --oneline "origin/${PR_REF:-HEAD}"..HEAD 2>/dev/null || \
+          diag_branch="${PR_REF#refs/heads/}"
+          git log --oneline "origin/${diag_branch:-HEAD}"..HEAD 2>/dev/null || \
             git log --oneline -5 2>/dev/null || true
           echo "::endgroup::"
 
@@ -962,6 +963,14 @@ jobs:
               COMMIT_SHA=$(git rev-parse HEAD)
               echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
               echo "changes-made=true" >> "$GITHUB_OUTPUT"
+              # Count files changed across unpushed commits so keepalive
+              # does not treat this as a zero-activity round.
+              if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+                AGENT_FILES=$(git diff --name-only FETCH_HEAD..HEAD | wc -l | tr -d ' ')
+              else
+                AGENT_FILES=$(git diff --name-only HEAD~"${UNPUSHED_COMMITS}"..HEAD 2>/dev/null | wc -l | tr -d ' ' || echo "1")
+              fi
+              echo "files-changed=${AGENT_FILES:-1}" >> "$GITHUB_OUTPUT"
               if [ "$PUSH_ALLOWED" != "true" ] || [ -z "$PUSH_TOKEN" ]; then
                 echo "::error::GitHub App token missing; refusing to push without app identity."
                 exit 1
@@ -1027,12 +1036,16 @@ jobs:
           # commits from Claude (it may have committed via Bash tool).
           if git diff --cached --quiet; then
             echo "::notice::No non-artifact changes to commit after filtering."
+            # Fetch remote so FETCH_HEAD is current (mirrors Codex runner pattern).
+            git fetch "$REMOTE_URL" "$target_branch" 2>/dev/null || true
             UNPUSHED=$(git rev-list FETCH_HEAD..HEAD --count 2>/dev/null || echo "0")
             if [ "$UNPUSHED" -gt 0 ]; then
               echo "::notice::Found ${UNPUSHED} unpushed commit(s) from Claude — pushing them."
               sha=$(git rev-parse HEAD)
               echo "commit-sha=$sha" >> "$GITHUB_OUTPUT"
               echo "changes-made=true" >> "$GITHUB_OUTPUT"
+              AGENT_FILES=$(git diff --name-only FETCH_HEAD..HEAD | wc -l | tr -d ' ')
+              echo "files-changed=${AGENT_FILES:-1}" >> "$GITHUB_OUTPUT"
               git push --force-with-lease "$REMOTE_URL" "HEAD:${target_branch}"
               echo "::notice::Pushed ${UNPUSHED} commit(s) (SHA: ${sha})"
               exit 0
