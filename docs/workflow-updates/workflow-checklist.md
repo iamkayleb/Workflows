@@ -91,7 +91,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [ ] | `reusable-10-ci-python.yml` | |
 | [x] | `reusable-11-ci-node.yml` | Node lint/type/test reusable stays the JS/TS CI entry point (ESLint, Prettier, tsc, Jest/Vitest) and now relies solely on the default workflow token since it never touches other repos. |
 | [x] | `reusable-12-ci-docker.yml` | Docker smoke reusable builds the repo image and curls the health endpoint; dropped the unused GitHub App mint so it runs entirely with the default token. |
-| [ ] | `reusable-16-agents.yml` | |
+| [x] | `reusable-16-agents.yml` | Shared agents toolkit invoked by orchestrator; no YAML edits needed since it already gates readiness, diagnostics, bootstrap, watchdog, keepalive, and verify flows with PAT/App fallbacks + `options_json` for dry-runs. |
 | [ ] | `reusable-18-autofix.yml` | |
 | [ ] | `reusable-20-pr-meta.yml` | |
 | [ ] | `reusable-70-orchestrator-init.yml` | |
