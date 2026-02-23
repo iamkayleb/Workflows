@@ -37,7 +37,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-verify-to-issue.yml` | Legacy stub is disabled (`if: false`); kept only to avoid breaking old references, documented as such. |
 | [x] | `agents-verify-to-new-pr-autopilot.yml` | Still needed to auto-dispatch agents-auto-pilot after the “Create New PR from Verification” workflow succeeds; documented behavior. |
 | [x] | `agents-verify-to-new-pr.yml` | Still owns the verify:create-new-pr flow (issue creation + artifact + auto-pilot dispatch); documented behavior. |
-| [ ] | `agents-weekly-metrics.yml` | |
+| [x] | `agents-weekly-metrics.yml` | Removed the redundant App-token mint; weekly metrics now uses the shared API client/installation token to download artifacts and update the tracking issue. |
 | [x] | `autofix.yml` | CI autofix now treats lint/format/Ruff/mypy/pytest failures as relevant so it auto-reruns before humans intervene. |
 | [x] | `health-40-repo-selfcheck.yml` | Weekly label + branch-protection snapshot still valuable; consider deduping shared helper scripts if more health jobs need the same token plumbing. |
 | [x] | `health-40-sweep.yml` | Keeps actionlint + guard coverage; manual runs can now skip guard to save API calls via `run_branch_protection=false`. |
