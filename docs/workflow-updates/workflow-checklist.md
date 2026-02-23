@@ -99,7 +99,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `reusable-agents-issue-bridge.yml` | Multi-agent issue → PR bridge already reads the agent registry; removed the unused GitHub App token mint so it runs on the provided PAT/default token chain only. |
 | [x] | `reusable-agents-verifier.yml` | Verifier reusable now mints the Workflows App token up front so it can clone both the caller repo and the Workflows scripts even for private consumers, with automatic fallback to the caller token when App creds aren’t wired. |
 | [x] | `reusable-bot-comment-handler.yml` | Multi-agent bot comment resolver; still needs the optional App token mint for consumer installs, so no changes required beyond documentation. |
-| [ ] | `reusable-claude-run.yml` | |
+| [x] | `reusable-claude-run.yml` | Claude CLI runner mirrors Codex parity: mints the Workflows App token for pushes, installs the shared setup-api-client/Workflows scripts with blobless-clone guards, exposes prompt/runtime/safety inputs, and reuses the repo checkout across keepalive/autofix callers. |
 | [x] | `reusable-codex-run.yml` | Codex runner keeps the App-token-first auth chain so it can push commits when available; falls back to read-only runs with `GITHUB_TOKEN`, so no YAML edits were needed. |
 | [x] | `reusable-pr-context.yml` | GraphQL PR context fetcher already minimizes API calls; optional App token usage is still beneficial for higher rate limits, so only documentation updates were required. |
 | [x] | `selftest-ci.yml` | Removed the redundant GitHub App token mints from JS, Python, and lint jobs—selftests now run entirely on the default workflow token since they only operate on this repo. |
