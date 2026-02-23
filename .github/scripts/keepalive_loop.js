@@ -2541,7 +2541,7 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       agentFilesChanged > 0 &&
       tasksCompletedThisRound <= 0;
 
-    if (action === 'run') {
+    if (action === 'run' || action === 'fix') {
       if (runResult === 'success') {
         nextIteration = currentIteration + 1;
         failure = {};
@@ -3210,7 +3210,7 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
     }
 
     const shouldEscalate =
-      (action === 'run' && runResult && runResult !== 'success' && errorCategory !== ERROR_CATEGORIES.transient) ||
+      ((action === 'run' || action === 'fix') && runResult && runResult !== 'success' && errorCategory !== ERROR_CATEGORIES.transient) ||
       (action === 'stop' && !isSuccessStop && !isNeutralStop && errorCategory !== ERROR_CATEGORIES.transient);
 
     const attentionKey = [summaryReason, runResult, errorCategory, errorType, agentExitCode].filter(Boolean).join('|');
