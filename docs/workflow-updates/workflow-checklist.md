@@ -96,7 +96,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `reusable-20-pr-meta.yml` | Consumer PR meta/keepalive reusable; removed GitHub App token mints so comment/gate/PR-body lanes rely on the provided PATs/default token only. |
 | [ ] | `reusable-70-orchestrator-init.yml` | |
 | [ ] | `reusable-70-orchestrator-main.yml` | |
-| [ ] | `reusable-agents-issue-bridge.yml` | |
+| [x] | `reusable-agents-issue-bridge.yml` | Multi-agent issue → PR bridge already reads the agent registry; removed the unused GitHub App token mint so it runs on the provided PAT/default token chain only. |
 | [ ] | `reusable-agents-verifier.yml` | |
 | [ ] | `reusable-bot-comment-handler.yml` | |
 | [ ] | `reusable-claude-run.yml` | |

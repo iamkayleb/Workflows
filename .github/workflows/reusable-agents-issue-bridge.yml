@@ -93,14 +93,6 @@ jobs:
       AGENT: ${{ inputs.agent }}
 
     steps:
-      - name: Mint GitHub App token (preferred)
-        id: app_token
-        continue-on-error: true
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.workflows_app_id }}
-          private-key: ${{ secrets.workflows_app_private_key }}
-
       # Full checkout from the start - sparse checkout causes issues with file visibility
       # in subsequent steps even after disabling it
       - name: Checkout repository
