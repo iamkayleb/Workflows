@@ -35,7 +35,7 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `agents-verifier.yml` | Removed the redundant App-token mint; verifier already uses the shared API client to guard merged PRs and trigger checkbox/evaluate/compare modes. |
 | [x] | `agents-verify-to-issue-v2.yml` | Still needed for convert-verify→issue flow; documented behavior with existing PAT/App token chain for opening follow-up issues. |
 | [x] | `agents-verify-to-issue.yml` | Legacy stub is disabled (`if: false`); kept only to avoid breaking old references, documented as such. |
-| [ ] | `agents-verify-to-new-pr-autopilot.yml` | |
+| [x] | `agents-verify-to-new-pr-autopilot.yml` | Still needed to auto-dispatch agents-auto-pilot after the “Create New PR from Verification” workflow succeeds; documented behavior. |
 | [ ] | `agents-verify-to-new-pr.yml` | |
 | [ ] | `agents-weekly-metrics.yml` | |
 | [x] | `autofix.yml` | CI autofix now treats lint/format/Ruff/mypy/pytest failures as relevant so it auto-reruns before humans intervene. |
