@@ -94,8 +94,8 @@ This checklist will track optimization, consolidation, or archival work for ever
 | [x] | `reusable-16-agents.yml` | Shared agents toolkit invoked by orchestrator; no YAML edits needed since it already gates readiness, diagnostics, bootstrap, watchdog, keepalive, and verify flows with PAT/App fallbacks + `options_json` for dry-runs. |
 | [x] | `reusable-18-autofix.yml` | Gate’s formatter harness already handles App/PAT/default-token fallback, writes commits for same-repo PRs, uploads patches when push is blocked, and surfaces delivery metadata—no YAML changes required. |
 | [x] | `reusable-20-pr-meta.yml` | Consumer PR meta/keepalive reusable; removed GitHub App token mints so comment/gate/PR-body lanes rely on the provided PATs/default token only. |
-| [ ] | `reusable-70-orchestrator-init.yml` | |
-| [ ] | `reusable-70-orchestrator-main.yml` | |
+| [x] | `reusable-70-orchestrator-init.yml` | Handles rate-limit checks, idle detection, keepalive token selection, and parameter resolution; uses GitHub App token only when needed for keepalive writes, so no changes were required. |
+| [x] | `reusable-70-orchestrator-main.yml` | Runs the orchestrator stages (keepalive gate, readiness, bootstrap, keepalive, etc.) using the init outputs; App token mint is still required when PATs are absent because keepalive writes must run as `agents-workflows-bot`. |
 | [x] | `reusable-agents-issue-bridge.yml` | Multi-agent issue → PR bridge already reads the agent registry; removed the unused GitHub App token mint so it runs on the provided PAT/default token chain only. |
 | [x] | `reusable-agents-verifier.yml` | Verifier reusable already handles CI wait + checkbox/evaluate/compare modes; dropped the unused GitHub App token mint so it runs on the caller’s default token/PATs only. |
 | [ ] | `reusable-bot-comment-handler.yml` | |
