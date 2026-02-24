@@ -918,8 +918,8 @@ jobs:
           echo "final-message=${encoded}" >> "$GITHUB_OUTPUT"
           echo "final-message-summary=${summary}" >> "$GITHUB_OUTPUT"
 
-          if [ $status -ne 0 ]; then
-            exit $status
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
           fi
 
       - name: Commit and push changes
