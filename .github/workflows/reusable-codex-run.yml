@@ -1237,9 +1237,33 @@ jobs:
                 COMMIT_SHA=$(git rev-parse HEAD)
                 echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
               fi
-              git push --force-with-lease "${REMOTE_URL}" "HEAD:${TARGET_BRANCH}"
-              echo "::notice::Pushed ${UNPUSHED_COMMITS} commit(s) from Codex (SHA: ${COMMIT_SHA})"
-              exit 0
+              # Use plain push (not --force-with-lease) because git fetch <URL>
+              # updates FETCH_HEAD but not the local tracking ref, causing
+              # --force-with-lease to reject with "stale info".
+              for attempt in 1 2 3; do
+                echo "Push attempt ${attempt}/3 (unpushed commits path)..."
+                if git push "${REMOTE_URL}" "HEAD:${TARGET_BRANCH}"; then
+                  echo "::notice::Pushed ${UNPUSHED_COMMITS} commit(s) from Codex (attempt ${attempt}, SHA: ${COMMIT_SHA})"
+                  exit 0
+                fi
+                echo "::warning::Push failed (attempt ${attempt})"
+                if [ "$attempt" -lt 3 ]; then
+                  sleep $((attempt * 5))
+                  git fetch "${REMOTE_URL}" "${TARGET_BRANCH}" 2>/dev/null || true
+                  if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+                    if ! git rebase FETCH_HEAD; then
+                      echo "::warning::Rebase failed on retry; attempting merge."
+                      git rebase --abort 2>/dev/null || true
+                      git pull --no-rebase "${REMOTE_URL}" "${TARGET_BRANCH}" \
+                        --allow-unrelated-histories || true
+                    fi
+                    COMMIT_SHA="$(git rev-parse HEAD)"
+                    echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+                  fi
+                fi
+              done
+              echo "::error::Failed to push unpushed commits after 3 attempts."
+              exit 1
             fi
 
             echo "No uncommitted changes and no unpushed commits."
