@@ -290,34 +290,61 @@ function formatWorkLogEntry({
   return `| ${iterLabel} | ${ts} | ${agent} | ${actionLabel}${retryFlag} | ${result} | ${files} | ${tasks} | ${tasksComplete}/${tasksTotal || '?'} | ${commitLink} | ${gate} |`;
 }
 
+// Maximum number of rows in the work-log table before the oldest entries are
+// trimmed.  Keeps the comment within GitHub's 65 536-char limit even with long
+// action/reason strings.
+const WORK_LOG_MAX_ROWS = 100;
+
 async function appendWorkLogEntry({ github, owner, repo, prNumber, entry, core }) {
   if (!github?.rest?.issues || !prNumber) {
     return;
   }
 
+  const tableHeader =
+    '| # | Time (UTC) | Agent | Action | Result | Files | Tasks | Progress | Commit | Gate |\n' +
+    '|---|------------|-------|--------|--------|-------|-------|----------|--------|------|';
+
   const header = [
     WORK_LOG_MARKER,
     '<details><summary><strong>Keepalive Work Log</strong> (click to expand)</summary>',
     '',
-    '| # | Time (UTC) | Agent | Action | Result | Files | Tasks | Progress | Commit | Gate |',
-    '|---|------------|-------|--------|--------|-------|-------|----------|--------|------|',
+    tableHeader,
   ].join('\n');
 
   const footer = '\n</details>';
 
-  // Find existing work log comment
+  // Find existing work log comment — iterate pages and stop as soon as
+  // the marker is found to avoid fetching all comments on busy PRs.
   let existingComment = null;
   try {
-    const comments = await github.paginate(github.rest.issues.listComments, {
-      owner,
-      repo,
-      issue_number: prNumber,
-      per_page: 100,
-    });
-    for (let i = comments.length - 1; i >= 0; i--) {
-      if (comments[i]?.body?.includes(WORK_LOG_MARKER)) {
-        existingComment = comments[i];
-        break;
+    if (github.paginate?.iterator) {
+      const iter = github.paginate.iterator(github.rest.issues.listComments, {
+        owner,
+        repo,
+        issue_number: prNumber,
+        per_page: 100,
+      });
+      outer: for await (const page of iter) {
+        for (const comment of (page.data || [])) {
+          if (comment?.body?.includes(WORK_LOG_MARKER)) {
+            existingComment = comment;
+            break outer;
+          }
+        }
+      }
+    } else {
+      // Fallback for stubs/older Octokit without paginate.iterator
+      const comments = await github.paginate(github.rest.issues.listComments, {
+        owner,
+        repo,
+        issue_number: prNumber,
+        per_page: 100,
+      });
+      for (let i = comments.length - 1; i >= 0; i--) {
+        if (comments[i]?.body?.includes(WORK_LOG_MARKER)) {
+          existingComment = comments[i];
+          break;
+        }
       }
     }
   } catch (err) {
@@ -334,6 +361,29 @@ async function appendWorkLogEntry({ github, owner, repo, prNumber, entry, core }
     } else {
       body = body + '\n' + entry;
     }
+
+    // Trim oldest rows if the table exceeds WORK_LOG_MAX_ROWS.
+    // Table rows start with '| ' and are between the header separator and
+    // the closing </details>.
+    const headerSepIdx = body.indexOf('|---|');
+    const closingIdx2 = body.lastIndexOf('</details>');
+    if (headerSepIdx >= 0 && closingIdx2 > headerSepIdx) {
+      const headerEnd = body.indexOf('\n', headerSepIdx);
+      if (headerEnd >= 0) {
+        const tableBody = body.slice(headerEnd + 1, closingIdx2);
+        const rows = tableBody.split('\n').filter((r) => r.startsWith('|'));
+        if (rows.length > WORK_LOG_MAX_ROWS) {
+          const trimmed = rows.slice(rows.length - WORK_LOG_MAX_ROWS);
+          body =
+            body.slice(0, headerEnd + 1) +
+            trimmed.join('\n') +
+            '\n' +
+            body.slice(closingIdx2);
+          core?.info?.(`[work-log] Trimmed ${rows.length - WORK_LOG_MAX_ROWS} oldest row(s)`);
+        }
+      }
+    }
+
     try {
       await github.rest.issues.updateComment({
         owner,
@@ -2151,8 +2201,6 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
     // Track task completion trend
     const previousTasks = state.tasks || {};
     const prevUnchecked = toNumber(previousTasks.unchecked, checkboxCounts.unchecked);
-    const prevTotal = toNumber(previousTasks.total, checkboxCounts.total);
-    const totalsStable = prevTotal === checkboxCounts.total;
     const rawCompletionDelta = prevUnchecked - checkboxCounts.unchecked;
     // Credit task completion whenever unchecked count decreased, even if the
     // total changed (e.g., parent-child cascade added new sub-tasks, or tasks
@@ -2558,6 +2606,9 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
         ? toNumber(failureThresholdInput, 3)
         : toNumber(previousState?.failure_threshold, 3),
     );
+    // Resolve force_retry early — needed by the live-recount and zero-activity blocks.
+    const isForceRetry = toBool(inputs.force_retry ?? inputs.forceRetry, false);
+
     let roundsWithoutTaskCompletion = hasRoundsWithoutTaskCompletionInput
       ? toNumber(roundsWithoutTaskCompletionInput, 0)
       : toNumber(previousState?.rounds_without_task_completion, 0);
@@ -2656,7 +2707,17 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
     // The evaluate step calculated this counter before autoReconcile ran, so it
     // may incorrectly show "no progress" even though autoReconcile just checked
     // tasks off.  Re-derive the counter here with the authoritative counts.
-    {
+    // When force_retry is active, honour the evaluate-step's reset to 0 and
+    // do not overwrite it — the human explicitly wants a fresh start.
+    if (isForceRetry) {
+      if (roundsWithoutTaskCompletion !== 0) {
+        core?.info?.(
+          `[summary] force_retry active — keeping rounds_without_task_completion at 0 ` +
+          `(was ${roundsWithoutTaskCompletion})`,
+        );
+        roundsWithoutTaskCompletion = 0;
+      }
+    } else {
       const prevTasks = previousState?.tasks || {};
       const prevUncheckedForCounter = toNumber(prevTasks.unchecked, tasksUnchecked);
       const liveCompletionDelta = prevUncheckedForCounter - tasksUnchecked;
@@ -2827,7 +2888,6 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
 
     // When force_retry was active (user added agent:retry), reset the zero-activity
     // counter so the agent gets a clean slate — same intent as the evaluate-step reset.
-    const isForceRetry = toBool(inputs.force_retry ?? inputs.forceRetry, false);
     const previousZeroActivityRounds = isForceRetry
       ? 0
       : toNumber(previousState?.consecutive_zero_activity_rounds, 0);
