@@ -634,7 +634,7 @@ jobs:
           fi
 
           echo "Removing stale workflow artifact files..."
-          rm -f claude-output*.md claude-session*.jsonl claude-analysis*.json 2>/dev/null || true
+          rm -f claude-output*.md claude-session*.log claude-session*.jsonl claude-analysis*.json 2>/dev/null || true
 
           echo "Git status after cleanup:"
           git status --short || true
@@ -783,6 +783,7 @@ jobs:
           PR_NUMBER: ${{ inputs.pr_number }}
           SKIP_PERMISSIONS: ${{ inputs.skip_permissions }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
+          PR_REF: ${{ inputs.pr_ref }}
         run: |
           set -euo pipefail
 
@@ -859,32 +860,29 @@ jobs:
             perm_flag=("--dangerously-skip-permissions")
           fi
 
-          # Use PR-specific session JSONL filename (mirrors Codex runner pattern)
+          # Use PR-specific session log filename (mirrors Codex runner pattern)
           if [ -n "${PR_NUMBER:-}" ]; then
-            SESSION_JSONL="claude-session-${PR_NUMBER}.jsonl"
+            SESSION_LOG="claude-session-${PR_NUMBER}.log"
           else
-            SESSION_JSONL="claude-session.jsonl"
+            SESSION_LOG="claude-session.log"
           fi
 
           echo "Running Claude Code in agentic mode..."
           echo "Prompt file: $PROMPT_FILE"
           echo "Output file: $output_file"
-          echo "Session log: $SESSION_JSONL"
+          echo "Session log: $SESSION_LOG"
 
-          # Build the command.  claude -p (--print) runs in non-interactive
-          # agentic mode: tools execute on disk and the final text response
-          # goes to stdout.  --output-format stream-json writes structured
-          # JSONL events (including tool calls) to stdout so we can capture
-          # them for debugging, while --output-file captures the final
-          # human-readable response separately.
+          # claude -p (--print) runs in non-interactive agentic mode:
+          # all tools execute, and the final text response goes to stdout.
+          # Note: --output-file does NOT exist in Claude CLI; use shell
+          # redirection.  Tee to $SESSION_LOG so we have a debug artifact
+          # even if the run fails.
           set +e
           claude -p "$prompt_content" \
             "${perm_flag[@]}" \
             "${extra_args[@]}" \
-            --output-format stream-json \
-            --output-file "$output_file" \
-            > "$SESSION_JSONL" 2>&1
-          status=$?
+            2>&1 | tee "$SESSION_LOG" > "$output_file"
+          status=${PIPESTATUS[0]}
           set -e
 
           # Diagnostic: show what Claude did to the workspace
@@ -893,7 +891,8 @@ jobs:
           echo "Git status after Claude run:"
           git status --short || true
           echo "Unpushed commits (if any):"
-          diag_branch="${PR_REF#refs/heads/}"
+          diag_branch="${PR_REF:-}"
+          diag_branch="${diag_branch#refs/heads/}"
           git log --oneline "origin/${diag_branch:-HEAD}"..HEAD 2>/dev/null || \
             git log --oneline -5 2>/dev/null || true
           echo "::endgroup::"
@@ -919,8 +918,8 @@ jobs:
           echo "final-message=${encoded}" >> "$GITHUB_OUTPUT"
           echo "final-message-summary=${summary}" >> "$GITHUB_OUTPUT"
 
-          if [ $status -ne 0 ]; then
-            exit $status
+          if [ "$status" -ne 0 ]; then
+            exit "$status"
           fi
 
       - name: Commit and push changes
@@ -1011,16 +1010,33 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          # Check if only agents/*.md bootstrap files changed — skip commit
+          # to reduce noise. Mirrors reusable-codex-run.yml pattern.
+          STATUS_ONLY_CHANGES=$(
+            git status --porcelain |
+              grep -cvE '^\S+\s+agents/.*\.md$' || echo "0"
+          )
+          if [ "$STATUS_ONLY_CHANGES" -eq 0 ] && [ "$CHANGED_FILES" -gt 0 ]; then
+            echo "Only agent bootstrap files changed - skipping commit to reduce noise."
+            echo "changes-made=false" >> "$GITHUB_OUTPUT"
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            git checkout -- agents/ 2>/dev/null || true
+            exit 0
+          fi
+
           git add -A
           # Unstage non-agent artifacts to prevent committing workflow noise.
           # Mirrors the exclusion list from reusable-codex-run.yml.
           git reset HEAD -- \
             claude-output*.md \
             claude-prompt*.md \
+            claude-session*.log \
             claude-session*.jsonl \
             claude-analysis*.json \
             codex-output*.md \
             codex-prompt*.md \
+            codex-session-*.jsonl \
+            codex-analysis-*.json \
             .coverage \
             .workflows-lib \
             .github/scripts/node_modules \
@@ -1115,6 +1131,17 @@ jobs:
           done
           echo "::error::Failed to push after 3 attempts."
           exit 1
+
+      - name: Upload Claude output
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: claude-output-${{ inputs.pr_number || github.run_id }}
+          path: |
+            claude-output*.md
+            claude-session*.log
+            claude-session*.jsonl
+          if-no-files-found: ignore
 
       - name: Compatibility outputs (LLM analysis placeholders)
         id: compat

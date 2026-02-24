@@ -1298,7 +1298,7 @@ jobs:
           git add -A
           # Exclude generated artifacts that cause merge conflicts between concurrent PRs.
           # These files are auto-generated and should never be committed:
-          # - codex-*: Codex workflow artifacts
+          # - codex-*/claude-*: Agent workflow artifacts (cross-agent exclusion)
           # - coverage.xml, .coverage: CI test coverage reports
           # - pr_body.md: Agent-generated PR metadata
           # - autofix_report_enriched.json: Autofix workflow artifact
@@ -1310,6 +1310,11 @@ jobs:
             codex-prompt*.md \
             codex-session-*.jsonl \
             codex-analysis-*.json \
+            claude-output*.md \
+            claude-prompt*.md \
+            claude-session*.log \
+            claude-session*.jsonl \
+            claude-analysis*.json \
             .coverage \
             .workflows-lib \
             .github/scripts/node_modules \
