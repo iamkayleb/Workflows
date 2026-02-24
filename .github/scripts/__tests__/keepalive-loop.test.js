@@ -694,7 +694,7 @@ test('updateKeepaliveLoopSummary increments iteration and clears failures on suc
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   assert.match(github.actions[0].body, /Iteration 3\/5/);
   assert.match(github.actions[0].body, /Iteration progress \| \[######----\] 3\/5 \|/);
@@ -1659,7 +1659,7 @@ test('updateKeepaliveLoopSummary resets failure count on transient errors', asyn
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   const updateAction = github.actions.find((action) => action.type === 'update');
   assert.ok(updateAction);
   const body = updateAction.body;
@@ -1699,7 +1699,7 @@ test('updateKeepaliveLoopSummary uses state iteration when inputs have stale val
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   // Should preserve iteration=2 from state, NOT use stale iteration=0 from inputs
   assert.match(github.actions[0].body, /"iteration":2/);
@@ -1739,7 +1739,7 @@ test('updateKeepaliveLoopSummary does NOT count wait states as failures', async 
   });
 
   // Should only update comment, NOT add needs-human label
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   // Failure state should be cleared for transient wait conditions
   assert.match(github.actions[0].body, /"failure":\{\}/);
@@ -1777,7 +1777,7 @@ test('updateKeepaliveLoopSummary marks deferred rate limit cancellations as tran
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   const updateAction = github.actions[0];
   assert.equal(updateAction.type, 'update');
   assert.match(updateAction.body, /Disposition \| deferred \(transient\)/);
@@ -1817,7 +1817,7 @@ test('updateKeepaliveLoopSummary adds needs-human after repeated actual failures
     },
   });
 
-  assert.equal(github.actions.length, 3);
+  assert.equal(github.actions.length, 4);
   const updateAction = github.actions.find((action) => action.type === 'update');
   assert.ok(updateAction);
   assert.match(updateAction.body, /agent-run-failed-repeat/);
@@ -1866,7 +1866,7 @@ test('updateKeepaliveLoopSummary does not treat skipped runs as agent failures',
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   const updateAction = github.actions[0];
   assert.equal(updateAction.type, 'update');
   assert.match(updateAction.body, /agent-run-skipped/);
@@ -2066,7 +2066,7 @@ test('updateKeepaliveLoopSummary does NOT add needs-human on tasks-complete', as
   });
 
   // Should only update comment, NOT add needs-human label
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   // Should show completed status
   assert.match(github.actions[0].body, /tasks-complete/);
@@ -3310,7 +3310,7 @@ test('updateKeepaliveLoopSummary displays LLM provider analysis details', async 
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   assert.match(github.actions[0].body, /### 🧠 Task Analysis/);
   assert.match(github.actions[0].body, /GitHub Models \(primary\)/);
@@ -3350,7 +3350,7 @@ test('updateKeepaliveLoopSummary shows fallback warning for OpenAI provider', as
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   assert.match(github.actions[0].body, /### 🧠 Task Analysis/);
   assert.match(github.actions[0].body, /OpenAI \(fallback\)/);
@@ -3390,7 +3390,7 @@ test('updateKeepaliveLoopSummary shows regex fallback warning', async () => {
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   assert.match(github.actions[0].body, /### 🧠 Task Analysis/);
   assert.match(github.actions[0].body, /Regex \(fallback\)/);
