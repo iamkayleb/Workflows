@@ -55,6 +55,21 @@ on:
         description: 'Skip stalled PR nudge (label rotation)'
         type: boolean
         default: false
+      cron_interval_hours:
+        description: >-
+          Run interval in hours for scheduled triggers (0 = disabled).
+          Set via repo variable PR_HEALTH_INTERVAL_HOURS to control
+          frequency without a code change.
+        type: number
+        default: 1
+      is_scheduled_trigger:
+        description: >-
+          Whether this run was triggered by a cron schedule.
+          Callers should pass: github.event_name == 'schedule'.
+          Required because github.event_name inside a reusable
+          workflow is always 'workflow_call', not the caller's event.
+        type: boolean
+        default: false
     secrets:
       service_bot_pat:
         required: false
@@ -78,10 +93,81 @@ permissions:
 
 jobs:
   # -----------------------------------------------------------------------
+  # 0. Schedule gate — skip if this hour is not aligned to the interval
+  # -----------------------------------------------------------------------
+  gate:
+    name: Schedule gate
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Evaluate schedule interval
+        id: check
+        env:
+          INTERVAL: ${{ inputs.cron_interval_hours }}
+          IS_SCHEDULED: ${{ inputs.is_scheduled_trigger }}
+        run: |
+          set -euo pipefail
+          interval="${INTERVAL:-1}"
+
+          # Validate interval — must be a non-negative integer.
+          # Repo variables are free-text; guard against '6h', '6.0', etc.
+          if ! [[ "$interval" =~ ^[0-9]+$ ]]; then
+            echo "::warning::Invalid cron_interval_hours='$interval' — defaulting to 1"
+            interval=1
+          fi
+
+          # Non-scheduled triggers (manual dispatch) always proceed.
+          # Note: github.event_name inside a reusable workflow is always
+          # 'workflow_call', so callers pass is_scheduled_trigger instead.
+          if [ "$IS_SCHEDULED" != "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger — always proceeding"
+            exit 0
+          fi
+
+          # Interval 0 = disabled
+          if [ "$interval" = "0" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "PR Health disabled (cron_interval_hours=0)"
+            exit 0
+          fi
+
+          # Interval 1 = every hour (always aligned with hourly cron)
+          if [ "$interval" = "1" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Running every hour (interval=1)"
+            exit 0
+          fi
+
+          # Check UTC hour alignment
+          current_hour=$(date -u +%-H)
+          remainder=$((current_hour % interval))
+          if [ "$remainder" -ne 0 ]; then
+            # Find the actual next aligned hour on a 24h clock.
+            # Avoids the simple (n/i+1)*i%24 formula which is wrong
+            # for intervals that don't evenly divide 24.
+            next_hour="$current_hour"
+            while :; do
+              next_hour=$(( (next_hour + 1) % 24 ))
+              if [ $((next_hour % interval)) -eq 0 ]; then
+                break
+              fi
+            done
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping — UTC hour $current_hour not aligned to ${interval}h interval (next at hour $next_hour)"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Running — UTC hour $current_hour aligned to ${interval}h interval"
+          fi
+
+  # -----------------------------------------------------------------------
   # 1. Scan all open PRs and categorise
   # -----------------------------------------------------------------------
   scan:
     name: Scan open PRs
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     outputs:
       conflict_prs: ${{ steps.categorise.outputs.conflict_prs }}
@@ -947,8 +1033,8 @@ jobs:
   # -----------------------------------------------------------------------
   summary:
     name: Health summary
-    needs: [scan, resolve-conflicts, fix-checks, nudge-stalled]
-    if: always()
+    needs: [gate, scan, resolve-conflicts, fix-checks, nudge-stalled]
+    if: always() && needs.gate.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Summarise
