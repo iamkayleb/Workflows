@@ -28,12 +28,22 @@ jobs:
     name: Detect and fix integration test failures
     runs-on: ubuntu-latest
     # Only run on issues with specific titles
-    if: |
-      (github.event_name == 'issues' && contains(github.event.issue.title, 'Integration CI failed')) ||
-      (github.event_name == 'issue_comment' && contains(github.event.issue.title, 'Integration CI failed')) ||
-      github.event_name == 'workflow_dispatch'
+    if: >-
+      (
+        github.event_name == 'issues'
+        && contains(github.event.issue.title, 'Integration CI failed')
+      )
+      || (
+        github.event_name == 'issue_comment'
+        && contains(github.event.issue.title, 'Integration CI failed')
+      )
+      || github.event_name == 'workflow_dispatch'
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
       - name: Extract run information
         id: extract
         run: |
@@ -53,6 +63,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           RUN_ID="${{ steps.extract.outputs.run_id }}"
 
           if [ -z "$RUN_ID" ]; then
@@ -62,7 +73,32 @@ jobs:
           fi
 
           # Get the workflow run details
-          RUN_DATA=$(gh api /repos/stranske/Workflows-Integration-Tests/actions/runs/$RUN_ID || echo "")
+          RUN_DATA=$(RUN_ID="$RUN_ID" node - <<-'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          const runId = Number(process.env.RUN_ID);
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-71-auto-fix-integration',
+              capabilities: ['actions:read']
+            });
+            const response = await withRetry((client) => client.rest.actions.getWorkflowRun({
+              owner: 'stranske',
+              repo: 'Workflows-Integration-Tests',
+              run_id: runId
+            }));
+            process.stdout.write(JSON.stringify(response.data || {}));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           if [ -z "$RUN_DATA" ]; then
             echo "Could not fetch run data"
@@ -81,28 +117,70 @@ jobs:
             echo "should_fix=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout Integration-Tests repo
+      - name: Prepare integration repo token
         if: steps.check_status.outputs.should_fix == 'true'
+        id: integration_token
+        env:
+          CODESPACES_PAT: ${{ secrets.CODESPACES_WORKFLOWS }}
+          SERVICE_PAT: ${{ secrets.SERVICE_BOT_PAT }}
+        run: |
+          if [ -n "${CODESPACES_PAT}" ]; then
+            echo "token_available=true" >> "$GITHUB_OUTPUT"
+            echo "SYNC_TOKEN=${CODESPACES_PAT}" >> "$GITHUB_ENV"
+          elif [ -n "${SERVICE_PAT}" ]; then
+            echo "token_available=true" >> "$GITHUB_OUTPUT"
+            echo "SYNC_TOKEN=${SERVICE_PAT}" >> "$GITHUB_ENV"
+          else
+            echo "token_available=false" >> "$GITHUB_OUTPUT"
+            echo "WARNING: No PAT available for integration repo pushes. Skipping auto-fix." >&2
+          fi
+
+      - name: Resolve integration repo default branch
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
+        id: integration_ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-71-auto-fix-integration-ref',
+              capabilities: ['contents:read']
+            });
+            const { data } = await withRetry((client) => client.rest.repos.get({
+              owner: 'stranske',
+              repo: 'Workflows-Integration-Tests'
+            }));
+            if (!data?.default_branch) {
+              core.setFailed('Could not determine integration repo default branch');
+              return;
+            }
+            core.setOutput('ref', data.default_branch);
+
+      - name: Checkout Integration-Tests repo
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows-Integration-Tests
-          ref: main
-          token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS }}
+          ref: ${{ steps.integration_ref.outputs.ref }}
+          token: ${{ env.SYNC_TOKEN }}
           path: integration-tests
 
       - name: Set up Python
-        if: steps.check_status.outputs.should_fix == 'true'
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
 
       - name: Install formatting tools
-        if: steps.check_status.outputs.should_fix == 'true'
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         run: |
           python3 -m pip install black ruff
 
       - name: Apply formatting fixes
-        if: steps.check_status.outputs.should_fix == 'true'
+        if: steps.check_status.outputs.should_fix == 'true' && steps.integration_token.outputs.token_available == 'true'
         id: format
         run: |
           cd integration-tests
@@ -126,7 +204,10 @@ jobs:
           fi
 
       - name: Commit and push changes
-        if: steps.check_status.outputs.should_fix == 'true' && steps.format.outputs.has_changes == 'true'
+        if: >-
+          steps.check_status.outputs.should_fix == 'true'
+          && steps.integration_token.outputs.token_available == 'true'
+          && steps.format.outputs.has_changes == 'true'
         run: |
           cd integration-tests
 
@@ -136,14 +217,19 @@ jobs:
           git add -A
           git commit -m "fix: Auto-format files to meet lint standards" \
             -m "" \
-            -m "Auto-fixed by: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -m "Auto-fixed by: https://github.com/${{ github.repository }}/actions/runs/" \
+            -m "${{ github.run_id }}" \
             -m "Triggered by: ${{ github.event_name }}" \
             -m "Issue: #${{ github.event.issue.number || 'N/A' }}"
 
           git push
 
       - name: Comment on issue
-        if: steps.check_status.outputs.should_fix == 'true' && steps.format.outputs.has_changes == 'true' && github.event.issue.number
+        if: >-
+          steps.check_status.outputs.should_fix == 'true'
+          && steps.integration_token.outputs.token_available == 'true'
+          && steps.format.outputs.has_changes == 'true'
+          && github.event.issue.number
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COMMENT_BODY: |
@@ -170,12 +256,15 @@ jobs:
           {
             echo "## Integration Tests Auto-Fix"
             echo ""
-            if [ "${{ steps.format.outputs.has_changes }}" = "true" ]; then
+            if [ "${{ steps.integration_token.outputs.token_available }}" != "true" ]; then
+              echo "⚠️ Skipped: No integration PAT available for pushes."
+            elif [ "${{ steps.format.outputs.has_changes }}" = "true" ]; then
               echo "✅ Formatting fixes applied and pushed to Integration-Tests repository"
               echo ""
               echo "### Next Steps"
               echo "- Integration tests will re-run automatically"
-              echo "- Verify tests pass: https://github.com/stranske/Workflows-Integration-Tests/actions"
+              echo "- Verify tests pass:"
+              echo "  https://github.com/stranske/Workflows-Integration-Tests/actions"
               echo "- Close issue #${{ github.event.issue.number || 'N/A' }} once verified"
             else
               echo "ℹ️ No formatting changes were needed"

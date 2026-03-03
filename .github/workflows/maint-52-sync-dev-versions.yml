@@ -34,17 +34,6 @@ on:
 permissions:
   contents: read
 
-env:
-  # Consumer repos registered for version sync
-  REGISTERED_CONSUMER_REPOS: |
-    stranske/Travel-Plan-Permission
-    stranske/Template
-    stranske/trip-planner
-    stranske/Manager-Database
-    stranske/Portable-Alpha-Extension-Model
-    stranske/Trend_Model_Project
-    stranske/Collab-Admin
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -88,6 +77,7 @@ jobs:
         with:
           sparse-checkout: |
             .github/workflows/autofix-versions.env
+            scripts/list_registered_consumer_repos.py
             scripts/sync_dev_dependencies.py
           sparse-checkout-cone-mode: false
 
@@ -105,16 +95,23 @@ jobs:
         id: repos
         run: |
           if [ -n "${{ inputs.repos }}" ]; then
-            repos='${{ inputs.repos }}'
+            repos="${{ inputs.repos }}"
           else
-            repos=$(echo "$REGISTERED_CONSUMER_REPOS" | tr '\n' ',' | sed 's/,$//')
+            repos=$(python scripts/list_registered_consumer_repos.py --separator ',')
           fi
-          json_array=$(echo "$repos" | tr ',' '\n' | grep -v '^$' | jq -R -s -c 'split("\n") | map(select(. != "")) | map(gsub("^\\s+|\\s+$"; ""))')
+          json_array=$(echo "$repos" \
+            | tr ',' '\n' \
+            | grep -v '^$' \
+            | jq -R -s -c '
+              split("\n")
+              | map(select(. != ""))
+              | map(gsub("^\\s+|\\s+$"; ""))
+            ')
           echo "matrix={\"repo\":$json_array}" >> "$GITHUB_OUTPUT"
           echo "Repos to sync: $json_array"
 
       - name: Upload sync script
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: sync-script
           path: |
@@ -139,7 +136,7 @@ jobs:
           gh repo clone ${{ matrix.repo }} consumer -- --depth=1
 
       - name: Download sync script
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: sync-script
 
@@ -181,7 +178,10 @@ jobs:
           cd consumer
 
           # Run sync check first
-          if python ../scripts/sync_dev_dependencies.py --check --use-minimum-pins 2>&1 | tee /tmp/sync_output.txt; then
+          if python ../scripts/sync_dev_dependencies.py \
+            --check \
+            --use-minimum-pins 2>&1 \
+            | tee /tmp/sync_output.txt; then
             echo "has_changes=false" >> "$GITHUB_OUTPUT"
           else
             echo "has_changes=true" >> "$GITHUB_OUTPUT"
@@ -197,7 +197,9 @@ jobs:
 
       - name: Add dev dependencies (missing dev deps)
         id: add_deps
-        if: steps.check.outputs.has_pyproject == 'true' && steps.check.outputs.has_dev_deps != 'true'
+        if: >-
+          steps.check.outputs.has_pyproject == 'true'
+          && steps.check.outputs.has_dev_deps != 'true'
         run: |
           set -o pipefail
           # Copy pin file to expected location
@@ -209,7 +211,11 @@ jobs:
           echo "Adding dev dependencies section to pyproject.toml..."
 
           # Use --create-if-missing to add dev deps
-          if python ../scripts/sync_dev_dependencies.py --apply --use-minimum-pins --create-if-missing 2>&1 | tee /tmp/sync_output.txt; then
+          if python ../scripts/sync_dev_dependencies.py \
+            --apply \
+            --use-minimum-pins \
+            --create-if-missing 2>&1 \
+            | tee /tmp/sync_output.txt; then
             if grep -q "version updates" /tmp/sync_output.txt; then
               echo "has_changes=true" >> "$GITHUB_OUTPUT"
             else
@@ -228,7 +234,9 @@ jobs:
           echo "Skipping ${{ matrix.repo }}: no pyproject.toml found"
 
       - name: Create sync PR
-        if: (steps.sync.outputs.has_changes == 'true' || steps.add_deps.outputs.has_changes == 'true') && inputs.dry_run != true
+        if: >-
+          (steps.sync.outputs.has_changes == 'true' || steps.add_deps.outputs.has_changes == 'true')
+          && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ env.REPO_TOKEN }}
         run: |
@@ -246,8 +254,11 @@ jobs:
           # Configure git
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # shellcheck disable=SC2016 # Single quotes intentional - GH_TOKEN expands at runtime in credential helper
-          git config credential.helper '!f() { echo "username=x-access-token"; echo "password=${GH_TOKEN}"; }; f'
+          # shellcheck disable=SC2016 # GH_TOKEN expands at runtime
+          credential_helper='!f() { echo "username=x-access-token";'
+          credential_helper+=" echo \"password=${GH_TOKEN}\";"
+          credential_helper+=' }; f'
+          git config credential.helper "$credential_helper"
 
           # Create branch and commit
           git checkout -b "$branch_name"
@@ -284,7 +295,7 @@ jobs:
           - Easier debugging when tools behave the same everywhere
 
           ---
-          **Source:** [\`.github/workflows/autofix-versions.env\`](https://github.com/stranske/Workflows/blob/main/.github/workflows/autofix-versions.env)"
+          **Source:** \`.github/workflows/autofix-versions.env\`"
 
           gh pr create \
             --head "$branch_name" \
@@ -292,7 +303,12 @@ jobs:
             --body "$pr_body"
 
       - name: Dry run summary
-        if: inputs.dry_run == true && (steps.sync.outputs.has_changes == 'true' || steps.add_deps.outputs.has_changes == 'true')
+        if: >-
+          inputs.dry_run == true
+          && (
+            steps.sync.outputs.has_changes == 'true'
+            || steps.add_deps.outputs.has_changes == 'true'
+          )
         run: |
           {
             echo "## Dry Run - ${{ matrix.repo }}"

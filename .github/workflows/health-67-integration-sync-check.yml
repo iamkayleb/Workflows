@@ -19,6 +19,19 @@ on:
   schedule:
     - cron: '30 5 * * *'  # Daily at 5:30 UTC
   workflow_dispatch:
+    inputs:
+      run_ci_check:
+        description: 'Run the CI workflow structure comparison'
+        type: boolean
+        default: true
+      run_version_check:
+        description: 'Run the autofix-versions.env comparison'
+        type: boolean
+        default: true
+      run_input_check:
+        description: 'Run the CI input-parameter validation'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -35,11 +48,62 @@ jobs:
   check-sync:
     name: Validate Integration-Tests sync
     runs-on: ubuntu-latest
+    env:
+      RUN_CI_CHECK: 'true'
+      RUN_VERSION_CHECK: 'true'
+      RUN_INPUT_CHECK: 'true'
     steps:
       - name: Checkout Workflows repo
         uses: actions/checkout@v6
         with:
           path: workflows
+
+      - name: Setup API client
+        uses: ./workflows/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+      - name: Apply workflow_dispatch overrides
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+
+          def normalize(value: str | None, default: str) -> str:
+              if value is None:
+                  return default
+              return 'false' if str(value).lower() == 'false' else 'true'
+
+          event_path = os.environ["GITHUB_EVENT_PATH"]
+          env_defaults = {
+              "RUN_CI_CHECK": os.environ.get("RUN_CI_CHECK", "true"),
+              "RUN_VERSION_CHECK": os.environ.get("RUN_VERSION_CHECK", "true"),
+              "RUN_INPUT_CHECK": os.environ.get("RUN_INPUT_CHECK", "true"),
+          }
+
+          with open(event_path, encoding="utf-8") as handle:
+              data = json.load(handle)
+
+          inputs = data.get("inputs") or {}
+          overrides = {
+              "RUN_CI_CHECK": normalize(inputs.get("run_ci_check"), env_defaults["RUN_CI_CHECK"]),
+              "RUN_VERSION_CHECK": normalize(
+                  inputs.get("run_version_check"), env_defaults["RUN_VERSION_CHECK"]
+              ),
+              "RUN_INPUT_CHECK": normalize(
+                  inputs.get("run_input_check"), env_defaults["RUN_INPUT_CHECK"]
+              ),
+          }
+
+          env_path = os.environ["GITHUB_ENV"]
+          with open(env_path, "a", encoding="utf-8") as handle:
+              for key, value in overrides.items():
+                  handle.write(f"{key}={value}\n")
+          PY
+
+
 
       - name: Clone Integration-Tests repo
         env:
@@ -49,6 +113,7 @@ jobs:
 
       - name: Compare CI workflow structure
         id: compare-ci
+        if: env.RUN_CI_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -84,6 +149,7 @@ jobs:
 
       - name: Compare autofix-versions.env
         id: compare-versions
+        if: env.RUN_VERSION_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -102,12 +168,14 @@ jobs:
             actual_val=$(grep "^${key}=" "$ACTUAL" | cut -d= -f2 || echo "MISSING")
 
             if [ "$template_val" != "$canonical_val" ]; then
-              echo "::warning::Template $key ($template_val) differs from canonical ($canonical_val)"
+              echo "::warning::Template $key ($template_val) differs from canonical"
+              echo "::warning::Canonical value: ($canonical_val)"
               drift_found=true
             fi
 
             if [ "$actual_val" != "$canonical_val" ]; then
-              echo "::warning::Integration-Tests $key ($actual_val) differs from canonical ($canonical_val)"
+              echo "::warning::Integration-Tests $key ($actual_val) differs from canonical"
+              echo "::warning::Canonical value: ($canonical_val)"
               drift_found=true
             fi
           done
@@ -121,6 +189,7 @@ jobs:
 
       - name: Compare input parameters used
         id: compare-inputs
+        if: env.RUN_INPUT_CHECK != 'false'
         run: |
           set -euo pipefail
 
@@ -152,7 +221,13 @@ jobs:
           fi
 
       - name: Create drift issue
-        if: ${{ failure() || steps.compare-ci.outputs.drift == 'true' || steps.compare-versions.outputs.drift == 'true' || steps.compare-inputs.outputs.drift == 'true' }}
+        if: >-
+          ${{
+            failure() ||
+            (env.RUN_CI_CHECK != 'false' && steps.compare-ci.outputs.drift == 'true') ||
+            (env.RUN_VERSION_CHECK != 'false' && steps.compare-versions.outputs.drift == 'true') ||
+            (env.RUN_INPUT_CHECK != 'false' && steps.compare-inputs.outputs.drift == 'true')
+          }}
         uses: actions/github-script@v8
         with:
           script: |
@@ -168,17 +243,21 @@ jobs:
             const { withRetry } = retryHelpers;
             const title = '🔄 Integration-Tests sync drift detected';
             const label = 'integration-sync';
-            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+            const runUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}` +
+              `/actions/runs/${process.env.GITHUB_RUN_ID}`;
 
             const body = `## Integration Sync Drift Detected
 
-            The [Workflows-Integration-Tests](https://github.com/${{ env.INTEGRATION_REPO }}) repo has drifted from the templates in this repo.
+            The Workflows-Integration-Tests repo has drifted from the templates in this repo.
+
+            https://github.com/${{ env.INTEGRATION_REPO }}
 
             **Check Details:** [Run #${process.env.GITHUB_RUN_NUMBER}](${runUrl})
 
             ### Required Actions
             1. Review the drift in the workflow run summary
-            2. Update templates in \`templates/integration-repo/\` to match Integration-Tests changes
+            2. Update templates in \`templates/integration-repo/\`
+              to match Integration-Tests changes
             3. OR update Integration-Tests to match templates (if templates are correct)
             4. Close this issue when resolved
 
@@ -189,13 +268,15 @@ jobs:
             `;
 
             // Check for existing open issue
-            const { data: issues } = await withRetry(() => github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: 'open',
-              labels: label,
-              per_page: 5
-            }));
+            const { data: issues } = await withRetry(() =>
+              github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: label,
+                per_page: 5,
+              })
+            );
 
             if (issues.length > 0) {
               await withRetry(() => github.rest.issues.createComment({

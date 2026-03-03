@@ -255,7 +255,7 @@ test('evaluateKeepaliveLoop stops when max iterations reached AND unproductive',
   assert.equal(result.reason, 'max-iterations-unproductive');
 });
 
-test('evaluateKeepaliveLoop continues past max iterations when productive', async () => {
+test('evaluateKeepaliveLoop continues past max iterations when productive with tasks remaining', async () => {
   const pr = {
     number: 405,
     head: { ref: 'feature/extended', sha: 'sha-ext' },
@@ -283,8 +283,8 @@ test('evaluateKeepaliveLoop continues past max iterations when productive', asyn
     context: buildContext(pr.number),
     core: buildCore(),
   });
-  assert.equal(result.action, 'run', 'Should continue running when productive');
-  assert.equal(result.reason, 'ready-extended', 'Should show extended mode');
+  assert.equal(result.action, 'run', 'Should continue past max iterations when productive');
+  assert.equal(result.reason, 'ready-extended', 'Should report ready-extended reason');
 });
 
 test('evaluateKeepaliveLoop triggers progress review without file changes', async () => {
@@ -334,7 +334,7 @@ test('evaluateKeepaliveLoop triggers fix mode when gate fails with test failures
   });
   // Override listJobsForWorkflowRun to return test failures
   github.rest.actions.listJobsForWorkflowRun = async () => ({
-    data: { jobs: [{ name: 'test (3.11)', conclusion: 'failure' }] },
+    data: { jobs: [{ name: 'test (3.11)', status: 'completed', conclusion: 'failure' }] },
   });
   const result = await evaluateKeepaliveLoop({
     github,
@@ -395,7 +395,7 @@ test('evaluateKeepaliveLoop honors prompt scenario overrides from config', async
   assert.equal(result.promptMode, 'verify');
 });
 
-test('evaluateKeepaliveLoop waits when gate fails with lint failures', async () => {
+test('evaluateKeepaliveLoop dispatches fix when gate fails with lint failures', async () => {
   const pr = {
     number: 506,
     head: { ref: 'feature/lint', sha: 'sha-lint' },
@@ -408,15 +408,49 @@ test('evaluateKeepaliveLoop waits when gate fails with lint failures', async () 
   });
   // Override listJobsForWorkflowRun to return lint failures
   github.rest.actions.listJobsForWorkflowRun = async () => ({
-    data: { jobs: [{ name: 'lint (ruff)', conclusion: 'failure' }] },
+    data: { jobs: [{ name: 'lint (ruff)', status: 'completed', conclusion: 'failure' }] },
   });
   const result = await evaluateKeepaliveLoop({
     github,
     context: buildContext(pr.number),
     core: buildCore(),
   });
-  assert.equal(result.action, 'wait');
-  assert.equal(result.reason, 'gate-not-success');
+  assert.equal(result.action, 'fix');
+  assert.equal(result.reason, 'fix-lint');
+});
+
+test('evaluateKeepaliveLoop bypasses gate fix after consecutive fix rounds exhausted', async () => {
+  const pr = {
+    number: 508,
+    head: { ref: 'feature/lint-bypass', sha: 'sha-lb' },
+    labels: [{ name: 'agent:codex' }],
+    body: '## Tasks\n- [ ] one\n## Acceptance Criteria\n- [ ] a',
+  };
+  // State shows 2 consecutive fix rounds already attempted
+  const stateComment = formatStateComment({
+    trace: '',
+    iteration: 3,
+    consecutive_fix_rounds: 2,
+  });
+  const comments = [
+    { id: 33, body: stateComment, html_url: 'https://example.com/33' },
+  ];
+  const github = buildGithubStub({
+    pr,
+    comments,
+    workflowRuns: [{ id: 2001, head_sha: 'sha-lb', conclusion: 'failure' }],
+  });
+  // Override to return lint failures
+  github.rest.actions.listJobsForWorkflowRun = async () => ({
+    data: { jobs: [{ name: 'lint (ruff)', status: 'completed', conclusion: 'failure' }] },
+  });
+  const result = await evaluateKeepaliveLoop({
+    github,
+    context: buildContext(pr.number),
+    core: buildCore(),
+  });
+  assert.equal(result.action, 'run', 'Should bypass gate fix and continue with tasks');
+  assert.equal(result.reason, 'bypass-fix-lint', 'Should report bypass reason');
 });
 
 test('evaluateKeepaliveLoop waits when gate is pending', async () => {
@@ -456,7 +490,7 @@ test('evaluateKeepaliveLoop treats cancelled gate as transient wait', async () =
     core: buildCore(),
   });
   assert.equal(result.action, 'wait');
-  assert.equal(result.reason, 'gate-cancelled');
+  assert.equal(result.reason, 'gate-cancelled-transient');
 });
 
 test('evaluateKeepaliveLoop bypasses rate limit cancelled gate', async () => {
@@ -469,7 +503,7 @@ test('evaluateKeepaliveLoop bypasses rate limit cancelled gate', async () => {
   const github = buildGithubStub({
     pr,
     workflowRuns: [{ id: 2001, head_sha: 'sha-cancelled-rate', conclusion: 'cancelled' }],
-    workflowJobs: [{ id: 3001, check_run_id: 9001, name: 'gate' }],
+    workflowJobs: [{ id: 3001, check_run_id: 9001, name: 'gate', status: 'completed', conclusion: 'cancelled' }],
     annotationsByCheckRunId: {
       9001: [{ message: 'Secondary rate limit exceeded for GitHub API.' }],
     },
@@ -494,7 +528,7 @@ test('evaluateKeepaliveLoop bypasses rate limit cancelled gate from logs', async
   const github = buildGithubStub({
     pr,
     workflowRuns: [{ id: 2002, head_sha: 'sha-cancelled-rate-logs', conclusion: 'cancelled' }],
-    workflowJobs: [{ id: 3002, name: 'gate' }],
+    workflowJobs: [{ id: 3002, name: 'gate', status: 'completed', conclusion: 'cancelled' }],
     jobLogsByJobId: {
       3002: 'Error: API rate limit exceeded, please retry later.',
     },
@@ -541,7 +575,7 @@ test('evaluateKeepaliveLoop rate limit bypass takes precedence over force_retry'
   const github = buildGithubStub({
     pr,
     workflowRuns: [{ id: 2004, head_sha: 'sha-force-retry-rate', conclusion: 'cancelled' }],
-    workflowJobs: [{ id: 3004, check_run_id: 9004, name: 'gate' }],
+    workflowJobs: [{ id: 3004, check_run_id: 9004, name: 'gate', status: 'completed', conclusion: 'cancelled' }],
     annotationsByCheckRunId: {
       9004: [{ message: 'Secondary rate limit exceeded for GitHub API.' }],
     },
@@ -660,7 +694,7 @@ test('updateKeepaliveLoopSummary increments iteration and clears failures on suc
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   assert.match(github.actions[0].body, /Iteration 3\/5/);
   assert.match(github.actions[0].body, /Iteration progress \| \[######----\] 3\/5 \|/);
@@ -1625,7 +1659,7 @@ test('updateKeepaliveLoopSummary resets failure count on transient errors', asyn
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   const updateAction = github.actions.find((action) => action.type === 'update');
   assert.ok(updateAction);
   const body = updateAction.body;
@@ -1665,7 +1699,7 @@ test('updateKeepaliveLoopSummary uses state iteration when inputs have stale val
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   // Should preserve iteration=2 from state, NOT use stale iteration=0 from inputs
   assert.match(github.actions[0].body, /"iteration":2/);
@@ -1705,7 +1739,7 @@ test('updateKeepaliveLoopSummary does NOT count wait states as failures', async 
   });
 
   // Should only update comment, NOT add needs-human label
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   // Failure state should be cleared for transient wait conditions
   assert.match(github.actions[0].body, /"failure":\{\}/);
@@ -1743,7 +1777,7 @@ test('updateKeepaliveLoopSummary marks deferred rate limit cancellations as tran
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   const updateAction = github.actions[0];
   assert.equal(updateAction.type, 'update');
   assert.match(updateAction.body, /Disposition \| deferred \(transient\)/);
@@ -1783,7 +1817,7 @@ test('updateKeepaliveLoopSummary adds needs-human after repeated actual failures
     },
   });
 
-  assert.equal(github.actions.length, 3);
+  assert.equal(github.actions.length, 4);
   const updateAction = github.actions.find((action) => action.type === 'update');
   assert.ok(updateAction);
   assert.match(updateAction.body, /agent-run-failed-repeat/);
@@ -1832,7 +1866,7 @@ test('updateKeepaliveLoopSummary does not treat skipped runs as agent failures',
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   const updateAction = github.actions[0];
   assert.equal(updateAction.type, 'update');
   assert.match(updateAction.body, /agent-run-skipped/);
@@ -1995,7 +2029,7 @@ test('updateKeepaliveLoopSummary formats codex failure details in summary', asyn
   const updateAction = github.actions.find((action) => action.type === 'update');
   assert.ok(updateAction);
   assert.match(updateAction.body, /Error category \| logic/);
-  assert.match(updateAction.body, /Error type \| codex/);
+  assert.match(updateAction.body, /Error type \| agent/);
   assert.match(updateAction.body, /https:\/\/example.com\/run\/657/);
   assert.match(updateAction.body, /Codex output/);
 });
@@ -2032,7 +2066,7 @@ test('updateKeepaliveLoopSummary does NOT add needs-human on tasks-complete', as
   });
 
   // Should only update comment, NOT add needs-human label
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   // Should show completed status
   assert.match(github.actions[0].body, /tasks-complete/);
@@ -2797,8 +2831,8 @@ test('analyzeTaskCompletion uses lowered 35% threshold with file match', async (
   assert.equal(configMatch.confidence, 'high', 'Should be high confidence with 35%+ match and file touch');
 });
 
-test('analyzeTaskCompletion gives high confidence for 25% keyword match with file match', async () => {
-  // Lower threshold: 25% keyword match + file match = high confidence
+test('analyzeTaskCompletion gives medium confidence for 25% keyword match with file match', async () => {
+  // Stricter thresholds: 25% keyword match + file match = medium confidence (was high before tightening)
   const commits = [
     { sha: 'abc123', commit: { message: 'add wizard step' } },
   ];
@@ -2840,7 +2874,7 @@ test('analyzeTaskCompletion gives high confidence for 25% keyword match with fil
     m.task.toLowerCase().includes('wizard')
   );
   assert.ok(wizardMatch, 'Should match wizard task');
-  assert.equal(wizardMatch.confidence, 'high', 'Should be high confidence with file match even at ~25% keywords');
+  assert.equal(wizardMatch.confidence, 'medium', 'Should be medium confidence with file match at ~25% keywords (stricter thresholds)');
 });
 
 test('analyzeTaskCompletion uses synonym expansion for better matching', async () => {
@@ -2887,7 +2921,7 @@ test('analyzeTaskCompletion uses synonym expansion for better matching', async (
     m.task.toLowerCase().includes('config validation')
   );
   assert.ok(configMatch, 'Should match config validation task');
-  assert.equal(configMatch.confidence, 'high', 'Should be high confidence with synonym matching');
+  assert.equal(configMatch.confidence, 'medium', 'Should be medium confidence with synonym matching (stricter thresholds)');
 });
 
 test('analyzeTaskCompletion skips when repo context is missing', async () => {
@@ -3088,7 +3122,7 @@ test('autoReconcileTasks updates PR body for high-confidence matches', async () 
 
   assert.ok(result.updated, 'Should update PR body');
   assert.ok(result.tasksChecked > 0, 'Should check at least one task');
-  assert.equal(result.sources.commit, 2, 'Should report commit-based source count');
+  assert.equal(result.sources.commit, 1, 'Should report commit-based source count (stricter matching reduces to 1)');
   assert.equal(result.sources.llm, 0, 'Should report no LLM sources');
   
   if (updatedBody) {
@@ -3276,7 +3310,7 @@ test('updateKeepaliveLoopSummary displays LLM provider analysis details', async 
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   assert.match(github.actions[0].body, /### 🧠 Task Analysis/);
   assert.match(github.actions[0].body, /GitHub Models \(primary\)/);
@@ -3316,7 +3350,7 @@ test('updateKeepaliveLoopSummary shows fallback warning for OpenAI provider', as
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   assert.match(github.actions[0].body, /### 🧠 Task Analysis/);
   assert.match(github.actions[0].body, /OpenAI \(fallback\)/);
@@ -3356,7 +3390,7 @@ test('updateKeepaliveLoopSummary shows regex fallback warning', async () => {
     },
   });
 
-  assert.equal(github.actions.length, 1);
+  assert.equal(github.actions.length, 2);
   assert.equal(github.actions[0].type, 'update');
   assert.match(github.actions[0].body, /### 🧠 Task Analysis/);
   assert.match(github.actions[0].body, /Regex \(fallback\)/);

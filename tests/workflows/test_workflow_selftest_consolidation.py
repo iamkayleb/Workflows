@@ -83,10 +83,9 @@ def test_legacy_selftest_pr_comment_wrappers_absent() -> None:
         for name in sorted(names)
     )
 
-    assert not unexpected_active, (
-        "Legacy self-test comment workflows resurfaced in .github/workflows/: "
-        f"{unexpected_active}"
-    )
+    assert (
+        not unexpected_active
+    ), f"Legacy self-test comment workflows resurfaced in .github/workflows/: {unexpected_active}"
     assert not unexpected_archived, (
         "Legacy self-test comment workflows should no longer be tracked in "
         "Old/workflows/: "
@@ -425,9 +424,9 @@ def test_selftest_runner_publish_job_contract() -> None:
     unexpected_permissions = sorted(
         key for key in permissions if key not in {"contents", "actions", "pull-requests"}
     )
-    assert not unexpected_permissions, (
-        "publish should not request extra permissions: " f"{unexpected_permissions}."
-    )
+    assert (
+        not unexpected_permissions
+    ), f"publish should not request extra permissions: {unexpected_permissions}."
 
     required_env = {
         "MODE",
@@ -445,7 +444,7 @@ def test_selftest_runner_publish_job_contract() -> None:
     }
     env = publish.get("env", {})
     missing_env = sorted(required_env - set(env))
-    assert not missing_env, "publish env block drifted; missing keys: " f"{missing_env}."
+    assert not missing_env, f"publish env block drifted; missing keys: {missing_env}."
 
     steps = publish.get("steps", [])
 

@@ -7,7 +7,7 @@
 # POLICY: Any file intended for consumer repos MUST be listed here.
 # Files not listed will NOT be synced, even if they exist in templates/consumer-repo/.
 #
-# Last sync trigger: 2026-01-12T04:02:00Z - force sync after N806 fix (PR #830)
+# Last sync trigger: 2026-02-10 - manifest audit + sync trigger expansion
 #
 # Categories:
 #   workflows: Thin caller workflows that consumers run directly
@@ -57,11 +57,23 @@ workflows:
   - source: .github/workflows/agents-keepalive-loop.yml
     description: "Keepalive loop - continues agent work until tasks complete (deprecated; replaced by agents-81-gate-followups.yml, removal no earlier than 2026-02-15)"
 
+  - source: .github/workflows/agents-keepalive-loop-reporter.yml
+    description: "Keepalive reporter - posts summary when keepalive run fails or cancels"
+
+  - source: .github/workflows/agents-belt-dispatcher.yml
+    description: "Belt dispatcher (agent-agnostic alias) - delegates to agents-71-codex-belt-dispatcher"
+
+  - source: .github/workflows/agents-belt-worker.yml
+    description: "Belt worker (agent-agnostic alias) - delegates to agents-72-codex-belt-worker"
+
+  - source: .github/workflows/agents-belt-conveyor.yml
+    description: "Belt conveyor (agent-agnostic alias) - delegates to agents-73-codex-belt-conveyor"
+
   - source: .github/workflows/agents-71-codex-belt-dispatcher.yml
-    description: "Codex belt dispatcher - selects issues and creates codex/issue-N branches for agent work"
+    description: "Codex belt dispatcher - selects issues and creates agent branches for work"
 
   - source: .github/workflows/agents-72-codex-belt-worker.yml
-    description: "Codex belt worker - executes Codex agent on issues with full prompt and context"
+    description: "Codex belt worker - executes agent on issues with full prompt and context"
 
   - source: .github/workflows/agents-72-codex-belt-worker-dispatch.yml
     description: "Codex belt worker dispatch wrapper - allows workflow_dispatch for the worker"
@@ -71,6 +83,9 @@ workflows:
 
   - source: .github/workflows/agents-autofix-loop.yml
     description: "Autofix loop - dispatches Codex when autofix can't fix Gate failures (deprecated; replaced by agents-81-gate-followups.yml, removal no earlier than 2026-02-15)"
+
+  - source: .github/workflows/agents-autofix-dispatcher.yml
+    description: "Autofix dispatch bridge - listens for Gate repository_dispatch events and triggers the autofix loop"
 
   - source: .github/workflows/agents-verifier.yml
     description: "Verifier - validates agent work meets acceptance criteria"
@@ -91,10 +106,7 @@ workflows:
     description: "Verify to issue v2 - creates follow-up issues from verification feedback with LLM curation (Phase 4E; deprecated for agents-80-pr-event-hub.yml, removal no earlier than 2026-02-15)"
 
   - source: .github/workflows/agents-verify-to-new-pr.yml
-    description: "Verify to new PR - creates follow-up issue and triggers auto-pilot to prepare a new PR"
-
-  - source: .github/workflows/agents-verify-to-new-pr-autopilot.yml
-    description: "Verify to new PR continuation - workflow_run bridge to auto-pilot after follow-up issue creation"
+    description: "Verify to new PR - creates follow-up issue and immediately dispatches auto-pilot to prepare a replacement PR (bridge inlined)"
 
   - source: .github/workflows/agents-auto-label.yml
     description: "Auto-label - suggests/applies labels based on semantic matching (Phase 5A)"
@@ -111,12 +123,21 @@ workflows:
   - source: .github/workflows/agents-guard.yml
     description: "Agents guard - enforces agents workflow protections (Health 45)"
 
+  - source: .github/workflows/agents-pr-health.yml
+    description: "PR health scanner - periodic conflict resolution and failing check re-dispatch"
+
   - source: .github/workflows/agents-auto-pilot.yml
     description: "Auto-pilot - end-to-end automation orchestrator (format → optimize → agent → verify)"
+
+  - source: .github/workflows/agents-weekly-metrics.yml
+    description: "Weekly metrics - aggregates auto-pilot, keepalive, autofix and verifier metrics into summary reports"
 
   # Maintenance workflows
   - source: .github/workflows/maint-coverage-guard.yml
     description: "Coverage guard - daily baseline monitoring with automatic issue creation"
+
+  - source: .github/workflows/maint-76-claude-code-review.yml
+    description: "Claude Code review (opt-in) - runs only on labeled PRs or manual dispatch"
 
   # Version pins
   - source: .github/workflows/autofix-versions.env
@@ -134,6 +155,15 @@ workflows:
   # Reusable PR context workflow (medium-effort rate limit optimization)
   - source: .github/workflows/reusable-pr-context.yml
     description: "Reusable PR context workflow - centralized PR data fetching via GraphQL"
+
+# Files to remove from consumer repos (obsolete / harmful when present)
+removals:
+  - target: .github/workflows/agents-63-issue-intake.yml
+    description: "Remove deprecated issue intake workflow (replaced by agents-64/70)"
+  - target: .workflows-lib
+    description: "Remove deprecated workflows lib submodule"
+  - target: .github/workflows/agents-verify-to-new-pr-autopilot.yml
+    description: "Remove the retired verify-to-new-pr auto-pilot bridge (logic now lives in agents-verify-to-new-pr.yml)"
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md
@@ -171,6 +201,9 @@ scripts:
   - source: tools/resolve_mypy_pin.py
     description: "Resolves mypy version pinning - required by reusable CI workflow"
 
+  - source: tools/requirements-llm.txt
+    description: "Pinned LLM dependencies - required by agents-auto-pilot.yml"
+
   - source: tools/coverage_trend.py
     description: "Generates coverage trend summaries - required by reusable CI workflow"
 
@@ -193,6 +226,13 @@ scripts:
   - source: scripts/check_test_dependencies.sh
     description: "Checks test dependencies match - required by reusable CI workflow"
 
+  # Python scripts for auto-pilot metrics
+  - source: scripts/autopilot_step_timer.py
+    description: "Emits step timing timestamps for auto-pilot workflows - required by agents-auto-pilot.yml"
+
+  - source: scripts/autopilot_metrics_collector.py
+    description: "Collects and appends structured auto-pilot metrics to NDJSON log - required by agents-auto-pilot.yml"
+
   # Python scripts for ChatGPT topic sync
   - source: .github/scripts/decode_raw_input.py
     description: "Decodes raw input from ChatGPT connector"
@@ -207,6 +247,9 @@ scripts:
   - source: .github/scripts/detect-changes.js
     description: "Detects changed files for CI path-based filtering"
 
+  - source: .github/scripts/agents-guard.js
+    description: "Health 45 agents guard logic used by the workflow protections"
+
   - source: .github/scripts/coverage-normalize.js
     description: "Normalizes coverage data across different report formats"
 
@@ -218,6 +261,30 @@ scripts:
 
   - source: .github/scripts/checkout_source.js
     description: "Source checkout utilities for CI workflows"
+
+  - source: .github/scripts/package.json
+    description: "Node package manifest for .github scripts (vendored minimatch)"
+
+  - source: .github/agents/registry.yml
+    description: "Agent registry - source of truth for agent keys and runner workflow mapping"
+
+  - source: .github/scripts/agent_registry.js
+    description: "Agent registry helper - loads registry and resolves agent key from labels"
+
+  - source: .github/scripts/agent_delegation_policy.js
+    description: "Agent delegation policy - system-driven routing for agent:auto label"
+
+  - source: .github/scripts/node_modules/minimatch/
+    is_directory: true
+    description: "Vendored minimatch dependency for .github scripts"
+
+  - source: .github/scripts/node_modules/brace-expansion/
+    is_directory: true
+    description: "Vendored brace-expansion dependency (transitive dep of minimatch)"
+
+  - source: .github/scripts/node_modules/balanced-match/
+    is_directory: true
+    description: "Vendored balanced-match dependency (transitive dep of brace-expansion)"
 
   # JavaScript scripts for issue/PR handling
   - source: .github/scripts/issue_pr_locator.js
@@ -280,6 +347,9 @@ scripts:
   - source: .github/scripts/github-api-with-retry.js
     description: "GitHub API retry wrapper with exponential backoff and pagination support - required by agents-auto-pilot.yml"
 
+  - source: .github/scripts/github-rate-limited-wrapper.js
+    description: "Transparent rate-limit proxy - wraps all github.rest.* calls with automatic retry and token switching"
+
   - source: .github/scripts/rate-limit-aware-client.js
     description: "Rate limit aware client - proactively checks API limits before operations"
 
@@ -306,6 +376,24 @@ scripts:
 
   - source: .github/scripts/comment-dedupe.js
     description: "Deduplicates bot comments on issues/PRs"
+
+  - source: .github/scripts/bot-comment-dismiss.js
+    description: "Collects ignored bot review comments for auto-dismiss handling"
+
+  - source: .github/scripts/bot-comment-handler.js
+    description: "Bot comment handler logic - processes bot review comments for dispatch"
+
+  - source: .github/scripts/autofix_emit_report.py
+    description: "Emits autofix report - required by reusable-18-autofix.yml"
+
+  - source: .github/scripts/gate_summary.py
+    description: "Gate summary renderer - generates PR gate check summary"
+
+  - source: .github/scripts/should-post-review.js
+    description: "Evaluates whether a progress review comment should be posted"
+
+  - source: .github/scripts/keepalive_review_guard.js
+    description: "Guards against posting empty/null progress review comments"
 
   - source: .github/scripts/post_completion_comment.js
     description: "Posts completion comments on PRs"
@@ -342,11 +430,20 @@ scripts:
   - source: scripts/langchain/issue_optimizer.py
     description: "Issue optimizer - analyzes issues and suggests improvements"
 
+  - source: scripts/langchain/structured_output.py
+    description: "Shared structured output helpers for LangChain workflows"
+
   - source: scripts/langchain/issue_formatter.py
     description: "Issue formatter - converts raw text to AGENT_ISSUE_TEMPLATE format"
 
   - source: scripts/langchain/issue_dedup.py
     description: "Issue deduplication - finds similar open issues"
+
+  - source: scripts/langchain/injection_guard.py
+    description: "Prompt injection guard - validates prompts before LLM submission"
+
+  - source: scripts/langchain/progress_reviewer.py
+    description: "Progress reviewer - evaluates agent progress for keepalive rounds"
 
   # Context and semantic analysis
   - source: scripts/langchain/context_extractor.py
@@ -398,8 +495,20 @@ scripts:
   - source: scripts/langchain/prompts/pr_evaluation.md
     description: "Prompt template for PR evaluation/verification"
 
+  - source: scripts/langchain/prompts/refine_tasks.md
+    description: "Prompt template for task refinement and validation"
+
+  - source: scripts/langchain/verdict_extract.py
+    description: "Verdict extractor - parses verification verdicts from LLM output"
+
+  - source: scripts/langchain/verdict_policy.py
+    description: "Verdict policy engine - applies pass/fail rules to verification results"
+
   - source: tools/llm_provider.py
     description: "LLM provider configuration - GitHub Models and OpenAI client setup"
+
+  - source: tools/langchain_client.py
+    description: "LangChain client builder - multi-provider client with slot-based fallback and configuration"
 
   - source: .github/scripts/agents-guard.js
     description: "Guards against unauthorized agent workflow file changes"
@@ -419,6 +528,25 @@ templates:
   - source: .github/templates/keepalive-instruction.md
     description: "Keepalive instruction template - directives for Codex on each round"
 
+# Actions required by reusable workflows
+actions:
+  - source: .github/actions/setup-api-client/
+    is_directory: true
+    description: "Unified API client setup - installs @octokit deps and exports all load balancer tokens"
+
+  - source: .github/actions/export-load-balancer-tokens/
+    is_directory: true
+    description: "Export load balancer tokens action - required by reusable-10-ci-python.yml (deprecated, use setup-api-client)"
+
+# Configuration files for LLM providers and workflows
+llm_config:
+  - source: config/llm_slots.json
+    description: "LLM slot configuration - defines provider/model slots for multi-provider workflows"
+    sync_mode: create_only  # Don't overwrite - repos may customize provider preferences
+
+  - source: config/model_registry.json
+    description: "Model registry - available LLM models and their capabilities"
+
 # Documentation synced to consumer repos
 docs:
   - source: docs/AGENT_ISSUE_FORMAT.md
@@ -433,9 +561,31 @@ docs:
     target: docs/LABELS.md
     description: "Label definitions and usage"
 
+  - source: docs/CODEX_TOKEN_REFRESH.md
+    target: docs/CODEX_TOKEN_REFRESH.md
+    description: "Codex OAuth token refresh guide"
+
   - source: CLAUDE.md
     target: CLAUDE.md
     description: "Context file for Claude/AI assistants"
+
+  - source: docs/contracts/agent-runner-output.md
+    target: docs/contracts/agent-runner-output.md
+    description: "Agent runner output contract specification - required for implementing new agent runners"
+
+# Issue templates synced to consumer repos
+issue_templates:
+  - source: .github/ISSUE_TEMPLATE/agent_task.yml
+    description: "Agent task issue template - structured format for agent-compatible issues"
+
+  - source: .github/ISSUE_TEMPLATE/config.yml
+    description: "Issue template chooser config - controls which templates appear in the UI"
+
+# User-facing documentation
+user_docs:
+  - source: WORKFLOW_USER_GUIDE.md
+    target: WORKFLOW_USER_GUIDE.md
+    description: "Workflow user guide - explains the CI/agent system for repo consumers"
 
 # Git configuration files for merge strategies
 git_config:
@@ -452,11 +602,17 @@ excluded:
     reason: "Repo-specific documentation"
   - path: config/coverage-baseline.json
     reason: "Each repo maintains its own coverage baseline - template provided for reference"
+  - path: scripts/__pycache__
+    reason: "Python bytecode cache - never synced"
 
 # Copilot configuration - skills and instructions for AI assistants
 copilot_config:
   - source: .github/copilot-instructions.md
     description: "Repository-specific instructions for GitHub Copilot"
+
+  - source: .github/actions/export-load-balancer-tokens/
+    is_directory: true
+    description: "Local action for exporting load balancer tokens"
 
   # Skills folder - synced as a directory
   - source: .github/copilot-skills/

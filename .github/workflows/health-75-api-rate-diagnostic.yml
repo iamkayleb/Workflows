@@ -6,14 +6,14 @@ name: Health 75 API Rate Diagnostic
 
 on:
   schedule:
-    - cron: '0 */4 * * *'  # Every 4 hours for continuous monitoring
+    - cron: '0 * * * *'  # Hourly snapshots strike a balance between coverage and API usage
   workflow_dispatch:
     inputs:
       include_consumer_repos:
         description: 'Include consumer repos in diagnostic (true/false)'
         type: boolean
         required: false
-        default: true
+        default: false
       verbose:
         description: 'Include detailed resource breakdown'
         type: boolean
@@ -37,22 +37,21 @@ on:
         type: string
         required: false
         default: 'now'
+      run_load_sharing_checks:
+        description: 'Run the token rotation verification job (extra compute + auth mints)'
+        type: boolean
+        required: false
+        default: false
+      verify_actions_access:
+        description: 'Query workflow runs with every token to verify scopes (extra API calls)'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
   issues: write
   actions: read  # Required for querying historical workflow runs
-
-env:
-  # Consumer repos to check - these use CODESPACES_WORKFLOWS PAT
-  REGISTERED_CONSUMER_REPOS: |
-    stranske/Travel-Plan-Permission
-    stranske/Template
-    stranske/trip-planner
-    stranske/Manager-Database
-    stranske/Portable-Alpha-Extension-Model
-    stranske/Trend_Model_Project
-    stranske/Collab-Admin
 
 concurrency:
   group: api-rate-diagnostic-${{ github.repository }}
@@ -85,6 +84,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
 
       - name: Check GITHUB_TOKEN rate limits
         id: github_token
@@ -92,9 +96,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::GITHUB_TOKEN Rate Limits"
 
-          rate_data=$(gh api rate_limit 2>/dev/null || echo '{}')
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          rate_data=$(node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic',
+              capabilities: ['rate_limit:read']
+            });
+            const response = await withRetry((client) => client.rest.rateLimit.get());
+            process.stdout.write(JSON.stringify(response.data || {}));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
             # Extract key metrics
@@ -130,7 +156,9 @@ jobs:
               search_pct="0"
             fi
 
-            reset_time=$(date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
+            reset_time=$(
+              date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown"
+            )
 
             echo "GITHUB_TOKEN (Installation Token)"
             echo "  Core API: ${core_used}/${core_limit} (${core_pct}% used)"
@@ -156,9 +184,24 @@ jobs:
               --arg reset_time "$reset_time" \
               '{
                 source: $source,
-                core: { limit: $core_limit, remaining: $core_remaining, used: $core_used, pct: $core_pct },
-                graphql: { limit: $graphql_limit, remaining: $graphql_remaining, used: $graphql_used, pct: $graphql_pct },
-                search: { limit: $search_limit, remaining: $search_remaining, used: $search_used, pct: $search_pct },
+                core: {
+                  limit: $core_limit,
+                  remaining: $core_remaining,
+                  used: $core_used,
+                  pct: $core_pct
+                },
+                graphql: {
+                  limit: $graphql_limit,
+                  remaining: $graphql_remaining,
+                  used: $graphql_used,
+                  pct: $graphql_pct
+                },
+                search: {
+                  limit: $search_limit,
+                  remaining: $search_remaining,
+                  used: $search_used,
+                  pct: $search_pct
+                },
                 reset: $reset_time
               }')
 
@@ -177,9 +220,31 @@ jobs:
           GH_TOKEN: ${{ env.CODESPACES_WORKFLOWS }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::PAT Rate Limits"
 
-          rate_data=$(gh api rate_limit 2>/dev/null || echo '{}')
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          rate_data=$(node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic',
+              capabilities: ['rate_limit:read']
+            });
+            const response = await withRetry((client) => client.rest.rateLimit.get());
+            process.stdout.write(JSON.stringify(response.data || {}));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
             core_limit=$(echo "$rate_data" | jq -r '.resources.core.limit // 0')
@@ -213,7 +278,9 @@ jobs:
               search_pct="0"
             fi
 
-            reset_time=$(date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
+            reset_time=$(
+              date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown"
+            )
 
             echo "CODESPACES_WORKFLOWS PAT"
             echo "  Core API: ${core_used}/${core_limit} (${core_pct}% used)"
@@ -238,9 +305,24 @@ jobs:
               --arg reset_time "$reset_time" \
               '{
                 source: $source,
-                core: { limit: $core_limit, remaining: $core_remaining, used: $core_used, pct: $core_pct },
-                graphql: { limit: $graphql_limit, remaining: $graphql_remaining, used: $graphql_used, pct: $graphql_pct },
-                search: { limit: $search_limit, remaining: $search_remaining, used: $search_used, pct: $search_pct },
+                core: {
+                  limit: $core_limit,
+                  remaining: $core_remaining,
+                  used: $core_used,
+                  pct: $core_pct
+                },
+                graphql: {
+                  limit: $graphql_limit,
+                  remaining: $graphql_remaining,
+                  used: $graphql_used,
+                  pct: $graphql_pct
+                },
+                search: {
+                  limit: $search_limit,
+                  remaining: $search_remaining,
+                  used: $search_used,
+                  pct: $search_pct
+                },
                 reset: $reset_time
               }')
 
@@ -259,9 +341,31 @@ jobs:
           GH_TOKEN: ${{ env.SERVICE_BOT_PAT }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::SERVICE_BOT_PAT Rate Limits"
 
-          rate_data=$(gh api rate_limit 2>/dev/null || echo '{}')
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          rate_data=$(node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic',
+              capabilities: ['rate_limit:read']
+            });
+            const response = await withRetry((client) => client.rest.rateLimit.get());
+            process.stdout.write(JSON.stringify(response.data || {}));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
             core_limit=$(echo "$rate_data" | jq -r '.resources.core.limit // 0')
@@ -295,7 +399,9 @@ jobs:
               search_pct="0"
             fi
 
-            reset_time=$(date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
+            reset_time=$(
+              date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown"
+            )
 
             echo "SERVICE_BOT_PAT (stranske-automation-bot)"
             echo "  Core API: ${core_used}/${core_limit} (${core_pct}% used)"
@@ -320,9 +426,24 @@ jobs:
               --arg reset_time "$reset_time" \
               '{
                 source: $source,
-                core: { limit: $core_limit, remaining: $core_remaining, used: $core_used, pct: $core_pct },
-                graphql: { limit: $graphql_limit, remaining: $graphql_remaining, used: $graphql_used, pct: $graphql_pct },
-                search: { limit: $search_limit, remaining: $search_remaining, used: $search_used, pct: $search_pct },
+                core: {
+                  limit: $core_limit,
+                  remaining: $core_remaining,
+                  used: $core_used,
+                  pct: $core_pct
+                },
+                graphql: {
+                  limit: $graphql_limit,
+                  remaining: $graphql_remaining,
+                  used: $graphql_used,
+                  pct: $graphql_pct
+                },
+                search: {
+                  limit: $search_limit,
+                  remaining: $search_remaining,
+                  used: $search_used,
+                  pct: $search_pct
+                },
                 reset: $reset_time
               }')
 
@@ -349,9 +470,31 @@ jobs:
           GH_TOKEN: ${{ steps.app_token.outputs.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::GitHub App Rate Limits"
 
-          rate_data=$(gh api rate_limit 2>/dev/null || echo '{}')
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          rate_data=$(node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic',
+              capabilities: ['rate_limit:read']
+            });
+            const response = await withRetry((client) => client.rest.rateLimit.get());
+            process.stdout.write(JSON.stringify(response.data || {}));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
             core_limit=$(echo "$rate_data" | jq -r '.resources.core.limit // 0')
@@ -385,7 +528,9 @@ jobs:
               search_pct="0"
             fi
 
-            reset_time=$(date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
+            reset_time=$(
+              date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown"
+            )
 
             echo "WORKFLOWS_APP (GitHub App)"
             echo "  Core API: ${core_used}/${core_limit} (${core_pct}% used)"
@@ -410,9 +555,24 @@ jobs:
               --arg reset_time "$reset_time" \
               '{
                 source: $source,
-                core: { limit: $core_limit, remaining: $core_remaining, used: $core_used, pct: $core_pct },
-                graphql: { limit: $graphql_limit, remaining: $graphql_remaining, used: $graphql_used, pct: $graphql_pct },
-                search: { limit: $search_limit, remaining: $search_remaining, used: $search_used, pct: $search_pct },
+                core: {
+                  limit: $core_limit,
+                  remaining: $core_remaining,
+                  used: $core_used,
+                  pct: $core_pct
+                },
+                graphql: {
+                  limit: $graphql_limit,
+                  remaining: $graphql_remaining,
+                  used: $graphql_used,
+                  pct: $graphql_pct
+                },
+                search: {
+                  limit: $search_limit,
+                  remaining: $search_remaining,
+                  used: $search_used,
+                  pct: $search_pct
+                },
                 reset: $reset_time
               }')
 
@@ -442,9 +602,31 @@ jobs:
           GH_TOKEN: ${{ steps.keepalive_app_token.outputs.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::KEEPALIVE_APP Rate Limits"
 
-          rate_data=$(gh api rate_limit 2>/dev/null || echo '{}')
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          rate_data=$(node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic',
+              capabilities: ['rate_limit:read']
+            });
+            const response = await withRetry((client) => client.rest.rateLimit.get());
+            process.stdout.write(JSON.stringify(response.data || {}));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
             core_limit=$(echo "$rate_data" | jq -r '.resources.core.limit // 0')
@@ -478,7 +660,9 @@ jobs:
               search_pct="0"
             fi
 
-            reset_time=$(date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
+            reset_time=$(
+              date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown"
+            )
 
             echo "KEEPALIVE_APP (GitHub App - Dedicated for Keepalive)"
             echo "  Core API: ${core_used}/${core_limit} (${core_pct}% used)"
@@ -503,9 +687,24 @@ jobs:
               --arg reset_time "$reset_time" \
               '{
                 source: $source,
-                core: { limit: $core_limit, remaining: $core_remaining, used: $core_used, pct: $core_pct },
-                graphql: { limit: $graphql_limit, remaining: $graphql_remaining, used: $graphql_used, pct: $graphql_pct },
-                search: { limit: $search_limit, remaining: $search_remaining, used: $search_used, pct: $search_pct },
+                core: {
+                  limit: $core_limit,
+                  remaining: $core_remaining,
+                  used: $core_used,
+                  pct: $core_pct
+                },
+                graphql: {
+                  limit: $graphql_limit,
+                  remaining: $graphql_remaining,
+                  used: $graphql_used,
+                  pct: $graphql_pct
+                },
+                search: {
+                  limit: $search_limit,
+                  remaining: $search_remaining,
+                  used: $search_used,
+                  pct: $search_pct
+                },
                 reset: $reset_time
               }')
 
@@ -534,9 +733,31 @@ jobs:
           GH_TOKEN: ${{ steps.gh_app_token.outputs.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "::group::GH_APP Rate Limits"
 
-          rate_data=$(gh api rate_limit 2>/dev/null || echo '{}')
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          rate_data=$(node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic',
+              capabilities: ['rate_limit:read']
+            });
+            const response = await withRetry((client) => client.rest.rateLimit.get());
+            process.stdout.write(JSON.stringify(response.data || {}));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           if [ -n "$rate_data" ] && [ "$rate_data" != "{}" ]; then
             core_limit=$(echo "$rate_data" | jq -r '.resources.core.limit // 0')
@@ -570,7 +791,9 @@ jobs:
               search_pct="0"
             fi
 
-            reset_time=$(date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown")
+            reset_time=$(
+              date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown"
+            )
 
             echo "GH_APP (GitHub App - General Purpose)"
             echo "  Core API: ${core_used}/${core_limit} (${core_pct}% used)"
@@ -595,9 +818,24 @@ jobs:
               --arg reset_time "$reset_time" \
               '{
                 source: $source,
-                core: { limit: $core_limit, remaining: $core_remaining, used: $core_used, pct: $core_pct },
-                graphql: { limit: $graphql_limit, remaining: $graphql_remaining, used: $graphql_used, pct: $graphql_pct },
-                search: { limit: $search_limit, remaining: $search_remaining, used: $search_used, pct: $search_pct },
+                core: {
+                  limit: $core_limit,
+                  remaining: $core_remaining,
+                  used: $core_used,
+                  pct: $core_pct
+                },
+                graphql: {
+                  limit: $graphql_limit,
+                  remaining: $graphql_remaining,
+                  used: $graphql_used,
+                  pct: $graphql_pct
+                },
+                search: {
+                  limit: $search_limit,
+                  remaining: $search_remaining,
+                  used: $search_used,
+                  pct: $search_pct
+                },
                 reset: $reset_time
               }')
 
@@ -607,6 +845,96 @@ jobs:
             echo 'rate_json={}' >> "$GITHUB_OUTPUT"
           fi
           echo "::endgroup::"
+
+      - name: Verify Actions runs access per token
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_actions_access != false }}
+        env:
+          GITHUB_TOKEN_VALUE: ${{ github.token }}
+          CODESPACES_WORKFLOWS_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+          SERVICE_BOT_TOKEN: ${{ secrets.SERVICE_BOT_PAT || '' }}
+          WORKFLOWS_APP_TOKEN: ${{ steps.app_token.outputs.token || '' }}
+          KEEPALIVE_APP_TOKEN: ${{ steps.keepalive_app_token.outputs.token || '' }}
+          GH_APP_TOKEN: ${{ steps.gh_app_token.outputs.token || '' }}
+        run: |
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: console.log, warning: console.warn, debug: () => {} };
+          const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+          const workflowId = 'health-75-api-rate-diagnostic.yml';
+
+          const tokens = [
+            ['GITHUB_TOKEN', process.env.GITHUB_TOKEN_VALUE],
+            ['CODESPACES_WORKFLOWS', process.env.CODESPACES_WORKFLOWS_TOKEN],
+            ['SERVICE_BOT_PAT', process.env.SERVICE_BOT_TOKEN],
+            ['WORKFLOWS_APP', process.env.WORKFLOWS_APP_TOKEN],
+            ['KEEPALIVE_APP', process.env.KEEPALIVE_APP_TOKEN],
+            ['GH_APP', process.env.GH_APP_TOKEN],
+          ];
+
+          const normalizeHeader = (headers, key) => {
+            if (!headers) return '';
+            const lowerKey = key.toLowerCase();
+            return headers[lowerKey] || headers[key] || '';
+          };
+
+          (async () => {
+            console.log('::group::Actions runs access checks');
+            const listRunsRoute =
+              'GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs';
+            for (const [label, token] of tokens) {
+              if (!token) {
+                console.log(`${label}: not set`);
+                continue;
+              }
+              const github = new Octokit({ auth: token });
+              try {
+                const { withRetry } = await createTokenAwareRetry({
+                  github,
+                  core,
+                  env: process.env,
+                  task: 'health-75-api-rate-diagnostic-access-check',
+                  capabilities: ['actions:read'],
+                  tokenRegistry: { isInitialized: () => false }
+                });
+                const retryContext = {
+                  github,
+                  core,
+                  env: process.env,
+                  task: 'health-75-api-rate-diagnostic-access-check',
+                };
+                const response = await withRetry(
+                  () =>
+                    github.request(listRunsRoute, {
+                      owner,
+                      repo,
+                      workflow_id: workflowId,
+                      per_page: 1,
+                    }),
+                  retryContext,
+                );
+                const accepted = normalizeHeader(
+                  response?.headers,
+                  'x-accepted-github-permissions',
+                );
+                const statusLine = `HTTP ${response?.status || 'unknown'}`;
+                if (accepted) {
+                  console.log(`${label}: ${statusLine} | perms: ${accepted}`);
+                } else {
+                  console.log(`${label}: ${statusLine}`);
+                }
+              } catch (error) {
+                const status = error?.status || error?.response?.status || 'error';
+                console.log(`${label}: HTTP ${status}`);
+              }
+            }
+            console.log('::endgroup::');
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
 
       - name: Aggregate and analyze results
         id: aggregate
@@ -623,7 +951,12 @@ jobs:
           echo "::group::Rate data aggregation"
 
           # Debug: show raw values (lengths and first 100 chars)
-          echo "Raw env var lengths: gt=${#GITHUB_TOKEN_RATE}, pat=${#PAT_RATE}, svc=${#SERVICE_BOT_RATE:-0}, app=${#APP_RATE}, ka=${#KEEPALIVE_APP_RATE:-0}, gh=${#GH_APP_RATE:-0}"
+          svc_rate="${SERVICE_BOT_RATE:-}"
+          ka_rate="${KEEPALIVE_APP_RATE:-}"
+          gh_rate="${GH_APP_RATE:-}"
+          echo "Raw env var lengths:"
+          echo "  gt=${#GITHUB_TOKEN_RATE}, pat=${#PAT_RATE}, svc=${#svc_rate}, app=${#APP_RATE}"
+          echo "  ka=${#ka_rate}, gh=${#gh_rate}"
           echo "GITHUB_TOKEN_RATE first 100: ${GITHUB_TOKEN_RATE:0:100}"
           echo "PAT_RATE first 100: ${PAT_RATE:0:100}"
           echo "SERVICE_BOT_RATE first 100: ${SERVICE_BOT_RATE:0:100}"
@@ -653,7 +986,9 @@ jobs:
           ka_json=$(safe_json "${KEEPALIVE_APP_RATE:-}" "{}")
           gh_json=$(safe_json "${GH_APP_RATE:-}" "{}")
 
-          echo "Parsed JSON lengths: gt=${#gt_json}, pat=${#pat_json}, svc=${#svc_json}, app=${#app_json}, ka=${#ka_json}, gh=${#gh_json}"
+          echo "Parsed JSON lengths:"
+          echo "  gt=${#gt_json}, pat=${#pat_json}, svc=${#svc_json}, app=${#app_json}"
+          echo "  ka=${#ka_json}, gh=${#gh_json}"
           echo "gt_json: $gt_json"
           echo "pat_json: $pat_json"
           echo "svc_json: $svc_json"
@@ -720,33 +1055,271 @@ jobs:
           # Use single-line format to avoid heredoc parsing issues
           printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
 
+  verify-load-sharing:
+    name: Verify Load-Sharing (Token Rotation)
+    runs-on: ubuntu-latest
+    if: ${{ inputs.report_mode != 'historical' && github.event_name == 'workflow_dispatch' && inputs.run_load_sharing_checks != false }}
+    needs: collect-rate-limits
+    env:
+      CODESPACES_WORKFLOWS: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+      SERVICE_BOT_PAT: ${{ secrets.SERVICE_BOT_PAT || '' }}
+      ACTIONS_BOT_PAT: ${{ secrets.ACTIONS_BOT_PAT || '' }}
+      OWNER_PR_PAT: ${{ secrets.OWNER_PR_PAT || '' }}
+      AGENTS_AUTOMATION_PAT: ${{ secrets.AGENTS_AUTOMATION_PAT || '' }}
+      WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID || '' }}
+      WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || '' }}
+      KEEPALIVE_APP_ID: ${{ secrets.KEEPALIVE_APP_ID || '' }}
+      KEEPALIVE_APP_PRIVATE_KEY: ${{ secrets.KEEPALIVE_APP_PRIVATE_KEY || '' }}
+      GH_APP_ID: ${{ secrets.GH_APP_ID || '' }}
+      GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY || '' }}
+      APP_1_ID: ${{ secrets.APP_1_ID || '' }}
+      APP_1_PRIVATE_KEY: ${{ secrets.APP_1_PRIVATE_KEY || '' }}
+      APP_2_ID: ${{ secrets.APP_2_ID || '' }}
+      APP_2_PRIVATE_KEY: ${{ secrets.APP_2_PRIVATE_KEY || '' }}
+      TOKEN_ROTATION_JSON: ${{ secrets.TOKEN_ROTATION_JSON || '' }}
+      TOKEN_ROTATION_ENV_KEYS: ${{ vars.TOKEN_ROTATION_ENV_KEYS || '' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Install load balancer dependencies
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          npm install --no-save --no-package-lock @octokit/rest @octokit/auth-app
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+      - name: Validate token rotation switching
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+
+          node <<'NODE'
+          (async () => {
+            const core = {
+              info: (message) => console.log(message),
+              warning: (message) => console.warn(message),
+              debug: () => undefined,
+            };
+
+            const {
+              initializeTokenRegistry,
+              getOptimalToken,
+              updateTokenUsage,
+            } = require('./.github/scripts/token_load_balancer.js');
+
+            const secretKeys = [
+              'SERVICE_BOT_PAT',
+              'ACTIONS_BOT_PAT',
+              'CODESPACES_WORKFLOWS',
+              'OWNER_PR_PAT',
+              'AGENTS_AUTOMATION_PAT',
+              'WORKFLOWS_APP_ID',
+              'WORKFLOWS_APP_PRIVATE_KEY',
+              'KEEPALIVE_APP_ID',
+              'KEEPALIVE_APP_PRIVATE_KEY',
+              'GH_APP_ID',
+              'GH_APP_PRIVATE_KEY',
+              'APP_1_ID',
+              'APP_1_PRIVATE_KEY',
+              'APP_2_ID',
+              'APP_2_PRIVATE_KEY',
+              'TOKEN_ROTATION_JSON',
+              'TOKEN_ROTATION_ENV_KEYS',
+              'TOKEN_ROTATION_KEYS',
+              'PAT_1',
+              'PAT_2',
+              'PAT_3',
+            ];
+
+            const secrets = Object.fromEntries(
+              secretKeys.map((key) => [key, process.env[key] || ''])
+            );
+
+            const githubToken = process.env.GITHUB_TOKEN || '';
+
+            if (!githubToken) {
+              throw new Error('GITHUB_TOKEN is required for load-sharing verification.');
+            }
+
+            const summary = await initializeTokenRegistry({
+              secrets,
+              github: null,
+              core,
+              githubToken,
+            });
+
+            if (!summary || summary.length < 2) {
+              throw new Error(
+                'Expected at least two tokens in the registry to verify load sharing.',
+              );
+            }
+
+            const hasPat = summary.some((token) => token.type === 'PAT');
+            const hasApp = summary.some((token) => token.type === 'APP');
+
+            if (!hasPat || !hasApp) {
+              throw new Error(
+                'Expected both PAT and APP capacity pools for load sharing.',
+              );
+            }
+
+            const registryById = new Map(
+              summary.map((token) => [token.id, token]),
+            );
+
+            if (registryById.has('KEEPALIVE_APP')) {
+              const keepaliveToken = await getOptimalToken({
+                github: null,
+                core,
+                task: 'keepalive-loop',
+                minRemaining: 100,
+              });
+
+              if (!keepaliveToken || keepaliveToken.source !== 'KEEPALIVE_APP') {
+                throw new Error('KEEPALIVE_APP was expected to handle keepalive-loop tasks.');
+              }
+            }
+
+            if (registryById.has('OWNER_PR_PAT')) {
+              const ownerToken = await getOptimalToken({
+                github: null,
+                core,
+                task: 'pr-creation-as-owner',
+                minRemaining: 100,
+              });
+
+              if (!ownerToken || ownerToken.source !== 'OWNER_PR_PAT') {
+                throw new Error('OWNER_PR_PAT was expected to handle owner PR creation.');
+              }
+            }
+
+            const workflowDispatchCandidates = summary.filter((token) =>
+              Array.isArray(token.capabilities) && token.capabilities.includes('workflow-dispatch')
+            );
+
+            if (workflowDispatchCandidates.length >= 2) {
+              const first = await getOptimalToken({
+                github: null,
+                core,
+                task: 'workflow-dispatch',
+                capabilities: ['workflow-dispatch'],
+                minRemaining: 100,
+              });
+
+              if (!first) {
+                throw new Error('Failed to select a token for workflow-dispatch.');
+              }
+
+              const callsToSimulate =
+                typeof first.remaining === 'number' && first.remaining > 50
+                  ? first.remaining - 50
+                  : 1;
+
+              updateTokenUsage(first.source, callsToSimulate);
+
+              const second = await getOptimalToken({
+                github: null,
+                core,
+                task: 'workflow-dispatch',
+                capabilities: ['workflow-dispatch'],
+                minRemaining: 100,
+              });
+
+              if (!second || second.source === first.source) {
+                throw new Error('Expected token rotation to switch to a different source.');
+              }
+
+              core.info(`Load-sharing switch verified: ${first.source} -> ${second.source}`);
+            } else {
+              core.warning('Not enough workflow-dispatch candidates to validate switching.');
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
   check-consumer-repos:
     name: Check Consumer Repo Activity
     runs-on: ubuntu-latest
-    # Only run for current mode with consumer repos enabled
-    if: ${{ inputs.report_mode != 'historical' && inputs.include_consumer_repos != false }}
+    # Always run for current mode; steps short-circuit unless manual dispatch requests it
+    if: ${{ inputs.report_mode != 'historical' }}
     needs: collect-rate-limits
     outputs:
       consumer_activity: ${{ steps.activity.outputs.activity_json }}
     env:
       CODESPACES_WORKFLOWS: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+      RUN_CONSUMER_CHECKS: ${{ github.event_name == 'workflow_dispatch' && inputs.include_consumer_repos != false }}
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup API client
+        if: ${{ env.RUN_CONSUMER_CHECKS == 'true' && env.CODESPACES_WORKFLOWS != '' }}
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+      - name: Load registered consumer repos
+        id: consumer-repos
+        if: ${{ env.RUN_CONSUMER_CHECKS == 'true' && env.CODESPACES_WORKFLOWS != '' }}
+        run: |
+          repos=$(
+            awk '
+              /REGISTERED_CONSUMER_REPOS: \|/ { flag=1; next }
+              flag && /^[^[:space:]]/ { flag=0 }
+              flag {
+                line=$0
+                sub(/^[[:space:]]+/, "", line)
+                if (length(line) > 0) print line
+              }
+            ' .github/workflows/maint-68-sync-consumer-repos.yml
+          )
+          {
+            echo "list<<EOF"
+            echo "$repos"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+
       - name: Check recent workflow runs across consumer repos
         id: activity
-        if: ${{ env.CODESPACES_WORKFLOWS != '' }}
         env:
           GH_TOKEN: ${{ env.CODESPACES_WORKFLOWS }}
-          REGISTERED_CONSUMER_REPOS: |
-            stranske/Travel-Plan-Permission
-            stranske/Template
-            stranske/trip-planner
-            stranske/Manager-Database
-            stranske/Portable-Alpha-Extension-Model
-            stranske/Trend_Model_Project
-            stranske/Collab-Admin
+          REGISTERED_CONSUMER_REPOS: ${{ steps.consumer-repos.outputs.list }}
+          RUN_CONSUMER_CHECKS: ${{ env.RUN_CONSUMER_CHECKS }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          if [ "${RUN_CONSUMER_CHECKS}" != "true" ] || [ -z "${GH_TOKEN}" ]; then
+            echo "::notice::Consumer repo diagnostics disabled for this run."
+            printf 'activity_json=%s\n' '[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          trimmed="${REGISTERED_CONSUMER_REPOS//[[:space:]]/}"
+          if [ -z "$trimmed" ]; then
+            echo "::notice::No registered consumer repos resolved; returning empty payload."
+            printf 'activity_json=%s\n' '[]' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           echo "::group::Consumer Repo Activity"
 
           activity_json='[]'
@@ -758,17 +1331,68 @@ jobs:
             echo "Checking $repo..."
 
             # Get recent workflow runs (last hour)
-            since=$(date -u -d '1 hour ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
+            since=$(
+              date -u -d '1 hour ago' +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null \
+                || date -u +"%Y-%m-%dT%H:%M:%SZ"
+            )
 
-            runs_data=$(gh api "repos/${repo}/actions/runs?per_page=100&created=>=${since}" 2>/dev/null || echo '{"workflow_runs":[]}')
+            # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+            runs_data=$(
+              REPO="$repo" SINCE="$since" node - <<'NODE' 2>/dev/null \
+                || echo '{"workflow_runs":[]}'
+            )
+            const { Octokit } = require('@octokit/rest');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const core = { info: () => {}, warning: console.warn, debug: () => {} };
+            const [owner, repo] = process.env.REPO.split('/');
+            const since = process.env.SINCE;
+            (async () => {
+              const github = new Octokit({
+                auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
+              });
+              const { withRetry } = await createTokenAwareRetry({
+                github,
+                core,
+                env: process.env,
+                task: 'health-75-api-rate-diagnostic-consumer-activity',
+                capabilities: ['actions:read'],
+              });
+              const response = await withRetry((client) =>
+                client.rest.actions.listWorkflowRunsForRepo({
+                  owner,
+                  repo,
+                  per_page: 100,
+                  created: `>=${since}`,
+                }),
+              );
+              process.stdout.write(
+                JSON.stringify(response.data || { workflow_runs: [] }),
+              );
+            })().catch((error) => {
+              console.error(error);
+              process.exit(1);
+            });
+          NODE
 
             total_runs=$(echo "$runs_data" | jq '.total_count // 0')
-            in_progress=$(echo "$runs_data" | jq '[.workflow_runs[] | select(.status == "in_progress")] | length')
-            queued=$(echo "$runs_data" | jq '[.workflow_runs[] | select(.status == "queued")] | length')
-            completed=$(echo "$runs_data" | jq '[.workflow_runs[] | select(.status == "completed")] | length')
+            in_progress=$(echo "$runs_data" | jq '
+              [.workflow_runs[] | select(.status == "in_progress")] | length
+            ')
+            queued=$(echo "$runs_data" | jq '
+              [.workflow_runs[] | select(.status == "queued")] | length
+            ')
+            completed=$(echo "$runs_data" | jq '
+              [.workflow_runs[] | select(.status == "completed")] | length
+            ')
 
             # Get most common workflows (use -c for compact output)
-            workflow_counts=$(echo "$runs_data" | jq -c '[.workflow_runs[].name] | group_by(.) | map({name: .[0], count: length}) | sort_by(-.count) | .[0:5]')
+            workflow_counts=$(echo "$runs_data" | jq -c '
+              [.workflow_runs[].name]
+              | group_by(.)
+              | map({name: .[0], count: length})
+              | sort_by(-.count)
+              | .[0:5]
+            ')
 
             repo_json=$(jq -cn \
               --arg repo "$repo" \
@@ -786,7 +1410,9 @@ jobs:
                 top_workflows: $workflows
               }')
 
-            activity_json=$(echo "$activity_json" | jq -c --argjson repo "$repo_json" '. + [$repo]')
+            activity_json=$(echo "$activity_json" | jq -c \
+              --argjson repo "$repo_json" \
+              '. + [$repo]')
 
             echo "  Runs (last hour): $total_runs (in_progress: $in_progress, queued: $queued)"
 
@@ -813,6 +1439,7 @@ jobs:
         id: report
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           echo "# 📊 API Rate Limit Diagnostic Report" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -832,30 +1459,51 @@ jobs:
           gt=$(echo "$summary" | jq '.tokens.github_token // {}')
           if [ "$gt" != "{}" ] && [ "$gt" != "null" ]; then
             gt_core=$(echo "$gt" | jq -r '"\(.core.used)/\(.core.limit) (\(.core.pct)%)"')
-            gt_graphql=$(echo "$gt" | jq -r '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
-            gt_search=$(echo "$gt" | jq -r '"\(.search.used)/\(.search.limit) (\(.search.pct)%)"')
+              gt_graphql=$(echo "$gt" | jq -r \
+                '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
+              gt_search=$(echo "$gt" | jq -r \
+                '"\(.search.used)/\(.search.limit) (\(.search.pct)%)"')
             gt_reset=$(echo "$gt" | jq -r '.reset // "N/A"')
-            echo "| GITHUB_TOKEN | $gt_core | $gt_graphql | $gt_search | $gt_reset |" >> "$GITHUB_STEP_SUMMARY"
+              printf '| GITHUB_TOKEN | %s | %s | %s | %s |\n' \
+                "$gt_core" \
+                "$gt_graphql" \
+                "$gt_search" \
+                "$gt_reset" \
+                >> "$GITHUB_STEP_SUMMARY"
           fi
 
           # PAT
-          pat=$(echo "$summary" | jq '.tokens.pat // {}')
+          pat=$(echo "$summary" | jq '.tokens.codespaces_workflows_pat // {}')
           if [ "$pat" != "{}" ] && [ "$pat" != "null" ]; then
             pat_core=$(echo "$pat" | jq -r '"\(.core.used)/\(.core.limit) (\(.core.pct)%)"')
-            pat_graphql=$(echo "$pat" | jq -r '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
-            pat_search=$(echo "$pat" | jq -r '"\(.search.used)/\(.search.limit) (\(.search.pct)%)"')
+              pat_graphql=$(echo "$pat" | jq -r \
+                '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
+              pat_search=$(echo "$pat" | jq -r \
+                '"\(.search.used)/\(.search.limit) (\(.search.pct)%)"')
             pat_reset=$(echo "$pat" | jq -r '.reset // "N/A"')
-            echo "| CODESPACES_WORKFLOWS | $pat_core | $pat_graphql | $pat_search | $pat_reset |" >> "$GITHUB_STEP_SUMMARY"
+              printf '| CODESPACES_WORKFLOWS | %s | %s | %s | %s |\n' \
+                "$pat_core" \
+                "$pat_graphql" \
+                "$pat_search" \
+                "$pat_reset" \
+                >> "$GITHUB_STEP_SUMMARY"
           fi
 
           # App
-          app=$(echo "$summary" | jq '.tokens.app // {}')
+          app=$(echo "$summary" | jq '.tokens.workflows_app // {}')
           if [ "$app" != "{}" ] && [ "$app" != "null" ]; then
             app_core=$(echo "$app" | jq -r '"\(.core.used)/\(.core.limit) (\(.core.pct)%)"')
-            app_graphql=$(echo "$app" | jq -r '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
-            app_search=$(echo "$app" | jq -r '"\(.search.used)/\(.search.limit) (\(.search.pct)%)"')
+              app_graphql=$(echo "$app" | jq -r \
+                '"\(.graphql.used)/\(.graphql.limit) (\(.graphql.pct)%)"')
+              app_search=$(echo "$app" | jq -r \
+                '"\(.search.used)/\(.search.limit) (\(.search.pct)%)"')
             app_reset=$(echo "$app" | jq -r '.reset // "N/A"')
-            echo "| WORKFLOWS_APP | $app_core | $app_graphql | $app_search | $app_reset |" >> "$GITHUB_STEP_SUMMARY"
+              printf '| WORKFLOWS_APP | %s | %s | %s | %s |\n' \
+                "$app_core" \
+                "$app_graphql" \
+                "$app_search" \
+                "$app_reset" \
+                >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -867,34 +1515,47 @@ jobs:
           warnings=0
 
           # Check for high utilization
-          for token_path in ".tokens.github_token" ".tokens.pat" ".tokens.app"; do
+          for token_path in \
+              ".tokens.github_token" \
+              ".tokens.codespaces_workflows_pat" \
+              ".tokens.workflows_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
               source=$(echo "$token_data" | jq -r '.source // "unknown"')
-              core_pct=$(echo "$token_data" | jq -r '.core.pct // "0"' | sed 's/[^0-9.]//g')
-              graphql_pct=$(echo "$token_data" | jq -r '.graphql.pct // "0"' | sed 's/[^0-9.]//g')
+              core_pct=$(echo "$token_data" | jq -r '.core.pct // "0"' \
+                | sed 's/[^0-9.]//g')
+              graphql_pct=$(echo "$token_data" | jq -r '.graphql.pct // "0"' \
+                | sed 's/[^0-9.]//g')
 
               # Bash doesn't handle floats well, so use bc for comparison
-              if [ -n "$core_pct" ] && [ "$(echo "$core_pct > 80" | bc -l)" = "1" ]; then
-                echo "- 🔴 **$source** Core API is at ${core_pct}% utilization - HIGH RISK" >> "$GITHUB_STEP_SUMMARY"
+              if [ -n "$core_pct" ] && \
+                [ "$(echo "$core_pct > 80" | bc -l)" = "1" ]; then
+                echo "- 🔴 **$source** Core API utilization: ${core_pct}%" >> "$GITHUB_STEP_SUMMARY"
+                echo "  - HIGH RISK" >> "$GITHUB_STEP_SUMMARY"
                 warnings=$((warnings + 1))
-              elif [ -n "$core_pct" ] && [ "$(echo "$core_pct > 50" | bc -l)" = "1" ]; then
-                echo "- 🟡 **$source** Core API is at ${core_pct}% utilization - MODERATE" >> "$GITHUB_STEP_SUMMARY"
+              elif [ -n "$core_pct" ] && \
+                [ "$(echo "$core_pct > 50" | bc -l)" = "1" ]; then
+                echo "- 🟡 **$source** Core API utilization: ${core_pct}%" >> "$GITHUB_STEP_SUMMARY"
+                echo "  - MODERATE" >> "$GITHUB_STEP_SUMMARY"
                 warnings=$((warnings + 1))
               fi
 
-              if [ -n "$graphql_pct" ] && [ "$(echo "$graphql_pct > 80" | bc -l)" = "1" ]; then
-                echo "- 🔴 **$source** GraphQL is at ${graphql_pct}% utilization - HIGH RISK" >> "$GITHUB_STEP_SUMMARY"
+                if [ -n "$graphql_pct" ] && \
+                  [ "$(echo "$graphql_pct > 80" | bc -l)" = "1" ]; then
+                echo "- 🔴 **$source** GraphQL: ${graphql_pct}%" >> "$GITHUB_STEP_SUMMARY"
+                echo "  - HIGH RISK" >> "$GITHUB_STEP_SUMMARY"
                 warnings=$((warnings + 1))
-              elif [ -n "$graphql_pct" ] && [ "$(echo "$graphql_pct > 50" | bc -l)" = "1" ]; then
-                echo "- 🟡 **$source** GraphQL is at ${graphql_pct}% utilization - MODERATE" >> "$GITHUB_STEP_SUMMARY"
+              elif [ -n "$graphql_pct" ] && \
+                [ "$(echo "$graphql_pct > 50" | bc -l)" = "1" ]; then
+                echo "- 🟡 **$source** GraphQL: ${graphql_pct}%" >> "$GITHUB_STEP_SUMMARY"
+                echo "  - MODERATE" >> "$GITHUB_STEP_SUMMARY"
                 warnings=$((warnings + 1))
               fi
             fi
           done
 
           if [ "$warnings" -eq 0 ]; then
-            echo "✅ All tokens are within normal utilization ranges (<50%)" >> "$GITHUB_STEP_SUMMARY"
+            echo "✅ All tokens within normal utilization (<50%)" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -905,40 +1566,71 @@ jobs:
           if [ "$activity" != "[]" ] && [ "$activity" != "null" ]; then
             echo "## 📦 Consumer Repository Activity (Last Hour)" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "| Repository | Total Runs | In Progress | Queued | Top Workflow |" >> "$GITHUB_STEP_SUMMARY"
-            echo "|------------|------------|-------------|--------|--------------|" >> "$GITHUB_STEP_SUMMARY"
+              echo '| Repository | Runs | In Progress | Queued | Top Workflow |' \
+                >> "$GITHUB_STEP_SUMMARY"
+              echo '|------------|------|-------------|--------|--------------|' \
+                >> "$GITHUB_STEP_SUMMARY"
 
-            echo "$activity" | jq -r '.[] | "\(.repo)|\(.runs_last_hour)|\(.in_progress)|\(.queued)|\(.top_workflows[0].name // "N/A") (\(.top_workflows[0].count // 0))"' | while IFS='|' read -r repo runs in_prog queued top_wf; do
-              echo "| $repo | $runs | $in_prog | $queued | $top_wf |" >> "$GITHUB_STEP_SUMMARY"
-            done
+            echo "$activity" | jq -r '
+              .[]
+              | (
+                "\(.repo)|\(.runs_last_hour)|\(.in_progress)|\(.queued)|"
+                + "\(.top_workflows[0].name // \"N/A\")"
+                + " (\(.top_workflows[0].count // 0))"
+              )
+            ' |
+              while IFS='|' read -r repo runs in_prog queued top_wf; do
+                printf '| %s | %s | %s | %s | %s |\n' \
+                  "$repo" \
+                  "$runs" \
+                  "$in_prog" \
+                  "$queued" \
+                  "$top_wf" \
+                  >> "$GITHUB_STEP_SUMMARY"
+              done
 
             echo "" >> "$GITHUB_STEP_SUMMARY"
 
             # Total activity summary
-            total_runs=$(echo "$activity" | jq '[.[].runs_last_hour] | add // 0')
-            total_in_progress=$(echo "$activity" | jq '[.[].in_progress] | add // 0')
-            total_queued=$(echo "$activity" | jq '[.[].queued] | add // 0')
+            total_runs=$(echo "$activity" | jq '
+              [.[].runs_last_hour] | add // 0
+            ')
+            total_in_progress=$(echo "$activity" | jq '
+              [.[].in_progress] | add // 0
+            ')
+            total_queued=$(echo "$activity" | jq '
+              [.[].queued] | add // 0
+            ')
 
-            echo "**Total across all repos:** $total_runs runs, $total_in_progress in progress, $total_queued queued" >> "$GITHUB_STEP_SUMMARY"
+            echo "**Total across all repos:**" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Runs: $total_runs" >> "$GITHUB_STEP_SUMMARY"
+            echo "- In progress: $total_in_progress" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Queued: $total_queued" >> "$GITHUB_STEP_SUMMARY"
           fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           # Load balancing analysis
-          echo "## ⚖️ Load Balancing Assessment" >> "$GITHUB_STEP_SUMMARY"
+          echo "## ⚖️ Load Balancing" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           # Count available tokens
           available_tokens=0
-          [ "$gt" != "{}" ] && [ "$gt" != "null" ] && available_tokens=$((available_tokens + 1))
-          [ "$pat" != "{}" ] && [ "$pat" != "null" ] && available_tokens=$((available_tokens + 1))
-          [ "$app" != "{}" ] && [ "$app" != "null" ] && available_tokens=$((available_tokens + 1))
+          if [ "$gt" != "{}" ] && [ "$gt" != "null" ]; then
+            available_tokens=$((available_tokens + 1))
+          fi
+          if [ "$pat" != "{}" ] && [ "$pat" != "null" ]; then
+            available_tokens=$((available_tokens + 1))
+          fi
+          if [ "$app" != "{}" ] && [ "$app" != "null" ]; then
+            available_tokens=$((available_tokens + 1))
+          fi
 
-          echo "**Available Authentication Methods:** $available_tokens" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Available auth methods:** $available_tokens" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$available_tokens" -ge 2 ]; then
-            echo "✅ Multiple authentication methods are configured for load distribution" >> "$GITHUB_STEP_SUMMARY"
+            echo "✅ Multiple authentication methods are configured" >> "$GITHUB_STEP_SUMMARY"
 
             # Check if load is balanced
             gt_core_pct=$(echo "$gt" | jq -r '.core.pct // "0"' | sed 's/[^0-9.]//g')
@@ -951,21 +1643,28 @@ jobs:
             app_core_pct=${app_core_pct:-0}
 
             # Calculate max difference
-            max_pct=$(echo "$gt_core_pct $pat_core_pct $app_core_pct" | tr ' ' '\n' | sort -rn | head -1)
-            min_pct=$(echo "$gt_core_pct $pat_core_pct $app_core_pct" | tr ' ' '\n' | grep -v '^$' | sort -n | head -1)
+            pcts=$(printf '%s\n' "$gt_core_pct" "$pat_core_pct" "$app_core_pct" | sed '/^$/d')
+            max_pct=$(echo "$pcts" | sort -rn | head -1)
+            min_pct=$(echo "$pcts" | sort -n | head -1)
 
             if [ -n "$max_pct" ] && [ -n "$min_pct" ]; then
               diff=$(echo "$max_pct - $min_pct" | bc -l 2>/dev/null || echo "0")
               if [ "$(echo "$diff > 30" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
-                echo "⚠️ Load is unevenly distributed (${diff}% difference). Consider reviewing token usage in workflows." >> "$GITHUB_STEP_SUMMARY"
-              else
-                echo "✅ Load appears to be reasonably balanced across tokens" >> "$GITHUB_STEP_SUMMARY"
-              fi
+                echo "⚠️ Load appears uneven (${diff}% difference)." >> "$GITHUB_STEP_SUMMARY"
+                echo "Consider reviewing token usage in workflows." >> "$GITHUB_STEP_SUMMARY"
+                else
+                  echo "✅ Load appears balanced across tokens" >> "$GITHUB_STEP_SUMMARY"
+                fi
             fi
           else
-            echo "⚠️ Only $available_tokens authentication method(s) configured. Consider adding:" >> "$GITHUB_STEP_SUMMARY"
-            [ "$pat" = "{}" ] || [ "$pat" = "null" ] && echo "  - CODESPACES_WORKFLOWS PAT for cross-repo operations" >> "$GITHUB_STEP_SUMMARY"
-            [ "$app" = "{}" ] || [ "$app" = "null" ] && echo "  - WORKFLOWS_APP GitHub App for higher rate limits" >> "$GITHUB_STEP_SUMMARY"
+            echo "⚠️ Only $available_tokens auth method(s) configured." >> "$GITHUB_STEP_SUMMARY"
+            echo "Consider adding:" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$pat" = "{}" ] || [ "$pat" = "null" ]; then
+              echo "- CODESPACES_WORKFLOWS PAT for cross-repo operations" >> "$GITHUB_STEP_SUMMARY"
+            fi
+            if [ "$app" = "{}" ] || [ "$app" = "null" ]; then
+              echo "- WORKFLOWS_APP GitHub App for higher rate limits" >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -973,11 +1672,11 @@ jobs:
           # Recommendations
           echo "## 💡 Recommendations" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "1. **GitHub App tokens** have higher rate limits (5000-15000/hour) than PATs (5000/hour)" >> "$GITHUB_STEP_SUMMARY"
-          echo "2. **Installation tokens** (GITHUB_TOKEN) have even higher limits but limited scope" >> "$GITHUB_STEP_SUMMARY"
-          echo "3. For high-volume operations, prefer GitHub App authentication" >> "$GITHUB_STEP_SUMMARY"
-          echo "4. Implement retry logic with exponential backoff for rate-limited requests" >> "$GITHUB_STEP_SUMMARY"
-          echo "5. Use conditional requests (ETags) to reduce API consumption" >> "$GITHUB_STEP_SUMMARY"
+            echo "1. GitHub App tokens: higher rate limits than PATs" >> "$GITHUB_STEP_SUMMARY"
+            echo "2. GITHUB_TOKEN: higher limits, but limited scope" >> "$GITHUB_STEP_SUMMARY"
+            echo "3. Prefer GitHub App auth for high-volume operations" >> "$GITHUB_STEP_SUMMARY"
+          echo "4. Implement retry logic with exponential backoff" >> "$GITHUB_STEP_SUMMARY"
+            echo "5. Use conditional requests (ETags) to reduce API usage" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set job status based on utilization
         env:
@@ -987,11 +1686,15 @@ jobs:
           raw_json="${SUMMARY_JSON:-{}}"
           summary=$(echo "$raw_json" | jq -c '.' 2>/dev/null || echo '{}')
 
-          for token_path in ".tokens.github_token" ".tokens.pat" ".tokens.app"; do
+          for token_path in \
+            ".tokens.github_token" \
+            ".tokens.codespaces_workflows_pat" \
+            ".tokens.workflows_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
               core_pct=$(echo "$token_data" | jq -r '.core.pct // "0"' | sed 's/[^0-9.]//g')
-              if [ -n "$core_pct" ] && [ "$(echo "$core_pct > 90" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+              if [ -n "$core_pct" ] && \
+                [ "$(echo "$core_pct > 90" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
                 echo "::warning::Critical API rate limit utilization detected (${core_pct}%)"
               fi
             fi
@@ -1007,6 +1710,13 @@ jobs:
       SUMMARY_JSON: ${{ needs.collect-rate-limits.outputs.summary_json }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
       - name: Check for critical utilization
         id: check
         run: |
@@ -1015,16 +1725,24 @@ jobs:
           summary=$(echo "$raw_json" | jq -c '.' 2>/dev/null || echo '{}')
           alert_needed=false
 
-          for token_path in ".tokens.github_token" ".tokens.pat" ".tokens.app"; do
+            for token_path in \
+              ".tokens.github_token" \
+              ".tokens.codespaces_workflows_pat" \
+              ".tokens.service_bot_pat" \
+              ".tokens.workflows_app" \
+              ".tokens.keepalive_app" \
+              ".tokens.gh_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
               core_pct=$(echo "$token_data" | jq -r '.core.pct // "0"' | sed 's/[^0-9.]//g')
               graphql_pct=$(echo "$token_data" | jq -r '.graphql.pct // "0"' | sed 's/[^0-9.]//g')
 
-              if [ -n "$core_pct" ] && [ "$(echo "$core_pct > 85" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+                if [ -n "$core_pct" ] && \
+                  [ "$(echo "$core_pct > 85" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
                 alert_needed=true
               fi
-              if [ -n "$graphql_pct" ] && [ "$(echo "$graphql_pct > 85" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+                if [ -n "$graphql_pct" ] && \
+                  [ "$(echo "$graphql_pct > 85" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
                 alert_needed=true
               fi
             fi
@@ -1037,39 +1755,237 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Check if an open issue already exists
-          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --label "api-rate-limit" --state open --limit 1 --json number --jq '.[0].number // empty')
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+            const retryLibPath = './.github/scripts/github-api-with-retry.js';
+            const { createTokenAwareRetry } = require(retryLibPath);
+            const core = {
+              info: console.log,
+              warning: console.warn,
+              debug: () => {},
+            };
+            const repoSlug = process.env.GITHUB_REPOSITORY;
+            const [owner, repo] = repoSlug.split('/');
+            const serverUrl = process.env.GITHUB_SERVER_URL;
+            const runId = process.env.GITHUB_RUN_ID;
+            const runUrl = `${serverUrl}/${repoSlug}/actions/runs/${runId}`;
 
-          if [ -z "$existing" ]; then
-            gh issue create \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "⚠️ API Rate Limit Alert: High Utilization Detected" \
-              --label "api-rate-limit,automated" \
-              --body "## API Rate Limit Alert
+          (async () => {
+              const github = new Octokit({
+                auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
+              });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic-high-usage',
+                capabilities: ['issues:write'],
+            });
 
-          The Health 75 API Rate Diagnostic workflow has detected high API rate limit utilization (>85%).
+              const issuesResp = await withRetry((client) =>
+                client.rest.issues.listForRepo({
+                  owner,
+                  repo,
+                  labels: 'api-rate-limit',
+                  state: 'open',
+                  per_page: 1,
+                }),
+              );
+            const existing = issuesResp?.data?.[0]?.number;
+              const now = new Date()
+                .toISOString()
+                .replace('T', ' ')
+                .replace(/\.\d+Z$/, ' UTC');
+            const body = [
+              '## API Rate Limit Alert',
+              '',
+                'Health 75 API Rate Diagnostic detected high API utilization (>85%).',
+              '',
+              `**Detected at:** ${now}`,
+                `**Workflow Run:** ${runUrl}`,
+              '',
+              '### Recommended Actions',
+              '',
+              '1. Review recent workflow activity for unusual patterns',
+                '2. Check for workflows making excessive API calls',
+              '3. Consider implementing caching or reducing polling frequency',
+              '4. Verify load is properly distributed across authentication methods',
+              '',
+              'This issue was automatically created and will be referenced if high usage persists.'
+            ].join('\n');
 
-          **Detected at:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          **Workflow Run:** $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+            if (!existing) {
+              await withRetry((client) => client.rest.issues.create({
+                owner,
+                repo,
+                  title: '⚠️ API Rate Limit Alert: High utilization',
+                labels: ['api-rate-limit', 'automated'],
+                body
+              }));
+              console.log('Created new alert issue');
+            } else {
+                const updateBody = [
+                  '🔄 **Update:** High API utilization continues.',
+                  '',
+                  `**Checked at:** ${now}`,
+                  `**Workflow Run:** ${runUrl}`,
+                ].join('\n');
+              await withRetry((client) => client.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing,
+                  body: updateBody,
+              }));
+              console.log(`Updated existing issue #${existing}`);
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
 
-          ### Recommended Actions
+  alert-on-repeat-failure:
+    name: Alert on Repeated Failure
+    runs-on: ubuntu-latest
+    if: ${{ always() }}
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+      - name: Create issue on repeated failures
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const retryLibPath = './.github/scripts/github-api-with-retry.js';
+          const { createTokenAwareRetry } = require(retryLibPath);
+          const core = {
+            info: console.log,
+            warning: console.warn,
+            debug: () => {},
+          };
+          const repoSlug = process.env.GITHUB_REPOSITORY;
+          const [owner, repo] = repoSlug.split('/');
+          const runId = Number(process.env.GITHUB_RUN_ID);
+          const serverUrl = process.env.GITHUB_SERVER_URL;
+          const runUrl = `${serverUrl}/${repoSlug}/actions/runs/${runId}`;
 
-          1. Review recent workflow activity for unusual patterns
-          2. Check if any workflows are making excessive API calls
-          3. Consider implementing caching or reducing polling frequency
-          4. Verify load is properly distributed across authentication methods
+          (async () => {
+            const github = new Octokit({
+              auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN,
+            });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic-alert',
+              capabilities: ['actions:read', 'issues:write'],
+            });
 
-          This issue was automatically created and will be referenced if high usage persists."
-            echo "Created new alert issue"
-          else
-            gh issue comment "$existing" \
-              --repo "$GITHUB_REPOSITORY" \
-              --body "🔄 **Update:** High API rate limit utilization continues.
+            const runResp = await withRetry((client) => client.rest.actions.getWorkflowRun({
+              owner,
+              repo,
+              run_id: runId
+            }));
+            const conclusion = runResp?.data?.conclusion || '';
+            if (conclusion !== 'failure') {
+              console.log(`Run conclusion is '${conclusion}' - no failure alert needed.`);
+              return;
+            }
 
-          **Checked at:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          **Workflow Run:** $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-            echo "Updated existing issue #$existing"
-          fi
+            const workflowResp = await withRetry((client) => client.rest.actions.getWorkflow({
+              owner,
+              repo,
+              workflow_id: 'health-75-api-rate-diagnostic.yml'
+            }));
+            const workflowId = workflowResp?.data?.id;
+            if (!workflowId) {
+              console.log('Could not resolve workflow id; skipping repeat failure check.');
+              return;
+            }
+
+            const runsResp = await withRetry((client) => client.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: workflowId,
+              per_page: 2
+            }));
+            const runs = runsResp?.data?.workflow_runs || [];
+            const first = runs[0]?.conclusion || '';
+            const second = runs[1]?.conclusion || '';
+            if (first !== 'failure' || second !== 'failure') {
+              console.log(
+                `No consecutive failures (latest: ${first}, previous: ${second}).`,
+              );
+              return;
+            }
+
+            const issueTitle = '⚠️ Health 75 API Rate Diagnostic failing repeatedly';
+            const labels = ['workflow-failure', 'automated', 'api-rate-limit'];
+            const now = new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+            const body = [
+              '## Repeated workflow failures detected',
+              '',
+              'The Health 75 API Rate Diagnostic workflow has failed in two consecutive runs.',
+              '',
+                `- **Current run:** ${runUrl}`,
+              `- **Detected at:** ${now}`,
+              '',
+              '### Next steps',
+              '1. Review the run logs to identify the failing step(s).',
+              '2. Validate that API credentials and required secrets are configured.',
+              '3. Re-run the workflow after applying fixes.',
+              '',
+              'This issue was created automatically to ensure repeated failures are tracked.'
+            ].join('\n');
+
+            const issuesResp = await withRetry((client) => client.rest.issues.listForRepo({
+              owner,
+              repo,
+              labels: 'workflow-failure',
+              state: 'open',
+              per_page: 1
+            }));
+            const existing = issuesResp?.data?.[0]?.number;
+
+            if (!existing) {
+              await withRetry((client) => client.rest.issues.create({
+                owner,
+                repo,
+                title: issueTitle,
+                labels,
+                body
+              }));
+              console.log('Created failure alert issue.');
+            } else {
+                const updateBody = [
+                  'Repeated failure detected again.',
+                  `Latest run: ${runUrl}`,
+                ].join('\n');
+              await withRetry((client) => client.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing,
+                  body: updateBody,
+              }));
+              console.log(`Updated existing failure alert issue #${existing}.`);
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
 
   # Historical report job - runs when report_mode is 'historical'
   generate-historical-report:
@@ -1078,15 +1994,25 @@ jobs:
     if: ${{ inputs.report_mode == 'historical' }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
       - name: Parse date range
         id: dates
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           START_INPUT="${{ inputs.start_date }}"
           END_INPUT="${{ inputs.end_date }}"
 
-          echo "Parsing date range: start='$START_INPUT', end='$END_INPUT'"
+            echo "Parsing date range:"
+            echo "- start='$START_INPUT'"
+            echo "- end='$END_INPUT'"
 
           # Parse end date
           if [ "$END_INPUT" = "now" ] || [ -z "$END_INPUT" ]; then
@@ -1120,7 +2046,8 @@ jobs:
           date_regex='^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
 
           if ! [[ "$START_DATE" =~ $date_regex ]]; then
-            echo "::error::Invalid START_DATE format: '$START_DATE'. Expected YYYY-MM-DD or a supported relative value (e.g., 7d, 1w, 1m)."
+              echo "::error::Invalid START_DATE format: '$START_DATE'."
+              echo "Expected YYYY-MM-DD or a supported relative value (e.g., 7d, 1w, 1m)."
             exit 1
           fi
 
@@ -1150,20 +2077,111 @@ jobs:
           echo "start_date=$START_DATE" >> "$GITHUB_OUTPUT"
           echo "end_date=$END_DATE" >> "$GITHUB_OUTPUT"
 
+      - name: Mint workflows app token
+        id: workflows_app_token
+        env:
+          WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID || '' }}
+          WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || '' }}
+        if: ${{ env.WORKFLOWS_APP_ID != '' && env.WORKFLOWS_APP_PRIVATE_KEY != '' }}
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ env.WORKFLOWS_APP_ID }}
+          private-key: ${{ env.WORKFLOWS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
       - name: Fetch historical workflow runs
         id: history
         env:
-          GH_TOKEN: ${{ github.token }}
+          APP_GH_TOKEN: ${{ steps.workflows_app_token.outputs.token || '' }}
+          PRIMARY_GH_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+          FALLBACK_GH_TOKEN: ${{ github.token }}
           START_DATE: ${{ steps.dates.outputs.start_date }}
           END_DATE: ${{ steps.dates.outputs.end_date }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           echo "Fetching Health 75 workflow runs from $START_DATE to $END_DATE"
 
-          # Get workflow ID for Health 75
-          workflow_id=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows" \
-            --jq '.workflows[] | select(.name == "Health 75 API Rate Diagnostic") | .id')
+          primary_token="$APP_GH_TOKEN"
+          if [ -z "$primary_token" ]; then
+            primary_token="$PRIMARY_GH_TOKEN"
+          fi
+          if [ -z "$primary_token" ]; then
+            primary_token="$FALLBACK_GH_TOKEN"
+          fi
+
+          # Get workflow ID for Health 75 (direct path lookup avoids pagination limits)
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          workflow_meta=$(
+            PRIMARY_TOKEN="$primary_token" \
+            FALLBACK_TOKEN="$FALLBACK_GH_TOKEN" \
+            node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+          const primaryToken = process.env.PRIMARY_TOKEN;
+          const fallbackToken = process.env.FALLBACK_TOKEN;
+
+          async function fetchWorkflowId(token) {
+            const github = new Octokit({ auth: token });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic-history',
+              capabilities: ['actions:read']
+            });
+            const retryContext = {
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic-history',
+            };
+            const response = await withRetry(
+              () => github.rest.actions.getWorkflow({
+                owner,
+                repo,
+                workflow_id: 'health-75-api-rate-diagnostic.yml'
+              }),
+              retryContext,
+            );
+            return response?.data?.id || null;
+          }
+
+          (async () => {
+            let workflowId = null;
+            let tokenUsed = 'primary';
+            try {
+              if (primaryToken) {
+                workflowId = await fetchWorkflowId(primaryToken);
+              }
+            } catch (error) {
+              workflowId = null;
+            }
+            if (!workflowId && fallbackToken) {
+              tokenUsed = 'fallback';
+              workflowId = await fetchWorkflowId(fallbackToken);
+            }
+            process.stdout.write(
+              JSON.stringify({
+                workflow_id: workflowId,
+                token_used: tokenUsed,
+              }),
+            );
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
+          workflow_id=$(echo "$workflow_meta" | jq -r '.workflow_id // empty')
+          token_used=$(echo "$workflow_meta" | jq -r '.token_used // "primary"')
+          token_to_use="$primary_token"
+          if [ "$token_used" = "fallback" ]; then
+            token_to_use="$FALLBACK_GH_TOKEN"
+          fi
 
           if [ -z "$workflow_id" ]; then
             echo "::error::Could not find Health 75 workflow"
@@ -1173,15 +2191,61 @@ jobs:
           echo "Workflow ID: $workflow_id"
 
           # Fetch runs in date range (GitHub API uses created filter)
-          runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$workflow_id/runs" \
-            --paginate \
-            -F "created=>=$START_DATE" \
-            -F "status=completed" \
-            --jq '[.workflow_runs[] | select(.conclusion == "success") | {
-              id: .id,
-              created_at: .created_at,
-              run_number: .run_number
-            }]')
+          # Note: Use query params instead of -F flags to keep this a GET request
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
+          runs=$(
+            TOKEN_TO_USE="$token_to_use" \
+            WORKFLOW_ID="$workflow_id" \
+            START_DATE="$START_DATE" \
+            node - <<'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+          const token = process.env.TOKEN_TO_USE;
+          const workflowId = process.env.WORKFLOW_ID;
+          const startDate = process.env.START_DATE;
+
+          (async () => {
+            const github = new Octokit({ auth: token });
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic-history-runs',
+              capabilities: ['actions:read']
+            });
+            const retryContext = {
+              github,
+              core,
+              env: process.env,
+              task: 'health-75-api-rate-diagnostic-history-runs',
+            };
+            const runs = await withRetry(
+              () => github.paginate(github.rest.actions.listWorkflowRuns, {
+                owner,
+                repo,
+                workflow_id: workflowId,
+                per_page: 100,
+                status: 'completed',
+                created: `>=${startDate}`
+              }),
+              retryContext,
+            );
+            const filtered = (runs || [])
+              .filter((run) => run.conclusion === 'success')
+              .map((run) => ({
+                id: run.id,
+                created_at: run.created_at,
+                run_number: run.run_number
+              }));
+            process.stdout.write(JSON.stringify(filtered));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           # Normalize END_DATE to an ISO 8601 end-of-day timestamp
           if [[ "$END_DATE" == *T* ]]; then
@@ -1205,6 +2269,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           # Read runs from previous step
           runs=$(cat /tmp/runs.json)
@@ -1230,27 +2295,31 @@ jobs:
           RUN_COUNT: ${{ steps.history.outputs.run_count }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           echo "# 📊 Historical API Rate Limit Report" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**Report Period:** $START_DATE to $END_DATE" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Data Points:** $RUN_COUNT successful diagnostic runs" >> "$GITHUB_STEP_SUMMARY"
+          generated=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          echo "**Generated:** $generated" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Data Points:** $RUN_COUNT successful runs" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$RUN_COUNT" -eq 0 ]; then
             echo "⚠️ **No diagnostic data available for this period.**" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "The Health 75 API Rate Diagnostic workflow collects snapshots every 4 hours." >> "$GITHUB_STEP_SUMMARY"
-            echo "Historical data is only available for periods when the workflow ran successfully." >> "$GITHUB_STEP_SUMMARY"
+            echo "Health 75 collects snapshots every 4 hours." >> "$GITHUB_STEP_SUMMARY"
+            echo "Historical data is only available for successful runs." >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "**Tip:** Run the workflow in 'current' mode to start collecting data." >> "$GITHUB_STEP_SUMMARY"
+            echo "**Tip:** Run the workflow in 'current' mode to start collecting data." \
+              >> "$GITHUB_STEP_SUMMARY"
           else
             echo "## 📈 Summary Statistics" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
             # Calculate period duration safely
             PERIOD_DAYS="unknown"
-            if start_epoch=$(date -d "$START_DATE" +%s 2>/dev/null) && end_epoch=$(date -d "$END_DATE" +%s 2>/dev/null); then
+            if start_epoch=$(date -d "$START_DATE" +%s 2>/dev/null) && \
+              end_epoch=$(date -d "$END_DATE" +%s 2>/dev/null); then
               PERIOD_DAYS=$(( (end_epoch - start_epoch) / 86400 ))
             fi
 
@@ -1267,7 +2336,12 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
 
             # List recent runs with links
-            jq -r '.[:10][] | "- [\(.created_at | split("T")[0])] Run #\(.run_number) - [View Details]('"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"'/actions/runs/\(.id))"' /tmp/runs.json >> "$GITHUB_STEP_SUMMARY"
+            base_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+            jq -r --arg base_url "$base_url" '
+              .[:10][]
+              | "- [\(.created_at | split(\"T\")[0])] Run #\(.run_number)"
+                + " - [View Details](\($base_url)/actions/runs/\(.id))"
+            ' /tmp/runs.json >> "$GITHUB_STEP_SUMMARY"
 
             if [ "$RUN_COUNT" -gt 10 ]; then
               echo "" >> "$GITHUB_STEP_SUMMARY"
@@ -1277,8 +2351,9 @@ jobs:
             echo "" >> "$GITHUB_STEP_SUMMARY"
             echo "## 💡 Usage Notes" >> "$GITHUB_STEP_SUMMARY"
             echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Each run captures a point-in-time snapshot of API rate limits" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Click on individual runs above to view detailed rate limit data" >> "$GITHUB_STEP_SUMMARY"
-            echo "- Rate limits reset hourly; snapshots show utilization at collection time" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Each run captures a point-in-time API rate snapshot" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Click a run above to view detailed rate limit data" >> "$GITHUB_STEP_SUMMARY"
+            echo "- Rate limits reset hourly; snapshots show utilization at collection time" \
+              >> "$GITHUB_STEP_SUMMARY"
             echo "- For trend analysis, review multiple consecutive runs" >> "$GITHUB_STEP_SUMMARY"
           fi

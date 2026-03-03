@@ -30,51 +30,28 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
+
+
       - name: Determine default branch
         id: default-branch
         uses: actions/github-script@v8
         with:
           script: |
-            const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-            async function withApiRetry(fn, { label = 'operation', maxAttempts = 5, baseDelay = 1000 } = {}) {
-              for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-                try {
-                  return await fn();
-                } catch (error) {
-                  const status = error?.status || error?.response?.status;
-                  const headers = error?.response?.headers || {};
-                  const remainingRaw = headers['x-ratelimit-remaining'] ?? headers['X-RateLimit-Remaining'];
-                  const resetRaw = headers['x-ratelimit-reset'] ?? headers['X-RateLimit-Reset'];
-                  const remaining = Number(remainingRaw);
-                  const reset = Number(resetRaw);
-                  const isRateLimit = status === 403 && Number.isFinite(remaining) && remaining <= 0;
-                  const retryable = isRateLimit || status === 429 || !status || (status >= 500 && status < 600);
-                  if (!retryable || attempt === maxAttempts) {
-                    core.error(`Failed ${label}: ${error.message}`);
-                    throw error;
-                  }
-                  let delay = baseDelay * attempt;
-                  const retryAfterRaw = headers['retry-after'] ?? headers['Retry-After'];
-                  const retryAfterSeconds = Number(retryAfterRaw);
-                  if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
-                    delay = Math.max(delay, retryAfterSeconds * 1000);
-                  } else if (isRateLimit && Number.isFinite(reset)) {
-                    const nowSeconds = Math.floor(Date.now() / 1000);
-                    if (reset > nowSeconds) {
-                      const untilReset = (reset - nowSeconds) * 1000 + 500;
-                      delay = Math.max(delay, untilReset);
-                    }
-                  }
-                  delay = Math.max(delay, 1000);
-                  const humanDelay = delay >= 60000
-                    ? `${(delay / 60000).toFixed(2)}m`
-                    : `${Math.round(delay)}ms`;
-                  core.warning(`Retrying ${label} after ${humanDelay} (attempt ${attempt + 1}/${maxAttempts}).`);
-                  await sleep(delay);
-                }
-              }
-              throw new Error(`Failed ${label} after ${maxAttempts} attempts.`);
-            }
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-44-default-branch',
+              capabilities: ['contents:read']
+            });
 
             const payload = context.payload || {};
             const eventDefault = payload.repository?.default_branch
@@ -88,35 +65,44 @@ jobs:
               return;
             }
 
-            const resolvedFallback = directDefault || payload.repository?.default_branch || 'main';
+            const resolvedFallback = payload.repository?.default_branch || null;
 
             try {
-              const response = await withApiRetry(
-                () => github.rest.repos.get({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                }),
-                { label: 'determine default branch' },
-              );
-              core.setOutput('name', response.data.default_branch || resolvedFallback);
+              const response = await withRetry((client) => client.rest.repos.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+              }));
+              const resolved = response.data.default_branch || resolvedFallback;
+              if (!resolved) {
+                core.setFailed('Repository default branch not available');
+                return;
+              }
+              core.setOutput('name', resolved);
             } catch (error) {
               const detail = error?.message || '';
               const status = error?.status || error?.response?.status;
-              const rateLimited = status === 429 || (status === 403 && /rate limit/i.test(detail));
+              const rateLimited =
+                status === 429 ||
+                (status === 403 && /rate limit/i.test(detail));
               if (rateLimited) {
-                core.warning(`Rate limit while resolving default branch; using fallback "${resolvedFallback}".`);
+                if (!resolvedFallback) {
+                  core.setFailed('Repository default branch not available');
+                  return;
+                }
+                core.warning('Rate limit while resolving default branch.');
+                core.warning(`Using fallback "${resolvedFallback}".`);
                 core.setOutput('name', resolvedFallback);
               } else {
                 throw error;
               }
             }
-            core.setOutput('name', resolvedDefault);
 
       - name: Export default branch variable
         run: |
           echo "DEFAULT_BRANCH_NAME=${DEFAULT_BRANCH}" >> "$GITHUB_ENV"
         env:
-          DEFAULT_BRANCH: ${{ steps.default-branch.outputs.name || github.event.repository.default_branch || 'main' }}
+          DEFAULT_BRANCH: >-
+            ${{ steps.default-branch.outputs.name || github.event.repository.default_branch }}
 
       - uses: actions/setup-python@v6
         with:
@@ -131,7 +117,8 @@ jobs:
         run: |
           if [ -z "${ENFORCE_TOKEN}" ]; then
             echo "BRANCH_PROTECTION_TOKEN is not configured; enforcement step will be skipped."
-            echo "The verification step will still fail if Gate or Health 45 Agents Guard is not required on the default branch."
+            echo "The verification step will still fail if Gate or Health 45 Agents Guard is"
+            echo "not required on the default branch."
           elif [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
             echo "BRANCH_PROTECTION_TOKEN detected but pull_request events run in dry-run mode."
             echo "Schedule and workflow_dispatch events will apply the desired configuration."
@@ -170,7 +157,9 @@ jobs:
 
       - name: Verify gate branch protection is required (read-only)
         continue-on-error: ${{ github.event_name == 'pull_request' }}
-        if: env.ENFORCE_TOKEN == '' || (github.event_name == 'pull_request' && steps.verify-admin.outcome != 'success')
+        if: >-
+          env.ENFORCE_TOKEN == '' ||
+          (github.event_name == 'pull_request' && steps.verify-admin.outcome != 'success')
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -205,7 +194,7 @@ jobs:
             --write-summary "${GITHUB_STEP_SUMMARY}"
       - name: Upload branch protection snapshots
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: gate-branch-protection-${{ github.run_id }}
           path: ${{ env.SNAPSHOT_DIR }}

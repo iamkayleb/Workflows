@@ -79,6 +79,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Exit with error if any issues found",
     )
+    parser.add_argument(
+        "--source",
+        default="template-completeness",
+        help="Identifier for the calling workflow (used in summary output)",
+    )
     return parser.parse_args()
 
 
@@ -149,6 +154,18 @@ def is_consumer_workflow(workflow_path: Path) -> bool:
     return any(re.search(pattern, name) for pattern in consumer_patterns)
 
 
+def write_summary(issues: list[str], source: str) -> None:
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        return
+
+    with open(summary_path, "a", encoding="utf-8") as handle:
+        handle.write(f"## Template Completeness Check ({source})\n\n")
+        handle.write(f"**Issues Found:** {len(issues)}\n\n")
+        for issue in issues:
+            handle.write(f"- {issue}\n")
+
+
 def main() -> int:
     args = parse_args()
 
@@ -207,18 +224,13 @@ def main() -> int:
         print(f"\nTotal issues: {len(issues)}")
 
         # Write to summary if available
-        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
-        if summary_path:
-            with open(summary_path, "a") as f:
-                f.write("## Template Completeness Check\n\n")
-                f.write(f"**Issues Found:** {len(issues)}\n\n")
-                for issue in issues:
-                    f.write(f"- {issue}\n")
+        write_summary(issues, args.source)
 
         if args.strict:
             return 1
     else:
         print("✅ All consumer workflows are properly templated and manifested")
+        write_summary([], args.source)
 
     return 0
 

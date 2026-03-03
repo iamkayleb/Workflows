@@ -20,11 +20,16 @@ Usage:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from tools.codex_jsonl_parser import CodexSession, parse_codex_jsonl
-from tools.llm_provider import CompletionAnalysis, get_llm_provider
+from tools.llm_provider import (
+    CompletionAnalysis,
+    SessionQualityContext,
+    get_llm_provider,
+    supports_quality_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +56,7 @@ class AnalysisResult:
     # Quality metrics for keepalive integration
     effort_score: int = 0
     data_quality: str = "unknown"  # high, medium, low, minimal
+    quality_context_capable_providers: list[str] = field(default_factory=list)
 
     @property
     def has_completions(self) -> bool:
@@ -166,8 +172,6 @@ def analyze_session(
 
             # Build quality context for BS detection
             quality_metrics = session.get_quality_metrics()
-            from tools.llm_provider import SessionQualityContext
-
             quality_context = SessionQualityContext(
                 has_agent_messages=quality_metrics["has_agent_messages"],
                 has_work_evidence=quality_metrics["has_work_evidence"],
@@ -189,32 +193,46 @@ def analyze_session(
             data_source = "summary"
             analysis_text = content
 
+    if quality_context is None:
+        quality_context = SessionQualityContext(
+            has_agent_messages=False,
+            has_work_evidence=False,
+            file_change_count=0,
+            successful_command_count=0,
+            estimated_effort_score=0,
+            data_quality="unknown",
+            analysis_text_length=len(analysis_text),
+        )
+
     # Get LLM provider and analyze
     provider = get_llm_provider(force_provider=force_provider)
+    quality_context_capable_providers: list[str] = []
+    capability_fn = getattr(provider, "quality_context_capable_providers", None)
+    if callable(capability_fn):
+        try:
+            quality_context_capable_providers = list(capability_fn())
+        except Exception as exc:
+            logger.debug(
+                "Failed to list quality_context capable providers: %s",
+                exc,
+            )
+    elif supports_quality_context(provider):
+        quality_context_capable_providers = [provider.name]
 
     try:
-        # Pass quality context if provider supports it
-        if hasattr(provider, "_active_provider"):
-            # FallbackChainProvider - let internal provider handle it
-            completion = provider.analyze_completion(
-                session_output=analysis_text,
-                tasks=tasks,
-                context=context,
-            )
-        else:
+        if quality_context is not None and supports_quality_context(provider):
             completion = provider.analyze_completion(
                 session_output=analysis_text,
                 tasks=tasks,
                 context=context,
                 quality_context=quality_context,
             )
-    except TypeError:
-        # Provider doesn't support quality_context parameter
-        completion = provider.analyze_completion(
-            session_output=analysis_text,
-            tasks=tasks,
-            context=context,
-        )
+        else:
+            completion = provider.analyze_completion(
+                session_output=analysis_text,
+                tasks=tasks,
+                context=context,
+            )
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
         # Return empty result on failure
@@ -225,6 +243,7 @@ def analyze_session(
             confidence=0.0,
             reasoning=f"Analysis failed: {e}",
             provider_used="error",
+            model_name="unknown",
         )
 
     # Build quality metrics from session
@@ -243,6 +262,7 @@ def analyze_session(
         analysis_text_length=len(analysis_text),
         effort_score=effort_score,
         data_quality=data_quality,
+        quality_context_capable_providers=quality_context_capable_providers,
     )
 
 

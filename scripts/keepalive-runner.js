@@ -11,6 +11,7 @@ const {
 const {
   getKeepaliveInstructionWithMention,
 } = require('../.github/scripts/keepalive_instruction_template.js');
+const { createTokenAwareRetry } = require('../.github/scripts/github-api-with-retry.js');
 
 function parseJson(value, fallback) {
   try {
@@ -76,6 +77,63 @@ function normaliseLogin(login) {
   return base.replace(/\[bot\]$/i, '');
 }
 
+function normalizeScopeBlock(value) {
+  return String(value || '')
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/\s+$/g, ''))
+    .join('\n')
+    .trim();
+}
+
+function normalizeScopeBlockForComparison(value) {
+  const cleaned = normalizeScopeBlock(value);
+  if (!cleaned) {
+    return '';
+  }
+
+  const normalizedLines = cleaned.split('\n').map((line) => {
+    let text = String(line || '').trim();
+    if (!text) {
+      return '';
+    }
+    text = text.replace(/^#{1,6}\s+/, '');
+    text = text.replace(/\s*:\s*$/, '');
+    text = text.replace(/^(?:\*\*|__)(.+)(?:\*\*|__)$/, '$1');
+    return text.trim().toLowerCase();
+  });
+
+  const compacted = [];
+  for (const line of normalizedLines) {
+    if (!line) {
+      if (compacted.length && compacted[compacted.length - 1] === '') {
+        continue;
+      }
+    }
+    compacted.push(line);
+  }
+
+  return compacted.join('\n').trim();
+}
+
+function shouldIncludeScopeBlock({ scopeBlock, prBody }) {
+  const cleanedScope = normalizeScopeBlockForComparison(scopeBlock);
+  if (!cleanedScope) {
+    return false;
+  }
+  const prSource = prBody ? String(prBody) : '';
+  const prScopeBlock = normalizeScopeBlockForComparison(
+    prSource ? extractScopeTasksAcceptanceSections(prSource, { includePlaceholders: false }) : ''
+  );
+  if (!prScopeBlock) {
+    return true;
+  }
+  if (prScopeBlock.includes(cleanedScope) || cleanedScope.includes(prScopeBlock)) {
+    return false;
+  }
+  return true;
+}
+
 function hasCliAgentLabel(labels) {
   if (!Array.isArray(labels)) {
     return false;
@@ -85,10 +143,14 @@ function hasCliAgentLabel(labels) {
 
 function countCheckboxes(markdown) {
   const result = { total: 0, checked: 0, unchecked: 0 };
-  const content = String(markdown || '')
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/\u2028|\u2029/g, '\n');
+  // Apply parent-child cascade before counting so that checked parents
+  // automatically cascade to their indented children.
+  const content = cascadeParentCheckboxes(
+    String(markdown || '')
+      .replace(/\r\n/g, '\n')
+      .replace(/\r/g, '\n')
+      .replace(/\u2028|\u2029/g, '\n')
+  );
   const fencePattern = /^\s*(```|~~~)/;
   const checkboxPattern = /^\s*(?:[-*+]|\d+[.)])\s*\[( |x|X)\]/;
   let inCodeBlock = false;
@@ -113,6 +175,64 @@ function countCheckboxes(markdown) {
     }
   }
   return result;
+}
+
+/**
+ * Cascade checked parent checkboxes to their indented children.
+ * See cascadeParentCheckboxes in .github/scripts/keepalive_loop.js for the
+ * canonical implementation and detailed documentation.
+ */
+function cascadeParentCheckboxes(body) {
+  if (!body) return body;
+  const lines = body.split('\n');
+  const result = [];
+  let parentIndent = null;
+  let inCodeBlock = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Detect code fence boundaries — reset cascade and skip contents.
+    if (/^\s*(`{3,}|~{3,})/.test(line)) {
+      inCodeBlock = !inCodeBlock;
+      parentIndent = null;
+      result.push(line);
+      continue;
+    }
+    if (inCodeBlock) {
+      result.push(line);
+      continue;
+    }
+
+    const cbMatch = line.match(/^(\s*)([-*+]|\d+[.)])\s*\[([ xX])\]\s*/);
+    if (!cbMatch) {
+      if (/^\s*$/.test(line) || /^#{1,6}\s/.test(line)) {
+        parentIndent = null;
+      }
+      result.push(line);
+      continue;
+    }
+
+    const indent = cbMatch[1].length;
+    const checked = cbMatch[3].toLowerCase() === 'x';
+
+    if (parentIndent !== null && indent > parentIndent) {
+      if (!checked) {
+        result.push(line.replace(/\[\s+\]/, '[x]'));
+      } else {
+        result.push(line);
+      }
+      continue;
+    }
+
+    parentIndent = null;
+    if (checked) {
+      parentIndent = indent;
+    }
+    result.push(line);
+  }
+
+  return result.join('\n');
 }
 
 function extractLatestChecklist(botComments) {
@@ -153,7 +273,7 @@ function resolvePromptCheckboxCounts(scopeCounts, latestChecklist) {
   if (!scopeHasTasks) {
     return { total, unchecked };
   }
-  if (scopeComplete) {
+  if (scopeComplete && (safeScope.total !== total || !latestIncomplete)) {
     return safeScope;
   }
   return { total, unchecked };
@@ -202,6 +322,7 @@ function resolveKeepalivePromptContext({ labels, checkboxCounts, options }) {
   };
 }
 
+// Bot/service logins that cannot be assigned to issues — real GitHub accounts
 const NON_ASSIGNABLE_LOGINS = new Set([
   'copilot',
   'chatgpt-codex-connector',
@@ -218,7 +339,7 @@ function recordDispatchSummary({ summary, ok, reason, prNumber, commentId, agent
   }
   const prValue = Number.isFinite(prNumber) && prNumber > 0 ? `#${prNumber}` : '#?';
   const commentValue = commentId ? String(commentId) : '<none>';
-  const agentValue = (agentAlias || 'codex').trim() || 'codex';
+  const agentValue = (agentAlias || 'codex').trim() || 'codex'; // fallback for display
   const byteValue = Number.isFinite(bytes) && bytes >= 0 ? String(bytes) : '0';
   const line = `DISPATCH: ok=${ok ? 'true' : 'false'} reason=${reason || 'unspecified'} pr=${prValue} comment=${commentValue} agent=${agentValue} bytes=${byteValue}`;
   summary.addRaw(line).addEOL();
@@ -474,9 +595,10 @@ function detectKeepaliveSentinel(comments, { sentinelPattern, headerPattern, age
     return null;
   }
 
-  const codexLogins = new Set(agentLogins.map(normaliseLogin));
-  codexLogins.add('stranske-automation-bot');
-  const codexMentionPattern = /@codex\b/i;
+  const knownAgentLogins = new Set(agentLogins.map(normaliseLogin));
+  knownAgentLogins.add('stranske-automation-bot');
+  // Match @codex or @claude activation triggers in comment bodies
+  const agentTriggerPattern = /@(codex|claude)\b/i;
 
   const sorted = [...comments].sort(
     (a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at)
@@ -493,7 +615,7 @@ function detectKeepaliveSentinel(comments, { sentinelPattern, headerPattern, age
     }
 
     const login = normaliseLogin(comment?.user?.login);
-    if (codexLogins.has(login) || codexMentionPattern.test(body)) {
+    if (knownAgentLogins.has(login) || agentTriggerPattern.test(body)) {
       return { comment, login };
     }
   }
@@ -527,7 +649,8 @@ function detectExistingKeepalive(comments, { marker, agentLogins, headerPattern 
     const lower = body.toLowerCase();
     return (
       lower.includes('keepalive mode:') ||
-      (lower.includes('@codex plan-and-execute') && lower.includes('checklist'))
+      (lower.includes('@codex plan-and-execute') && lower.includes('checklist')) ||
+      (lower.includes('@claude') && lower.includes('checklist'))
     );
   };
 
@@ -583,7 +706,7 @@ async function dispatchKeepaliveCommand({
     issue: payload.issue,
     base: payload.base || '',
     head: payload.head || '',
-    agent: payload.agent || 'codex',
+    agent: payload.agent || 'codex', // backwards-compat default
     instruction_body: payload.instruction_body || '',
     meta: {
       comment_id: payload.comment_id,
@@ -598,12 +721,13 @@ async function dispatchKeepaliveCommand({
   await octokit.rest.repos.createDispatchEvent({
     owner,
     repo,
+    // API contract: event type matched by dispatch handlers in consumers
     event_type: 'codex-pr-comment-command',
     client_payload: clientPayload,
   });
 
   core.info(
-    `Emitted repository_dispatch codex-pr-comment-command for PR #${clientPayload.issue} (comment ${clientPayload.meta.comment_id}).`
+    `Emitted repository_dispatch for PR #${clientPayload.issue} (comment ${clientPayload.meta.comment_id}).`
   );
 }
 
@@ -705,13 +829,16 @@ const INSTRUCTION_TOKEN_KEYS = [
   'github_token',
 ];
 
-const DISPATCH_TOKEN_KEYS = [
+const DEDICATED_DISPATCH_TOKEN_KEYS = [
   'KEEPALIVE_DISPATCH_TOKEN',
   'keepalive_dispatch_token',
   'KEEPALIVE_DISPATCH_PAT',
   'keepalive_dispatch_pat',
   'GH_DISPATCH_TOKEN',
   'gh_dispatch_token',
+];
+
+const FALLBACK_DISPATCH_TOKEN_KEYS = [
   'ACTIONS_BOT_PAT',
   'actions_bot_pat',
   'SERVICE_BOT_PAT',
@@ -722,20 +849,42 @@ const DISPATCH_TOKEN_KEYS = [
   'github_token',
 ];
 
+const DISPATCH_TOKEN_KEYS = [
+  ...DEDICATED_DISPATCH_TOKEN_KEYS,
+  ...FALLBACK_DISPATCH_TOKEN_KEYS,
+];
+
 function resolveInstructionToken(env = {}) {
   return resolveTokenFromKeys(env, INSTRUCTION_TOKEN_KEYS);
 }
 
 function resolveDispatchToken(env = {}, instructionToken = '') {
-  const dedicated = resolveTokenFromKeys(env, DISPATCH_TOKEN_KEYS);
+  const dedicated = resolveTokenFromKeys(env, DEDICATED_DISPATCH_TOKEN_KEYS);
   if (dedicated) {
     return dedicated;
   }
-  const fallback = String(instructionToken || '').trim();
-  if (fallback) {
-    return fallback;
+  const hasDedicatedKey = DEDICATED_DISPATCH_TOKEN_KEYS.some((key) =>
+    Object.prototype.hasOwnProperty.call(env, key)
+  );
+  if (hasDedicatedKey) {
+    return '';
   }
-  return '';
+  const fromEnv = resolveTokenFromKeys(env, FALLBACK_DISPATCH_TOKEN_KEYS);
+  if (fromEnv) {
+    return fromEnv;
+  }
+  const fallback = String(instructionToken || '').trim();
+  return fallback ? fallback : '';
+}
+
+function stripTokenKeys(env = {}, keys = []) {
+  const cleaned = { ...env };
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(cleaned, key)) {
+      delete cleaned[key];
+    }
+  }
+  return cleaned;
 }
 
 async function runKeepalive({ core, github, context, env = process.env }) {
@@ -745,9 +894,14 @@ async function runKeepalive({ core, github, context, env = process.env }) {
   const summary = core.summary;
   const traceSeed = generateTraceSeed(env.KEEPALIVE_TRACE || env.keepalive_trace || '');
   const pausedLabel = 'agents:paused';
+  const clearTokenDefaults = coerceBool(
+    env.CLEAR_TOKEN_DEFAULTS ?? env.clear_token_defaults,
+    false
+  );
+  const tokenEnv = clearTokenDefaults ? stripTokenKeys(env, DISPATCH_TOKEN_KEYS) : env;
 
   const addHeading = () => {
-    summary.addHeading('Codex Keepalive');
+    summary.addHeading('Agent Keepalive');
     summary.addRaw(`Dry run: **${dryRun ? 'enabled' : 'disabled'}**`).addEOL();
   };
 
@@ -756,7 +910,7 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     true
   );
   if (!keepaliveEnabled) {
-    core.info('Codex keepalive disabled via options_json.');
+    core.info('Agent keepalive disabled via options_json.');
     addHeading();
     summary.addRaw('Skip requested via options_json.').addEOL();
     summary.addRaw('Skipped 0 paused PRs.').addEOL();
@@ -769,13 +923,13 @@ async function runKeepalive({ core, github, context, env = process.env }) {
   let dispatchToken = '';
   let instructionAuthorOctokit = null;
   if (!dryRun) {
-    instructionAuthorToken = resolveInstructionToken(env);
+    instructionAuthorToken = resolveInstructionToken(tokenEnv);
     if (!instructionAuthorToken) {
       throw new Error(
         'GitHub token is required to author keepalive instructions (app token, PAT, or GITHUB_TOKEN).'
       );
     }
-    dispatchToken = resolveDispatchToken(env, instructionAuthorToken);
+    dispatchToken = resolveDispatchToken(tokenEnv, instructionAuthorToken);
 
     instructionAuthorOctokit = buildOctokitInstance({
       core,
@@ -790,6 +944,9 @@ async function runKeepalive({ core, github, context, env = process.env }) {
       throw new Error('Unable to initialise Octokit client for keepalive instruction author.');
     }
   }
+
+  // Initialize token-aware retry for API calls
+  const { withRetry, github: tokenAwareGithub } = await createTokenAwareRetry({ github, core });
 
   const idleMinutes = coerceNumber(options.keepalive_idle_minutes, 10, { min: 0 });
   const repeatMinutes = coerceNumber(options.keepalive_repeat_minutes, 30, { min: 0 });
@@ -806,13 +963,14 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     .map((value) => value.trim().toLowerCase())
     .filter(Boolean);
   if (!targetLabels.length) {
-    targetLabels = ['agents:keepalive', 'agent:codex'];
+    targetLabels = ['agents:keepalive'];
   }
   targetLabels = dedupe(targetLabels);
 
   // Instruction loaded from .github/templates/keepalive-instruction.md
   const commandOverride = normaliseValue(options.keepalive_command);
 
+  // API contract: marker string is embedded in existing PR comments
   const canonicalMarker = '<!-- codex-keepalive-marker -->';
   const markerRaw = options.keepalive_marker ?? canonicalMarker;
   const marker = String(markerRaw || '').trim() || canonicalMarker;
@@ -824,6 +982,7 @@ async function runKeepalive({ core, github, context, env = process.env }) {
   const scopeOverrideRaw = options.keepalive_scope_block ?? '';
   const scopeOverride = String(scopeOverrideRaw).trim();
 
+  // Default agent logins — these are real GitHub bot accounts
   const agentSource = options.keepalive_agent_logins ?? 'chatgpt-codex-connector[bot],stranske-automation-bot';
   const agentEntries = parseAgentLoginEntries(agentSource, [
     'chatgpt-codex-connector[bot]',
@@ -876,23 +1035,56 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     )
     .addEOL();
 
-  const paginatePulls = github.paginate.iterator(
-    github.rest.pulls.list,
-    { owner, repo, state: 'open', per_page: 50 }
-  );
+  const pullsPerPage = 50;
+  const pullsClient = tokenAwareGithub?.rest?.pulls?.list ? tokenAwareGithub : github;
+  const hasPaginationIterator = Boolean(pullsClient?.paginate?.iterator);
+  const iteratePulls = async function* () {
+    if (hasPaginationIterator) {
+      const iterator = pullsClient.paginate.iterator(
+        pullsClient.rest.pulls.list,
+        { owner, repo, state: 'open', per_page: pullsPerPage }
+      );
+      for await (const page of iterator) {
+        yield page;
+      }
+      return;
+    }
+
+    let page = 1;
+    while (true) {
+      const { data } = await withRetry(
+        (client) =>
+          client.rest.pulls.list({ owner, repo, state: 'open', per_page: pullsPerPage, page }),
+        { github: pullsClient }
+      );
+      const entries = Array.isArray(data) ? data : [];
+      if (!entries.length) {
+        break;
+      }
+      yield { data: entries };
+      if (entries.length < pullsPerPage) {
+        break;
+      }
+      page += 1;
+    }
+  };
 
   const fetchIssueComments = async (issueNumber) => {
     const comments = [];
     const perPage = 100;
-    const hasIterator = Boolean(github.paginate?.iterator);
+    const commentsClient = tokenAwareGithub?.rest?.issues?.listComments ? tokenAwareGithub : github;
+    const hasIterator = Boolean(commentsClient?.paginate?.iterator);
 
     if (hasIterator) {
-      const iterator = github.paginate.iterator(github.rest.issues.listComments, {
-        owner,
-        repo,
-        issue_number: issueNumber,
-        per_page: perPage,
-      });
+      const iterator = commentsClient.paginate.iterator(
+        commentsClient.rest.issues.listComments,
+        {
+          owner,
+          repo,
+          issue_number: issueNumber,
+          per_page: perPage,
+        }
+      );
 
       for await (const page of iterator) {
         const data = Array.isArray(page.data) ? page.data : [];
@@ -903,13 +1095,17 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     } else {
       let page = 1;
       while (true) {
-        const { data } = await github.rest.issues.listComments({
-          owner,
-          repo,
-          issue_number: issueNumber,
-          per_page: perPage,
-          page,
-        });
+        const { data } = await withRetry(
+          (client) =>
+            client.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number: issueNumber,
+              per_page: perPage,
+              page,
+            }),
+          { github: commentsClient }
+        );
         if (!Array.isArray(data) || !data.length) {
           break;
         }
@@ -924,7 +1120,7 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     return comments;
   };
 
-  for await (const page of paginatePulls) {
+  for await (const page of iteratePulls()) {
     for (const pr of page.data) {
       if (scanned >= maxPrs) {
         limitReached = true;
@@ -990,20 +1186,20 @@ async function runKeepalive({ core, github, context, env = process.env }) {
         .filter((comment) => agentLogins.includes(normaliseLogin(comment.user?.login)))
         .sort((a, b) => new Date(a.updated_at || a.created_at) - new Date(b.updated_at || b.created_at));
       if (!botComments.length) {
-        recordSkip('Codex has not commented yet');
+        recordSkip('agent has not commented yet');
         continue;
       }
 
       const lastAgentComment = botComments[botComments.length - 1];
       const lastAgentTs = new Date(lastAgentComment.updated_at || lastAgentComment.created_at).getTime();
       if (!Number.isFinite(lastAgentTs)) {
-        recordSkip('unable to parse Codex timestamp');
+        recordSkip('unable to parse agent timestamp');
         continue;
       }
 
       const minutesSinceAgent = (now - lastAgentTs) / 60000;
       if (minutesSinceAgent < effectiveIdleMinutes) {
-        recordSkip(`last Codex activity ${minutesSinceAgent.toFixed(1)} minutes ago (< ${effectiveIdleMinutes})`);
+        recordSkip(`last agent activity ${minutesSinceAgent.toFixed(1)} minutes ago (< ${effectiveIdleMinutes})`);
         continue;
       }
 
@@ -1083,7 +1279,7 @@ async function runKeepalive({ core, github, context, env = process.env }) {
       });
 
       if (!latestChecklist && !(checkboxCounts.total > 0 && checkboxCounts.unchecked === 0)) {
-        recordSkip('no Codex checklist with outstanding tasks');
+        recordSkip('no agent checklist with outstanding tasks');
         continue;
       }
 
@@ -1109,10 +1305,15 @@ async function runKeepalive({ core, github, context, env = process.env }) {
       const traceToken = buildTraceToken({ seed: traceSeed, prNumber, round: nextRound });
       const traceMarker = `<!-- keepalive-trace: ${traceToken} -->`;
       const command =
-        commandOverride || getKeepaliveInstructionWithMention('codex', promptContext);
+        commandOverride || getKeepaliveInstructionWithMention(undefined, promptContext);
 
+      const includeScopeBlock = shouldIncludeScopeBlock({ scopeBlock, prBody: pr.body || '' });
       const bodyParts = [roundMarker, attemptMarker, canonicalMarker, traceMarker, command];
-      bodyParts.push('', scopeBlock);
+      if (includeScopeBlock) {
+        bodyParts.push('', scopeBlock);
+      } else if (scopeBlock) {
+        core.info(`#${prNumber}: scope/tasks/acceptance already in PR body; skipping scope echo in keepalive comment.`);
+      }
       if (marker && marker !== canonicalMarker) {
         bodyParts.push('', marker);
       }
@@ -1139,13 +1340,15 @@ async function runKeepalive({ core, github, context, env = process.env }) {
           }
 
           if (assignableAssignees.length > 0) {
+            const assigneeClient =
+              tokenAwareGithub?.rest?.issues?.addAssignees ? tokenAwareGithub : github;
             core.info(`#${prNumber}: adding human assignees: ${assignableAssignees.join(', ')}`);
-            await github.rest.issues.addAssignees({
+            await withRetry((client) => client.rest.issues.addAssignees({
               owner,
               repo,
               issue_number: prNumber,
               assignees: assignableAssignees,
-            });
+            }), { github: assigneeClient });
             assignmentSummaries.push(`#${prNumber} – ensured assignees: ${assignableAssignees.join(', ')}`);
           } else {
             core.info(`#${prNumber}: no assignable human assignees available; skipping assignment.`);
@@ -1227,7 +1430,12 @@ async function runKeepalive({ core, github, context, env = process.env }) {
             }
           }
 
-          const agentAlias = 'codex';
+          // Resolve agent from PR labels or fall back to registry default
+          let agentAlias = 'codex';
+          try {
+            const { loadAgentRegistry } = require('../.github/scripts/agent_registry.js');
+            agentAlias = loadAgentRegistry().default_agent || 'codex';
+          } catch (_) {}
           if (!instructionSegment) {
             core.warning(`#${prNumber}: unable to extract instruction segment; connector dispatch skipped.`);
             recordDispatchSummary({
@@ -1295,14 +1503,14 @@ async function runKeepalive({ core, github, context, env = process.env }) {
     if (previews.length) {
       summary.addDetails('Previewed keepalive comments', summariseList(previews));
     } else {
-      summary.addRaw('No unattended Codex tasks detected (dry run).');
+      summary.addRaw('No unattended agent tasks detected (dry run).');
     }
     summary.addRaw(`Previewed keepalive count: ${previews.length}`).addEOL();
   } else {
     if (triggered.length) {
       summary.addDetails('Triggered keepalive comments', summariseList(triggered));
     } else {
-      summary.addRaw('No unattended Codex tasks detected.');
+      summary.addRaw('No unattended agent tasks detected.');
     }
     summary.addRaw(`Triggered keepalive count: ${triggered.length}`).addEOL();
     if (roundTraces.length) {
@@ -1341,7 +1549,10 @@ module.exports = {
   resolveDispatchToken,
   extractScopeTasksAcceptanceSections,
   findScopeTasksAcceptanceBlock,
+  normalizeScopeBlock,
+  shouldIncludeScopeBlock,
   countCheckboxes,
+  cascadeParentCheckboxes,
   extractLatestChecklist,
   resolvePromptCheckboxCounts,
   resolveKeepalivePromptContext,

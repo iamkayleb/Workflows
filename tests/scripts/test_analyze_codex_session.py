@@ -6,7 +6,6 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -15,8 +14,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from scripts.analyze_codex_session import (
     extract_all_tasks_from_pr_body,
     extract_tasks_from_pr_body,
+    output_github_actions,
     update_pr_body_checkboxes,
 )
+from tools.codex_session_analyzer import AnalysisResult
+from tools.llm_provider import CompletionAnalysis
 
 
 class TestExtractTasksFromPRBody:
@@ -183,6 +185,33 @@ class TestUpdatePRBodyCheckboxes:
         assert updated == "- [ ] Real task\n```md\n- [ ] Not real\n```\n- [x] Another task"
 
 
+class TestOutputGithubActions:
+    """Tests for GitHub Actions output formatting."""
+
+    def test_writes_quality_context_capable_providers(self, tmp_path: Path, monkeypatch) -> None:
+        output_path = tmp_path / "github_output.txt"
+        monkeypatch.setenv("GITHUB_OUTPUT", str(output_path))
+
+        result = AnalysisResult(
+            completion=CompletionAnalysis(
+                completed_tasks=["task1"],
+                in_progress_tasks=[],
+                blocked_tasks=[],
+                confidence=0.8,
+                reasoning="ok",
+                provider_used="mock",
+            ),
+            quality_context_capable_providers=["github-models", "openai"],
+        )
+
+        output_github_actions(result)
+
+        output_text = output_path.read_text()
+        assert "quality-context-capable-providers" in output_text
+        assert "github-models" in output_text
+        assert "openai" in output_text
+
+
 class TestCLIScript:
     """Integration tests for the CLI script."""
 
@@ -228,6 +257,7 @@ class TestCLIScript:
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent.parent,
+            timeout=30,
         )
 
         # Should succeed (exit 0)
@@ -256,6 +286,7 @@ class TestCLIScript:
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent.parent,
+            timeout=30,
         )
 
         assert result.returncode == 0, f"stderr: {result.stderr}"
@@ -274,6 +305,7 @@ class TestCLIScript:
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent.parent,
+            timeout=30,
         )
 
         assert result.returncode == 2
@@ -294,6 +326,7 @@ class TestCLIScript:
             capture_output=True,
             text=True,
             cwd=Path(__file__).parent.parent.parent,
+            timeout=30,
         )
 
         assert result.returncode == 0
@@ -305,29 +338,29 @@ class TestCLIScript:
         """Test CLI with --update-pr-body option."""
         updated_file = tmp_path / "updated_body.md"
 
-        # Mock the LLM to return a known completion
-        with patch("tools.llm_provider.get_llm_provider") as mock_provider:
-            from tools.llm_provider import RegexFallbackProvider
+        # Use --provider regex-fallback to avoid hitting real LLM APIs.
+        # NOTE: patch() does NOT work here because subprocess.run() spawns
+        # a new process where the mock is not applied.
+        result = subprocess.run(
+            [
+                sys.executable,
+                "scripts/analyze_codex_session.py",
+                "--session-file",
+                str(sample_session_file),
+                "--pr-body-file",
+                str(sample_pr_body_file),
+                "--output",
+                "json",
+                "--update-pr-body",
+                "--updated-body-file",
+                str(updated_file),
+                "--provider",
+                "regex-fallback",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=Path(__file__).parent.parent.parent,
+            timeout=30,
+        )
 
-            mock_provider.return_value = RegexFallbackProvider()
-
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    "scripts/analyze_codex_session.py",
-                    "--session-file",
-                    str(sample_session_file),
-                    "--pr-body-file",
-                    str(sample_pr_body_file),
-                    "--output",
-                    "json",
-                    "--update-pr-body",
-                    "--updated-body-file",
-                    str(updated_file),
-                ],
-                capture_output=True,
-                text=True,
-                cwd=Path(__file__).parent.parent.parent,
-            )
-
-            assert result.returncode == 0
+        assert result.returncode == 0

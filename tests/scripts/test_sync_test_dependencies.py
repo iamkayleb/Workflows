@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from scripts import sync_test_dependencies as std
 
 
@@ -256,11 +255,12 @@ def test_add_dependencies_to_pyproject_requires_tomlkit(
 def test_add_dependencies_to_pyproject_creates_dev_group(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip("tomlkit")  # Skip if tomlkit not installed
+
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text("[project]\n", encoding="utf-8")
 
     monkeypatch.setattr(std, "PYPROJECT_FILE", pyproject)
-    monkeypatch.setattr(std, "TOMLKIT_ERROR", None)
 
     assert std.add_dependencies_to_pyproject({"pandas"}, fix=True) is True
 
@@ -272,6 +272,8 @@ def test_add_dependencies_to_pyproject_creates_dev_group(
 def test_add_dependencies_to_pyproject_no_new_entries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip("tomlkit")  # Skip if tomlkit not installed
+
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         "\n".join(
@@ -287,7 +289,6 @@ def test_add_dependencies_to_pyproject_no_new_entries(
     )
 
     monkeypatch.setattr(std, "PYPROJECT_FILE", pyproject)
-    monkeypatch.setattr(std, "TOMLKIT_ERROR", None)
 
     assert std.add_dependencies_to_pyproject({"requests"}, fix=True) is False
 
@@ -295,6 +296,8 @@ def test_add_dependencies_to_pyproject_no_new_entries(
 def test_add_dependencies_to_pyproject_appends_entries(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip("tomlkit")  # Skip if tomlkit not installed
+
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
         "\n".join(
@@ -310,7 +313,6 @@ def test_add_dependencies_to_pyproject_appends_entries(
     )
 
     monkeypatch.setattr(std, "PYPROJECT_FILE", pyproject)
-    monkeypatch.setattr(std, "TOMLKIT_ERROR", None)
 
     assert std.add_dependencies_to_pyproject({"requests", "pandas"}, fix=True) is True
 
@@ -404,7 +406,7 @@ def test_read_local_modules_ignores_comments_and_empty_lines(
     """Test _read_local_modules skips comments and blank lines."""
     modules_file = tmp_path / ".project_modules.txt"
     modules_file.write_text(
-        "# This is a comment\n" "\n" "  # Indented comment  \n" "module_a\n" "   \n" "module_b\n",
+        "# This is a comment\n\n  # Indented comment  \nmodule_a\n   \nmodule_b\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(std, "LOCAL_MODULES_FILE", modules_file)
@@ -433,7 +435,7 @@ def test_read_local_modules_warns_on_invalid_names(
     """Test _read_local_modules warns about invalid Python identifiers."""
     modules_file = tmp_path / ".project_modules.txt"
     modules_file.write_text(
-        "valid_module\n" "123invalid\n" "has-hyphen\n" "has space\n" "another_valid\n",
+        "valid_module\n123invalid\nhas-hyphen\nhas space\nanother_valid\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(std, "LOCAL_MODULES_FILE", modules_file)

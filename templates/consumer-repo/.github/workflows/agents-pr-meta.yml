@@ -47,8 +47,10 @@ concurrency:
   group: >-
     ${{ github.event_name == 'issue_comment' &&
         format('agents-pr-meta-comment-{0}', github.event.comment.id) ||
+        github.event_name == 'pull_request' &&
+        format('agents-pr-meta-pr-{0}', github.event.pull_request.number) ||
         format('agents-pr-meta-run-{0}', github.run_id) }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # Resolve PR context for issue_comment events
@@ -86,7 +88,7 @@ jobs:
       github.event.issue.pull_request
     uses: stranske/Workflows/.github/workflows/reusable-20-pr-meta.yml@main
     with:
-      pr_number: ${{ needs.resolve_pr.outputs.pr_number }}
+      pr_number: ${{ fromJSON(needs.resolve_pr.outputs.pr_number) }}
       comment_id: ${{ needs.resolve_pr.outputs.comment_id }}
       comment_body: ${{ needs.resolve_pr.outputs.comment_body }}
       event_name: 'issue_comment'

@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-
 from scripts import workflow_run_counts
 
 DEFAULT_HIGH_FREQUENCY_TRIGGERS = (
@@ -334,7 +333,7 @@ def _format_cancel(setting: ConcurrencySetting) -> str:
 
 def _table_row(item: WorkflowConcurrencyAudit) -> list[str]:
     concurrency = ";".join(
-        f"{setting.location}:{setting.group or 'none'}:" f"{_format_cancel(setting)}"
+        f"{setting.location}:{setting.group or 'none'}:{_format_cancel(setting)}"
         for setting in item.concurrency
     )
     return [

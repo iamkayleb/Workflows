@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 from typing import Literal
@@ -116,6 +115,8 @@ class ProgressReviewResult(BaseModel):
     model: str | None = None
     used_llm: bool = False
     error: str | None = None
+    langsmith_trace_id: str | None = None
+    langsmith_trace_url: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -123,10 +124,27 @@ class ProgressReviewResult(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def build_review_payload(result: ProgressReviewResult) -> dict:
+    payload = result.model_dump()
+    if payload.get("review") is None:
+        suggestions = []
+        analysis = result.analysis
+        if analysis and analysis.blocking_issues:
+            suggestions.extend([item for item in analysis.blocking_issues if item])
+        if analysis and analysis.scope_drift_identified:
+            suggestions.extend([item for item in analysis.scope_drift_identified if item])
+        payload["review"] = {
+            "score": result.alignment_score,
+            "feedback": result.feedback_for_agent,
+            "suggestions": "; ".join(suggestions),
+        }
+    return payload
+
+
 def heuristic_alignment_check(
     acceptance_criteria: list[str],
     recent_commits: list[str],
-    files_changed: list[str],
+    _files_changed: list[str],
 ) -> tuple[float, list[str], list[str]]:
     """
     Quick heuristic check for alignment before invoking LLM.
@@ -134,11 +152,35 @@ def heuristic_alignment_check(
     Returns:
         (alignment_score, aligned_commits, unaligned_commits)
     """
+    # Allowlist for common, meaningful short tokens that frequently appear in
+    # acceptance criteria as snake_case parts, and in commits as acronyms.
+    # Keep this small to avoid inflating alignment via generic 3-letter words.
+    short_token_allowlist = {
+        "png",
+        "pdf",
+        "csv",
+        "ppt",
+        "pptx",
+        "cprs",
+        "fcm",
+        "json",
+        "yaml",
+        "yml",
+    }
+
     criteria_keywords = set()
     for criterion in acceptance_criteria:
-        # Extract meaningful words from criteria (longer words are more specific)
-        words = re.findall(r"\b[a-z_]{4,}\b", criterion.lower())
-        criteria_keywords.update(words)
+        # Extract meaningful words from criteria.
+        # Note: acceptance criteria often include snake_case identifiers (e.g.
+        # render_cprs_ch_png). Split those into tokens so commits like
+        # "CPRS-CH PNG" can be recognized as aligned.
+        words = re.findall(r"\b[a-z0-9_]{4,}\b", criterion.lower())
+        for word in words:
+            criteria_keywords.add(word)
+            if "_" in word:
+                for token in word.split("_"):
+                    if len(token) >= 4 or token in short_token_allowlist:
+                        criteria_keywords.add(token)
 
     # Infrastructure words that indicate supporting work
     # These alone don't count as alignment, but combined with criteria keywords they help
@@ -185,7 +227,7 @@ def heuristic_alignment_check(
 
     for commit in recent_commits:
         commit_lower = commit.lower()
-        commit_words = set(re.findall(r"\b[a-z_]{3,}\b", commit_lower))
+        commit_words = set(re.findall(r"\b[a-z0-9_]{3,}\b", commit_lower))
 
         # Check for direct criteria match (strong signal)
         criteria_match = criteria_keywords & commit_words
@@ -216,9 +258,25 @@ def heuristic_alignment_check(
     return alignment_score, aligned, unaligned
 
 
-# ---------------------------------------------------------------------------
-# LLM-based review
-# ---------------------------------------------------------------------------
+# Patterns for orchestrator bookkeeping files that should not count as "agent work".
+# These files are written by the keepalive orchestrator, not the coding agent.
+_BOOKKEEPING_PATTERNS = re.compile(
+    r"(?:^|/)(?:"
+    r"claude-(?:prompt|output)-\d+\.md"
+    r"|codex-(?:prompt|output)-\d+\.md"
+    r"|claude-(?:session|analysis)-\d+\.(?:jsonl|json)"
+    r"|agents/(?:claude|codex)-\d+\.md"
+    r"|\.agents/"
+    r"|autofix-[^/]+\.patch$"
+    r"|autofix-metrics\.ndjson$"
+    r"|autofix-report-pr-\d+$"
+    r")",
+)
+
+
+def _filter_bookkeeping_files(files: list[str]) -> list[str]:
+    """Remove orchestrator bookkeeping files that don't represent agent work."""
+    return [f for f in files if not _BOOKKEEPING_PATTERNS.search(f)]
 
 
 def build_review_prompt(
@@ -266,6 +324,92 @@ def parse_llm_response(content: str) -> ProgressReviewResult | None:
         return None
 
 
+# ---------------------------------------------------------------------------
+# LangSmith tracing helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_llm_config(
+    *,
+    operation: str,
+    pr_number: int | None = None,
+) -> dict[str, object]:
+    """Build LangSmith metadata/tags for LLM call."""
+    import os
+
+    try:
+        from tools.llm_provider import build_langsmith_metadata
+
+        return build_langsmith_metadata(
+            operation=operation,
+            pr_number=pr_number,
+        )
+    except ImportError:
+        pass
+
+    # Inline fallback when tools.llm_provider is unavailable
+    repo = os.environ.get("GITHUB_REPOSITORY", "unknown")
+    run_id = os.environ.get("GITHUB_RUN_ID") or os.environ.get("RUN_ID") or "unknown"
+    env_pr = os.environ.get("PR_NUMBER", "")
+    issue_or_pr = env_pr if env_pr.isdigit() else str(pr_number) if pr_number else "unknown"
+
+    metadata = {
+        "repo": repo,
+        "run_id": run_id,
+        "issue_or_pr_number": issue_or_pr,
+        "operation": operation,
+        "pr_number": str(pr_number) if pr_number is not None else None,
+    }
+    tags = [
+        "workflows-agents",
+        f"operation:{operation}",
+        f"repo:{repo}",
+        f"issue_or_pr:{issue_or_pr}",
+        f"run_id:{run_id}",
+    ]
+    return {"metadata": metadata, "tags": tags}
+
+
+def _invoke_llm_with_trace(
+    llm: object,
+    prompt: str,
+    *,
+    operation: str,
+    pr_number: int | None = None,
+) -> tuple[object, str | None, str | None]:
+    """Invoke LLM and extract trace information.
+
+    Returns:
+        Tuple of (response, trace_id, trace_url)
+    """
+    config = _build_llm_config(operation=operation, pr_number=pr_number)
+
+    try:
+        response = llm.invoke(prompt, config=config)
+    except TypeError:
+        # Fallback if config not supported
+        response = llm.invoke(prompt)
+
+    # Extract trace ID from response if available
+    trace_id = None
+    trace_url = None
+    try:
+        from tools.llm_provider import derive_langsmith_trace_url, extract_trace_id
+
+        trace_id = extract_trace_id(response)
+        if trace_id:
+            trace_url = derive_langsmith_trace_url(trace_id)
+    except ImportError:
+        pass
+
+    return response, trace_id, trace_url
+
+
+# ---------------------------------------------------------------------------
+# Progress review with LLM
+# ---------------------------------------------------------------------------
+
+
 def review_progress_with_llm(
     acceptance_criteria: list[str],
     recent_commits: list[str],
@@ -282,11 +426,13 @@ def review_progress_with_llm(
         files_changed,
         rounds_without_completion,
     )
+    try:
+        from tools.langchain_client import build_chat_client
+    except ImportError:
+        build_chat_client = None
 
-    # Check for API key
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        # Fall back to heuristic-only
+    resolved = build_chat_client(model=model) if build_chat_client else None
+    if not resolved:
         score, aligned, unaligned = heuristic_alignment_check(
             acceptance_criteria, recent_commits, files_changed
         )
@@ -303,7 +449,7 @@ def review_progress_with_llm(
 
         return ProgressReviewResult(
             recommendation=rec,
-            confidence=0.5,  # Lower confidence without LLM
+            confidence=0.5,
             alignment_score=score,
             trajectory=traj,
             analysis=ProgressAnalysis(
@@ -311,28 +457,34 @@ def review_progress_with_llm(
                 scope_drift_identified=unaligned[:5],
             ),
             feedback_for_agent="Review your recent work against the acceptance criteria.",
-            summary=f"Heuristic review: {len(aligned)}/{len(recent_commits)} commits appear aligned",
+            summary=(
+                f"Heuristic review: {len(aligned)}/{len(recent_commits)} commits appear aligned"
+            ),
             used_llm=False,
-            error="OPENAI_API_KEY not set, using heuristic fallback",
+            error="LLM unavailable, using heuristic fallback",
         )
 
     try:
-        from langchain_openai import ChatOpenAI
+        import os
 
-        llm = ChatOpenAI(
-            model=model,
-            temperature=0.1,  # Low temperature for consistent analysis
-            api_key=api_key,
+        pr_num = None
+        env_pr = os.environ.get("PR_NUMBER", "")
+        if env_pr.isdigit():
+            pr_num = int(env_pr)
+
+        llm = resolved.client
+        response, trace_id, trace_url = _invoke_llm_with_trace(
+            llm, prompt, operation="review_progress", pr_number=pr_num
         )
-
-        response = llm.invoke(prompt)
         content = response.content if hasattr(response, "content") else str(response)
 
         result = parse_llm_response(content)
         if result:
             result.used_llm = True
-            result.provider_used = "openai"
-            result.model = model
+            result.provider_used = resolved.provider
+            result.model = resolved.model
+            result.langsmith_trace_id = trace_id
+            result.langsmith_trace_url = trace_url
             return result
 
         # Failed to parse, return error result
@@ -345,8 +497,10 @@ def review_progress_with_llm(
             feedback_for_agent="Unable to analyze progress. Please review acceptance criteria.",
             summary="LLM response parsing failed",
             used_llm=True,
-            provider_used="openai",
-            model=model,
+            provider_used=resolved.provider,
+            model=resolved.model,
+            langsmith_trace_id=trace_id,
+            langsmith_trace_url=trace_url,
             error="Failed to parse LLM response",
         )
 
@@ -399,6 +553,63 @@ def review_progress(
     Returns:
         ProgressReviewResult with recommendation and analysis
     """
+    # Filter out orchestrator bookkeeping files (claude-prompt-*.md, etc.)
+    # so they don't inflate alignment scores or file-change counts.
+    original_files_changed = list(files_changed)
+    files_changed = _filter_bookkeeping_files(files_changed)
+    bookkeeping_only_changes = bool(original_files_changed) and not files_changed
+
+    if not files_changed and rounds_without_completion >= 2:
+        if bookkeeping_only_changes:
+            summary_detail = (
+                "Only bookkeeping artifacts (claude/codex prompts, autofix patches, etc.) "
+                "were touched, so the agent produced no source changes."
+            )
+            blocking_issues = [
+                (
+                    "Only bookkeeping/orchestrator artifacts changed despite "
+                    f"{rounds_without_completion} consecutive rounds without completion"
+                ),
+                "Agent output is not reaching source files; likely stuck rerunning bookkeeping steps",
+            ]
+            feedback = (
+                f"The last {rounds_without_completion} rounds only generated bookkeeping "
+                "artifacts (prompts, outputs, patches) without touching any source files. "
+                "Please investigate why the agent keeps re-emitting orchestrator files instead "
+                "of making code changes."
+            )
+        else:
+            summary_detail = (
+                "Zero source files changed in the latest round — likely an infra or auth issue."
+            )
+            blocking_issues = [
+                (
+                    "Zero source files changed in the latest round after "
+                    f"{rounds_without_completion} consecutive rounds without task completion"
+                ),
+                "Likely infrastructure failure: auth, permissions, or sandbox",
+            ]
+            feedback = (
+                f"The latest round produced no source file changes after "
+                f"{rounds_without_completion} consecutive rounds without task completion. "
+                "This likely indicates an infrastructure issue (authentication, permissions, "
+                "or sandbox configuration). Human intervention is required."
+            )
+
+        return ProgressReviewResult(
+            recommendation="STOP",
+            confidence=0.9,
+            alignment_score=0.0,
+            trajectory="diverging",
+            analysis=ProgressAnalysis(blocking_issues=blocking_issues),
+            feedback_for_agent=feedback,
+            summary=(
+                f"{summary_detail} After {rounds_without_completion} rounds without task completion, "
+                "human intervention is required."
+            ),
+            used_llm=False,
+        )
+
     # Quick heuristic check first
     heuristic_score, aligned, unaligned = heuristic_alignment_check(
         acceptance_criteria, recent_commits, files_changed
@@ -416,7 +627,9 @@ def review_progress(
                 scope_drift_identified=unaligned[:3],
             ),
             feedback_for_agent="Work appears aligned. Continue toward task completion.",
-            summary=f"Heuristic: {len(aligned)}/{len(recent_commits)} commits aligned with criteria",
+            summary=(
+                f"Heuristic: {len(aligned)}/{len(recent_commits)} commits aligned with criteria"
+            ),
             used_llm=False,
         )
 
@@ -470,20 +683,23 @@ def main() -> int:
     parser.add_argument(
         "--acceptance-criteria",
         nargs="+",
+        action="append",
         default=[],
-        help="List of acceptance criteria",
+        help="List of acceptance criteria (can be provided multiple times)",
     )
     parser.add_argument(
         "--recent-commits",
         nargs="+",
+        action="append",
         default=[],
-        help="List of recent commit messages",
+        help="List of recent commit messages (can be provided multiple times)",
     )
     parser.add_argument(
         "--files-changed",
         nargs="+",
+        action="append",
         default=[],
-        help="List of files changed",
+        help="List of files changed (can be provided multiple times)",
     )
     parser.add_argument(
         "--rounds-without-completion",
@@ -509,17 +725,22 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    acceptance_criteria = [item for group in args.acceptance_criteria for item in group]
+    recent_commits = [item for group in args.recent_commits for item in group]
+    files_changed = [item for group in args.files_changed for item in group]
+
     result = review_progress(
-        acceptance_criteria=args.acceptance_criteria,
-        recent_commits=args.recent_commits,
-        files_changed=args.files_changed,
+        acceptance_criteria=acceptance_criteria,
+        recent_commits=recent_commits,
+        files_changed=files_changed,
         rounds_without_completion=args.rounds_without_completion,
         use_llm=not args.no_llm,
         model=args.model,
     )
 
     if args.json:
-        print(json.dumps(result.model_dump(), indent=2))
+        payload = build_review_payload(result)
+        print(json.dumps(payload, indent=2))
     else:
         print(f"Recommendation: {result.recommendation}")
         print(f"Confidence: {result.confidence:.1%}")
@@ -528,6 +749,8 @@ def main() -> int:
         print(f"Summary: {result.summary}")
         if result.feedback_for_agent:
             print(f"\nFeedback for Agent:\n{result.feedback_for_agent}")
+        if result.langsmith_trace_url:
+            print(f"\n🔍 LangSmith Trace: {result.langsmith_trace_url}")
 
     # Exit code based on recommendation
     if result.recommendation == "STOP":

@@ -36,4 +36,18 @@ def test_keepalive_loop_bypasses_rate_limit_cancellation() -> None:
     # New behavior: Rate limit detected early, defer immediately
     # Old behavior was: Check gate, detect rate limit cancellation, bypass and run
     assert result["action"] == "defer"
-    assert result["reason"] in ["rate-limit-exhausted", "gate-cancelled-rate-limit"]
+    assert result["reason"] == "rate-limit-exhausted"
+
+
+def test_keepalive_loop_defers_on_gate_rate_limit_signal() -> None:
+    """Gate cancellation with rate limit signals bypasses when tokens remain."""
+    result = _run_scenario("cancelled_rate_limit_secondary")
+    assert result["action"] == "run"
+    assert result["reason"] == "bypass-rate-limit-gate"
+
+
+def test_keepalive_loop_defers_on_success_when_rate_limit_exhausted() -> None:
+    """Successful gate still defers when primary token capacity is exhausted."""
+    result = _run_scenario("success_rate_limit_exhausted")
+    assert result["action"] == "defer"
+    assert result["reason"] == "rate-limit-exhausted"

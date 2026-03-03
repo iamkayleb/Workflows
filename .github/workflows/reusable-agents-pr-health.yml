@@ -1,0 +1,1079 @@
+# ---------------------------------------------------------------------------
+# Reusable Agents PR Health
+# ---------------------------------------------------------------------------
+# Periodic scanner for open PRs that detects merge conflicts and failing
+# checks, then routes remediation to the coding agent that most recently
+# worked on each PR.
+#
+# Designed to close the gap where:
+#   - Branch sync only auto-resolves lock-file conflicts
+#   - Autofix loop requires Gate to have run (impossible on conflicting PRs)
+#   - No existing workflow periodically scans for stale/stuck PRs
+#
+# Integrates with:
+#   - agents-keepalive-branch-sync.yml  (simple merges / lock files)
+#   - reusable-codex-run.yml            (Codex agent for complex conflicts)
+#   - reusable-claude-run.yml           (Claude agent for complex conflicts)
+#   - agents-autofix-loop.yml           (failing check re-dispatch)
+#   - .github/agents/registry.yml       (agent routing)
+#
+# Consumer repos call this via a thin wrapper: agents-pr-health.yml
+#
+# Required secrets:
+#   - WORKFLOWS_APP_ID / WORKFLOWS_APP_PRIVATE_KEY (preferred)
+#   - ACTIONS_BOT_PAT or SERVICE_BOT_PAT (fallback)
+#   - CODEX_AUTH_JSON (for Codex agent dispatch)
+#   - CLAUDE_CODE_OAUTH_TOKEN or CLAUDE_AUTH_JSON (for Claude agent dispatch)
+# ---------------------------------------------------------------------------
+
+name: Reusable Agents PR Health
+
+on:
+  workflow_call:
+    inputs:
+      dry_run:
+        description: 'Preview mode — report but do not push or dispatch (true/false)'
+        type: string
+        default: 'false'
+      max_prs:
+        description: 'Maximum PRs to process per run'
+        type: string
+        default: '10'
+      max_agent_dispatches:
+        description: 'Maximum agent dispatches per run (cost guard)'
+        type: string
+        default: '3'
+      skip_conflict_resolution:
+        description: 'Skip conflict resolution (scan + report only) (true/false)'
+        type: string
+        default: 'false'
+      skip_check_fix:
+        description: 'Skip failing check re-dispatch (true/false)'
+        type: string
+        default: 'false'
+      skip_stall_nudge:
+        description: 'Skip stalled PR nudge (label rotation) (true/false)'
+        type: string
+        default: 'false'
+      cron_interval_hours:
+        description: >-
+          Run interval in hours for scheduled triggers (0 = disabled).
+          Set via repo variable PR_HEALTH_INTERVAL_HOURS to control
+          frequency without a code change.
+        type: string
+        default: '1'
+      is_scheduled_trigger:
+        description: >-
+          Whether this run was triggered by a cron schedule.
+          Callers should pass: github.event_name == 'schedule'.
+          Required because github.event_name inside a reusable
+          workflow is always 'workflow_call', not the caller's event.
+        type: string
+        default: 'false'
+    secrets:
+      service_bot_pat:
+        required: false
+      ACTIONS_BOT_PAT:
+        required: false
+      WORKFLOWS_APP_ID:
+        required: false
+      WORKFLOWS_APP_PRIVATE_KEY:
+        required: false
+      CODEX_AUTH_JSON:
+        required: false
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: false
+      CLAUDE_AUTH_JSON:
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  # -----------------------------------------------------------------------
+  # 0. Schedule gate — skip if this hour is not aligned to the interval
+  # -----------------------------------------------------------------------
+  gate:
+    name: Schedule gate
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+      - name: Evaluate schedule interval
+        id: check
+        env:
+          INTERVAL: ${{ inputs.cron_interval_hours }}
+          IS_SCHEDULED: ${{ inputs.is_scheduled_trigger }}
+        run: |
+          set -euo pipefail
+          interval="${INTERVAL:-1}"
+
+          # Validate interval — must be a non-negative integer.
+          # Repo variables are free-text; guard against '6h', '6.0', etc.
+          if ! [[ "$interval" =~ ^[0-9]+$ ]]; then
+            echo "::warning::Invalid cron_interval_hours='$interval' — defaulting to 1"
+            interval=1
+          fi
+
+          # Non-scheduled triggers (manual dispatch) always proceed.
+          # Note: github.event_name inside a reusable workflow is always
+          # 'workflow_call', so callers pass is_scheduled_trigger instead.
+          if [ "$IS_SCHEDULED" != "true" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Manual trigger — always proceeding"
+            exit 0
+          fi
+
+          # Interval 0 = disabled
+          if [ "$interval" = "0" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "PR Health disabled (cron_interval_hours=0)"
+            exit 0
+          fi
+
+          # Interval 1 = every hour (always aligned with hourly cron)
+          if [ "$interval" = "1" ]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Running every hour (interval=1)"
+            exit 0
+          fi
+
+          # Check UTC hour alignment
+          current_hour=$(date -u +%-H)
+          remainder=$((current_hour % interval))
+          if [ "$remainder" -ne 0 ]; then
+            # Find the actual next aligned hour on a 24h clock.
+            # Avoids the simple (n/i+1)*i%24 formula which is wrong
+            # for intervals that don't evenly divide 24.
+            next_hour="$current_hour"
+            while :; do
+              next_hour=$(( (next_hour + 1) % 24 ))
+              if [ $((next_hour % interval)) -eq 0 ]; then
+                break
+              fi
+            done
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping — UTC hour $current_hour not aligned to ${interval}h interval (next at hour $next_hour)"
+          else
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Running — UTC hour $current_hour aligned to ${interval}h interval"
+          fi
+
+  # -----------------------------------------------------------------------
+  # 1. Scan all open PRs and categorise
+  # -----------------------------------------------------------------------
+  scan:
+    name: Scan open PRs
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      conflict_prs: ${{ steps.categorise.outputs.conflict_prs }}
+      failing_prs: ${{ steps.categorise.outputs.failing_prs }}
+      stalled_prs: ${{ steps.categorise.outputs.stalled_prs }}
+      stalled_scan_count: ${{ steps.categorise.outputs.stalled_scan_count }}
+      healthy_count: ${{ steps.categorise.outputs.healthy_count }}
+      total_open: ${{ steps.categorise.outputs.total_open }}
+      has_work: ${{ steps.categorise.outputs.has_work }}
+    steps:
+      - name: Mint GitHub App token (preferred)
+        id: app_token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+
+      - name: Select authentication token
+        id: auth
+        env:
+          APP_TOKEN: ${{ steps.app_token.outputs.token }}
+          ACTIONS_BOT_PAT: ${{ secrets.ACTIONS_BOT_PAT }}
+          SERVICE_BOT_PAT: ${{ secrets.service_bot_pat }}
+          GITHUB_TOKEN_FALLBACK: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APP_TOKEN:-}" ]; then
+            echo "token=$APP_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "source=app-token" >> "$GITHUB_OUTPUT"
+          elif [ -n "${ACTIONS_BOT_PAT:-}" ]; then
+            echo "token=$ACTIONS_BOT_PAT" >> "$GITHUB_OUTPUT"
+            echo "source=actions-bot-pat" >> "$GITHUB_OUTPUT"
+          elif [ -n "${SERVICE_BOT_PAT:-}" ]; then
+            echo "token=$SERVICE_BOT_PAT" >> "$GITHUB_OUTPUT"
+            echo "source=service-bot-pat" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=$GITHUB_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
+            echo "source=github-token" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout Workflows helpers
+        uses: actions/checkout@v6
+        with:
+          repository: stranske/Workflows
+          sparse-checkout: |
+            .github/actions/setup-api-client
+            .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
+          sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+      - name: Categorise PRs
+        id: categorise
+        uses: actions/github-script@v8
+        env:
+          MAX_PRS: ${{ inputs.max_prs }}
+          MAX_DISPATCHES: ${{ inputs.max_agent_dispatches }}
+        with:
+          github-token: ${{ steps.auth.outputs.token }}
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry, paginateWithRetry } = await createTokenAwareRetry({
+              github, core, task: 'pr-health-scan',
+            });
+
+            const maxPrs = parseInt(process.env.MAX_PRS || '10', 10);
+            const maxDispatches = parseInt(process.env.MAX_DISPATCHES || '3', 10);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Paginate open PRs (handles repos with >100 open PRs)
+            // Note: bound paginateWithRetry takes (method, params) — do NOT
+            // pass github as the first arg (that's the module-level signature).
+            const prs = await paginateWithRetry(
+              github.rest.pulls.list,
+              { owner, repo, state: 'open', per_page: 100 }
+            );
+
+            core.info(`Found ${prs.length} open PRs`);
+
+            const conflictPrs = [];
+            const failingPrs = [];
+            let healthyCount = 0;
+
+            for (const pr of prs) {
+              if (pr.draft) continue;
+
+              // Skip PRs with deleted head (e.g. deleted fork)
+              if (!pr.head || !pr.head.ref) {
+                core.warning(`PR #${pr.number} has no head ref (deleted fork?) — skipping`);
+                continue;
+              }
+
+              // Determine agent from branch prefix
+              const headRef = pr.head.ref;
+              let agentType = 'codex'; // default
+              if (headRef.startsWith('claude/')) {
+                agentType = 'claude';
+              } else if (headRef.startsWith('codex/')) {
+                agentType = 'codex';
+              }
+
+              // Check mergeable state (may need a moment to compute)
+              let mergeableState = pr.mergeable_state;
+              let mergeable = pr.mergeable;
+
+              // If unknown, fetch individually to trigger computation
+              if (mergeable === null || mergeableState === 'unknown') {
+                await new Promise(r => setTimeout(r, 1000));
+                const { data: fresh } = await withRetry((client) =>
+                  client.rest.pulls.get({
+                    owner, repo, pull_number: pr.number,
+                  })
+                );
+                mergeableState = fresh.mergeable_state;
+                mergeable = fresh.mergeable;
+              }
+
+              const prInfo = {
+                number: pr.number,
+                head_ref: headRef,
+                base_ref: pr.base.ref,
+                head_sha: pr.head.sha,
+                agent_type: agentType,
+                title: pr.title,
+              };
+
+              // Categorise: conflicting
+              if (mergeable === false || mergeableState === 'dirty') {
+                conflictPrs.push(prInfo);
+                continue;
+              }
+
+              // Categorise: failing checks
+              if (mergeableState === 'unstable' || mergeableState === 'blocked') {
+                // Check combined status
+                try {
+                  const { data: status } = await withRetry((client) =>
+                    client.rest.repos.getCombinedStatusForRef({
+                      owner, repo, ref: pr.head.sha,
+                    })
+                  );
+                  if (status.state === 'failure') {
+                    failingPrs.push(prInfo);
+                    continue;
+                  }
+                  // Also check check runs
+                  const { data: checks } = await withRetry((client) =>
+                    client.rest.checks.listForRef({
+                      owner, repo, ref: pr.head.sha, per_page: 100,
+                    })
+                  );
+                  const hasFailure = checks.check_runs.some(
+                    cr => cr.conclusion === 'failure' && cr.name !== 'automerge'
+                  );
+                  if (hasFailure) {
+                    failingPrs.push(prInfo);
+                    continue;
+                  }
+                } catch (e) {
+                  core.warning(`Could not check status for PR #${pr.number}: ${e.message}`);
+                }
+              }
+
+              healthyCount++;
+            }
+
+            // Limit output — respect both max_prs (scan cap) and
+            // max_agent_dispatches (cost guard for agent invocations).
+            // Conflicts that need agents count toward the dispatch cap;
+            // simple auto-merges are free so we keep all of those in the
+            // list and let the matrix step handle them.
+            const limitedConflicts = conflictPrs.slice(0, Math.min(maxPrs, maxDispatches));
+            const limitedFailing = failingPrs.slice(0, Math.min(maxPrs, maxDispatches));
+
+            // ----- Second pass: detect stalled PRs with incomplete tasks -----
+            function extractStatusSummary(body) {
+              if (!body) return '';
+              const startMarker = '<!-- auto-status-summary:start -->';
+              const endMarker = '<!-- auto-status-summary:end -->';
+              const start = body.indexOf(startMarker);
+              const end = body.indexOf(endMarker);
+              if (start === -1 || end === -1 || end <= start) return '';
+              return body.slice(start + startMarker.length, end);
+            }
+
+            // Heading patterns that indicate an acceptance criteria section.
+            // Cascade is disabled inside these sections — each criterion must
+            // be independently verified.
+            const ACCEPTANCE_HEADING_RE = [
+              /acceptance\s*criteria/i,
+              /definition\s*of\s*done/i,
+              /done\s*criteria/i,
+            ];
+
+            /**
+             * Count checkboxes with parent→child cascade, matching the
+             * semantics of keepalive_loop.js:cascadeParentCheckboxes +
+             * countCheckboxes.  When a parent checkbox is checked, all
+             * indented children are treated as effectively checked — except
+             * inside acceptance-criteria sections.
+             */
+            function countCheckboxes(markdown) {
+              const result = { total: 0, checked: 0, unchecked: 0 };
+              if (!markdown) return result;
+
+              const lines = markdown.split('\n');
+              const cbLineRe = /^(\s*)([-*+]|\d+[.)])\s*\[([ xX])\]/;
+              let parentIndent = null;
+              let inCodeBlock = false;
+              let inAcceptanceSection = false;
+
+              for (const line of lines) {
+                // Toggle code fences
+                if (/^\s*(`{3,}|~{3,})/.test(line)) {
+                  inCodeBlock = !inCodeBlock;
+                  parentIndent = null;
+                  continue;
+                }
+                if (inCodeBlock) continue;
+
+                // Detect section headings
+                if (/^#{1,6}\s/.test(line)) {
+                  parentIndent = null;
+                  const stripped = line.replace(/^#{1,6}\s+/, '').replace(/\*\*/g, '').trim();
+                  inAcceptanceSection = ACCEPTANCE_HEADING_RE.some(p => p.test(stripped));
+                  continue;
+                }
+
+                const cbMatch = line.match(cbLineRe);
+                if (!cbMatch) {
+                  if (/^\s*$/.test(line)) parentIndent = null;
+                  continue;
+                }
+
+                const indent = cbMatch[1].length;
+                const directChecked = cbMatch[3].toLowerCase() === 'x';
+
+                // Inside acceptance criteria — no cascade
+                if (inAcceptanceSection) {
+                  result.total += 1;
+                  if (directChecked) { result.checked += 1; } else { result.unchecked += 1; }
+                  continue;
+                }
+
+                // Cascade: child of a checked parent → effectively checked
+                if (parentIndent !== null && indent > parentIndent) {
+                  result.total += 1;
+                  result.checked += 1; // cascaded
+                  continue;
+                }
+
+                // Same or lesser indent — may be a new parent
+                parentIndent = null;
+                if (directChecked) parentIndent = indent;
+                result.total += 1;
+                if (directChecked) { result.checked += 1; } else { result.unchecked += 1; }
+              }
+              return result;
+            }
+
+            const BLOCKING_LABELS = ['agent:needs-attention', 'agent:rate-limited'];
+            const PAUSE_LABELS = ['agents:pause', 'agents:paused'];
+            const stalledPrs = [];
+
+            for (const pr of prs) {
+              if (pr.draft) continue;
+              if (!pr.head || !pr.head.ref) continue;  // deleted fork
+
+              const labels = (pr.labels || []).map(l => l.name);
+              // Skip paused PRs — user intentionally paused
+              if (labels.some(l => PAUSE_LABELS.includes(l))) continue;
+              // Only consider PRs that carry a blocking label
+              const blockingHits = labels.filter(l => BLOCKING_LABELS.includes(l));
+              if (blockingHits.length === 0) continue;
+
+              const statusBlock = extractStatusSummary(pr.body);
+              const boxes = countCheckboxes(statusBlock);
+
+              // Stalled = has incomplete checkboxes AND a blocking label
+              if (boxes.unchecked > 0) {
+                const headRef = pr.head.ref;
+                let agentType = 'codex';
+                if (headRef.startsWith('claude/')) agentType = 'claude';
+                else if (headRef.startsWith('codex/')) agentType = 'codex';
+
+                stalledPrs.push({
+                  number: pr.number,
+                  head_ref: headRef,
+                  base_ref: pr.base.ref,
+                  head_sha: pr.head.sha,
+                  agent_type: agentType,
+                  title: pr.title,
+                  blocking_labels: blockingHits,
+                  unchecked: boxes.unchecked,
+                  total: boxes.total,
+                  checked: boxes.checked,
+                });
+              }
+            }
+
+            const limitedStalled = stalledPrs.slice(0, Math.min(maxPrs, maxDispatches));
+            const hasWork = limitedConflicts.length > 0 || limitedFailing.length > 0 || limitedStalled.length > 0;
+
+            core.setOutput('conflict_prs', JSON.stringify(limitedConflicts));
+            core.setOutput('failing_prs', JSON.stringify(limitedFailing));
+            core.setOutput('stalled_prs', JSON.stringify(limitedStalled));
+            core.setOutput('stalled_scan_count', String(stalledPrs.length));
+            core.setOutput('healthy_count', String(healthyCount));
+            core.setOutput('total_open', String(prs.length));
+            core.setOutput('has_work', String(hasWork));
+
+            core.info(`Conflicts: ${limitedConflicts.length}, Failing: ${limitedFailing.length}, Stalled: ${limitedStalled.length}, Healthy: ${healthyCount}`);
+
+            // Step summary
+            let summary = `## PR Health Scan\n\n`;
+            summary += `| Metric | Count |\n|--------|-------|\n`;
+            summary += `| Total open | ${prs.length} |\n`;
+            summary += `| Conflicting | ${conflictPrs.length} |\n`;
+            summary += `| Failing checks | ${failingPrs.length} |\n`;
+            summary += `| Stalled (incomplete + blocked) | ${stalledPrs.length} |\n`;
+            summary += `| Healthy | ${healthyCount} |\n\n`;
+
+            if (limitedConflicts.length > 0) {
+              summary += `### Conflicting PRs\n`;
+              for (const pr of limitedConflicts) {
+                summary += `- #${pr.number} (\`${pr.head_ref}\`) → agent: **${pr.agent_type}**\n`;
+              }
+              summary += '\n';
+            }
+            if (limitedFailing.length > 0) {
+              summary += `### PRs with Failing Checks\n`;
+              for (const pr of limitedFailing) {
+                summary += `- #${pr.number} (\`${pr.head_ref}\`) → agent: **${pr.agent_type}**\n`;
+              }
+              summary += '\n';
+            }
+            if (limitedStalled.length > 0) {
+              summary += `### Stalled PRs (incomplete tasks + blocking labels)\n`;
+              for (const pr of limitedStalled) {
+                summary += `- #${pr.number} (\`${pr.head_ref}\`) — ${pr.checked}/${pr.total} tasks ✓ — labels: ${pr.blocking_labels.join(', ')}\n`;
+              }
+            }
+            core.summary.addRaw(summary);
+            await core.summary.write();
+
+  # -----------------------------------------------------------------------
+  # 2. Resolve merge conflicts
+  # -----------------------------------------------------------------------
+  resolve-conflicts:
+    name: 'Resolve #${{ matrix.pr.number }}'
+    needs: scan
+    if: >-
+      needs.scan.outputs.has_work == 'true'
+      && fromJSON(needs.scan.outputs.conflict_prs)[0] != null
+      && inputs.skip_conflict_resolution != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        pr: ${{ fromJSON(needs.scan.outputs.conflict_prs) }}
+    steps:
+      - name: Mint GitHub App token (preferred)
+        id: app_token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+
+      - name: Select authentication token
+        id: auth
+        env:
+          APP_TOKEN: ${{ steps.app_token.outputs.token }}
+          ACTIONS_BOT_PAT: ${{ secrets.ACTIONS_BOT_PAT }}
+          SERVICE_BOT_PAT: ${{ secrets.service_bot_pat }}
+          GITHUB_TOKEN_FALLBACK: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APP_TOKEN:-}" ]; then
+            echo "token=$APP_TOKEN" >> "$GITHUB_OUTPUT"
+            echo "source=app-token" >> "$GITHUB_OUTPUT"
+          elif [ -n "${ACTIONS_BOT_PAT:-}" ]; then
+            echo "token=$ACTIONS_BOT_PAT" >> "$GITHUB_OUTPUT"
+            echo "source=actions-bot-pat" >> "$GITHUB_OUTPUT"
+          elif [ -n "${SERVICE_BOT_PAT:-}" ]; then
+            echo "token=$SERVICE_BOT_PAT" >> "$GITHUB_OUTPUT"
+            echo "source=service-bot-pat" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=$GITHUB_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
+            echo "source=github-token" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.pr.head_ref }}
+          fetch-depth: 0
+          token: ${{ steps.auth.outputs.token }}
+
+      - name: Checkout Workflows helpers
+        uses: actions/checkout@v6
+        with:
+          repository: stranske/Workflows
+          sparse-checkout: |
+            .github/actions/setup-api-client
+            .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
+          sparse-checkout-cone-mode: false
+          path: .workflows-lib
+
+      - name: Setup API client
+        uses: ./.workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name "stranske automation"
+          git config user.email "stranske-automation-bot@users.noreply.github.com"
+
+      - name: Attempt auto-merge
+        id: merge
+        env:
+          BASE_REF: ${{ matrix.pr.base_ref }}
+          HEAD_REF: ${{ matrix.pr.head_ref }}
+          PR_NUMBER: ${{ matrix.pr.number }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          result="unknown"
+          reason=""
+
+          git fetch origin "$BASE_REF"
+
+          # Check if merge is actually needed
+          base_sha=$(git rev-parse origin/"$BASE_REF")
+          merge_base=$(git merge-base HEAD origin/"$BASE_REF" 2>/dev/null || echo "")
+          if [ "$merge_base" = "$base_sha" ]; then
+            echo "PR #$PR_NUMBER is already up to date"
+            result="success"
+            reason="already-up-to-date"
+            echo "result=$result" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+            echo "needs_agent=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Attempt merge
+          if git merge origin/"$BASE_REF" --no-edit 2>/dev/null; then
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "DRY RUN: Would push clean merge for PR #$PR_NUMBER"
+              git reset --hard HEAD~1
+              result="dry-run"
+              reason="clean-merge-available"
+            else
+              git push origin HEAD:refs/heads/"$HEAD_REF"
+              result="success"
+              reason="clean-merge"
+            fi
+            echo "result=$result" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+            echo "needs_agent=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Merge failed — check if all conflicts are in lock files
+          conflict_files=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "")
+          if [ -z "$conflict_files" ]; then
+            git merge --abort || true
+            result="failure"
+            reason="merge-conflict-unknown"
+            echo "result=$result" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+            echo "needs_agent=true" >> "$GITHUB_OUTPUT"
+            echo "conflict_files=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "Conflicting files:"
+          echo "$conflict_files"
+
+          lockfile_pattern='(\.lock$|lock\.json$|package-lock\.json$|yarn\.lock$|poetry\.lock$|'
+          lockfile_pattern+='Gemfile\.lock$|requirements.*\.lock$)'
+          non_lock_conflicts=$(echo "$conflict_files" | grep -vE "$lockfile_pattern" || true)
+
+          if [ -z "$non_lock_conflicts" ]; then
+            echo "All conflicts in lock files — auto-resolving..."
+            for file in $conflict_files; do
+              git checkout --theirs "$file" 2>/dev/null || true
+              git add "$file" 2>/dev/null || true
+            done
+            if git commit --no-edit 2>/dev/null; then
+              if [ "$DRY_RUN" = "true" ]; then
+                echo "DRY RUN: Would push lock-file resolution for PR #$PR_NUMBER"
+                result="dry-run"
+                reason="lock-file-auto-resolved"
+              else
+                git push origin HEAD:refs/heads/"$HEAD_REF"
+                result="success"
+                reason="lock-file-auto-resolved"
+              fi
+            else
+              result="failure"
+              reason="lock-file-commit-failed"
+            fi
+            git merge --abort 2>/dev/null || true
+            echo "result=$result" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+            echo "needs_agent=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Non-trivial conflicts — need agent intervention
+          git merge --abort || true
+          result="needs-agent"
+          reason="non-trivial-conflicts"
+          echo "result=$result" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "needs_agent=true" >> "$GITHUB_OUTPUT"
+          # Encode conflict files for the agent prompt
+          encoded_files=$(echo "$conflict_files" | tr '\n' ',' | sed 's/,$//')
+          echo "conflict_files=$encoded_files" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch agent for complex conflicts
+        if: >-
+          steps.merge.outputs.needs_agent == 'true'
+          && inputs.dry_run != 'true'
+        env:
+          GH_TOKEN: ${{ steps.auth.outputs.token }}
+          PR_NUMBER: ${{ matrix.pr.number }}
+          HEAD_REF: ${{ matrix.pr.head_ref }}
+          BASE_REF: ${{ matrix.pr.base_ref }}
+          AGENT_TYPE: ${{ matrix.pr.agent_type }}
+          CONFLICT_FILES: ${{ steps.merge.outputs.conflict_files }}
+        run: |
+          set -euo pipefail
+
+          echo "Dispatching agent to resolve conflicts on PR #$PR_NUMBER..."
+          echo "Agent type (from branch prefix): $AGENT_TYPE"
+          echo "Conflicting files: $CONFLICT_FILES"
+
+          # Dispatch via keepalive loop — it handles routing to the
+          # correct agent runner (codex vs claude) based on the PR's
+          # branch prefix and labels via agent_registry.js.
+          gh workflow run agents-keepalive-loop.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            -f pr_number="$PR_NUMBER" \
+            -f force_retry=true
+
+          echo "Dispatched keepalive loop for PR #$PR_NUMBER"
+
+      - name: Dispatch conflict event (fallback)
+        if: >-
+          steps.merge.outputs.needs_agent == 'true'
+          && inputs.dry_run != 'true'
+        continue-on-error: true
+        uses: actions/github-script@v8
+        env:
+          PR_NUM: ${{ matrix.pr.number }}
+          HEAD_REF_VAL: ${{ matrix.pr.head_ref }}
+          BASE_REF_VAL: ${{ matrix.pr.base_ref }}
+          HEAD_SHA_VAL: ${{ matrix.pr.head_sha }}
+          AGENT_TYPE_VAL: ${{ matrix.pr.agent_type }}
+          CONFLICT_FILES_VAL: ${{ steps.merge.outputs.conflict_files }}
+        with:
+          github-token: ${{ steps.auth.outputs.token }}
+          script: |
+            const fs = require('fs');
+            const retryPath = './.workflows-lib/.github/scripts/github-api-with-retry.js';
+            const { createTokenAwareRetry } = fs.existsSync(retryPath)
+              ? require(retryPath)
+              : require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github, core, task: 'pr-health-dispatch',
+            });
+            // Backup trigger via repository_dispatch — avoids expression
+            // interpolation inside JS strings (injection risk).
+            await withRetry((client) =>
+              client.rest.repos.createDispatchEvent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                event_type: 'pr_health_conflict',
+                client_payload: {
+                  pr_number: parseInt(process.env.PR_NUM, 10),
+                  head_ref: process.env.HEAD_REF_VAL,
+                  base_ref: process.env.BASE_REF_VAL,
+                  head_sha: process.env.HEAD_SHA_VAL,
+                  agent_type: process.env.AGENT_TYPE_VAL,
+                  conflict_files: process.env.CONFLICT_FILES_VAL,
+                },
+              })
+            );
+
+      - name: Generate step summary
+        if: always()
+        env:
+          PR_NUMBER: ${{ matrix.pr.number }}
+          RESULT: ${{ steps.merge.outputs.result }}
+          REASON: ${{ steps.merge.outputs.reason }}
+          NEEDS_AGENT: ${{ steps.merge.outputs.needs_agent }}
+          AGENT_TYPE: ${{ matrix.pr.agent_type }}
+        run: |
+          {
+            echo "### PR #$PR_NUMBER"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Result | **$RESULT** |"
+            echo "| Reason | \`$REASON\` |"
+            echo "| Agent dispatched | $NEEDS_AGENT (type: $AGENT_TYPE) |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # -----------------------------------------------------------------------
+  # 3. Re-dispatch autofix for failing checks
+  # -----------------------------------------------------------------------
+  fix-checks:
+    name: 'Autofix #${{ matrix.pr.number }}'
+    needs: scan
+    if: >-
+      needs.scan.outputs.has_work == 'true'
+      && fromJSON(needs.scan.outputs.failing_prs)[0] != null
+      && inputs.skip_check_fix != 'true'
+      && inputs.dry_run != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        pr: ${{ fromJSON(needs.scan.outputs.failing_prs) }}
+    steps:
+      - name: Mint GitHub App token (preferred)
+        id: app_token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+
+      - name: Select authentication token
+        id: auth
+        env:
+          APP_TOKEN: ${{ steps.app_token.outputs.token }}
+          ACTIONS_BOT_PAT: ${{ secrets.ACTIONS_BOT_PAT }}
+          SERVICE_BOT_PAT: ${{ secrets.service_bot_pat }}
+          GITHUB_TOKEN_FALLBACK: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APP_TOKEN:-}" ]; then
+            echo "token=$APP_TOKEN" >> "$GITHUB_OUTPUT"
+          elif [ -n "${ACTIONS_BOT_PAT:-}" ]; then
+            echo "token=$ACTIONS_BOT_PAT" >> "$GITHUB_OUTPUT"
+          elif [ -n "${SERVICE_BOT_PAT:-}" ]; then
+            echo "token=$SERVICE_BOT_PAT" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=$GITHUB_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch keepalive loop for failing checks
+        env:
+          GH_TOKEN: ${{ steps.auth.outputs.token }}
+          PR_NUMBER: ${{ matrix.pr.number }}
+          AGENT_TYPE: ${{ matrix.pr.agent_type }}
+        run: |
+          set -euo pipefail
+
+          echo "Dispatching keepalive for PR #$PR_NUMBER (agent: $AGENT_TYPE)..."
+
+          # Use keepalive loop which handles agent routing and can
+          # trigger autofix internally.  We do NOT dispatch
+          # agents-autofix-loop.yml directly because it requires
+          # gate_run_id (a required input we cannot supply here).
+          gh workflow run agents-keepalive-loop.yml \
+            --repo "$GITHUB_REPOSITORY" \
+            -f pr_number="$PR_NUMBER" \
+            -f force_retry=true
+
+          echo "Dispatched keepalive loop for PR #$PR_NUMBER"
+
+      - name: Generate step summary
+        if: always()
+        env:
+          PR_NUMBER: ${{ matrix.pr.number }}
+          AGENT_TYPE: ${{ matrix.pr.agent_type }}
+        run: |
+          {
+            echo "### PR #$PR_NUMBER — Autofix Dispatched"
+            echo "Agent: **$AGENT_TYPE**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # -----------------------------------------------------------------------
+  # 4. Nudge stalled PRs (add agent:retry, remove blocking labels)
+  # -----------------------------------------------------------------------
+  nudge-stalled:
+    name: 'Nudge #${{ matrix.pr.number }}'
+    needs: scan
+    if: >-
+      fromJSON(needs.scan.outputs.stalled_prs)[0] != null
+      && inputs.skip_stall_nudge != 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        pr: ${{ fromJSON(needs.scan.outputs.stalled_prs) }}
+    steps:
+      - name: Mint GitHub App token (preferred)
+        id: app_token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+
+      - name: Select authentication token
+        id: auth
+        env:
+          APP_TOKEN: ${{ steps.app_token.outputs.token }}
+          ACTIONS_BOT_PAT: ${{ secrets.ACTIONS_BOT_PAT }}
+          SERVICE_BOT_PAT: ${{ secrets.service_bot_pat }}
+          GITHUB_TOKEN_FALLBACK: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APP_TOKEN:-}" ]; then
+            echo "token=$APP_TOKEN" >> "$GITHUB_OUTPUT"
+          elif [ -n "${ACTIONS_BOT_PAT:-}" ]; then
+            echo "token=$ACTIONS_BOT_PAT" >> "$GITHUB_OUTPUT"
+          elif [ -n "${SERVICE_BOT_PAT:-}" ]; then
+            echo "token=$SERVICE_BOT_PAT" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=$GITHUB_TOKEN_FALLBACK" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout Workflows helpers
+        uses: actions/checkout@v6
+        with:
+          repository: stranske/Workflows
+          sparse-checkout: |
+            .github/actions/setup-api-client
+            .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
+          sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+      - name: Nudge stalled PR
+        id: nudge
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ matrix.pr.number }}
+          BLOCKING_LABELS: ${{ join(matrix.pr.blocking_labels, ',') }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          github-token: ${{ steps.auth.outputs.token }}
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github, core, task: 'pr-health-nudge',
+              capabilities: ['issues:write'],
+            });
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const blockingLabels = (process.env.BLOCKING_LABELS || '').split(',').filter(Boolean);
+            const dryRun = process.env.DRY_RUN === 'true';
+            const PAUSE_LABELS = ['agents:pause', 'agents:paused'];
+
+            core.info(`Nudging PR #${prNumber} — blocking labels: ${blockingLabels.join(', ')}`);
+
+            // Re-fetch current labels to guard against race conditions
+            // (PR may have been paused between scan and this job).
+            const { data: currentLabels } = await withRetry((client) =>
+              client.rest.issues.listLabelsOnIssue({
+                owner, repo, issue_number: prNumber, per_page: 100,
+              })
+            );
+            const currentNames = currentLabels.map(l => l.name);
+            if (currentNames.some(l => PAUSE_LABELS.includes(l))) {
+              core.info(`PR #${prNumber} is now paused — skipping nudge`);
+              core.setOutput('result', 'skipped-paused');
+              return;
+            }
+
+            if (dryRun) {
+              core.info('DRY RUN: Would add agent:retry and remove blocking labels');
+              core.setOutput('result', 'dry-run');
+              return;
+            }
+
+            // Ensure agent:retry triggers a fresh labeled event.
+            // If the label is already present, addLabels is a no-op and
+            // no pull_request:labeled event fires.  Remove first (404-safe),
+            // then re-add so the event always fires.
+            try {
+              await withRetry((client) =>
+                client.rest.issues.removeLabel({
+                  owner, repo, issue_number: prNumber,
+                  name: 'agent:retry',
+                })
+              );
+              core.info('Removed existing agent:retry label');
+            } catch (error) {
+              if (error.status === 404) {
+                core.info('agent:retry not present — will add fresh');
+              } else {
+                throw error;
+              }
+            }
+            await withRetry((client) =>
+              client.rest.issues.addLabels({
+                owner, repo, issue_number: prNumber,
+                labels: ['agent:retry'],
+              })
+            );
+            core.info('Added label: agent:retry');
+
+            // Remove each blocking label (404-safe — label may already be gone)
+            for (const label of blockingLabels) {
+              try {
+                await withRetry((client) =>
+                  client.rest.issues.removeLabel({
+                    owner, repo, issue_number: prNumber,
+                    name: label,
+                  })
+                );
+                core.info(`Removed label: ${label}`);
+              } catch (error) {
+                if (error.status === 404) {
+                  core.info(`Label already absent: ${label}`);
+                } else {
+                  throw error;
+                }
+              }
+            }
+
+            core.setOutput('result', 'nudged');
+
+      - name: Generate step summary
+        if: always()
+        env:
+          PR_NUMBER: ${{ matrix.pr.number }}
+          RESULT: ${{ steps.nudge.outputs.result }}
+          BLOCKING: ${{ join(matrix.pr.blocking_labels, ', ') }}
+          UNCHECKED: ${{ matrix.pr.unchecked }}
+          TOTAL: ${{ matrix.pr.total }}
+        run: |
+          {
+            echo "### PR #$PR_NUMBER — Stall Nudge"
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Result | **${RESULT:-pending}** |"
+            echo "| Incomplete tasks | $UNCHECKED / $TOTAL |"
+            echo "| Blocking labels removed | $BLOCKING |"
+            echo "| Label added | \`agent:retry\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # -----------------------------------------------------------------------
+  # 5. Summary
+  # -----------------------------------------------------------------------
+  summary:
+    name: Health summary
+    needs: [gate, scan, resolve-conflicts, fix-checks, nudge-stalled]
+    if: always() && needs.gate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarise
+        env:
+          TOTAL: ${{ needs.scan.outputs.total_open }}
+          CONFLICTS: ${{ needs.scan.outputs.conflict_prs }}
+          FAILING: ${{ needs.scan.outputs.failing_prs }}
+          STALLED_COUNT: ${{ needs.scan.outputs.stalled_scan_count }}
+          HEALTHY: ${{ needs.scan.outputs.healthy_count }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CONFLICT_RESULT: ${{ needs.resolve-conflicts.result }}
+          CHECK_RESULT: ${{ needs.fix-checks.result }}
+          NUDGE_RESULT: ${{ needs.nudge-stalled.result }}
+        run: |
+          set -euo pipefail
+
+          conflict_count=$(echo "$CONFLICTS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+          failing_count=$(echo "$FAILING" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+          {
+            echo "## PR Health Summary"
+            echo ""
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "> **DRY RUN** — no changes were pushed or dispatched"
+              echo ""
+            fi
+            echo "| Category | Count | Action |"
+            echo "|----------|-------|--------|"
+            echo "| Total open PRs | $TOTAL | — |"
+            echo "| Conflicting | $conflict_count | resolve-conflicts: **${CONFLICT_RESULT:-skipped}** |"
+            echo "| Failing checks | $failing_count | fix-checks: **${CHECK_RESULT:-skipped}** |"
+            echo "| Stalled (nudged) | ${STALLED_COUNT:-0} | nudge-stalled: **${NUDGE_RESULT:-skipped}** |"
+            echo "| Healthy | $HEALTHY | — |"
+          } >> "$GITHUB_STEP_SUMMARY"

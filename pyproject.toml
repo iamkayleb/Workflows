@@ -27,23 +27,24 @@ Repository = "https://github.com/stranske/Workflows"
 Issues = "https://github.com/stranske/Workflows/issues"
 
 [project.optional-dependencies]
+app = []
 dev = [
     "pre-commit==4.5.1",
     "black==26.1.0",
-    "ruff==0.14.14",
-    "isort==7.0.0",
+    "ruff==0.15.4",
+    "isort==8.0.1",
     "docformatter==1.7.7",
     "mypy==1.19.1",
     "flake8==7.3.0",
     "pytest==9.0.2",
     "pytest-cov==7.0.0",
-    "coverage==7.13.1",
+    "coverage==7.13.4",
     "pytest-xdist==3.8.0",
 
     # Required by repo dependency checks / CI fallback checks
     "hypothesis>=6.0.0",
     "pandas",
-    "numpy",
+    "numpy<3.0",
     "pydantic>=2.0.0",
     "requests>=2.31.0",
     "jsonschema>=4.0.0",
@@ -61,7 +62,8 @@ langchain = [
     "langchain-core>=1.2,<1.3",
     "langchain-community>=0.4,<0.5",
     "langchain-openai>=1.1,<1.2",
-    "faiss-cpu>=1.8,<2.0",  # Vector store for dedup workflow
+    "langchain-anthropic>=0.3,<1.4",
+    "faiss-cpu>=1.8,<2.0; python_version < \"3.12\"",  # Vector store for dedup workflow
 ]
 
 [tool.setuptools]
@@ -117,6 +119,15 @@ ignore = [
     "E501",  # Line too long (handled by black)
 ]
 
+[tool.ruff.lint.isort]
+# Treat scripts.* and tools.* as third-party so import ordering matches consumer
+# repos. Consumer repos have src = ["src", "tests"] which excludes scripts/ and
+# tools/ from first-party detection. Without this, our repo treats these as
+# first-party (blank line between pydantic and scripts/tools imports) while
+# consumers treat them as third-party (no blank line), causing I001 failures
+# in synced files.
+known-third-party = ["scripts", "tools"]
+
 [tool.flake8]
 max-line-length = 100
 extend-ignore = ["E501", "W503"]
@@ -141,7 +152,17 @@ disable_error_code = "import-untyped"
 exclude = [
     "^archive/",
     "^\\.extraction/",
+    "^templates/",
 ]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = ["scripts.*", "tools.*"]
+follow_imports = "skip"
+ignore_errors = true
 
 [tool.pytest.ini_options]
 minversion = "7.0"

@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from scripts import (
     auto_type_hygiene,
     fix_cosmetic_aggregate,
@@ -13,6 +12,7 @@ from scripts import (
     mypy_return_autofix,
     update_autofix_expectations,
 )
+
 from tests._autofix_diag import DiagnosticsRecorder
 
 
@@ -220,9 +220,7 @@ def test_fix_numpy_asserts_skips_non_array(
     tests_dir = tmp_repo / "tests"
     tests_dir.mkdir()
     target = tests_dir / "test_numpy_case.py"
-    original = (
-        "def test_numpy_noop():\n" "    values = [1, 2, 3]\n" "    assert values == [1, 2, 3]\n"
-    )
+    original = "def test_numpy_noop():\n    values = [1, 2, 3]\n    assert values == [1, 2, 3]\n"
     target.write_text(original, encoding="utf-8")
 
     monkeypatch.setattr(fix_numpy_asserts, "ROOT", tmp_repo)

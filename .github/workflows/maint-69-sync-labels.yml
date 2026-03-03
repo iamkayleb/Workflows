@@ -32,22 +32,21 @@ jobs:
   sync-labels:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Checkout retry helpers
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
         with:
-          sparse-checkout: |
-            .github/scripts/github-api-with-retry.js
-          sparse-checkout-cone-mode: false
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
 
       - name: Install js-yaml
-        run: npm install -g js-yaml
+        run: npm install --no-save --no-package-lock js-yaml
 
       - name: Parse labels-core.yml
         id: parse
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
+          github-token: ${{ github.token }}
           script: |
             const fs = require('fs');
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
@@ -68,49 +67,31 @@ jobs:
 
       - name: Determine target repos
         id: repos
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const retryHelperPath = './.github/scripts/github-api-with-retry.js';
-            const retryHelpers = fs.existsSync(retryHelperPath)
-              ? require(retryHelperPath)
-              : {
-                  withRetry: (fn) => fn(),
-                  paginateWithRetry: (githubInstance, method, params) =>
-                    githubInstance.paginate(method, params),
-                };
-            const input = '${{ inputs.repos }}' || 'all';
-
-            // List of consumer repos that use the Workflows system
-            const allConsumerRepos = [
-              'stranske/Portable-Alpha-Extension-Model',
-              'stranske/Manager-Database',
-              'stranske/Trend_Model_Project',
-              'stranske/Travel-Plan-Permission',
-              'stranske/Template',
-              'stranske/trip-planner',
-              'stranske/Collab-Admin'
-            ];
-
-            let repos;
-            if (input === 'all') {
-              repos = allConsumerRepos;
-            } else {
-              repos = input.split(',').map(r => r.trim());
-            }
-
-            core.info(`Target repos: ${repos.join(', ')}`);
-            core.setOutput('repos', JSON.stringify(repos));
+        run: |
+          if [ "${{ inputs.repos }}" != "all" ] && [ -n "${{ inputs.repos }}" ]; then
+            repos="${{ inputs.repos }}"
+          else
+            repos=$(python scripts/list_registered_consumer_repos.py --separator ',')
+          fi
+          json_array=$(echo "$repos" \
+            | tr ',' '\n' \
+            | grep -v '^$' \
+            | jq -R -s -c '
+              split("\n")
+              | map(select(. != ""))
+              | map(gsub("^\\s+|\\s+$"; ""))
+            ')
+          echo "repos=${json_array}" >> "$GITHUB_OUTPUT"
+          echo "Target repos: $json_array"
 
       - name: Sync labels to repos
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           LABELS_JSON: ${{ steps.parse.outputs.labels }}
           REPOS_JSON: ${{ steps.repos.outputs.repos }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         with:
-          github-token: ${{ secrets.WORKFLOW_SYNC_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const labels = JSON.parse(process.env.LABELS_JSON);
             const repos = JSON.parse(process.env.REPOS_JSON);
@@ -207,7 +188,10 @@ jobs:
                 }
               }
 
-              summary.push(`\n📊 Summary: ${created} created, ${updated} updated, ${unchanged} unchanged, ${errors} errors\n\n`);
+              summary.push(
+                `\n📊 Summary: ${created} created, ${updated} updated, ` +
+                  `${unchanged} unchanged, ${errors} errors\n\n`,
+              );
             }
 
             // Write summary

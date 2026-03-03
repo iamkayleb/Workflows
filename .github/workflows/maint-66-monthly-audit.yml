@@ -8,7 +8,7 @@ on:
     inputs:
       lookback_days:
         description: 'Number of days to analyze'
-        type: number
+        type: string
         default: 30
       create_issue:
         description: 'Create audit issue'
@@ -31,6 +31,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
 
       - name: Collect workflow statistics
         id: stats
@@ -39,14 +41,47 @@ jobs:
           LOOKBACK_DAYS: ${{ inputs.lookback_days || 30 }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
 
           # Calculate date range
           start_date=$(date -d "-${LOOKBACK_DAYS} days" +%Y-%m-%d)
           echo "Analyzing runs since: ${start_date}"
+          export START_DATE="${start_date}"
 
           # Get all workflow runs
-          runs=$(gh api --paginate "/repos/${{ github.repository }}/actions/runs?created=>=${start_date}" \
-            --jq '.workflow_runs[] | {name: .name, conclusion: .conclusion, created_at: .created_at}')
+          runs=$(node - <<-'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+          const startDate = process.env.START_DATE;
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { paginateWithRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-66-monthly-audit',
+              capabilities: ['actions:read']
+            });
+            const runs = await paginateWithRetry(github.rest.actions.listWorkflowRunsForRepo, {
+              owner,
+              repo,
+              per_page: 100,
+              created: `>=${startDate}`
+            });
+            const slim = runs.map((run) => ({
+              name: run.name,
+              conclusion: run.conclusion,
+              created_at: run.created_at
+            }));
+            process.stdout.write(JSON.stringify(slim));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           # Generate statistics
           echo "${runs}" | jq -s '
@@ -57,20 +92,37 @@ jobs:
               success: map(select(.conclusion == "success")) | length,
               failure: map(select(.conclusion == "failure")) | length,
               cancelled: map(select(.conclusion == "cancelled")) | length,
-              other: map(select(.conclusion != "success" and .conclusion != "failure" and .conclusion != "cancelled")) | length
+              other: map(select(
+                .conclusion != "success"
+                and .conclusion != "failure"
+                and .conclusion != "cancelled"
+              )) | length
             }) |
             sort_by(-.total)
           ' > /tmp/workflow_stats.json
 
           # Calculate summary
           total_runs=$(echo "${runs}" | jq -s 'length')
-          total_success=$(echo "${runs}" | jq -s '[.[] | select(.conclusion == "success")] | length')
-          total_failure=$(echo "${runs}" | jq -s '[.[] | select(.conclusion == "failure")] | length')
+          total_success=$(echo "${runs}" | jq -s \
+            '[.[] | select(.conclusion == "success")] | length')
+          total_failure=$(echo "${runs}" | jq -s \
+            '[.[] | select(.conclusion == "failure")] | length')
 
           {
             echo "total_runs=${total_runs}"
             echo "total_success=${total_success}"
             echo "total_failure=${total_failure}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Scan API wrapper usage
+        id: api_guard
+        run: |
+          set -euo pipefail
+          python scripts/check_api_wrapper_guard.py --all --output /tmp/api_guard.md || true
+          {
+            echo "report<<EOF"
+            cat /tmp/api_guard.md
+            echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Identify workflows needing attention
@@ -97,19 +149,27 @@ jobs:
           ' /tmp/workflow_stats.json)
 
           # Check for workflows that haven't run
-          workflow_files=$(find .github/workflows -maxdepth 1 -name '*.yml' -exec basename {} .yml \;)
+          workflow_files=$(find .github/workflows \
+            -maxdepth 1 \
+            -name '*.yml' \
+            -exec basename {} .yml \;)
           ran_workflows=$(jq -r '.[].name' /tmp/workflow_stats.json)
 
           not_run=""
           for wf in ${workflow_files}; do
             # Skip reusable workflows
             if grep -q "workflow_call:" ".github/workflows/${wf}.yml" 2>/dev/null; then
-              if ! grep -q "workflow_dispatch:\|schedule:\|push:\|pull_request" ".github/workflows/${wf}.yml" 2>/dev/null; then
+                trigger_regex='workflow_dispatch:|schedule:|push:|pull_request'
+                if ! grep -q "$trigger_regex" ".github/workflows/${wf}.yml" 2>/dev/null; then
                 continue
               fi
             fi
             # Check if workflow ran
-            wf_name=$(grep -m1 "^name:" ".github/workflows/${wf}.yml" 2>/dev/null | sed 's/name: *//' || echo "$wf")
+              wf_name=$(
+                grep -m1 "^name:" ".github/workflows/${wf}.yml" 2>/dev/null \
+                  | sed 's/name: *//' \
+                  || echo "$wf"
+              )
             if ! echo "$ran_workflows" | grep -qF "$wf_name"; then
               not_run="${not_run}\n- ${wf}.yml (${wf_name})"
             fi
@@ -138,6 +198,7 @@ jobs:
           TOTAL_SUCCESS: ${{ steps.stats.outputs.total_success }}
           TOTAL_FAILURE: ${{ steps.stats.outputs.total_failure }}
           LOOKBACK: ${{ inputs.lookback_days || 30 }}
+          API_GUARD: ${{ steps.api_guard.outputs.report }}
         run: |
           cat > /tmp/audit_body.md << 'AUDIT_EOF'
           ## Monthly Workflow Audit - $(date +%B\ %Y)
@@ -168,6 +229,12 @@ jobs:
 
           ---
 
+          ### API Wrapper Guard
+
+          ${API_GUARD}
+
+          ---
+
           ## Audit Checklist
 
           ### Critical Items
@@ -193,7 +260,8 @@ jobs:
           ---
 
           **Previous audit:** Check for issues with label `workflow-audit`
-          **Documentation:** See [WORKFLOW_AUDIT_2025-12-25.md](https://github.com/${{ github.repository }}/blob/main/docs/WORKFLOW_AUDIT_2025-12-25.md)
+          **Documentation:** See
+          [WORKFLOW_AUDIT_2025-12-25.md](docs/WORKFLOW_AUDIT_2025-12-25.md)
           AUDIT_EOF
 
           # Substitute environment variables

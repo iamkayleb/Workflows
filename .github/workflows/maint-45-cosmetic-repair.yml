@@ -107,7 +107,7 @@ jobs:
 
       - name: Upload pytest report
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: cosmetic-repair-artifacts
           path: |
@@ -150,6 +150,7 @@ jobs:
           PYCODE
 
       - name: Create cosmetic repair PR
+        if: ${{ inputs['dry-run'] != 'true' }}
         uses: peter-evans/create-pull-request@v8
         with:
           branch: cosmetic-repair/${{ github.run_id }}

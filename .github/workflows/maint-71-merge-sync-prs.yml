@@ -8,6 +8,7 @@
 # Triggers:
 # - Manual dispatch (default)
 # - Can be called from sync workflow
+# - Repository dispatch (event_type: merge-sync-prs) for Codespace triggers
 #
 # Safety:
 # - Only merges PRs with sync/workflows-* branch names
@@ -17,6 +18,8 @@
 name: Merge Sync PRs
 
 on:
+  repository_dispatch:
+    types: [merge-sync-prs]
   workflow_dispatch:
     inputs:
       repos:
@@ -66,32 +69,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Checkout retry helpers
-        uses: actions/checkout@v6
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
         with:
-          sparse-checkout: |
-            .github/scripts/github-api-with-retry.js
-          sparse-checkout-cone-mode: false
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
 
       - name: Extract consumer repos from sync workflow
         id: repos
         run: |
-          # Read REGISTERED_CONSUMER_REPOS from maint-68-sync-consumer-repos.yml
-          repos=$(yq eval '.env.REGISTERED_CONSUMER_REPOS' \
-            .github/workflows/maint-68-sync-consumer-repos.yml | \
-            grep -v '^#' | grep -v '^$' | sed 's/stranske\///' | tr '\n' ',' | sed 's/,$//')
+          repos=$(python scripts/list_registered_consumer_repos.py --separator ',')
           echo "list=${repos}" >> "$GITHUB_OUTPUT"
           echo "Extracted repos: ${repos}"
 
       - name: Check and merge sync PRs
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.CODESPACES_WORKFLOWS }}
+          github-token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS || github.token }}
           script: |
-            const owner = context.repo.owner;
+            const defaultOwner = context.repo.owner;
+            // Support repository_dispatch (no inputs) with sensible defaults
             const inputRepos = '${{ inputs.repos }}' || 'all';
-            const autoMerge = ${{ inputs.auto_merge }};
-            const dryRun = ${{ inputs.dry_run }};
+            const autoMerge =
+              '${{ inputs.auto_merge }}' === '' ? true : ${{ inputs.auto_merge || true }};
+            const dryRun = '${{ inputs.dry_run }}' === '' ? false : ${{ inputs.dry_run || false }};
             const fs = require('fs');
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
             const retryHelpers = fs.existsSync(retryHelperPath)
@@ -101,10 +104,27 @@ jobs:
                   paginateWithRetry: (githubInstance, method, params) =>
                     githubInstance.paginate(method, params),
                 };
-            const { withRetry } = retryHelpers;
+            const { createTokenAwareRetry } = retryHelpers;
+            const { withRetry } = createTokenAwareRetry
+              ? await createTokenAwareRetry({
+                  github,
+                  core,
+                  env: process.env,
+                  task: 'maint-71-merge-sync-prs',
+                  capabilities: [
+                    'pull-requests:read',
+                    'pull-requests:write',
+                    'checks:read',
+                    'contents:write',
+                  ],
+                })
+              : { github, withRetry: (fn) => fn(github) };
 
             // Parse repos from previous step
-            const registeredRepos = '${{ steps.repos.outputs.list }}'.split(',').map(r => r.trim());
+            const registeredRepos = '${{ steps.repos.outputs.list }}'
+              .split(',')
+              .map(r => r.trim())
+              .filter(Boolean);
 
             // Determine which repos to process
             const targetRepos = inputRepos === 'all'
@@ -117,12 +137,18 @@ jobs:
 
             const results = [];
 
-            for (const repo of targetRepos) {
-              console.log(`\n=== ${repo} ===`);
+            for (const repoEntry of targetRepos) {
+              const [entryOwner, entryRepo] = repoEntry.includes('/')
+                ? repoEntry.split('/')
+                : [defaultOwner, repoEntry];
+              const owner = entryOwner || defaultOwner;
+              const repo = entryRepo;
+
+              console.log(`\n=== ${owner}/${repo} ===`);
 
               try {
                 // Find open sync PRs
-                const { data: prs } = await withRetry(() => github.rest.pulls.list({
+                const { data: prs } = await withRetry((client) => client.rest.pulls.list({
                   owner,
                   repo,
                   state: 'open',
@@ -142,7 +168,9 @@ jobs:
 
                 // If multiple sync PRs exist, close older ones as stale
                 if (syncPRs.length > 1) {
-                  console.log(`Found ${syncPRs.length} sync PRs - closing ${syncPRs.length - 1} stale PRs`);
+                  console.log(
+                    `Found ${syncPRs.length} sync PRs - closing ${syncPRs.length - 1} stale PRs`,
+                  );
 
                   for (let i = 0; i < syncPRs.length - 1; i++) {
                     const stalePR = syncPRs[i];
@@ -151,7 +179,7 @@ jobs:
 
                     if (!dryRun) {
                       // Close PR
-                      await withRetry(() => github.rest.pulls.update({
+                      await withRetry((client) => client.rest.pulls.update({
                         owner,
                         repo,
                         pull_number: stalePR.number,
@@ -161,7 +189,7 @@ jobs:
 
                       // Delete branch
                       try {
-                        await withRetry(() => github.rest.git.deleteRef({
+                        await withRetry((client) => client.rest.git.deleteRef({
                           owner,
                           repo,
                           ref: `heads/${stalePR.head.ref}`
@@ -183,27 +211,45 @@ jobs:
                 console.log(`Created: ${pr.created_at}`);
 
                 // Check PR status
-                const { data: combinedStatus } = await withRetry(() => github.rest.repos.getCombinedStatusForRef({
+                await withRetry((client) => client.rest.repos.getCombinedStatusForRef({
                   owner,
                   repo,
                   ref: pr.head.sha
                 }));
 
                 // Check check runs
-                const { data: checkRuns } = await withRetry(() => github.rest.checks.listForRef({
+                const { data: checkRuns } = await withRetry((client) =>
+                  client.rest.checks.listForRef({
                   owner,
                   repo,
                   ref: pr.head.sha
-                }));
+                }),
+                );
 
                 const allChecks = checkRuns.check_runs || [];
-                const requiredChecks = allChecks.filter(c =>
+                const orderedChecks = [...allChecks].sort((a, b) => {
+                  const aTime = new Date(a.started_at || a.completed_at || 0).getTime();
+                  const bTime = new Date(b.started_at || b.completed_at || 0).getTime();
+                  return bTime - aTime;
+                });
+                const matrixPlaceholder = '${' + '{ matrix.';
+                const matrixPlaceholderPython = 'matrix.python-version';
+                const latestChecksByName = new Map();
+                for (const check of orderedChecks) {
+                  if (!latestChecksByName.has(check.name)) {
+                    latestChecksByName.set(check.name, check);
+                  }
+                }
+                const requiredChecks = [...latestChecksByName.values()].filter(c =>
                   !c.name.includes('Detect keepalive') &&
                   !c.name.includes('pr_meta') &&
                   !c.name.includes('resolve_pr') &&
                   !c.name.includes('Cleanup') &&
+                  !c.name.includes(matrixPlaceholder) &&
+                  !c.name.includes(matrixPlaceholderPython) &&
                   c.conclusion !== 'skipped' &&
-                  c.conclusion !== 'neutral'
+                  c.conclusion !== 'neutral' &&
+                  c.conclusion !== 'cancelled'
                 );
 
                 const failedChecks = requiredChecks.filter(c =>
@@ -214,7 +260,10 @@ jobs:
                   c.status !== 'completed'
                 );
 
-                console.log(`Checks: ${requiredChecks.length} total, ${failedChecks.length} failed, ${pendingChecks.length} pending`);
+                console.log(
+                  `Checks: ${requiredChecks.length} total, ${failedChecks.length} failed, ` +
+                    `${pendingChecks.length} pending`,
+                );
 
                 if (failedChecks.length > 0) {
                   console.log('Failed checks:');
@@ -244,20 +293,42 @@ jobs:
 
                 // Merge the PR
                 try {
-                  await withRetry(() => github.rest.pulls.merge({
-                    owner,
-                    repo,
-                    pull_number: pr.number,
-                    merge_method: 'merge',
-                    commit_title: pr.title,
-                    commit_message: `Automated merge of sync PR\n\nSync hash: ${pr.head.ref.split('-').pop()}`
-                  }));
+                  const mergeMethods = ['merge', 'squash', 'rebase'];
+                  let merged = false;
+                  let lastError = null;
 
-                  console.log('✓ Merged successfully');
+                  for (const merge_method of mergeMethods) {
+                    try {
+                      await withRetry((client) => client.rest.pulls.merge({
+                        owner,
+                        repo,
+                        pull_number: pr.number,
+                        merge_method,
+                        commit_title: pr.title,
+                        commit_message:
+                          `Automated merge of sync PR\n\n` +
+                          `Sync hash: ${pr.head.ref.split('-').pop()}`
+                      }));
+                      console.log(`✓ Merged successfully (method=${merge_method})`);
+                      merged = true;
+                      break;
+                    } catch (e) {
+                      lastError = e;
+                      const message = String(e?.message || 'unknown error');
+                      console.log(`⚠ Merge attempt failed (method=${merge_method}): ${message}`);
+                      if (!message.toLowerCase().includes('repository rule violations')) {
+                        break;
+                      }
+                    }
+                  }
+
+                  if (!merged) {
+                    throw lastError || new Error('Merge failed');
+                  }
 
                   // Delete the branch
                   try {
-                    await withRetry(() => github.rest.git.deleteRef({
+                    await withRetry((client) => client.rest.git.deleteRef({
                       owner,
                       repo,
                       ref: `heads/${pr.head.ref}`
@@ -284,7 +355,9 @@ jobs:
 
             const merged = results.filter(r => r.status === 'merged').length;
             const stale = results.filter(r => r.status === 'stale_closed').length;
-            const failed = results.filter(r => r.status === 'checks_failed' || r.status === 'merge_failed').length;
+            const failed = results.filter(
+              (r) => r.status === 'checks_failed' || r.status === 'merge_failed',
+            ).length;
             const pending = results.filter(r => r.status === 'checks_pending').length;
             const ready = results.filter(r => r.status === 'ready').length;
 

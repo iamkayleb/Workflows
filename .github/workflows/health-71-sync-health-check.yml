@@ -17,29 +17,17 @@ on:
     inputs:
       lookback_runs:
         description: 'Number of recent runs to check'
-        type: number
+        type: string
         default: 5
       max_age_hours:
         description: 'Max hours since last successful sync'
-        type: number
+        type: string
         default: 72
 
 permissions:
   contents: read
   issues: write
   actions: read
-
-# Consumer repos registered for automatic sync (single source of truth)
-# Keep in sync with maint-68-sync-consumer-repos.yml
-env:
-  CONSUMER_REPOS: |
-    stranske/Template
-    stranske/trip-planner
-    stranske/Manager-Database
-    stranske/Travel-Plan-Permission
-    stranske/Portable-Alpha-Extension-Model
-    stranske/Trend_Model_Project
-    stranske/Collab-Admin
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -50,6 +38,26 @@ jobs:
     name: Check sync workflow health
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
+      - name: Install GitHub API dependencies
+        run: npm install --no-save --no-package-lock @octokit/rest @octokit/auth-app
+
+      - name: Load registered consumer repos
+        id: consumer-repos
+        run: |
+          repos_markdown=$(
+            python3 scripts/list_registered_consumer_repos.py --separator=$'\n' |
+            sed 's/^/          - /'
+          )
+          {
+            echo "repos_markdown<<EOF"
+            echo "$repos_markdown"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Check recent sync runs
         id: check
         env:
@@ -57,13 +65,38 @@ jobs:
           LOOKBACK: ${{ inputs.lookback_runs || 5 }}
           MAX_AGE_HOURS: ${{ inputs.max_age_hours || 72 }}
         run: |
+          # shellcheck disable=SC1009,SC1073,SC1039,SC1072
           echo "Checking last $LOOKBACK sync workflow runs..."
 
           # Get recent sync workflow runs
-          runs=$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/${{ github.repository }}/actions/workflows/maint-68-sync-consumer-repos.yml/runs?per_page=$LOOKBACK" \
-            --jq '.workflow_runs')
+          runs=$(node - <<-'NODE'
+          const { Octokit } = require('@octokit/rest');
+          const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+          const core = { info: () => {}, warning: console.warn, debug: () => {} };
+          const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+          const lookback = Number(process.env.LOOKBACK) || 5;
+          (async () => {
+            const github = new Octokit({ auth: process.env.GH_TOKEN || process.env.GITHUB_TOKEN });
+            const { paginateWithRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'health-71-sync-health-check',
+              capabilities: ['actions:read']
+            });
+            const runs = await paginateWithRetry(github.rest.actions.listWorkflowRuns, {
+              owner,
+              repo,
+              workflow_id: 'maint-68-sync-consumer-repos.yml',
+              per_page: 100
+            });
+            process.stdout.write(JSON.stringify(runs.slice(0, lookback)));
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )
 
           total_runs=$(echo "$runs" | jq 'length')
           echo "Found $total_runs runs"
@@ -81,7 +114,8 @@ jobs:
           success_count=$(echo "$success_runs" | jq 'length')
           other_count=$((total_runs - failed_count - success_count))
 
-          echo "Results: $success_count success, $failed_count failure, $other_count other out of $total_runs runs"
+          echo "Results: $success_count success, $failed_count failure, $other_count other"
+          echo "out of $total_runs runs"
 
           # Check if ALL recent runs failed
           if [ "$failed_count" -eq "$total_runs" ]; then
@@ -94,7 +128,9 @@ jobs:
           # Check if there are NO successful runs (could be cancelled, skipped, in-progress)
           if [ "$success_count" -eq 0 ]; then
             echo "status=no_success" >> "$GITHUB_OUTPUT"
-            echo "message=No successful sync runs in the last $total_runs runs ($failed_count failed, $other_count other states)" >> "$GITHUB_OUTPUT"
+            message="No successful sync runs in the last $total_runs runs "
+            message+="($failed_count failed, $other_count other states)"
+            echo "message=$message" >> "$GITHUB_OUTPUT"
             echo "::warning::No successful sync runs found!"
             exit 0
           fi
@@ -110,13 +146,16 @@ jobs:
 
           if [ "$hours_since" -gt "$MAX_AGE_HOURS" ]; then
             echo "status=stale" >> "$GITHUB_OUTPUT"
-            echo "message=Last successful sync was $hours_since hours ago (threshold: $MAX_AGE_HOURS hours)" >> "$GITHUB_OUTPUT"
+            message="Last successful sync was $hours_since hours ago "
+            message+="(threshold: $MAX_AGE_HOURS hours)"
+            echo "message=$message" >> "$GITHUB_OUTPUT"
             echo "::warning::Sync is stale - last success was $hours_since hours ago"
             exit 0
           fi
 
           echo "status=healthy" >> "$GITHUB_OUTPUT"
-          echo "message=Sync is healthy - last success $hours_since hours ago" >> "$GITHUB_OUTPUT"
+          message="Sync is healthy - last success $hours_since hours ago"
+          echo "message=$message" >> "$GITHUB_OUTPUT"
           echo "✓ Sync workflow is healthy"
 
       - name: Check for existing issue
@@ -153,7 +192,8 @@ jobs:
           EXISTING_ISSUE: ${{ steps.existing.outputs.existing_issue }}
           HOURS_SINCE: ${{ steps.check.outputs.hours_since_success }}
         run: |
-          sync_url="${{ github.server_url }}/${{ github.repository }}/actions/workflows/maint-68-sync-consumer-repos.yml"
+          repo_url="${{ github.server_url }}/${{ github.repository }}"
+          sync_url="${repo_url}/actions/workflows/maint-68-sync-consumer-repos.yml"
 
           case "$STATUS" in
             all_failed)
@@ -178,8 +218,7 @@ jobs:
               ;;
           esac
 
-          # Format consumer repos as markdown list
-          affected_repos=$(echo "$CONSUMER_REPOS" | sed '/^$/d' | sed 's/^/          - /')
+          affected_repos='${{ steps.consumer-repos.outputs.repos_markdown }}'
 
           body="## Consumer Repo Sync Health Alert
 

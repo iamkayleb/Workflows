@@ -42,19 +42,65 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      repo_matrix: ${{ steps.repos.outputs.matrix }}
+    steps:
+      - name: Checkout Workflows repo
+        uses: actions/checkout@v6
+
+      - name: Build repo matrix from canonical list
+        id: repos
+        run: |
+          repos_json=$(python3 - <<'PY'
+          from __future__ import annotations
+
+          import json
+          import re
+          from pathlib import Path
+
+          path = Path('.github/workflows/maint-68-sync-consumer-repos.yml')
+          lines = path.read_text(encoding='utf-8').splitlines()
+
+          start_index = None
+          for index, line in enumerate(lines):
+            if re.search(r'\bREGISTERED_CONSUMER_REPOS\s*:\s*\|\s*$', line):
+              start_index = index + 1
+              break
+
+          if start_index is None:
+            raise SystemExit('Could not find REGISTERED_CONSUMER_REPOS: | block')
+
+          block_indent = None
+          repos: list[str] = []
+          for raw_line in lines[start_index:]:
+            if raw_line.strip() == '':
+              continue
+
+            indent = len(raw_line) - len(raw_line.lstrip(' '))
+            if block_indent is None:
+              block_indent = indent
+
+            if indent < (block_indent or 0):
+              break
+
+            value = raw_line.strip()
+            if value:
+              repos.append(value)
+
+          print(json.dumps(repos))
+          PY
+          )
+          echo "matrix=$repos_json" >> "$GITHUB_OUTPUT"
+
   fix-repos:
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        repo:
-          - stranske/Trend_Model_Project
-          - stranske/Portable-Alpha-Extension-Model
-          - stranske/Collab-Admin
-          - stranske/trip-planner
-          - stranske/Manager-Database
-          - stranske/Travel-Plan-Permission
-          - stranske/Template
+        repo: ${{ fromJSON(needs.prepare.outputs.repo_matrix) }}
     steps:
       - name: Check if should process this repo
         id: check
@@ -76,7 +122,7 @@ jobs:
 
       - name: Generate GitHub App token
         if: steps.check.outputs.skip != 'true'
-        id: app-token
+        id: app_token
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.WORKFLOWS_APP_ID }}
@@ -89,8 +135,18 @@ jobs:
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
+            .github/actions/setup-api-client
             .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
           sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
 
       - name: Check and fix pr_body.md
         if: steps.check.outputs.skip != 'true'
@@ -99,7 +155,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run || 'true' }}
           REPO_FULL: ${{ matrix.repo }}
         with:
-          github-token: ${{ steps.app-token.outputs.token }}
+          github-token: ${{ steps.app_token.outputs.token }}
           script: |
             const [owner, repo] = process.env.REPO_FULL.split('/');
             const dryRun = process.env.DRY_RUN === 'true';
@@ -200,6 +256,18 @@ jobs:
             // Step 3: Make the fixes
             console.log(`\n--- Applying fixes ---`);
 
+            const deletePrBodyMessage =
+              'chore: remove pr_body.md from main\n\n' +
+              'This file should not be tracked. It is PR-specific and causes merge conflicts.';
+
+            const addIgnoreMessage =
+              'chore: add pr_body.md to .gitignore\n\n' +
+              'Prevent merge conflicts from PR-specific content.';
+
+            const createIgnoreMessage =
+              'chore: create .gitignore with pr_body.md\n\n' +
+              'Prevent merge conflicts from PR-specific content.';
+
             // Delete pr_body.md if it exists
             if (prBodyExists && prBodySha) {
               try {
@@ -207,7 +275,7 @@ jobs:
                   owner,
                   repo,
                   path: 'pr_body.md',
-                  message: 'chore: remove pr_body.md from main\n\nThis file should not be tracked. It is PR-specific and causes merge conflicts.',
+                  message: deletePrBodyMessage,
                   sha: prBodySha,
                   branch: 'main'
                 }));
@@ -231,7 +299,7 @@ jobs:
                     owner,
                     repo,
                     path: '.gitignore',
-                    message: 'chore: add pr_body.md to .gitignore\n\nPrevent merge conflicts from PR-specific content.',
+                    message: addIgnoreMessage,
                     content: Buffer.from(newContent).toString('base64'),
                     sha: gitignoreSha,
                     branch: 'main'
@@ -241,7 +309,7 @@ jobs:
                     owner,
                     repo,
                     path: '.gitignore',
-                    message: 'chore: create .gitignore with pr_body.md\n\nPrevent merge conflicts from PR-specific content.',
+                    message: createIgnoreMessage,
                     content: Buffer.from(newContent).toString('base64'),
                     branch: 'main'
                   }));

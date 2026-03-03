@@ -111,6 +111,76 @@ const TOKEN_SPECIALIZATIONS = {
   },
 };
 
+const CAPABILITY_ALIASES = {
+  'issues:read': ['read-repo'],
+  'issues:write': ['write-repo', 'comments', 'labels'],
+  'pull-requests:read': ['read-repo'],
+  'pulls:read': ['read-repo'],
+  'pull-requests:write': ['pr-update'],
+  'contents:read': ['read-repo'],
+  'contents:write': ['write-repo'],
+  'actions:read': ['read-repo'],
+  'actions:write': ['workflow-dispatch'],
+  'rate_limit:read': ['read-repo'],
+  'deployments:write': ['write-repo'],
+  'checks:read': ['read-repo'],
+  'statuses:write': ['write-repo'],
+};
+
+function normalizeCapabilities(capabilities = []) {
+  if (!Array.isArray(capabilities) || capabilities.length === 0) {
+    return [];
+  }
+
+  const normalized = [];
+  for (const capability of capabilities) {
+    const mapped = CAPABILITY_ALIASES[capability];
+    if (Array.isArray(mapped)) {
+      normalized.push(...mapped);
+    } else if (mapped) {
+      normalized.push(mapped);
+    } else if (capability) {
+      normalized.push(capability);
+    }
+  }
+
+  return Array.from(new Set(normalized));
+}
+
+function parseTokenRotationEnvKeys(value) {
+  if (!value || typeof value !== 'string') {
+    return [];
+  }
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function parseTokenRotationJson(value, core) {
+  if (!value || typeof value !== 'string') {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    return parsed;
+  } catch (error) {
+    core?.warning?.(`Failed to parse TOKEN_ROTATION_JSON: ${error.message}`);
+    return null;
+  }
+}
+
+function safeRegisterToken({ core, tokenInfo }) {
+  if (tokenRegistry.tokens.has(tokenInfo.id)) {
+    core?.warning?.(`Token ${tokenInfo.id} already registered; skipping duplicate.`);
+    return;
+  }
+  registerToken(tokenInfo);
+}
+
 /**
  * Initialize the token registry from environment/secrets
  * Call this once at workflow start
@@ -156,14 +226,17 @@ async function initializeTokenRegistry({ secrets, github, core, githubToken }) {
   
   for (const pat of patSources) {
     if (pat.env) {
-      registerToken({
-        id: pat.id,
-        token: pat.env,
-        type: 'PAT',
-        source: pat.id,
-        account: pat.account,
-        capabilities: TOKEN_CAPABILITIES.PAT,
-        priority: 5, // Medium priority
+      safeRegisterToken({
+        core,
+        tokenInfo: {
+          id: pat.id,
+          token: pat.env,
+          type: 'PAT',
+          source: pat.id,
+          account: pat.account,
+          capabilities: TOKEN_CAPABILITIES.PAT,
+          priority: 5, // Medium priority
+        },
       });
     }
   }
@@ -205,16 +278,92 @@ async function initializeTokenRegistry({ secrets, github, core, githubToken }) {
   
   for (const app of appSources) {
     if (app.appId && app.privateKey) {
-      registerToken({
-        id: app.id,
-        token: null, // Will be minted on demand
-        type: 'APP',
-        source: app.id,
-        appId: app.appId,
-        privateKey: app.privateKey,
-        purpose: app.purpose,
-        capabilities: TOKEN_CAPABILITIES.APP,
-        priority: 10, // Highest priority (preferred)
+      safeRegisterToken({
+        core,
+        tokenInfo: {
+          id: app.id,
+          token: null, // Will be minted on demand
+          type: 'APP',
+          source: app.id,
+          appId: app.appId,
+          privateKey: app.privateKey,
+          purpose: app.purpose,
+          capabilities: TOKEN_CAPABILITIES.APP,
+          priority: 10, // Highest priority (preferred)
+        },
+      });
+    }
+  }
+
+  const extraKeys = parseTokenRotationEnvKeys(
+    secrets.TOKEN_ROTATION_ENV_KEYS || secrets.TOKEN_ROTATION_KEYS
+  );
+  for (const key of extraKeys) {
+    const tokenValue = secrets[key];
+    if (!tokenValue) {
+      core?.warning?.(`TOKEN_ROTATION_ENV_KEYS listed ${key} but no value was provided.`);
+      continue;
+    }
+    safeRegisterToken({
+      core,
+      tokenInfo: {
+        id: key,
+        token: tokenValue,
+        type: 'PAT',
+        source: key,
+        account: 'custom',
+        capabilities: TOKEN_CAPABILITIES.PAT,
+        priority: 5,
+      },
+    });
+  }
+
+  const extraConfig = parseTokenRotationJson(secrets.TOKEN_ROTATION_JSON, core);
+  if (extraConfig) {
+    const extraPats = Array.isArray(extraConfig.pats) ? extraConfig.pats : [];
+    const extraApps = Array.isArray(extraConfig.apps) ? extraConfig.apps : [];
+
+    for (const entry of extraPats) {
+      if (!entry || !entry.token || !entry.id) {
+        core?.warning?.('Skipping invalid PAT entry in TOKEN_ROTATION_JSON (needs id + token).');
+        continue;
+      }
+      safeRegisterToken({
+        core,
+        tokenInfo: {
+          id: entry.id,
+          token: entry.token,
+          type: 'PAT',
+          source: entry.id,
+          account: entry.account || 'custom',
+          capabilities: Array.isArray(entry.capabilities)
+            ? entry.capabilities
+            : TOKEN_CAPABILITIES.PAT,
+          priority: Number.isFinite(entry.priority) ? entry.priority : 5,
+        },
+      });
+    }
+
+    for (const entry of extraApps) {
+      if (!entry || !entry.appId || !entry.privateKey || !entry.id) {
+        core?.warning?.('Skipping invalid App entry in TOKEN_ROTATION_JSON (needs id + appId + privateKey).');
+        continue;
+      }
+      safeRegisterToken({
+        core,
+        tokenInfo: {
+          id: entry.id,
+          token: null,
+          type: 'APP',
+          source: entry.id,
+          appId: entry.appId,
+          privateKey: entry.privateKey,
+          purpose: entry.purpose || 'custom',
+          capabilities: Array.isArray(entry.capabilities)
+            ? entry.capabilities
+            : TOKEN_CAPABILITIES.APP,
+          priority: Number.isFinite(entry.priority) ? entry.priority : 10,
+        },
       });
     }
   }
@@ -256,11 +405,31 @@ async function refreshAllRateLimits({ github, core }) {
     return;
   }
   
+  // Attempt the @octokit/rest import once for the whole refresh cycle
+  // rather than per-token — import success/failure is environment-level,
+  // not token-specific.
+  let Octokit = null;
+  try {
+    ({ Octokit } = await import('@octokit/rest'));
+  } catch (importErr) {
+    // ESM import() resolves relative to file location — if node_modules
+    // is not co-located (e.g., workflows-lib checkout without symlink),
+    // the import fails.  All tokens get a conservative synthetic budget.
+    core?.error?.(
+      `@octokit/rest import failed: ${importErr.message}. ` +
+      `Token rotation is degraded — rate limit checks are skipped. ` +
+      `Ensure node_modules is symlinked to the scripts directory ` +
+      `(see setup-api-client install_dir or link step).`
+    );
+  }
+  
   const results = [];
   
   for (const [id, tokenInfo] of tokenRegistry.tokens) {
     try {
-      const rateLimit = await checkTokenRateLimit({ tokenInfo, github, core });
+      const rateLimit = await checkTokenRateLimit({
+        tokenInfo, github, core, Octokit,
+      });
       tokenInfo.rateLimit = rateLimit;
       results.push({ id, ...rateLimit });
     } catch (error) {
@@ -276,10 +445,26 @@ async function refreshAllRateLimits({ github, core }) {
 }
 
 /**
- * Check rate limit for a specific token
+ * Check rate limit for a specific token.
+ * @param {object} params
+ * @param {object} params.Octokit - Octokit constructor (null when import failed)
  */
-async function checkTokenRateLimit({ tokenInfo, github, core }) {
-  const { Octokit } = await import('@octokit/rest');
+async function checkTokenRateLimit({ tokenInfo, github, core, Octokit }) {
+  if (!Octokit) {
+    // Import failed at the refresh-cycle level — return a conservative
+    // synthetic budget so this token is deprioritised but still usable
+    // as a last resort.
+    return {
+      limit: 5000,
+      remaining: 250,
+      used: 4750,
+      reset: Date.now() + 3600000,
+      checked: Date.now(),
+      percentUsed: 95,
+      percentRemaining: 5,
+      importFailed: true,
+    };
+  }
   
   let token = tokenInfo.token;
   
@@ -295,23 +480,50 @@ async function checkTokenRateLimit({ tokenInfo, github, core }) {
   }
   
   const octokit = new Octokit({ auth: token });
-  
-  const { data } = await octokit.rateLimit.get();
-  const core_limit = data.resources.core;
-  
-  const percentUsed = core_limit.limit > 0 
-    ? (core_limit.used / core_limit.limit) * 100
-    : 0;
-  
-  return {
-    limit: core_limit.limit,
-    remaining: core_limit.remaining,
-    used: core_limit.used,
-    reset: core_limit.reset * 1000,
-    checked: Date.now(),
-    percentUsed,
-    percentRemaining: 100 - percentUsed,
-  };
+  try {
+    const { data } = await octokit.rateLimit.get();
+    const core_limit = data.resources.core;
+
+    const percentUsed = core_limit.limit > 0 
+      ? (core_limit.used / core_limit.limit) * 100
+      : 0;
+
+    return {
+      limit: core_limit.limit,
+      remaining: core_limit.remaining,
+      used: core_limit.used,
+      reset: core_limit.reset * 1000,
+      checked: Date.now(),
+      percentUsed,
+      percentRemaining: 100 - percentUsed,
+      invalidAuth: false,
+    };
+  } catch (error) {
+    const isInvalidAuth =
+      error?.status === 401 ||
+      /bad credentials|requires authentication/i.test(String(error?.message || ''));
+
+    if (!isInvalidAuth) {
+      throw error;
+    }
+
+    core?.warning?.(
+      `Token ${tokenInfo.id} has invalid credentials (HTTP 401). ` +
+      `It will be skipped until the backing secret is corrected.`
+    );
+
+    return {
+      limit: 5000,
+      remaining: 0,
+      used: 5000,
+      reset: Date.now() + 3600000,
+      checked: Date.now(),
+      percentUsed: 100,
+      percentRemaining: 0,
+      invalidAuth: true,
+      error: error?.message || 'Bad credentials',
+    };
+  }
 }
 
 /**
@@ -415,11 +627,17 @@ async function getOptimalToken({ github, core, capabilities = [], preferredType 
   }
   
   // Filter tokens by capability
+  const normalizedCapabilities = normalizeCapabilities(capabilities);
   const candidates = [];
   
   for (const [id, tokenInfo] of tokenRegistry.tokens) {
+    if (tokenInfo.rateLimit?.invalidAuth) {
+      core?.debug?.(`Skipping ${id}: credentials marked invalid`);
+      continue;
+    }
+
     // Check capabilities
-    const hasCapabilities = capabilities.every(cap => 
+    const hasCapabilities = normalizedCapabilities.every(cap => 
       tokenInfo.capabilities.includes(cap)
     );
     

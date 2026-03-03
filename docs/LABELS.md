@@ -22,6 +22,7 @@ This document describes all labels that trigger automated workflows or affect CI
 | `verify:evaluate` | PR labeled | Runs verifier evaluation mode after merge |
 | `verify:compare` | PR labeled | Runs verifier comparison mode after merge |
 | `verify:create-issue` | PR labeled | Creates follow-up issue from verification |
+| `verify:create-new-pr` | PR labeled | Creates follow-up issue and PR from verification |
 
 ---
 
@@ -108,6 +109,21 @@ This document describes all labels that trigger automated workflows or affect CI
 **Note:** Adding this label without `agent:codex` will result in an error.
 
 **Workflow:** `agents-63-issue-intake.yml` (Agents 63 Issue Intake)
+
+---
+
+### `runner:<agent>`
+
+**Applies to:** Issues
+
+**Trigger:** When applied to an issue that also has `agents:auto-pilot`
+
+**Effect:**
+1. Overrides the agent that auto-pilot will use (`runner:claude`, `runner:codex`, etc.)
+2. Auto-pilot reads this label during capability/check-pr steps and adds the matching `agent:<name>` label when it dispatches the belt
+3. Does **not** trigger the issue intake workflow by itself, so manual `agent:<name>` behavior is unaffected
+
+**Workflow:** `agents-auto-pilot.yml`
 
 ---
 
@@ -293,7 +309,26 @@ These labels trigger the post-merge verifier workflow on a merged PR.
 
 **Use Case:** User-triggered creation of follow-up work from verification feedback. Replaces automatic issue creation which was too aggressive.
 
-**Workflow:** `agents-verify-to-issue.yml`
+**Workflow:** `agents-verify-to-issue-v2.yml`
+
+---
+
+### `verify:create-new-pr`
+
+**Applies to:** Pull Requests
+
+**Trigger:** When applied to a merged PR that has verification feedback
+
+**Prerequisites:**
+- PR must be merged
+- PR must already have verification context (for example from `verify:evaluate` or `verify:compare`)
+
+**Effect:**
+1. Creates a follow-up issue from verification concerns
+2. Creates and bootstraps a follow-up PR for that issue
+3. Removes `verify:create-new-pr` label after processing
+
+**Workflow:** `agents-verify-to-new-pr.yml`
 
 ---
 
@@ -345,7 +380,7 @@ These labels are used for categorization but do not trigger workflows.
 
 **Effect:** Indicates this issue was created as follow-up to another issue or PR.
 
-**Applied by:** `agents-verify-to-issue.yml` workflow
+**Applied by:** `agents-verify-to-issue-v2.yml` workflow
 
 ---
 

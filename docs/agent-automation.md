@@ -119,21 +119,27 @@ The `agents-auto-pilot.yml` workflow implements a complete end-to-end automation
 
 ### Key Steps
 
-| Step | What It Does | Execution Pattern |
-|------|--------------|-------------------|
-| **Format** | Structures issue into standard template | ✅ Inline: `issue_formatter.py` |
-| **Optimize** | Analyzes and suggests improvements | ✅ Inline: `issue_optimizer.py` |
-| **Apply** | Applies optimization suggestions | ✅ Inline: `apply_suggestions()` |
-| **Capability Check** | Validates agent can handle task | 🏷️ Label: `agent:codex` (triggers capability workflow) |
-| **Create PR** | Creates branch and initial PR | ✅ Direct: GitHub API |
-| **Monitor** | Tracks PR progress via keepalive | 🏷️ Label: `agents:keepalive` (triggers keepalive) |
-| **Check Completion** | Verifies all tasks done, CI passes | ✅ Inline: Checks CI status directly |
-| **Trigger Merge** | Queues PR for auto-merge | 🏷️ Label: `automerge` (orchestrator merges) |
-| **Verify** | Runs verification after merge | 🏷️ Label: `verify:evaluate` (verifier workflow) |
+| Step | What It Does | Execution Pattern | Labels Added |
+|------|--------------|-------------------|--------------|
+| **Format** | Structures issue into standard template | ✅ Inline: `issue_formatter.py` | `agents:formatted` |
+| **Optimize** | Analyzes and suggests improvements | ✅ Inline: `issue_optimizer.py` | (none - adds comment) |
+| **Apply** | Applies optimization suggestions | ✅ Inline: `apply_suggestions()` | `agents:apply-suggestions` |
+| **Capability Check** | Validates agent can handle task | 🏷️ Label: `agent:codex` (triggers capability workflow) | `agent:codex` |
+| **Create PR** | Creates branch and initial PR | ✅ Direct: GitHub API | (converts issue to PR) |
+| **Monitor** | Tracks PR progress via keepalive | 🏷️ Label: `agents:keepalive` (triggers keepalive) | `agents:keepalive` |
+| **Check Completion** | Verifies all tasks done, CI passes | ✅ Inline: Checks CI status directly | (checks state) |
+| **Trigger Merge** | Queues PR for auto-merge | 🏷️ Label: `automerge` (orchestrator merges) | `automerge` |
+| **Verify** | Runs verification after merge | 🏷️ Label: `verify:evaluate` (verifier workflow) | `verify:evaluate` |
 
 **Why the distinction?**
 - **Inline** = Simple data transformation that can complete in seconds
 - **Label delegation** = Complex operations requiring external systems (CI checks, LLM analysis, scheduled orchestration)
+
+**Label Semantics (as of 2026-02-06):**
+- Labels added during inline steps are **status markers** indicating completion
+- Labels track workflow state and enable flow control (e.g., `HAS_APPLY` checks for `agents:apply-suggestions`)
+- Other workflows that trigger on these labels MUST check for `agents:auto-pilot` and skip if present
+- This preserves standalone label-triggered workflows while respecting auto-pilot's inline execution model
 
 ### State Tracking
 
@@ -145,12 +151,95 @@ The workflow tracks state by:
 
 ### LangSmith Tracing
 
-When LangSmith tracing is enabled for auto-pilot runs, the metrics records may include:
+LangSmith provides observability for all LangChain-based LLM calls in the
+workflow system. When enabled, every `client.invoke()` call automatically
+generates a trace that records prompt, response, latency, and token usage.
 
-- `langsmith_trace_id` for the LangSmith trace identifier.
-- `langsmith_trace_url` with a direct, clickable link to the trace in the LangSmith UI.
+#### Enabling LangSmith
 
-These fields are optional and should be omitted when LangSmith is unavailable.
+Set the `LANGSMITH_API_KEY` repository secret. On module load
+`tools/llm_provider.py` detects the key and configures the environment:
+
+| Variable | Set automatically | Purpose |
+|----------|-------------------|---------|
+| `LANGCHAIN_TRACING_V2` | `true` | Enables LangChain v2 tracing |
+| `LANGCHAIN_PROJECT` | `workflows-agents` (default) | Groups traces by project |
+| `LANGCHAIN_API_KEY` | Copied from `LANGSMITH_API_KEY` | LangChain SDK auth |
+
+Override the project by setting `LANGCHAIN_PROJECT` before import.
+
+#### Standardized Metadata
+
+All LLM-calling scripts use `build_langsmith_metadata()` (from
+`tools/llm_provider`) to attach consistent metadata to every invocation:
+
+```python
+from tools.llm_provider import build_langsmith_metadata
+
+config = build_langsmith_metadata(
+    operation="verify_pr",
+    pr_number=42,
+)
+response = client.invoke(prompt, config=config)
+```
+
+**Metadata fields** attached to every trace:
+
+| Field | Source | Example |
+|-------|--------|---------|
+| `repo` | `GITHUB_REPOSITORY` | `stranske/Workflows` |
+| `run_id` | `GITHUB_RUN_ID` | `12345678` |
+| `issue_or_pr_number` | Arg or `PR_NUMBER`/`ISSUE_NUMBER` env | `42` |
+| `operation` | Caller-supplied | `verify_pr` |
+| `langsmith_project` | `LANGCHAIN_PROJECT` (when enabled) | `workflows-agents` |
+
+**Tags** for filtering in the LangSmith UI:
+
+- `workflows-agents`
+- `operation:<name>`
+- `repo:<owner/repo>`
+- `issue_or_pr:<number>`
+- `run_id:<id>`
+
+#### Trace IDs in Metrics
+
+The autopilot metrics collector accepts trace IDs via CLI or environment:
+
+```bash
+python scripts/autopilot_metrics_collector.py \
+  --metric-type step \
+  --langsmith-trace-id "$TRACE_ID" \
+  ...
+```
+
+Or set `LANGSMITH_TRACE_ID` / `LANGSMITH_TRACE_URL` in the environment.
+When only a trace ID is provided, the URL is auto-derived as
+`https://smith.langchain.com/r/<trace_id>`.
+
+Metrics records may include:
+
+- `langsmith_trace_id` — the LangSmith trace identifier.
+- `langsmith_trace_url` — a direct, clickable link to the trace in the
+  LangSmith UI.
+
+These fields are optional and are omitted when LangSmith is unavailable.
+
+#### Graceful Degradation
+
+When `LANGSMITH_API_KEY` is **not** set:
+
+- `LANGSMITH_ENABLED` is `False`
+- No tracing environment variables are modified
+- `build_langsmith_metadata()` still returns a valid config dict (without
+  the `langsmith_project` field)
+- All LLM calls proceed normally — tracing is purely additive
+
+#### Scripts Using Standardized Metadata
+
+| Script | Operations |
+|--------|------------|
+| `scripts/langchain/pr_verifier.py` | `evaluate`, `compare` |
+| `scripts/langchain/followup_issue_generator.py` | `analyze_verification`, `generate_tasks`, `generate_acceptance_criteria`, `format_followup_issue` |
 
 ### Re-dispatch Pattern
 
@@ -231,7 +320,7 @@ automatically.
 3. Auto-pilot waited for those workflows to complete via `workflow_run` events
 4. **Problem:** workflow_run continuation was unreliable and created race conditions
 
-**Current Solution (Complete Fix):** All preparation steps now run **inline** within the auto-pilot workflow:
+**Current Solution (Complete Fix as of 2026-01-12):** All preparation steps now run **inline** within the auto-pilot workflow:
 
 | Step | Old Approach | New Approach |
 |------|-------------|--------------|
@@ -258,6 +347,68 @@ automatically.
 - Remove `agents:auto-pilot` label
 - Manually run the needed phase by adding appropriate label
 - Once complete, re-add `agents:auto-pilot` to continue
+
+### Auto-Pilot Stuck in Infinite Loop (Issue #1212)
+
+**Symptom:** Auto-pilot workflow repeatedly dispatches itself, making 30+ attempts over several hours without progressing past apply step. Label `agents:apply-suggestions` is added and removed in a loop.
+
+**Root Cause (Fixed 2026-02-06):** GitHub App token behavior change exposed a missing protection in the optimizer workflow:
+
+**Timeline:**
+1. **Jan 12 (c9f639d):** Auto-pilot redesigned for inline execution - labels became "status markers, not triggers"
+2. **Feb 2 (0d6103d):** GitHub App tokens added to ALL workflows for rate limit management
+3. **Feb 6 (issue #1212):** Loop detected - optimizer was removing labels that auto-pilot needed for state tracking
+
+**The Loop Mechanics:**
+```
+1. Auto-pilot apply step completes → adds agents:apply-suggestions label
+2. Optimizer workflow TRIGGERS (enabled by App token, not GITHUB_TOKEN)
+3. Optimizer had NO protection for auto-pilot → runs and removes the label  
+4. Auto-pilot checks HAS_APPLY → false (label gone!)
+5. Auto-pilot logic: "No label? Must need to run apply again"
+6. Back to step 1 → INFINITE LOOP
+```
+
+**Why This Wasn't Caught Earlier:**
+- `GITHUB_TOKEN` has built-in anti-recursion: workflows it triggers don't trigger other workflows
+- **GitHub App tokens DO trigger other workflows** - no anti-recursion protection
+- The optimizer violation of "labels as status markers only" was masked until App tokens were added
+
+**Current Solution (Fixed 2026-02-06):**
+
+Added protection checks in `agents-issue-optimizer.yml` (lines 57-97):
+```yaml
+elif [[ "$LABEL_NAME" == "agents:apply-suggestions" ]]; then
+  # Skip if auto-pilot label is present (auto-pilot manages this label for state)
+  if gh issue view "${{ github.event.issue.number }}" --json labels \
+      --jq '.labels[].name' | grep -qx 'agents:auto-pilot'; then
+    echo "should_run=false" >> "$GITHUB_OUTPUT"
+    echo "Skipping: auto-pilot label present (manages apply inline)"
+  else
+    # ... run normally for standalone use
+  fi
+```
+
+Same protection added for `agents:format` and `agents:optimize` labels.
+
+**Architecture Clarification:**
+
+Labels in auto-pilot are **hybrid: status markers with functional side effects**:
+- ✅ **Status markers:** Indicate completion (e.g., "apply step finished")
+- ✅ **Functional checks:** Read back for flow control (e.g., `HAS_APPLY` at line 523)
+- ❌ **NOT triggers:** Should not trigger other workflows when auto-pilot is active
+
+**Label Semantics:**
+- `agents:formatted` - Format step completed
+- `agents:apply-suggestions` - Apply step completed (suggestions have been applied)
+- `agent:codex` - Agent capability check completed
+- `agents:auto-pilot` - Auto-pilot orchestration is active
+- `runner:<agent>` - Optional auto-pilot override (`runner:claude`, `runner:codex`, etc.) that selects the agent without triggering the issue intake workflow
+
+**Prevention:**
+- Workflows triggered by auto-pilot status labels MUST check for `agents:auto-pilot` presence
+- If auto-pilot is present, skip execution (auto-pilot runs logic inline)
+- This respects the inline execution model while preserving standalone label-triggered workflows
 
 ### Keepalive Not Triggering
 

@@ -1,9 +1,15 @@
 # Suppress false positives for properties not defined in reusable workflow outputs
 property ".+" is not defined in object type {}
 
+# Allow token load balancer secrets in workflows where actionlint lacks secret typing.
+property "(token_rotation_json|service_bot_pat|actions_bot_pat|codespaces_workflows|owner_pr_pat|agents_automation_pat|workflows_app_id|workflows_app_private_key|keepalive_app_id|keepalive_app_private_key|gh_app_id|gh_app_private_key|app_1_id|app_1_private_key|app_2_id|app_2_private_key)" is not defined in object type .+
+
 # Suppress actionlint false positive for 'models' permission (GitHub Models API)
 # actionlint 1.7.3 doesn't recognize this newer permission scope
 unknown permission scope "models"
+
+# actionlint 1.7.3 doesn't recognize the workflow_job trigger yet.
+unknown Webhook event "workflow_job"
 
 # These are style warnings for consecutive echo redirects. Grouping them would
 # reduce readability in our workflow context.
@@ -12,3 +18,5 @@ SC2129:style:.+: Consider using { cmd1; cmd2; } >> file instead of individual re
 # Suppress SC2086 info for workflow input variables in .github/workflows that are controlled/safe.
 # This intentionally hides SC2086 info-level warnings in workflow files; other shell scripts remain checked.
 SC2086:info:.github/workflows/.+: Double quote to prevent globbing and word splitting
+
+constant expression "false" in condition

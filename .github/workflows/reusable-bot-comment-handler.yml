@@ -31,15 +31,24 @@ on:
         type: boolean
         default: false
       bot_authors:
-        description: 'Comma-separated list of bot login names (default includes Copilot, github-actions, coderabbitai, chatgpt-codex-connector)'
+        description: >-
+          Comma-separated list of bot login names (default includes Copilot,
+          github-actions, coderabbitai, chatgpt-codex-connector)
         required: false
         type: string
-        default: 'Copilot,copilot[bot],github-actions[bot],coderabbitai[bot],chatgpt-codex-connector[bot]'
+        default: >-
+          Copilot,copilot[bot],github-actions[bot],coderabbitai[bot],
+          chatgpt-codex-connector[bot]
       skip_if_human_replied:
         description: 'Skip comments where a human has already replied'
         required: false
         type: boolean
         default: true
+      ignored_paths:
+        description: 'Comma-separated list of path prefixes to ignore in bot review comments'
+        required: false
+        type: string
+        default: '.agents/'
     outputs:
       comments_found:
         description: 'Whether unresolved bot comments were found'
@@ -110,8 +119,21 @@ jobs:
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
+            .github/agents/registry.yml
+            .github/actions/setup-api-client
+            .github/scripts/agent_registry.js
             .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
+            .github/scripts/bot-comment-dismiss.js
           sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
 
       - name: Detect agent from PR labels
         id: agent
@@ -146,18 +168,40 @@ jobs:
             }
 
             const labels = pr.labels.map(l => l.name);
-            let agent = 'codex';  // default
-            let workflow = 'reusable-codex-run.yml';
+            // Resolve default agent from registry; fall back to 'codex'
+            let _defaultAgent = 'codex';
+            let _defaultWorkflow = 'reusable-codex-run.yml';
+            try {
+              const { loadAgentRegistry, getRunnerWorkflow: getDefault } =
+                require('./.github/scripts/agent_registry.js');
+              _defaultAgent = loadAgentRegistry().default_agent || 'codex';
+              const dw = getDefault(_defaultAgent);
+              _defaultWorkflow = String(dw || '').split('/').pop() || _defaultWorkflow;
+            } catch (_) {}
+            let agent = _defaultAgent;
+            let workflow = _defaultWorkflow;
 
-            if (labels.includes('agent:claude')) {
-              agent = 'claude';
-              workflow = 'reusable-claude-run.yml';
-            } else if (labels.includes('agent:gemini')) {
-              agent = 'gemini';
-              workflow = 'reusable-gemini-run.yml';
-            } else if (labels.includes('agent:codex')) {
-              agent = 'codex';
-              workflow = 'reusable-codex-run.yml';
+            try {
+              const {
+                resolveAgentFromLabels,
+                getRunnerWorkflow,
+              } = require('./.github/scripts/agent_registry.js');
+              agent = resolveAgentFromLabels(pr.labels);
+              const runnerWorkflow = getRunnerWorkflow(agent);
+              workflow = String(runnerWorkflow || '').split('/').pop() || workflow;
+            } catch (error) {
+              // Fallback to legacy behavior if the helper isn't available.
+              const labelSet = new Set(labels.map((value) => String(value || '').toLowerCase()));
+              if (labelSet.has('agent:claude')) {
+                agent = 'claude';
+                workflow = 'reusable-claude-run.yml';
+              } else if (labelSet.has('agent:gemini')) {
+                agent = 'gemini';
+                workflow = 'reusable-gemini-run.yml';
+              } else if (labelSet.has('agent:codex')) {
+                agent = 'codex';
+                workflow = 'reusable-codex-run.yml';
+              }
             }
 
             core.setOutput('agent', agent);
@@ -183,6 +227,10 @@ jobs:
             const prNumber = parseInt('${{ inputs.pr_number }}');
             const botAuthors = '${{ inputs.bot_authors }}'.split(',').map(s => s.trim());
             const skipIfHumanReplied = ${{ inputs.skip_if_human_replied }};
+            const ignoredPaths = '${{ inputs.ignored_paths }}'
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean);
 
             console.log(`Collecting comments for PR #${prNumber}`);
             console.log(`Bot authors: ${botAuthors.join(', ')}`);
@@ -202,6 +250,12 @@ jobs:
             for (const comment of comments) {
               // Skip if not from a known bot
               if (!botAuthors.some(bot => comment.user.login.toLowerCase() === bot.toLowerCase())) {
+                continue;
+              }
+
+              const commentPath = comment.path || '';
+              if (ignoredPaths.some(prefix => commentPath.startsWith(prefix))) {
+                console.log(`Skipping comment ${comment.id} in ignored path ${commentPath}`);
                 continue;
               }
 
@@ -250,9 +304,57 @@ jobs:
             if (botComments.length > 0) {
               console.log('Comments to address:');
               for (const c of botComments) {
-                console.log(`- ${c.path}:${c.line} (${c.author}): ${c.body.substring(0, 100)}...`);
+                const preview = c.body.substring(0, 100).replace(/\n/g, ' ');
+                console.log(`- ${c.path}:${c.line} (${c.author}): ${preview}...`);
               }
             }
+
+      - name: Auto-dismiss review comments on ignored paths
+        if: steps.collect.outputs.found == 'true'
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ steps.auth.outputs.token }}
+          script: |
+            const { autoDismissReviewComments } = require(
+              './.github/scripts/bot-comment-dismiss.js'
+            );
+            const { createTokenAwareRetry } = require(
+              './.github/scripts/github-api-with-retry.js'
+            );
+            const { withRetry } = await createTokenAwareRetry({
+              github, core,
+              env: process.env,
+              task: 'bot-comment-dismiss',
+              capabilities: ['pull-requests:write'],
+            });
+            const prNumber = parseInt('${{ inputs.pr_number }}');
+            const ignoredPaths = '${{ inputs.ignored_paths }}'
+              .split(',')
+              .map(s => s.trim())
+              .filter(Boolean);
+            const botAuthors = [
+              'copilot-pull-request-reviewer',
+              'chatgpt-codex-connector',
+              'github-actions[bot]',
+            ];
+
+            const result = await autoDismissReviewComments({
+              github, withRetry, core,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pullNumber: prNumber,
+              ignoredPaths,
+              botAuthors,
+            });
+
+            const dismissedCount = Array.isArray(result.dismissed)
+              ? result.dismissed.length
+              : 0;
+            const failedCount = Array.isArray(result.failed) ? result.failed.length : 0;
+            core.info(
+              `Auto-dismissed ${dismissedCount} review comment(s) on ignored paths ` +
+              `(failed: ${failedCount})`
+            );
 
       - name: Post summary
         if: steps.collect.outputs.found == 'true'
@@ -327,7 +429,18 @@ jobs:
           PROMPT_HEADER
 
           # Append each comment using jq with proper escaping
-          echo "${COMMENTS_JSON}" | jq -r '.[] | "### \(.path):\(.line // "N/A")\n\n**From:** \(.author)\n\n```\n\(.body)\n```\n\n**Context (diff hunk):**\n```diff\n\(.diff_hunk)\n```\n\n---\n"' >> .github/codex/prompts/fix_bot_comments_dynamic.md
+          cat > /tmp/bot_comments_filter.jq << 'JQ'
+          .[] |
+            "### \(.path):\(.line // \"N/A\")\n\n" +
+            "**From:** \(.author)\n\n" +
+            "```\n\(.body)\n```\n\n" +
+            "**Context (diff hunk):**\n" +
+            "```diff\n\(.diff_hunk)\n```\n\n" +
+            "---\n"
+          JQ
+
+          echo "${COMMENTS_JSON}" | jq -r -f /tmp/bot_comments_filter.jq \
+            >> .github/codex/prompts/fix_bot_comments_dynamic.md
 
           cat >> .github/codex/prompts/fix_bot_comments_dynamic.md << 'PROMPT_FOOTER'
 
@@ -341,7 +454,7 @@ jobs:
           echo "Generated prompt with $(echo "${COMMENTS_JSON}" | jq length) comments"
 
       - name: Upload prompt artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bot-comments-prompt-${{ github.run_id }}
           path: .github/codex/prompts/fix_bot_comments_dynamic.md
@@ -384,7 +497,16 @@ jobs:
         with:
           sparse-checkout: |
             .github/scripts/github-api-with-retry.js
+            .github/actions/setup-api-client
+            .github/scripts/github-rate-limited-wrapper.js
+            .github/scripts/token_load_balancer.js
           sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
 
       - name: Assign agent and post context comment
         id: dispatch
@@ -401,7 +523,7 @@ jobs:
                   paginateWithRetry: (githubInstance, method, params) =>
                     githubInstance.paginate(method, params),
                 };
-            const { withRetry } = retryHelpers;
+            const { withRetry, paginateWithRetry } = retryHelpers;
             const prNumber = parseInt('${{ inputs.pr_number }}');
             const agent = '${{ needs.collect.outputs.agent }}';
             const count = '${{ needs.collect.outputs.comments_count }}';
@@ -415,7 +537,8 @@ jobs:
               'gemini': ['copilot']   // Gemini uses Copilot workspace
             };
 
-            const assignees = agentAssignees[agent] || ['chatgpt-codex-connector'];
+            const defaultAssignees = agentAssignees['codex'] || ['chatgpt-codex-connector'];
+            const assignees = agentAssignees[agent] || defaultAssignees;
 
             // Assign the agent to the PR (this is what triggers Codex CLI properly)
             try {
@@ -431,13 +554,18 @@ jobs:
             }
 
             // Post informational comment (without @mention to avoid triggering connector twice)
+            // Use HTML marker for deduplication.
+            // Update existing comment instead of creating duplicates.
+            const marker = '<!-- bot-comment-handler -->';
             const comment = [
+              marker,
               '## 🤖 Bot Comment Handler',
               '',
               `- Agent: ${agent}`,
               `- Bot comments to address: ${count}`,
               '',
-              'The agent has been assigned to this PR to address the bot review comments.',
+              'The agent has been assigned to this PR to address the bot review ' +
+              'comments.',
               '',
               '### Instructions for agent',
               '1. Implement suggested fixes that improve the code',
@@ -446,12 +574,33 @@ jobs:
               'The bot comment handler workflow has prepared context in the artifacts.'
             ].join('\n');
 
-            await withRetry(() => github.rest.issues.createComment({
-              owner,
-              repo,
-              issue_number: prNumber,
-              body: comment
-            }));
+            // Find existing bot-comment-handler comment to avoid duplicates
+            const existingComments = await paginateWithRetry(
+              github,
+              github.rest.issues.listComments,
+              { owner, repo, issue_number: prNumber, per_page: 100 }
+            );
+            const existing = existingComments.find(c => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await withRetry(() => github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body: comment
+              }));
+              core.info(
+                `Updated existing bot-comment-handler comment #${existing.id} on PR #${prNumber}`
+              );
+            } else {
+              await withRetry(() => github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body: comment
+              }));
+              core.info(`Created new bot-comment-handler comment on PR #${prNumber}`);
+            }
 
             core.setOutput('triggered', 'true');
             console.log(`Assigned ${assignees.join(', ')} and posted context on PR #${prNumber}`);

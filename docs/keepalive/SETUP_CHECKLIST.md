@@ -535,6 +535,11 @@ Create these labels in **Settings** → **Labels**:
 | `gate-exempt` | `#EDEDED` | Allows merge without passing Gate checks |
 
 > The `agents-auto-label.yml` workflow can suggest additional labels based on issue content using semantic matching.
+> Configuration knobs:
+> - `EMBEDDING_PROVIDER_PREFERRED` selects a specific provider id (e.g., `openai`).
+> - `EMBEDDING_PROVIDER_ALLOWLIST` / `EMBEDDING_PROVIDER_DENYLIST` are comma-separated filters.
+> - `EMBEDDING_PREFER_LOW_COST` and `EMBEDDING_PREFER_LOW_LATENCY` bias selection.
+> - If no external credentials (like `OPENAI_API_KEY`) are available, the system falls back to a deterministic local embedding provider.
 
 ### Step 16: Understand the Sync System
 

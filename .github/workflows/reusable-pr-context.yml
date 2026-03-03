@@ -143,7 +143,17 @@ jobs:
         with:
           sparse-checkout: |
             .github/scripts
+            .github/actions/setup-api-client
           sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
+
 
       - name: Generate App Token
         id: app_token
@@ -178,7 +188,9 @@ jobs:
         with:
           github-token: ${{ steps.token.outputs.token }}
           script: |
-            const { fetchPRContext, serializeForOutput } = require('./.github/scripts/pr-context-graphql.js');
+            const { fetchPRContext, serializeForOutput } = require(
+              './.github/scripts/pr-context-graphql.js'
+            );
 
             const owner = context.repo.owner;
             const repo = context.repo.repo;
@@ -205,15 +217,24 @@ jobs:
 
               // Labels
               core.setOutput('labels_json', JSON.stringify(pr.labels));
-              core.setOutput('has_agent_label', pr.hasAnyLabel(['agent:codex', 'agent:copilot', 'agents:keepalive']));
+              core.setOutput(
+                'has_agent_label',
+                pr.hasAnyLabel(['agent:codex', 'agent:claude', 'agent:auto', 'agent:copilot', 'agents:keepalive'])
+              );
               core.setOutput('has_keepalive_label', pr.hasLabel('agents:keepalive'));
 
               // Files
               core.setOutput('files_count', pr.files.total);
               core.setOutput('files_json', JSON.stringify(pr.files.paths));
               core.setOutput('has_src_changes', pr.files.paths.some(f => f.startsWith('src/')));
-              core.setOutput('has_test_changes', pr.files.paths.some(f => f.includes('test') || f.includes('spec')));
-              core.setOutput('has_workflow_changes', pr.files.paths.some(f => f.startsWith('.github/workflows/')));
+              core.setOutput(
+                'has_test_changes',
+                pr.files.paths.some((f) => f.includes('test') || f.includes('spec'))
+              );
+              core.setOutput(
+                'has_workflow_changes',
+                pr.files.paths.some((f) => f.startsWith('.github/workflows/'))
+              );
 
               // CI Status
               core.setOutput('ci_status', pr.lastCommit?.status || 'UNKNOWN');

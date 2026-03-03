@@ -56,6 +56,27 @@ Before saying "done", "complete", "finished", or summarizing results:
 3. **Are all CI checks passing?** If not, why am I stopping?
 4. **Would I be proud to show this work?** If there are known issues I'm ignoring, the answer is no.
 
+### 🧭 CLI Auth Troubleshooting (GitHub Logs/Checks)
+
+When debugging GitHub Actions via `gh` CLI, remember token precedence:
+
+1. If `GH_TOKEN`/`GITHUB_TOKEN` env vars are set, `gh` uses them first.
+2. Env-token auth can have narrower scopes than an interactive `gh auth login` session.
+3. If logs/checks access unexpectedly fails, try unsetting env tokens before diagnosing:
+
+```bash
+unset GH_TOKEN GITHUB_TOKEN
+gh auth status
+```
+
+If unsetting removes all access, restore the intended token explicitly for commands:
+
+```bash
+GH_TOKEN="$CODESPACES" gh run list --repo <owner>/<repo>
+```
+
+Do this before concluding a run is unreadable due to repository permissions.
+
 ## Repository Purpose
 
 This is the **central workflow library** for the stranske organization. It provides:
@@ -212,6 +233,106 @@ This is **working as designed**. If a PR with `agent:codex` isn't progressing, t
 - `docs/keepalive/GoalsAndPlumbing.md` - **Canonical contract** (READ THIS FIRST)
 - `docs/keepalive/MULTI_AGENT_ROUTING.md` - Agent routing architecture
 - `docs/keepalive/Agents.md` - Required reading before keepalive changes
+- `docs/guides/ADD_NEW_AGENT.md` - Step-by-step guide for onboarding additional agents (tokens, registry, runner wiring)
+
+## Auto-Pilot Pipeline (`agents-auto-pilot.yml`)
+
+⚠️ **CRITICAL**: Auto-pilot is the primary end-to-end automation system. Before modifying it, read [`docs/analysis/autopilot-40pr-evaluation-feb-2026.md`](docs/analysis/autopilot-40pr-evaluation-feb-2026.md) for the latest evaluation.
+
+### Pipeline Architecture
+
+Auto-pilot is a **self-dispatching** pipeline — a single workflow (~2500 lines) that chains its own stages via `workflow_dispatch` with a `force_step` input. This eliminates label-trigger race conditions.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  agents-auto-pilot.yml — Self-Dispatching Pipeline              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Step Sequence (each dispatches the next):                       │
+│                                                                  │
+│  1. format         → issue_formatter.py + task_decomposer.py    │
+│  2. optimize       → issue_optimizer.py (repo-aware analysis)   │
+│  3. apply          → Enriches issue with optimizer suggestions   │
+│  4. capability-check → Validates issue suitability               │
+│  5. create-pr      → Creates codex/issue-* branch + PR          │
+│  6. monitor-pr     → Watches for agent progress (120s delay)    │
+│  7. check-completion → Adds automerge when CI passes            │
+│  8. verify         → Triggers agents-verifier.yml                │
+│  9. done           → Pipeline complete                           │
+│                                                                  │
+│  Re-dispatch: explicit nextStepMap + force_step input            │
+│  Safety: MAX_CYCLES: 10 prevents runaway loops                   │
+│  Delays: monitor-pr=120s, create-pr=60s                          │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Step Determination Logic
+
+The workflow determines which step to run using this priority order:
+
+1. If `force_step` input is set → run that step directly
+2. If issue lacks `agents:formatted` label → run `format`
+3. If issue lacks `agents:optimized` label → run `optimize`
+4. If issue lacks `agents:applied` label → run `apply`
+5. If issue lacks `agent:codex` label → run `capability-check`
+6. If no PR exists → run `create-pr`
+7. If PR exists but not merged → run `monitor-pr`
+8. If PR merged but not verified → run `check-completion`
+9. Default → `done`
+
+### Self-Dispatch Mechanism
+
+After each step, auto-pilot dispatches itself with the next step:
+
+```yaml
+# nextStepMap (hardcoded in workflow):
+# format → optimize
+# optimize → apply
+# apply → capability-check
+# capability-check → auto (re-evaluates from step 1)
+# create-pr → auto (with 60s delay)
+# monitor-pr → auto (with 120s delay)
+```
+
+**Why self-dispatch?** Workflows triggered by `GITHUB_TOKEN` cannot trigger other workflows via label events. Self-dispatch via `workflow_dispatch` sidesteps this limitation entirely.
+
+### Verification Pipeline
+
+After PR merge:
+
+1. `agents-verifier.yml` triggers when a `verify:*` label is applied to a merged PR (or via manual `workflow_dispatch`)
+2. Modes: `checkbox` (task completeness via Codex CLI), `evaluate` (single LLM), `compare` (dual-LLM cross-verification)
+3. In `compare` mode, two providers (gpt-5.2 + claude-sonnet-4-5) evaluate independently; unanimous PASS required
+4. Verdict: PASS → done | CONCERNS/FAIL → maintainer (or automation) applies `verify:create-new-pr` label
+5. `agents-verify-to-new-pr.yml` runs on `verify:create-new-pr` label → 4-round LLM pipeline (analyze with reasoning model → tasks → acceptance criteria → format)
+6. **Chain depth should be capped at 2** (original + 2 follow-ups max). Automated enforcement is pending; manually apply `needs-human` beyond this depth.
+
+> **Note:** The verifier does NOT auto-apply `verify:create-new-pr`. Follow-up PR creation requires an explicit label application.
+
+### Key Metrics (Feb 2026 Evaluation, 40-PR sample)
+
+| Metric | Workflows (20) | TMP (20) | Combined |
+|--------|---------------:|----------:|---------:|
+| Merge rate | 100% | 100% | 100% |
+| First-fix rate (chain ends) | 20% | 50% | 35% |
+| Avg chain depth | 3.2 | 2.2 | 2.7 |
+| Max chain depth | 6 | 5 | 6 |
+| needs-human rate | 25% | 55% | 40% |
+| Verifier signal quality | ~75% high-signal | ~75% | ~75% |
+
+**Primary chain-depth driver:** Test coverage over-indexing — the verifier's testing score triggers CONCERNS even when functional implementation is correct.
+
+See [`docs/analysis/verify-compare-40pr-evaluation-feb-2026.md`](docs/analysis/verify-compare-40pr-evaluation-feb-2026.md) for the full evaluation, prompt analysis, and P0-P3 improvement recommendations.
+
+### Modifying Auto-Pilot
+
+1. **Read the evaluation doc** first — understand what works and what doesn't
+2. **Do NOT revert to label-triggered steps** — self-dispatch is correct
+3. **Do NOT remove verification** — tune it, don't delete it
+4. **Preserve task appendix injection** — explicit task context is the single most important quality factor
+5. **Test in Workflows repo first** — consumer repos receive via sync
+6. **Check the nextStepMap** if adding new steps
 
 ## Secrets
 
@@ -283,6 +404,9 @@ The nested job 'job_name' is requesting 'contents: write', but is only allowed '
 | `docs/keepalive/GoalsAndPlumbing.md` | Keepalive system design |
 | `docs/keepalive/SETUP_CHECKLIST.md` | Consumer repo setup steps |
 | `docs/keepalive/KEEPALIVE_TROUBLESHOOTING.md` | Debugging keepalive |
+| `docs/analysis/autopilot-40pr-evaluation-feb-2026.md` | Auto-pilot pipeline evaluation (Feb 2026) |
+| `docs/keepalive/MULTI_AGENT_ROUTING.md` | Agent routing architecture |
+| `docs/keepalive/Agents.md` | Required reading before agent changes |
 
 ## Before Making Changes
 
@@ -679,3 +803,107 @@ With this policy:
 - CI fails if you forget to declare sync-able files
 - Single source of truth (manifest) prevents drift
 - Clear enforcement at PR time, not after deployment
+
+## Rate Limiting Architecture
+
+### Overview
+
+Multiple concurrent workflows hitting the GitHub API can exhaust rate limits. This system distributes API calls across multiple tokens (PATs and GitHub Apps) to avoid exhaustion.
+
+### Components
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Rate Limiting System                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  .github/actions/setup-api-client/action.yml                    │
+│    │  • Installs @octokit/* dependencies                        │
+│    │  • Exports all tokens to GITHUB_ENV                        │
+│    │  • Called at start of every job making API calls           │
+│    │                                                             │
+│    ├─────────────────────────────────────────────────────────────│
+│    ▼                                                             │
+│  process.env (environment variables)                            │
+│    │  SERVICE_BOT_PAT, ACTIONS_BOT_PAT, WORKFLOWS_APP_ID, ...   │
+│    │                                                             │
+│    ├─────────────────────────────────────────────────────────────│
+│    ▼                                                             │
+│  .github/scripts/github-api-with-retry.js                       │
+│    │  • collectTokenSecrets(process.env) → secrets object       │
+│    │  • createTokenAwareRetry() → initialized wrapper           │
+│    │  • withRetry() → exponential backoff on rate limits        │
+│    │                                                             │
+│    ├─────────────────────────────────────────────────────────────│
+│    ▼                                                             │
+│  .github/scripts/token_load_balancer.js                         │
+│       • initializeTokenRegistry({secrets}) → register tokens    │
+│       • getOptimalToken() → select best available token         │
+│       • updateFromHeaders() → track usage from responses        │
+│       • Token specializations (exclusive tasks)                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `setup-api-client` | Composite action - installs deps + exports tokens |
+| `token_load_balancer.js` | Token registry, selection, and tracking |
+| `github-api-with-retry.js` | Retry wrapper with token rotation |
+| `rate-limit-aware-client.js` | Alternative client implementation |
+
+### Usage Pattern
+
+Every workflow job that makes API calls should:
+
+```yaml
+jobs:
+  my-job:
+    steps:
+      - uses: actions/checkout@v4
+      
+      # REQUIRED: Set up API client and export tokens
+      - uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+      
+      # API calls now have token rotation available
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({ github, core });
+            
+            await withRetry(() => github.rest.issues.createComment({...}));
+```
+
+### Token Types
+
+| Token | Pool | Limit | Use Cases |
+|-------|------|-------|-----------|
+| `GITHUB_TOKEN` | Per-repo | 1000/hr | Basic repo ops |
+| `SERVICE_BOT_PAT` | Bot account | 5000/hr | Comments, labels |
+| `ACTIONS_BOT_PAT` | Bot account | 5000/hr | Workflow dispatch |
+| `WORKFLOWS_APP` | App install | 5000/hr | General workflow ops |
+| `KEEPALIVE_APP` | App install | 5000/hr | Keepalive (isolated) |
+
+### Modifying Rate Limiting
+
+When changing rate limiting behavior:
+
+1. **Read this section first** - understand the component relationships
+2. **Check setup-api-client** - token exports must match what scripts expect
+3. **Check token_load_balancer.js** - registry expects specific secret names
+4. **Check github-api-with-retry.js** - collectTokenSecrets() must include all tokens
+5. **Test token availability** - use `health-75-api-rate-diagnostic.yml`
+
+### Common Issues
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| Token not available | Not exported by setup-api-client | Add to action inputs |
+| Registry empty | Secrets not passed to action | Use `secrets: ${{ toJSON(secrets) }}` |
+| Rate limit despite tokens | Wrong token for exclusive task | Check TOKEN_SPECIALIZATIONS |

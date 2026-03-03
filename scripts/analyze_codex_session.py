@@ -36,7 +36,7 @@ from pathlib import Path
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tools.codex_session_analyzer import AnalysisResult, analyze_session
+from tools.codex_session_analyzer import AnalysisResult, analyze_session  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,13 @@ def output_github_actions(result: AnalysisResult) -> None:
 
     # Print notices for visibility in logs
     print(f"::notice::Analysis completed with {result.completion.provider_used}")
+    print(f"::notice::Model: {result.completion.model_name}")
     print(f"::notice::Confidence: {result.completion.confidence:.0%}")
+    if result.quality_context_capable_providers:
+        print(
+            "::notice::Quality context capable providers: "
+            + ", ".join(result.quality_context_capable_providers)
+        )
 
     if result.completion.completed_tasks:
         print(f"::notice::Completed tasks: {len(result.completion.completed_tasks)}")
@@ -191,6 +197,7 @@ def output_github_actions(result: AnalysisResult) -> None:
     if github_output:
         with open(github_output, "a") as f:
             f.write(f"provider={result.completion.provider_used}\n")
+            f.write(f"model={result.completion.model_name}\n")
             f.write(f"confidence={result.completion.confidence}\n")
             f.write(f"completed-count={len(result.completion.completed_tasks)}\n")
             f.write(f"in-progress-count={len(result.completion.in_progress_tasks)}\n")
@@ -215,11 +222,16 @@ def output_github_actions(result: AnalysisResult) -> None:
             completed_json = json.dumps(result.completion.completed_tasks)
             f.write(f"completed-tasks={completed_json}\n")
 
+            if result.quality_context_capable_providers:
+                providers_json = json.dumps(result.quality_context_capable_providers)
+                f.write(f"quality-context-capable-providers={providers_json}\n")
+
 
 def output_json(result: AnalysisResult, pretty: bool = False) -> None:
     """Output results as JSON."""
     data = {
         "provider": result.completion.provider_used,
+        "model": result.completion.model_name,
         "confidence": result.completion.confidence,
         "completed_tasks": result.completion.completed_tasks,
         "in_progress_tasks": result.completion.in_progress_tasks,
@@ -231,6 +243,7 @@ def output_json(result: AnalysisResult, pretty: bool = False) -> None:
         # Quality metrics for keepalive integration
         "effort_score": result.effort_score,
         "data_quality": result.data_quality,
+        "quality_context_capable_providers": result.quality_context_capable_providers,
     }
 
     # BS detection fields

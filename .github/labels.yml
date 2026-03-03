@@ -4,9 +4,14 @@
   color: 0e8a16
   description: Assign to Codex agent
 - name: agent:claude
-  color: d4a017
-  description: Assign to Claude agent (via Amazon Bedrock)
-
+  color: 5319e7
+  description: Assign to Claude agent
+- name: agent:copilot
+  color: 1d76db
+  description: Assign to Copilot
+- name: agent:auto
+  color: ededed
+  description: Let the system choose an agent (policy-driven)
 
 # Agent workflow labels
 - name: agents
@@ -38,15 +43,20 @@
 - name: agent:needs-attention
   color: fbca04
   description: Agent needs human review or intervention
+- name: agent-high-privilege
+  color: d93f0b
+  description: Marks PRs that require high-privilege agent environments
 
 # PR origin labels
 - name: from:codex
   color: 0e8a16
   description: PR was created by or for Codex
 - name: from:claude
-  color: d4a017
+  color: 5319e7
   description: PR was created by or for Claude
-
+- name: from:copilot
+  color: 0366d6
+  description: PR was created by or for Copilot
 
 # Autofix labels
 - name: autofix

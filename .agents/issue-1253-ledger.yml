@@ -1,0 +1,46 @@
+version: 1
+issue: 1253
+base: main
+branch: codex/issue-1253
+tasks:
+  - id: task-01
+    title: Update `FallbackChainProvider` to pass `quality_context` through to underlying
+      providers that support it.
+    status: done
+    started_at: '2026-02-05T19:34:37Z'
+    finished_at: '2026-02-05T19:34:48Z'
+    commit: 346c61368f169ac3f3e985d31d940f06f2f13320
+    notes: []
+  - id: task-08
+    title: Update the `LLMProvider` interface to include an optional `quality_context`
+      parameter (default `None`), modify relevant methods to accept it, and verify
+      backwards compatibility through unit tests and CI validation.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-18
+    title: Identify and document specific providers in the codebase that support `quality_context`
+      by analyzing their implementation and usage.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-19
+    title: Update the `codex_session_analyzer.analyze_session` function to explicitly
+      pass the `quality_context` parameter to downstream components that require it.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-20
+    title: Write and execute tests to validate that the updated `codex_session_analyzer.analyze_session`
+      function correctly passes the `quality_context` parameter to downstream components.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []

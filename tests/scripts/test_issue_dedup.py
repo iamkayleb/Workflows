@@ -34,6 +34,7 @@ def test_build_issue_vector_store_uses_faiss_from_texts(monkeypatch):
         client=object(),
         provider="unit-test",
         model="unit-test-model",
+        is_fallback=False,
     )
     issues = [
         {"number": 42, "title": "Sample", "body": "Body", "html_url": "http://example"},
@@ -44,6 +45,7 @@ def test_build_issue_vector_store_uses_faiss_from_texts(monkeypatch):
     assert result is not None
     assert result.store["texts"] == ["Sample\nBody"]
     assert result.store["metadatas"] == [{"number": 42, "title": "Sample", "url": "http://example"}]
+    assert result.is_fallback is False
     assert DummyFAISS.calls
 
 
@@ -64,7 +66,11 @@ def test_find_similar_issues_filters_by_relevance_score():
         ]
     )
     vector_store = issue_dedup.IssueVectorStore(
-        store=store, provider="unit-test", model="unit-test-model", issues=[]
+        store=store,
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        issues=[],
     )
 
     matches = issue_dedup.find_similar_issues(vector_store, "query", threshold=0.8)
@@ -83,7 +89,11 @@ def test_find_similar_issues_converts_distance_scores():
         ]
     )
     vector_store = issue_dedup.IssueVectorStore(
-        store=store, provider="unit-test", model="unit-test-model", issues=[]
+        store=store,
+        provider="unit-test",
+        model="unit-test-model",
+        is_fallback=False,
+        issues=[],
     )
 
     matches = issue_dedup.find_similar_issues(vector_store, "query", threshold=0.85)

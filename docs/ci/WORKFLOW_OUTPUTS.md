@@ -70,6 +70,7 @@ that only emit artifacts, see the "Workflows without workflow_call outputs" sect
 | `reusable-pr-context.yml` | `full_context_json` | string (JSON) | Full PR context as JSON (use sparingly - large) | `needs.context.outputs.full_context_json` |
 | `reusable-codex-run.yml` | `final-message` | string (base64) | Full Codex output message (base64 encoded) | `needs.codex.outputs.final-message` |
 | `reusable-codex-run.yml` | `final-message-summary` | string | First 500 chars of Codex output (safe for PR comments) | `needs.codex.outputs.final-message-summary` |
+| `reusable-codex-run.yml` | `error-summary` | string | Failure summary message (prefers Codex output, falls back to preflight errors) | `needs.codex.outputs.error-summary` |
 | `reusable-codex-run.yml` | `exit-code` | string (number-like) | Codex CLI exit code (0=success) | `needs.codex.outputs.exit-code` |
 | `reusable-codex-run.yml` | `changes-made` | string (boolean-like) | Whether Codex made file changes (true/false) | `needs.codex.outputs.changes-made` |
 | `reusable-codex-run.yml` | `commit-sha` | string | SHA of the commit if changes were pushed | `needs.codex.outputs.commit-sha` |
@@ -77,8 +78,10 @@ that only emit artifacts, see the "Workflows without workflow_call outputs" sect
 | `reusable-codex-run.yml` | `error-category` | string | Error category if failure occurred (transient/auth/resource/logic/unknown) | `needs.codex.outputs.error-category` |
 | `reusable-codex-run.yml` | `error-type` | string | Error type if failure occurred (codex/infrastructure/auth/unknown) | `needs.codex.outputs.error-type` |
 | `reusable-codex-run.yml` | `error-recovery` | string | Suggested recovery action if failure occurred | `needs.codex.outputs.error-recovery` |
+| `reusable-codex-run.yml` | `watchdog-saved` | string (boolean-like) | Whether the pre-timeout watchdog saved uncommitted work (true/false) | `needs.codex.outputs.watchdog-saved` |
 | `reusable-codex-run.yml` | `llm-analysis-run` | string (boolean-like) | Whether LLM analysis was performed | `needs.codex.outputs.llm-analysis-run` |
 | `reusable-codex-run.yml` | `llm-provider` | string | LLM provider used for analysis (github-models, openai, regex-fallback) | `needs.codex.outputs.llm-provider` |
+| `reusable-codex-run.yml` | `llm-model` | string | Specific model used for analysis (e.g., gpt-4o, claude-3-5-sonnet) | `needs.codex.outputs.llm-model` |
 | `reusable-codex-run.yml` | `llm-confidence` | string (number-like) | Confidence level of LLM analysis (0-1) | `needs.codex.outputs.llm-confidence` |
 | `reusable-codex-run.yml` | `llm-completed-tasks` | string (JSON) | JSON array of completed task descriptions | `needs.codex.outputs.llm-completed-tasks` |
 | `reusable-codex-run.yml` | `llm-has-completions` | string (boolean-like) | Whether any task completions were detected | `needs.codex.outputs.llm-has-completions` |
@@ -87,6 +90,22 @@ that only emit artifacts, see the "Workflows without workflow_call outputs" sect
 | `reusable-codex-run.yml` | `llm-data-quality` | string | Session data quality level (high, medium, low, minimal) | `needs.codex.outputs.llm-data-quality` |
 | `reusable-codex-run.yml` | `llm-analysis-text-length` | string (number-like) | Length of analysis text sent to LLM | `needs.codex.outputs.llm-analysis-text-length` |
 | `reusable-codex-run.yml` | `llm-quality-warnings` | string (JSON) | JSON array of quality warnings from BS detector | `needs.codex.outputs.llm-quality-warnings` |
+| `reusable-claude-run.yml` | `final-message` | string (base64) | Full Claude output message (base64 encoded) | `needs.claude.outputs.final-message` |
+| `reusable-claude-run.yml` | `final-message-summary` | string | First 500 chars of Claude output (safe for PR comments) | `needs.claude.outputs.final-message-summary` |
+| `reusable-claude-run.yml` | `error-summary` | string | Failure summary message (prefers Claude output, falls back to preflight errors) | `needs.claude.outputs.error-summary` |
+| `reusable-claude-run.yml` | `exit-code` | string (number-like) | Claude CLI exit code (0=success) | `needs.claude.outputs.exit-code` |
+| `reusable-claude-run.yml` | `changes-made` | string (boolean-like) | Whether Claude made file changes (true/false) | `needs.claude.outputs.changes-made` |
+| `reusable-claude-run.yml` | `commit-sha` | string | SHA of the commit if changes were pushed | `needs.claude.outputs.commit-sha` |
+| `reusable-claude-run.yml` | `files-changed` | string (number-like) | Number of files changed by Claude | `needs.claude.outputs.files-changed` |
+| `reusable-claude-run.yml` | `llm-analysis-run` | string (boolean-like) | Whether LLM analysis was performed | `needs.claude.outputs.llm-analysis-run` |
+| `reusable-claude-run.yml` | `llm-provider` | string | LLM provider used for analysis (placeholder for compatibility) | `needs.claude.outputs.llm-provider` |
+| `reusable-claude-run.yml` | `llm-model` | string | Specific model used for analysis (placeholder for compatibility) | `needs.claude.outputs.llm-model` |
+| `reusable-claude-run.yml` | `llm-confidence` | string (number-like) | Confidence level of LLM analysis (placeholder for compatibility) | `needs.claude.outputs.llm-confidence` |
+| `reusable-claude-run.yml` | `llm-completed-tasks` | string (JSON) | JSON array of completed task descriptions (placeholder for compatibility) | `needs.claude.outputs.llm-completed-tasks` |
+| `reusable-claude-run.yml` | `llm-has-completions` | string (boolean-like) | Whether any task completions were detected (placeholder for compatibility) | `needs.claude.outputs.llm-has-completions` |
+| `reusable-claude-run.yml` | `error-category` | string | Error category (transient/auth/resource/logic/unknown) | `needs.claude.outputs.error-category` |
+| `reusable-claude-run.yml` | `error-type` | string | Error type (claude/infrastructure/auth/unknown) | `needs.claude.outputs.error-type` |
+| `reusable-claude-run.yml` | `error-recovery` | string | Suggested recovery action | `needs.claude.outputs.error-recovery` |
 <!-- OUTPUT-REFERENCE-END -->
 
 ## Workflows without workflow_call outputs
@@ -100,6 +119,7 @@ The workflows below do not expose `workflow_call` outputs. They publish artifact
 - `reusable-18-autofix.yml`
 - `reusable-70-orchestrator-main.yml`
 - `reusable-agents-issue-bridge.yml`
+- `reusable-agents-pr-health.yml`
 - `reusable-agents-verifier.yml`
 <!-- OUTPUT-NONE-END -->
 

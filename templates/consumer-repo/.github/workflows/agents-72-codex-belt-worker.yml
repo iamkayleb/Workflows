@@ -1,10 +1,15 @@
-# Executes the Codex belt worker: validates the queued issue, ensures the
-# codex/issue-<n> branch exists, and opens or refreshes the automation PR.
+# Executes the belt worker: validates the queued issue, ensures the
+# agent branch exists, and opens or refreshes the automation PR.
 name: Agents 72 Codex Belt Worker
 
 on:
   workflow_call:
     inputs:
+      agent_key:
+        description: 'Agent key for this belt run (default: codex)'
+        required: false
+        default: 'codex'
+        type: string
       issue:
         description: 'Issue number'
         required: true
@@ -86,12 +91,12 @@ permissions:
   actions: write
 
 concurrency:
-  group: codex-belt-${{ inputs.branch || format('issue-{0}', inputs.issue) || github.run_id }}
+  group: belt-${{ inputs.agent_key || 'codex' }}-${{ inputs.branch || format('issue-{0}', inputs.issue) || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   bootstrap:
-    name: Prepare Codex automation PR
+    name: Prepare agent automation PR
     runs-on: ubuntu-latest
     outputs:
       issue: ${{ steps.ctx.outputs.issue || '' }}
@@ -224,6 +229,7 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
+            const agentKey = String('${{ inputs.agent_key }}' || 'codex').trim().toLowerCase() || 'codex';
             const issueInput = '${{ inputs.issue }}'.trim();
             const branchInput = '${{ inputs.branch }}'.trim();
             const baseInput = '${{ inputs.base }}'.trim();
@@ -241,10 +247,6 @@ jobs:
             }
 
             let branch = branchInput;
-            if (!branch && issue) {
-              branch = `codex/issue-${issue}`;
-            }
-
             let base = baseInput;
 
             let source = sourceInput;
@@ -256,25 +258,28 @@ jobs:
               core.setFailed('Worker missing branch name.');
               return;
             }
-            if (!branch.startsWith('codex/issue-')) {
-              core.warning(`Unexpected branch naming: ${branch}`);
-            }
+
+            // Branch prefix validation is performed later after checkout (needs registry).
 
             const runId = context.runId;
             const concurrencyKey = branch || issue || runId;
-            const concurrencyGroup = concurrencyKey ? `codex-belt-${concurrencyKey}` : '';
+            const normalizedAgentKey = agentKey || 'codex';
+            const concurrencyGroup = concurrencyKey
+              ? `belt-${normalizedAgentKey}-${concurrencyKey}`
+              : '';
             if (!concurrencyGroup) {
               core.setFailed('Unable to determine concurrency group.');
               return;
             }
 
+            core.setOutput('agent_key', agentKey);
             core.setOutput('issue', String(issue));
             core.setOutput('branch', branch);
             core.setOutput('base', base);
             core.setOutput('source', source);
             core.setOutput('concurrency_group', concurrencyGroup);
             core.summary
-              .addHeading('Codex Belt Worker')
+              .addHeading(`Belt Worker (agent: ${agentKey})`)
               .addTable([[{ data: 'Issue', header: true }, { data: 'Branch', header: true }, { data: 'Source', header: true }], [`#${issue}`, branch, source]])
               .addTable([[{ data: 'Concurrency Group', header: true }, { data: 'Issue', header: true }, { data: 'Branch', header: true }], [concurrencyGroup, `#${issue}`, branch]])
               .addHeading('Branch Freshness Safeguards')
@@ -284,12 +289,44 @@ jobs:
               ])
               .write();
 
+      - name: Checkout repo (for retry helpers)
+        uses: actions/checkout@v6
+        with:
+          token: ${{ env.GH_BELT_TOKEN }}
+          fetch-depth: 1
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ env.GH_BELT_TOKEN }}
+
+      - name: Resolve Workflows default branch
+        id: workflows_ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({ github, core });
+            const { data } = await withRetry((client) =>
+              client.rest.repos.get({
+                owner: 'stranske',
+                repo: 'Workflows'
+              })
+            );
+            if (!data?.default_branch) {
+              core.setFailed('Could not determine Workflows default branch');
+              return;
+            }
+            core.setOutput('ref', data.default_branch);
+
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows
-          ref: main
+          ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
+            .github/actions/setup-api-client
             .github/scripts
           sparse-checkout-cone-mode: false
           fetch-depth: 1
@@ -308,15 +345,24 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-default-branch',
+            });
             const supplied = '${{ steps.ctx.outputs.base }}'.trim();
             if (supplied) {
               core.setOutput('branch', supplied);
               return;
             }
             const { owner, repo } = context.repo;
-            const { data } = await withRetry(() => github.rest.repos.get({ owner, repo }));
-            core.setOutput('branch', data.default_branch || 'main');
+            const { data } = await withRetry((client) => client.rest.repos.get({ owner, repo }));
+            if (!data.default_branch) {
+              core.setFailed('Repository default branch not available');
+              return;
+            }
+            core.setOutput('branch', data.default_branch);
 
       - name: Check parallel allowance
         id: parallel
@@ -324,7 +370,12 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-parallel',
+            });
             const rawMaxInput = '${{ inputs.max_parallel }}';
             const rawMax = rawMaxInput !== '' ? Number(rawMaxInput) : Number.NaN;
             const maxParallel = Number.isFinite(rawMax) && rawMax > 0 ? rawMax : 1;
@@ -335,8 +386,8 @@ jobs:
 
             const { owner, repo } = context.repo;
             const workflowId = 'agents-72-codex-belt-worker.yml';
-            const { data } = await withRetry(() =>
-              github.rest.actions.listWorkflowRuns({
+            const { data } = await withRetry((client) =>
+              client.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: workflowId,
@@ -419,7 +470,12 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-prune-branches',
+            });
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             if (!issue) {
               core.info('Issue context unavailable; skipping step branch pruning.');
@@ -428,12 +484,12 @@ jobs:
 
             const { owner, repo } = context.repo;
             const issueBranch = '${{ steps.ctx.outputs.branch }}';
-            const prefix = `codex/issue-${issue}/step/`;
+            const prefix = `${issueBranch}/step/`;
             const deleted = [];
 
             try {
-              const { data: refs } = await withRetry(() =>
-                github.rest.git.listMatchingRefs({
+              const { data: refs } = await withRetry((client) =>
+                client.rest.git.listMatchingRefs({
                   owner,
                   repo,
                   ref: `heads/${prefix}`,
@@ -447,8 +503,8 @@ jobs:
                 }
 
                 try {
-                  const { data: pulls } = await withRetry(() =>
-                    github.rest.pulls.list({
+                  const { data: pulls } = await withRetry((client) =>
+                    client.rest.pulls.list({
                       owner,
                       repo,
                       head: `${owner}:${branchName}`,
@@ -467,8 +523,8 @@ jobs:
                   });
 
                   if (merged) {
-                    await withRetry(() =>
-                      github.rest.git.deleteRef({ owner, repo, ref: `heads/${branchName}` })
+                    await withRetry((client) =>
+                      client.rest.git.deleteRef({ owner, repo, ref: `heads/${branchName}` })
                     );
                     deleted.push(branchName);
                   }
@@ -499,17 +555,26 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-verify-labels',
+            });
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             const { owner, repo } = context.repo;
-            const { data } = await withRetry(() =>
-              github.rest.issues.get({ owner, repo, issue_number: issue })
+            const { data } = await withRetry((client) =>
+              client.rest.issues.get({ owner, repo, issue_number: issue })
             );
 
-            const labelNames = Array.isArray(data.labels) ? data.labels.map((l) => String(l.name || '')) : [];
-            const hasCodex = labelNames.some((name) => name === 'agent:codex');
-            if (!hasCodex) {
-              core.setFailed(`Issue #${issue} no longer carries the agent:codex label.`);
+            const agentKey = String('${{ steps.ctx.outputs.agent_key }}' || 'codex').trim().toLowerCase() || 'codex';
+            const labelNames = Array.isArray(data.labels)
+              ? data.labels.map((l) => String(l.name || '').trim().toLowerCase())
+              : [];
+            const requiredAgentLabel = `agent:${agentKey}`;
+            const hasAgent = labelNames.includes(requiredAgentLabel);
+            if (!hasAgent) {
+              core.setFailed(`Issue #${issue} no longer carries the ${requiredAgentLabel} label.`);
               return;
             }
             const hasReady = labelNames.some((name) => name === 'status:ready');
@@ -530,10 +595,58 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows
-          ref: ${{ github.ref }}
+          ref: ${{ steps.workflows_ref.outputs.ref }}
           token: ${{ env.GH_BELT_TOKEN }}
           fetch-depth: 1
           path: .belt-tools
+
+      - name: Validate branch prefix
+        if: ${{ steps.parallel.outputs.allowed == 'true' && (inputs.keepalive != true || steps.keepalive_gate.outputs.action != 'skip') }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { getAgentConfig } = require('./.belt-tools/.github/scripts/agent_registry.js');
+            const agentKey = String('${{ steps.ctx.outputs.agent_key }}' || 'codex').trim().toLowerCase() || 'codex';
+            const branch = String('${{ steps.ctx.outputs.branch }}' || '').trim();
+            if (!branch) {
+              core.setFailed('Missing branch context for prefix validation.');
+              return;
+            }
+            let branchPrefix = '';
+            const registryCandidates = [
+              '.github/agents/registry.yml',
+              '.belt-tools/.github/agents/registry.yml',
+            ];
+            for (const registryPath of registryCandidates) {
+              if (!fs.existsSync(registryPath)) {
+                continue;
+              }
+              try {
+                const config = getAgentConfig(agentKey, { registryPath });
+                branchPrefix = String(config.branch_prefix || '').trim();
+                if (branchPrefix) {
+                  core.info(`Loaded branch prefix for ${agentKey} from ${registryPath}.`);
+                  break;
+                }
+              } catch (error) {
+                core.warning(`Failed to load ${registryPath} for branch validation: ${error.message}`);
+              }
+            }
+            if (!branchPrefix) {
+              core.warning(`Agent ${agentKey} does not define branch_prefix; skipping branch validation.`);
+              return;
+            }
+            if (!branch.startsWith(branchPrefix)) {
+              core.setFailed(`Branch "${branch}" does not match expected prefix "${branchPrefix}" for agent ${agentKey}.`);
+            }
+
+      - name: Re-install API client after branch checkout
+        if: ${{ steps.parallel.outputs.allowed == 'true' && (inputs.keepalive != true || steps.keepalive_gate.outputs.action != 'skip') }}
+        uses: ./.belt-tools/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ env.GH_BELT_TOKEN }}
 
       - name: Validate ledger base branch
         if: ${{ steps.parallel.outputs.allowed == 'true' && (inputs.keepalive != true || steps.keepalive_gate.outputs.action != 'skip') }}
@@ -605,7 +718,6 @@ jobs:
 
           status="${{ steps.freshness.outputs.status }}"
           branch="${BRANCH}"
-          issue="${ISSUE}"
 
           if [ -z "$status" ]; then
             echo '::error::Freshness check did not report a status.'
@@ -636,7 +748,7 @@ jobs:
 
           short=$(git rev-parse --short "origin/$branch")
           timestamp=$(date -u +%Y%m%d%H%M%S)
-          step_branch="codex/issue-${issue}/step/${timestamp}-${short}"
+          step_branch="${branch}/step/${timestamp}-${short}"
 
           git checkout --detach "origin/$branch"
           git checkout -b "$step_branch"
@@ -657,6 +769,30 @@ jobs:
             echo "- Outcome: ✅ Created fallback branch \`$step_branch\` targeting \`$branch\`."
           } >>"$GITHUB_STEP_SUMMARY"
 
+      - name: Fetch issue body for ledger
+        if: ${{ steps.parallel.outputs.allowed == 'true' && (inputs.keepalive != true || steps.keepalive_gate.outputs.action != 'skip') }}
+        id: ledger_issue
+        env:
+          ISSUE_NUMBER: ${{ steps.ctx.outputs.issue }}
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'belt-ledger-issue-body',
+              capabilities: ['issues:read', 'contents:read']
+            });
+            const issueNumber = parseInt(process.env.ISSUE_NUMBER, 10);
+            const { data: issue } = await withRetry((client) => client.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            }));
+            core.setOutput('body', issue?.body || '');
+
       - name: Prepare ledger task
         if: ${{ steps.parallel.outputs.allowed == 'true' && (inputs.keepalive != true || steps.keepalive_gate.outputs.action != 'skip') }}
         id: ledger_start
@@ -664,6 +800,7 @@ jobs:
           ISSUE: ${{ steps.ctx.outputs.issue }}
           BRANCH: ${{ steps.ctx.outputs.branch }}
           BASE_BRANCH: ${{ steps.base.outputs.branch }}
+          ISSUE_BODY: ${{ steps.ledger_issue.outputs.body }}
           GITHUB_TOKEN: ${{ env.GH_BELT_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -674,7 +811,6 @@ jobs:
           import os
           import re
           import sys
-          import urllib.request
           from pathlib import Path
 
           import yaml
@@ -684,13 +820,12 @@ jobs:
                   return super().increase_indent(flow, False)
 
           def iso_now() -> str:
-              return dt.datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
+              return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
 
           issue = os.environ["ISSUE"].strip()
           branch = os.environ["BRANCH"].strip()
           base = os.environ["BASE_BRANCH"].strip()
-          repo = os.environ["GITHUB_REPOSITORY"].strip()
-          token = os.environ.get("GITHUB_TOKEN", "").strip()
+          issue_body = os.environ.get("ISSUE_BODY", "")
 
           agents_dir = Path('.agents')
           agents_dir.mkdir(parents=True, exist_ok=True)
@@ -710,15 +845,7 @@ jobs:
                   previous_base = existing_base.strip() or None
               data = loaded
           else:
-              owner, _, name = repo.partition('/')
-              url = f"https://api.github.com/repos/{owner}/{name}/issues/{issue}"
-              headers = {"Accept": "application/vnd.github+json"}
-              if token:
-                  headers["Authorization"] = f"token {token}"
-              request = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  payload = json.load(response)
-              body = payload.get('body') or ''
+              body = issue_body or ''
               pattern = re.compile(r'^\s*[-*]\s+\[(?: |x|X)\]\s+(.*)$', re.MULTILINE)
               tasks = []
               for index, match in enumerate(pattern.finditer(body), start=1):
@@ -825,9 +952,12 @@ jobs:
 
           gh_output = os.environ.get('GITHUB_OUTPUT')
           if gh_output:
+              task = start_info['task'] or {}
+              task_title = (task.get('title') or '').replace('\r', ' ').replace('\n', ' ')
               with open(gh_output, 'a', encoding='utf-8') as handle:
-                  handle.write(f"task_id={start_info['task']['id'] if start_info['task'] else ''}\n")
-                  handle.write(f"task_status={start_info['task']['current_status'] if start_info['task'] else ''}\n")
+                  handle.write(f"task_id={task.get('id', '')}\n")
+                  handle.write(f"task_title={task_title}\n")
+                  handle.write(f"task_status={task.get('current_status', '')}\n")
                   handle.write(f"ledger_changed={'true' if changed else 'false'}\n")
                   handle.write(f"ledger_created={'true' if start_info['created'] else 'false'}\n")
                   handle.write(f"ledger_base_aligned={'true' if base_aligned else 'false'}\n")
@@ -885,7 +1015,7 @@ jobs:
           if [ "$upstream_sha" = "$head_sha" ]; then
             git config user.name "stranske-automation-bot"
             git config user.email "stranske-automation-bot@users.noreply.github.com"
-            git commit --allow-empty -m "chore(codex): initialize belt run for issue #${{ steps.ctx.outputs.issue }}"
+            git commit --allow-empty -m "chore(agents): initialize belt run for issue #${{ steps.ctx.outputs.issue }}"
             git push origin "$branch"
           else
             echo "Branch already diverged from $base; skipping placeholder commit."
@@ -897,12 +1027,17 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-label-in-progress',
+            });
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             const { owner, repo } = context.repo;
             try {
-              await withRetry(() =>
-                github.rest.issues.addLabels({ owner, repo, issue_number: issue, labels: ['status:in-progress'] })
+              await withRetry((client) =>
+                client.rest.issues.addLabels({ owner, repo, issue_number: issue, labels: ['status:in-progress'] })
               );
             } catch (error) {
               core.warning(`Failed to set status:in-progress: ${error.message}`);
@@ -914,12 +1049,17 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-remove-ready',
+            });
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             const { owner, repo } = context.repo;
             try {
-              await withRetry(() =>
-                github.rest.issues.removeLabel({ owner, repo, issue_number: issue, name: 'status:ready' })
+              await withRetry((client) =>
+                client.rest.issues.removeLabel({ owner, repo, issue_number: issue, name: 'status:ready' })
               );
             } catch (error) {
               if (error.status !== 404) {
@@ -927,14 +1067,19 @@ jobs:
               }
             }
 
-      - name: Open or refresh Codex PR
+      - name: Open or refresh agent PR
         if: ${{ steps.parallel.outputs.allowed == 'true' && (inputs.keepalive != true || steps.keepalive_gate.outputs.action != 'skip') && steps.mode.outputs.dry_run != 'true' }}
         id: pr
         uses: actions/github-script@v8
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-open-pr',
+            });
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             const fallbackBranch = '${{ steps.fallback.outputs.branch || '' }}';
             const branch = fallbackBranch || '${{ steps.ctx.outputs.branch }}';
@@ -945,8 +1090,8 @@ jobs:
             let issueTitle = '';
             let issueBody = '';
             try {
-              const { data: issueData } = await withRetry(() =>
-                github.rest.issues.get({ owner, repo, issue_number: issue })
+              const { data: issueData } = await withRetry((client) =>
+                client.rest.issues.get({ owner, repo, issue_number: issue })
               );
               issueTitle = issueData.title || '';
               issueBody = issueData.body || '';
@@ -956,19 +1101,19 @@ jobs:
 
             const header = `### Source Issue #${issue}: ${issueTitle}`;
             const quoted = (issueBody || '').split('\n').map((line) => `> ${line}`).join('\n');
-            const body = `${header}\n\nSource: ${issueUrl}\n\n${quoted}\n\n—\nPR created automatically to engage Codex.`;
+            const body = `${header}\n\nSource: ${issueUrl}\n\n${quoted}\n\n—\nPR created automatically by the belt worker.`;
 
             // Attempt to reuse an existing PR first
             let prNumber = null;
             try {
-              const { data: prs } = await withRetry(() =>
-                github.rest.pulls.list({ owner, repo, head: `${owner}:${branch}`, state: 'open' })
+              const { data: prs } = await withRetry((client) =>
+                client.rest.pulls.list({ owner, repo, head: `${owner}:${branch}`, state: 'open' })
               );
               const existing = prs.find((p) => p.head && p.head.ref === branch);
               if (existing) {
                 prNumber = existing.number;
-                await withRetry(() =>
-                  github.rest.pulls.update({ owner, repo, pull_number: prNumber, body })
+                await withRetry((client) =>
+                  client.rest.pulls.update({ owner, repo, pull_number: prNumber, body })
                 );
               }
             } catch (error) {
@@ -977,8 +1122,8 @@ jobs:
 
             if (!prNumber) {
               try {
-                const { data: pr } = await withRetry(() =>
-                  github.rest.pulls.create({ owner, repo, head: branch, base, title: `Codex belt for #${issue}`, body })
+                const { data: pr } = await withRetry((client) =>
+                  client.rest.pulls.create({ owner, repo, head: branch, base, title: `Agent belt for #${issue}`, body })
                 );
                 prNumber = pr.number;
               } catch (error) {
@@ -996,27 +1141,32 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-auto-merge',
+            });
             const prNumber = Number('${{ steps.pr.outputs.number }}');
             const { owner, repo } = context.repo;
 
             try {
-              const { data: pr } = await withRetry(() =>
-                github.rest.pulls.get({ owner, repo, pull_number: prNumber })
+              const { data: pr } = await withRetry((client) =>
+                client.rest.pulls.get({ owner, repo, pull_number: prNumber })
               );
               if (!pr.node_id) {
                 core.warning(`Unable to retrieve node_id for PR #${prNumber}; skipping auto-merge enablement.`);
                 return;
               }
 
-              await github.graphql(
+              await withRetry((client) => client.graphql(
                 `mutation EnableAutoMerge($pullRequestId: ID!, $method: PullRequestMergeMethod!) {
                   enablePullRequestAutoMerge(input: { pullRequestId: $pullRequestId, mergeMethod: $method }) {
                     pullRequest { number }
                   }
                 }`,
                 { pullRequestId: pr.node_id, method: 'SQUASH' }
-              );
+              ));
 
               core.summary.addHeading('Merge Strategy').addList([
                 `Enabled auto-merge (squash) for PR #${prNumber} once required checks pass.`,
@@ -1031,13 +1181,19 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-label-pr',
+            });
             const prNumber = Number('${{ steps.pr.outputs.number }}');
             const { owner, repo } = context.repo;
-            const labels = ['agent:codex', 'autofix', 'from:codex'];
+            const agentKey = String('${{ steps.ctx.outputs.agent_key }}' || 'codex').trim().toLowerCase() || 'codex';
+            const labels = [`agent:${agentKey}`, 'autofix', `from:${agentKey}`];
             try {
-              await withRetry(() =>
-                github.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels })
+              await withRetry((client) =>
+                client.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels })
               );
             } catch (error) {
               core.warning(`Failed to label PR #${prNumber}: ${error.message}`);
@@ -1049,15 +1205,33 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-assign',
+            });
             const prNumber = Number('${{ steps.pr.outputs.number }}');
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             const { owner, repo } = context.repo;
-            const assignees = ['chatgpt-codex-connector', 'stranske-automation-bot'];
+            const agentKey = String('${{ steps.ctx.outputs.agent_key }}' || 'codex').trim().toLowerCase() || 'codex';
+            let assignees = ['stranske-automation-bot'];
+            try {
+              const { getAgentConfig } = require('./.github/scripts/agent_registry.js');
+              const cfg = getAgentConfig(agentKey);
+              const logins = Array.isArray(cfg.automation_logins) ? cfg.automation_logins : [];
+              if (logins.length) {
+                assignees = [...new Set([...logins, 'stranske-automation-bot'])];
+              }
+            } catch (_) {
+              if (agentKey === 'codex') {
+                assignees.unshift('chatgpt-codex-connector');
+              }
+            }
             for (const target of [prNumber, issue]) {
               try {
-                await withRetry(() =>
-                  github.rest.issues.addAssignees({ owner, repo, issue_number: target, assignees })
+                await withRetry((client) =>
+                  client.rest.issues.addAssignees({ owner, repo, issue_number: target, assignees })
                 );
               } catch (error) {
                 core.warning(`Failed to assign #${target}: ${error.message}`);
@@ -1070,21 +1244,43 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry, paginateWithRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { github: retryGithub, withRetry, paginateWithRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-activation-comment',
+            });
             const prNumber = Number('${{ steps.pr.outputs.number }}');
             const branch = ('${{ steps.ctx.outputs.branch }}' || '').trim() || '(unknown branch)';
             const dryRun = '${{ steps.mode.outputs.dry_run }}' === 'true';
+            const taskId = ('${{ steps.ledger_start.outputs.task_id }}' || '').trim();
+            const taskTitle = ('${{ steps.ledger_start.outputs.task_title }}' || '').trim();
             const { owner, repo } = context.repo;
-            const retryGithub = github;
-            const marker = '<!-- codex-activation-marker -->';
+            const agentKey = String('${{ steps.ctx.outputs.agent_key }}' || 'codex').trim().toLowerCase() || 'codex';
+            const marker = '<!-- agent-activation-marker -->';
             const summary = dryRun
-              ? `Codex Worker activated for branch \`${branch}\` (dry run preview).`
-              : `Codex Worker activated for branch \`${branch}\`.`;
-            const body = `${marker}\n${summary}\n\n@codex start\n\nAutomated belt worker prepared this PR. Please continue implementing the requested changes.`;
+              ? `Agent worker (${agentKey}) activated for branch \`${branch}\` (dry run preview).`
+              : `Agent worker (${agentKey}) activated for branch \`${branch}\`.`;
+            // Direct the agent to focus on the single next ledger task for higher
+            // first-commit success probability.  Full issue context is in the
+            // PR body; this comment narrows the immediate scope.
+            let taskDirective = '';
+            if (taskId && taskTitle) {
+              taskDirective = [
+                '',
+                `**Focus on this task first:** \`${taskId}\` — ${taskTitle}`,
+                '',
+                'Implement **only** this task in your first commit.',
+                'Ensure the code compiles and existing tests pass before moving on.',
+                'The keepalive loop will assign subsequent tasks after this one is complete.',
+              ].join('\n');
+            }
+            // Agent-agnostic activation trigger
+            const activationTrigger = `@${agentKey} start`;
+            const body = `${marker}\n${summary}\n\n${activationTrigger}${taskDirective}`;
 
             try {
               const comments = await paginateWithRetry(
-                retryGithub,
                 retryGithub.rest.issues.listComments,
                 {
                   owner,
@@ -1097,25 +1293,25 @@ jobs:
               const [primary, ...duplicates] = withMarker;
 
               if (primary) {
-                await withRetry(() =>
-                  github.rest.issues.updateComment({ owner, repo, comment_id: primary.id, body })
+                await withRetry((client) =>
+                  client.rest.issues.updateComment({ owner, repo, comment_id: primary.id, body })
                 );
                 for (const duplicate of duplicates) {
                   try {
-                    await withRetry(() =>
-                      github.rest.issues.deleteComment({ owner, repo, comment_id: duplicate.id })
+                    await withRetry((client) =>
+                      client.rest.issues.deleteComment({ owner, repo, comment_id: duplicate.id })
                     );
                   } catch (deletionError) {
-                    core.warning(`Failed to remove duplicate Codex activation comment ${duplicate.id} on PR #${prNumber}: ${deletionError.message}`);
+                    core.warning(`Failed to remove duplicate activation comment ${duplicate.id} on PR #${prNumber}: ${deletionError.message}`);
                   }
                 }
               } else {
-                await withRetry(() =>
-                  github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body })
+                await withRetry((client) =>
+                  client.rest.issues.createComment({ owner, repo, issue_number: prNumber, body })
                 );
               }
             } catch (error) {
-              core.warning(`Failed to upsert Codex activation comment on PR #${prNumber}: ${error.message}`);
+              core.warning(`Failed to upsert activation comment on PR #${prNumber}: ${error.message}`);
             }
 
       - name: Sync issue comment with PR link
@@ -1124,13 +1320,18 @@ jobs:
         with:
           github-token: ${{ env.GH_BELT_TOKEN }}
           script: |
-            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              task: 'belt-worker-issue-comment',
+            });
             const issue = Number('${{ steps.ctx.outputs.issue }}');
             const prNumber = Number('${{ steps.pr.outputs.number }}');
             const { owner, repo } = context.repo;
             try {
-              await withRetry(() =>
-                github.rest.issues.createComment({ owner, repo, issue_number: issue, body: `Opened PR #${prNumber} via Codex belt worker.` })
+              await withRetry((client) =>
+                client.rest.issues.createComment({ owner, repo, issue_number: issue, body: `Opened PR #${prNumber} via belt worker.` })
               );
             } catch (error) {
               core.warning(`Failed to comment on issue #${issue}: ${error.message}`);
@@ -1163,7 +1364,7 @@ jobs:
                   return super().increase_indent(flow, False)
 
           def iso_now() -> str:
-              return dt.datetime.utcnow().replace(microsecond=0).isoformat() + 'Z'
+              return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00', 'Z')
 
           issue = os.environ.get('ISSUE', '').strip()
           branch = os.environ.get('BRANCH', '').strip()

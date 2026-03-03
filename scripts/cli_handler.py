@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-from scripts import api_client
+from scripts import api_client, auth_validator
 from scripts.duplicate_detection import (
     build_duplicate_payload,
     build_issue_payload,
@@ -257,8 +257,7 @@ def main(argv: list[str]) -> int:
     allowlist = _load_allowlist(args.allowlist, args.allowlist_env, config)
     if not allowlist:
         print(
-            "Repository allowlist is empty. Set --allowlist, "
-            f"${args.allowlist_env}, or --config.",
+            f"Repository allowlist is empty. Set --allowlist, ${args.allowlist_env}, or --config.",
             file=sys.stderr,
         )
         return 1
@@ -278,18 +277,19 @@ def main(argv: list[str]) -> int:
             retry_attempts=args.retry_attempts,
             retry_backoff=args.retry_backoff,
         )
-        if scopes is None:
-            print("Unable to determine token scopes; skipping scope check.", file=sys.stderr)
-        else:
-            extra_scopes = scopes - allowed_scopes
-            if extra_scopes:
-                extras = ", ".join(sorted(extra_scopes))
-                allowed = ", ".join(sorted(allowed_scopes))
-                print(
-                    "Token scopes exceed allowed scopes. " f"Extras: {extras}. Allowed: {allowed}.",
-                    file=sys.stderr,
-                )
-                return 1
+        payload = {"scopes": scopes, "allowed_scopes": allowed_scopes}
+        validation = auth_validator.validate_auth_payload(
+            payload,
+            require_allowed_scopes=True,
+            require_all_scopes=True,
+        )
+        if validation.skipped:
+            if validation.message:
+                print(validation.message, file=sys.stderr)
+        elif not validation.valid:
+            if validation.message:
+                print(validation.message, file=sys.stderr)
+            return 1
 
     labels = _parse_labels(args.labels)
     find_labels = _parse_labels(args.find_labels)

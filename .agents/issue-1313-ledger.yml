@@ -1,0 +1,70 @@
+version: 1
+issue: 1313
+base: main
+branch: codex/issue-1313
+tasks:
+  - id: task-01
+    title: Guard OAuth scope header handling in `fetch_oauth_scopes` to avoid crashes
+      when headers are missing.
+    pr_1304_concern: auth-validation-null-guards
+    status: done
+    started_at: '2026-02-07T19:05:00Z'
+    finished_at: '2026-02-07T19:08:00Z'
+    commit: f7446f2041e7ae30a6e188945b4bc893e7c5dcf2
+    code_change:
+      - path: scripts/api_client.py
+        area: fetch_oauth_scopes
+    evidence:
+      - test: tests/scripts/test_issue_dedup_smoke.py::test_fetch_oauth_scopes_handles_missing_headers
+    notes: []
+  - id: task-02
+    title: Add an authentication CLI test that asserts the missing token exit code
+      and error message.
+    pr_1304_concern: user-authentication-scenario
+    status: done
+    started_at: '2026-02-07T20:10:00Z'
+    finished_at: '2026-02-07T20:12:00Z'
+    commit: b4fb397923778003bc49d715b196edba3e653bd9
+    code_change:
+      - path: tests/test_authentication.py
+        area: test_main_missing_token_exits_with_message
+    evidence:
+      - test: tests/test_authentication.py::test_main_missing_token_exits_with_message
+    notes: []
+  - id: task-03
+    title: Add ledger validation tests for multi-remote fetch failover and retry behavior.
+    pr_1304_concern: ledger-validation-multi-remote-retry
+    status: done
+    started_at: '2026-02-07T20:20:00Z'
+    finished_at: '2026-02-07T20:25:00Z'
+    commit: a0f2f6d338277619bac4dedd7fa6dc788713bba3
+    code_change:
+      - path: tests/test_ledger_validate.py
+        area: _fetch_commit retry and multi-remote tests
+    evidence:
+      - test: tests/test_ledger_validate.py::test_fetch_commit_uses_second_remote_after_origin_failure
+      - test: tests/test_ledger_validate.py::test_fetch_commit_all_remotes_fail
+      - test: tests/test_ledger_validate.py::test_fetch_commit_retry_then_succeeds
+    notes: []
+  - id: task-04
+    title: Document the ledger hygiene decision for PR
+    pr_1304_concern: ledger-hygiene-decision
+    status: done
+    started_at: '2026-02-07T20:30:00Z'
+    finished_at: '2026-02-07T20:32:00Z'
+    commit: f7446f2041e7ae30a6e188945b4bc893e7c5dcf2
+    decision: DECISIONS.md#2026-02-07---pr-1304-ledger-hygiene
+    evidence:
+      - decision: DECISIONS.md#2026-02-07---pr-1304-ledger-hygiene
+    notes: []
+  - id: task-05
+    title: Record the PR
+    pr_1304_concern: auth-coverage-reporting
+    status: done
+    started_at: '2026-02-07T20:35:00Z'
+    finished_at: '2026-02-07T20:38:00Z'
+    commit: f7446f2041e7ae30a6e188945b4bc893e7c5dcf2
+    decision: DECISIONS.md#2026-02-07---pr-1304-auth-coverage-baseline
+    evidence:
+      - decision: DECISIONS.md#2026-02-07---pr-1304-auth-coverage-baseline
+    notes: []

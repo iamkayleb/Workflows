@@ -7,14 +7,19 @@ const {
   parseCheckboxStates,
   mergeCheckboxStates,
   ensureChecklist,
+  coalesceWrappedChecklist,
   extractBlock,
   fetchConnectorCheckboxStates,
+  findUnauthorizedCompletionAuthors,
+  buildCompletionAuthorWarningBody,
+  upsertCompletionAuthorWarning,
   buildStatusBlock,
   resolveAgentType,
   stripPrTemplateContent,
   augmentContextWithRelatedIssues,
   extractIssueRefsFromText,
   extractContextSectionWithPython,
+  upsertBlock,
 } = require('../agents_pr_meta_update_body.js');
 
 test('extractContextSectionWithPython returns trimmed stdout from python', () => {
@@ -247,6 +252,30 @@ test('ensureChecklist preserves section headers without adding checkboxes', () =
   assert.strictEqual(result, '## Tasks\n- [ ] Task one');
 });
 
+test('ensureChecklist preserves wrapped list item lines', () => {
+  const text = '- Task one with a long description\n  that continues here\n- [ ] Task two';
+  const result = ensureChecklist(text);
+
+  assert.strictEqual(result, '- [ ] Task one with a long description\n  that continues here\n- [ ] Task two');
+});
+
+test('coalesceWrappedChecklist merges continuation lines with joiners', () => {
+  const text = '- [ ] Add unit tests for FallbackChainProvider that pass quality_context and\n' +
+    '- [ ] assert it reaches the target provider.\n' +
+    '- [ ] Add regression tests for analysis_text_length < 50 with has_work_evidence\n' +
+    '- [ ] enabled so confidence does not exceed the cap.\n' +
+    '- [ ] Tests verify quality_context is passed to active providers in\n' +
+    '- [ ] FallbackChainProvider.';
+  const result = coalesceWrappedChecklist(text);
+
+  assert.strictEqual(
+    result,
+    '- [ ] Add unit tests for FallbackChainProvider that pass quality_context and assert it reaches the target provider.\n' +
+      '- [ ] Add regression tests for analysis_text_length < 50 with has_work_evidence enabled so confidence does not exceed the cap.\n' +
+      '- [ ] Tests verify quality_context is passed to active providers in FallbackChainProvider.'
+  );
+});
+
 test('ensureChecklist returns placeholder for empty input', () => {
   assert.strictEqual(ensureChecklist(''), '- [ ] —');
   assert.strictEqual(ensureChecklist('   '), '- [ ] —');
@@ -473,6 +502,92 @@ test('fetchConnectorCheckboxStates handles comments with null user', async () =>
   assert.strictEqual(states.get('valid task'), true);
 });
 
+test('findUnauthorizedCompletionAuthors detects completion checkpoint authors', () => {
+  const comments = [
+    {
+      user: { login: 'custom-bot[bot]' },
+      body: '<!-- codex-completion-checkpoint -->\n- [x] Done',
+    },
+    {
+      user: { login: 'github-actions[bot]' },
+      body: '<!-- codex-completion-checkpoint -->\n- [x] Done',
+    },
+  ];
+
+  const result = findUnauthorizedCompletionAuthors(comments);
+
+  assert.deepStrictEqual(result, ['custom-bot[bot]']);
+});
+
+test('buildCompletionAuthorWarningBody includes marker and logins', () => {
+  const body = buildCompletionAuthorWarningBody(['custom-bot[bot]']);
+
+  assert.ok(body.includes('<!-- completion-author-warning -->'));
+  assert.ok(body.includes('custom-bot[bot]'));
+});
+
+test('upsertCompletionAuthorWarning creates comment for unauthorized authors', async () => {
+  const calls = { create: 0, update: 0, lastBody: '' };
+  const github = {
+    rest: {
+      issues: {
+        createComment: async ({ body }) => {
+          calls.create += 1;
+          calls.lastBody = body;
+        },
+        updateComment: async () => {
+          calls.update += 1;
+        },
+      },
+    },
+  };
+
+  await upsertCompletionAuthorWarning({
+    github,
+    owner: 'octo',
+    repo: 'demo',
+    prNumber: 42,
+    comments: [],
+    unauthorizedLogins: ['custom-bot[bot]'],
+    core: { info: () => {}, warning: () => {} },
+  });
+
+  assert.strictEqual(calls.create, 1);
+  assert.strictEqual(calls.update, 0);
+  assert.ok(calls.lastBody.includes('custom-bot[bot]'));
+});
+
+test('upsertCompletionAuthorWarning resolves existing warning comment', async () => {
+  const calls = { create: 0, update: 0, lastBody: '' };
+  const github = {
+    rest: {
+      issues: {
+        createComment: async () => {
+          calls.create += 1;
+        },
+        updateComment: async ({ body }) => {
+          calls.update += 1;
+          calls.lastBody = body;
+        },
+      },
+    },
+  };
+
+  await upsertCompletionAuthorWarning({
+    github,
+    owner: 'octo',
+    repo: 'demo',
+    prNumber: 42,
+    comments: [{ id: 99, body: '<!-- completion-author-warning -->' }],
+    unauthorizedLogins: [],
+    core: { info: () => {}, warning: () => {} },
+  });
+
+  assert.strictEqual(calls.create, 0);
+  assert.strictEqual(calls.update, 1);
+  assert.ok(calls.lastBody.includes('Completion Comment Authors Authorized'));
+});
+
 test('resolveAgentType prefers explicit inputs over labels', () => {
   const agentType = resolveAgentType({
     inputs: { agent_type: 'codex' },
@@ -689,4 +804,126 @@ test('augmentContextWithRelatedIssues adds missing refs to existing section', ()
   assert.ok(augmented.includes('- #124'));
   assert.ok(augmented.includes('- octo/demo#456'));
   assert.strictEqual(augmented.match(/### Related Issues\/PRs/g).length, 1);
+});
+
+// ========== upsertBlock tests ==========
+
+test('upsertBlock replaces content between existing markers', () => {
+  const body = `Preamble text
+
+<!-- my-block:start -->
+Old content here
+<!-- my-block:end -->
+
+Footer text`;
+
+  const result = upsertBlock(body, 'my-block', '<!-- my-block:start -->\nNew content\n<!-- my-block:end -->');
+
+  assert.ok(result.includes('New content'));
+  assert.ok(!result.includes('Old content'));
+  assert.ok(result.includes('Preamble text'));
+  assert.ok(result.includes('Footer text'));
+});
+
+test('upsertBlock appends when no markers exist', () => {
+  const body = 'Just a PR body with no markers';
+
+  const result = upsertBlock(body, 'my-block', '<!-- my-block:start -->\nNew block\n<!-- my-block:end -->');
+
+  assert.ok(result.startsWith('Just a PR body'));
+  assert.ok(result.includes('New block'));
+});
+
+test('upsertBlock appends to empty body', () => {
+  const result = upsertBlock('', 'my-block', '<!-- my-block:start -->\nContent\n<!-- my-block:end -->');
+
+  assert.ok(result.includes('Content'));
+  assert.ok(!result.startsWith('\n'));
+});
+
+test('upsertBlock removes duplicate marker pairs from race conditions', () => {
+  const body = `Preamble
+
+<!-- status:start -->
+First copy (stale)
+<!-- status:end -->
+
+Middle content
+
+<!-- status:start -->
+Second copy (also stale)
+<!-- status:end -->
+
+Footer`;
+
+  const replacement = '<!-- status:start -->\nFresh content\n<!-- status:end -->';
+  const result = upsertBlock(body, 'status', replacement);
+
+  // Should contain exactly one pair of markers
+  const startCount = (result.match(/<!-- status:start -->/g) || []).length;
+  const endCount = (result.match(/<!-- status:end -->/g) || []).length;
+  assert.strictEqual(startCount, 1, 'should have exactly one start marker');
+  assert.strictEqual(endCount, 1, 'should have exactly one end marker');
+
+  // Should contain the fresh content
+  assert.ok(result.includes('Fresh content'));
+  assert.ok(!result.includes('First copy'));
+  assert.ok(!result.includes('Second copy'));
+
+  // Should preserve surrounding content including text between duplicates
+  assert.ok(result.includes('Preamble'));
+  assert.ok(result.includes('Middle content'));
+  assert.ok(result.includes('Footer'));
+});
+
+test('upsertBlock removes three duplicate marker pairs', () => {
+  const body = [
+    '<!-- b:start -->\nCopy 1\n<!-- b:end -->',
+    '<!-- b:start -->\nCopy 2\n<!-- b:end -->',
+    '<!-- b:start -->\nCopy 3\n<!-- b:end -->',
+  ].join('\n\n');
+
+  const result = upsertBlock(body, 'b', '<!-- b:start -->\nFinal\n<!-- b:end -->');
+
+  const startCount = (result.match(/<!-- b:start -->/g) || []).length;
+  assert.strictEqual(startCount, 1);
+  assert.ok(result.includes('Final'));
+  assert.ok(!result.includes('Copy 1'));
+  assert.ok(!result.includes('Copy 2'));
+  assert.ok(!result.includes('Copy 3'));
+});
+
+test('upsertBlock collapses excessive newlines after removing duplicates', () => {
+  const body = `Before
+
+<!-- s:start -->
+Old
+<!-- s:end -->
+
+
+
+<!-- s:start -->
+Dup
+<!-- s:end -->
+
+After`;
+
+  const result = upsertBlock(body, 's', '<!-- s:start -->\nNew\n<!-- s:end -->');
+
+  // No triple+ newlines should remain
+  assert.ok(!result.match(/\n{3,}/), 'should not have triple+ newlines');
+  assert.ok(result.includes('After'));
+});
+
+test('upsertBlock preserves triple newlines in single-pair case (no duplicates)', () => {
+  const body = `Before\n\n\n<!-- m:start -->\nOld\n<!-- m:end -->\n\n\nAfter`;
+
+  const result = upsertBlock(body, 'm', '<!-- m:start -->\nNew\n<!-- m:end -->');
+
+  // Triple newlines outside the managed block should be preserved
+  // when no duplicate removal occurred
+  assert.ok(result.includes('Before'));
+  assert.ok(result.includes('New'));
+  assert.ok(result.includes('After'));
+  assert.ok(result.includes('\n\n\n'), 'should preserve existing triple newlines when no duplicates removed');
 });

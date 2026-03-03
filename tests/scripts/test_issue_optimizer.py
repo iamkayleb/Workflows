@@ -6,7 +6,6 @@ import types
 from unittest import mock
 
 import pytest
-
 from scripts.langchain import issue_optimizer
 
 
@@ -127,16 +126,16 @@ def test_apply_suggestions_normalizes_subtasks() -> None:
             {
                 "task": "Update docs",
                 "split_suggestions": [
-                    "Add tests and update docs",
-                    "Depends on backend merge",
+                    "Add integration tests and update documentation pages",
+                    "Depends on backend merge being completed first",
                 ],
             }
         ]
     }
     result = issue_optimizer.apply_suggestions(issue_body, suggestions, use_llm=False)
     formatted = result["formatted_body"].lower()
-    assert "  - [ ] add tests" in formatted
-    assert "  - [ ] update docs" in formatted
+    assert "  - [ ] add integration tests" in formatted
+    assert "  - [ ] update documentation pages" in formatted
     assert "document dependency for:" in formatted
     assert "verify:" in formatted
 
@@ -171,7 +170,11 @@ def test_analyze_issue_invokes_llm_chain(monkeypatch: pytest.MonkeyPatch) -> Non
         "issue_body": "Issue body",
         "agent_limitations": "\n".join(f"- {item}" for item in issue_optimizer.AGENT_LIMITATIONS),
     }
-    mock_chain.invoke.assert_called_once_with(expected_prompt)
+    # Verify invoke was called with prompt and config
+    assert mock_chain.invoke.call_count == 1
+    call_args = mock_chain.invoke.call_args
+    assert call_args[0][0] == expected_prompt
+    assert "config" in call_args[1]  # LangSmith config passed as kwarg
     assert result.provider_used == "github-models"
     assert result.blocked_tasks[0]["task"] == "Update workflow"
 
@@ -335,20 +338,15 @@ def test_ensure_task_decomposition_fills_missing_suggestions(
         assert task == "Large task"
         return {"sub_tasks": ["One", "Two"]}
 
-    def fake_normalize(items: list[str]) -> list[str]:
-        return [item.lower() for item in items]
-
     monkeypatch.setattr(
         "scripts.langchain.task_decomposer.decompose_task",
         fake_decompose,
     )
-    monkeypatch.setattr(
-        "scripts.langchain.task_decomposer.normalize_subtasks",
-        fake_normalize,
-    )
     task_splitting = [{"task": "Large task", "split_suggestions": []}]
     updated = issue_optimizer._ensure_task_decomposition(task_splitting, use_llm=True)
-    assert updated[0]["split_suggestions"] == ["one", "two"]
+    # _ensure_task_decomposition no longer normalizes; that happens
+    # in _apply_task_decomposition to avoid double-normalization.
+    assert updated[0]["split_suggestions"] == ["One", "Two"]
 
 
 def test_apply_task_decomposition_skips_when_missing_header() -> None:
@@ -373,11 +371,21 @@ def test_apply_task_decomposition_handles_alpha_items() -> None:
         ]
     )
     suggestions = {
-        "task_splitting": [{"task": "First task", "split_suggestions": ["Step one", "Step two"]}]
+        "task_splitting": [
+            {
+                "task": "First task",
+                "split_suggestions": [
+                    "Implement the initial setup for deployment",
+                    "Configure the test runner to validate results",
+                ],
+            }
+        ]
     }
     updated = issue_optimizer._apply_task_decomposition(formatted, suggestions)
-    assert "a) First task\n  - [ ] Step one" in updated
-    assert "  - [ ] Step two" in updated
+    assert "a) First task" in updated
+    # Sub-tasks should appear indented under the parent
+    assert "  - [ ]" in updated
+    assert "b) Second task" in updated
 
 
 def test_extract_json_payload_with_wrapped_text() -> None:
@@ -407,3 +415,253 @@ def test_is_large_task_detects_other_separators() -> None:
     assert issue_optimizer._is_large_task("Lint, format, typecheck")
     assert issue_optimizer._is_large_task("Fix bug; write tests")
     assert issue_optimizer._is_large_task("Run A + B")
+
+
+def _response_with(content: str) -> mock.MagicMock:
+    response = mock.MagicMock()
+    response.content = content
+    return response
+
+
+def _valid_issue_payload() -> dict[str, object]:
+    return {
+        "task_splitting": [],
+        "blocked_tasks": [],
+        "objective_criteria": [],
+        "missing_sections": ["Scope"],
+        "formatting_issues": [],
+        "overall_notes": "All good.",
+    }
+
+
+def test_analyze_issue_guard_blocks_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    injection_samples: list[dict[str, str]],
+) -> None:
+    raw = injection_samples[0]["text"]
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("LLM should not be invoked when guard blocks input.")
+
+    monkeypatch.setattr(issue_optimizer, "_get_llm_client", _fail)
+
+    result = issue_optimizer.analyze_issue(raw, use_llm=True)
+
+    assert result.guard_blocked is True
+    assert result.guard_reason
+    assert result.provider_used is None
+
+
+def test_apply_suggestions_guard_blocks_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    injection_samples: list[dict[str, str]],
+) -> None:
+    raw = injection_samples[0]["text"]
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("LLM should not be invoked when guard blocks input.")
+
+    monkeypatch.setattr(issue_optimizer, "_get_llm_client", _fail)
+
+    result = issue_optimizer.apply_suggestions(raw, {}, use_llm=True)
+
+    assert result["guard_blocked"] is True
+    assert result["guard_reason"]
+    assert result["used_llm"] is False
+    assert result["provider_used"] is None
+    assert result["formatted_body"] == raw
+    # Verify no redundant 'blocked' key - schema uses only 'guard_blocked'
+    assert "blocked" not in result
+
+
+def test_analyze_issue_valid_output_no_repair(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    good = json.dumps(_valid_issue_payload())
+    mock_chain.invoke.side_effect = [_response_with(good)]
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_optimizer._get_llm_client",
+        return_value=(mock_client, "github-models"),
+    ):
+        result = issue_optimizer.analyze_issue("Issue body", use_llm=True)
+
+    assert result.provider_used == "github-models"
+    assert result.missing_sections == ["Scope"]
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 0
+
+
+def test_analyze_issue_repairs_preamble_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    bad = "Here you go:\n" + json.dumps(_valid_issue_payload())
+    good = json.dumps(_valid_issue_payload())
+    mock_chain.invoke.side_effect = [_response_with(bad)]
+    mock_client.invoke.side_effect = [_response_with(good)]
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_optimizer._get_llm_client",
+        return_value=(mock_client, "github-models"),
+    ):
+        result = issue_optimizer.analyze_issue("Issue body", use_llm=True)
+
+    assert result.provider_used == "github-models"
+    assert result.missing_sections == ["Scope"]
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 1
+    repair_prompt = mock_client.invoke.call_args_list[0].args[0]
+    assert "Validation errors:" in repair_prompt
+    assert "Schema:" in repair_prompt
+    assert "Original response:" in repair_prompt
+
+
+def test_analyze_issue_repairs_fenced_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    bad = "```json\n" + json.dumps(_valid_issue_payload()) + "\n```"
+    good = json.dumps(_valid_issue_payload())
+    mock_chain.invoke.side_effect = [_response_with(bad)]
+    mock_client.invoke.side_effect = [_response_with(good)]
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_optimizer._get_llm_client",
+        return_value=(mock_client, "github-models"),
+    ):
+        result = issue_optimizer.analyze_issue("Issue body", use_llm=True)
+
+    assert result.provider_used == "github-models"
+    assert result.missing_sections == ["Scope"]
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 1
+
+
+def test_analyze_issue_repairs_trailing_commas(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    bad = '{"task_splitting": [], "blocked_tasks": [], "objective_criteria": [], "missing_sections": ["Scope"], "formatting_issues": [], "overall_notes": "All good.",}'
+    good = json.dumps(_valid_issue_payload())
+    mock_chain.invoke.side_effect = [_response_with(bad)]
+    mock_client.invoke.side_effect = [_response_with(good)]
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_optimizer._get_llm_client",
+        return_value=(mock_client, "github-models"),
+    ):
+        result = issue_optimizer.analyze_issue("Issue body", use_llm=True)
+
+    assert result.provider_used == "github-models"
+    assert result.missing_sections == ["Scope"]
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 1
+
+
+def test_analyze_issue_repairs_once_then_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+    bad = "Here you go:\n" + json.dumps(_valid_issue_payload())
+    mock_chain.invoke.side_effect = [_response_with(bad)]
+    mock_client.invoke.side_effect = [_response_with(bad)]
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with mock.patch(
+        "scripts.langchain.issue_optimizer._get_llm_client",
+        return_value=(mock_client, "github-models"),
+    ):
+        result = issue_optimizer.analyze_issue("Issue body", use_llm=True)
+
+    assert result.provider_used is None
+    assert "LLM structured output failed" in (result.overall_notes or "")
+    assert mock_chain.invoke.call_count == 1
+    assert mock_client.invoke.call_count == 1
+
+
+def test_analyze_issue_langsmith_trace_propagation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that LangSmith trace ID and URL are propagated to result."""
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+
+    # Mock response with trace metadata
+    mock_response = mock.MagicMock()
+    mock_response.content = json.dumps(
+        {
+            "blocked_tasks": [
+                {
+                    "task": "Update workflow",
+                    "reason": "Protected file",
+                    "suggested_action": "Manual update",
+                }
+            ],
+            "suggested_rewrites": [],
+            "missing_sections": [],
+            "task_splitting_suggestions": [],
+        }
+    )
+    mock_response.response_metadata = {"run_id": "test-run-id-abc123"}
+    mock_chain.invoke.return_value = mock_response
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    with (
+        mock.patch(
+            "scripts.langchain.issue_optimizer._get_llm_client",
+            return_value=(mock_client, "test-provider"),
+        ),
+        mock.patch.dict("os.environ", {"LANGSMITH_API_KEY": "test-key"}),
+    ):
+        result = issue_optimizer.analyze_issue("Issue body", use_llm=True)
+
+    # Assert trace fields are populated
+    assert hasattr(result, "langsmith_trace_id")
+    assert hasattr(result, "langsmith_trace_url")
+    assert result.langsmith_trace_id == "test-run-id-abc123"
+    assert "test-run-id-abc123" in (result.langsmith_trace_url or "")
+    assert result.provider_used == "test-provider"
+
+
+def test_apply_suggestions_langsmith_trace_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that apply_suggestions includes LangSmith trace fields when available."""
+    mock_client = mock.MagicMock()
+    mock_chain = mock.MagicMock()
+
+    # Mock response with trace metadata
+    mock_response = mock.MagicMock()
+    mock_response.content = "## Tasks\n- [ ] Do it\n\n## Acceptance Criteria\n- [ ] Done"
+    mock_response.response_metadata = {"run_id": "apply-trace-xyz789"}
+    mock_chain.invoke.return_value = mock_response
+
+    _install_fake_langchain(monkeypatch, mock_chain)
+
+    # Minimal suggestions dict
+    suggestions = {
+        "task_splitting": [],
+        "blocked_tasks": [],
+        "objective_criteria": [],
+        "overall_notes": "",
+    }
+
+    with (
+        mock.patch(
+            "scripts.langchain.issue_optimizer._get_llm_client",
+            return_value=(mock_client, "test-provider"),
+        ),
+        mock.patch.dict("os.environ", {"LANGSMITH_API_KEY": "test-key"}),
+    ):
+        result = issue_optimizer.apply_suggestions("Issue body", suggestions, use_llm=True)
+
+    # Assert trace fields are included in returned dict
+    assert isinstance(result, dict)
+    assert "langsmith_trace_id" in result
+    assert "langsmith_trace_url" in result
+    assert result["langsmith_trace_id"] == "apply-trace-xyz789"
+    assert "apply-trace-xyz789" in result["langsmith_trace_url"]
+    assert result["provider_used"] == "test-provider"

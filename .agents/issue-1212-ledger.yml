@@ -1,0 +1,129 @@
+version: 1
+issue: 1212
+base: main
+branch: codex/issue-1212
+tasks:
+  - id: task-01
+    title: Replace regex-first parsing with Pydantic validation as the primary path
+      in issue_optimizer.
+    status: done
+    started_at: '2026-02-06T15:07:51Z'
+    finished_at: '2026-02-06T15:08:02Z'
+    commit: 083b54f7bae4854a311bfa05ee3f3387c9b92812
+    notes: []
+  - id: task-02
+    title: Replace regex-first parsing with Pydantic validation as the primary path
+      in pr_verifier (evaluate + compare).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-03
+    title: Implement a single repair retry that passes schema + validation error feedback
+      to the model.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-04
+    title: Add tests for malformed outputs (preamble text, markdown fences, trailing
+      commas) for both scripts.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-05
+    title: Replace regex-first parsing with Pydantic validation as the primary path
+      in issue_optimizer.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-06
+    title: Replace regex-first parsing with Pydantic validation as the primary path
+      in pr_verifier (evaluate + compare).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-07
+    title: Implement a single repair retry that passes schema + validation error feedback
+      to the model.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-08
+    title: Add tests for malformed outputs (preamble text, markdown fences, trailing
+      commas) for both scripts.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-09
+    title: Invalid model output triggers exactly one repair retry, then either succeeds
+      with valid structured output or
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-10
+    title: fails with a clear parsing/validation error.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-11
+    title: Tests cover the three malformed output patterns for both scripts.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-12
+    title: Valid outputs still parse without behavior regressions (existing tests
+      pass).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-13
+    title: Invalid model output triggers exactly one repair retry, then either succeeds
+      with valid structured output or
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-14
+    title: fails with a clear parsing/validation error.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-15
+    title: Tests cover the three malformed output patterns for both scripts.
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []
+  - id: task-16
+    title: Valid outputs still parse without behavior regressions (existing tests
+      pass).
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    notes: []

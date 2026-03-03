@@ -288,7 +288,7 @@ def test_request_json_retries_on_request_exception(monkeypatch) -> None:
     assert sleep_calls == [0.25]
 
 
-def test_fetch_oauth_scopes_parses_header(monkeypatch) -> None:
+def test_fetch_oauth_scopes_returns_header(monkeypatch) -> None:
     def _fake_request(method, url, headers=None, json=None, timeout=None):
         return DummyResponse(
             200,
@@ -298,7 +298,7 @@ def test_fetch_oauth_scopes_parses_header(monkeypatch) -> None:
 
     monkeypatch.setattr(api_client.requests, "request", _fake_request)
 
-    assert api_client.fetch_oauth_scopes("token") == {"public_repo", "repo"}
+    assert api_client.fetch_oauth_scopes("token") == "public_repo, repo"
 
 
 def test_fetch_oauth_scopes_returns_none_without_header(monkeypatch) -> None:
@@ -306,6 +306,19 @@ def test_fetch_oauth_scopes_returns_none_without_header(monkeypatch) -> None:
         return DummyResponse(200, json_data={"ok": True})
 
     monkeypatch.setattr(api_client.requests, "request", _fake_request)
+
+    assert api_client.fetch_oauth_scopes("token") is None
+
+
+def test_fetch_oauth_scopes_handles_missing_headers(monkeypatch) -> None:
+    class HeaderlessResponse:
+        headers = None
+
+    monkeypatch.setattr(
+        api_client,
+        "_request_response",
+        lambda *args, **kwargs: HeaderlessResponse(),
+    )
 
     assert api_client.fetch_oauth_scopes("token") is None
 
@@ -324,12 +337,24 @@ def test_fetch_oauth_scopes_retries_on_server_error(monkeypatch) -> None:
     monkeypatch.setattr(api_client.requests, "request", _fake_request)
     monkeypatch.setattr(api_client.time, "sleep", lambda seconds: sleep_calls.append(seconds))
 
-    assert api_client.fetch_oauth_scopes(
-        "token",
-        retry_attempts=2,
-        retry_backoff=0.5,
-    ) == {"repo"}
+    assert (
+        api_client.fetch_oauth_scopes(
+            "token",
+            retry_attempts=2,
+            retry_backoff=0.5,
+        )
+        == "repo"
+    )
     assert sleep_calls == [0.5]
+
+
+def test_fetch_oauth_scopes_returns_none_on_request_error(monkeypatch) -> None:
+    def _raise_error(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(api_client, "_request_response", _raise_error)
+
+    assert api_client.fetch_oauth_scopes("token") is None
 
 
 def test_find_dedup_comment_returns_match() -> None:
@@ -474,6 +499,26 @@ def test_main_requires_allowlist(monkeypatch, capsys) -> None:
     captured = capsys.readouterr()
     assert result == 1
     assert "Repository allowlist is empty" in captured.err
+
+
+def test_main_requires_token(monkeypatch, capsys) -> None:
+    monkeypatch.setenv("ISSUE_DEDUP_SMOKE_ALLOWLIST", "owner/repo")
+    monkeypatch.delenv("TEST_TOKEN", raising=False)
+
+    result = cli_handler.main(
+        [
+            "--repo",
+            "owner/repo",
+            "--title",
+            "Test",
+            "--token-env",
+            "TEST_TOKEN",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "Missing GitHub token" in captured.err
 
 
 def test_main_rejects_repo_not_in_allowlist(monkeypatch, capsys) -> None:

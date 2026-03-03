@@ -1,0 +1,93 @@
+version: 1
+issue: 1324
+base: main
+branch: codex/issue-1324
+tasks:
+  - id: task-01
+    title: Implement a dedicated auth validator entrypoint with explicit None/missing-field
+      guards and wire CLI scope validation to it.
+    pr_1304_concern: auth-validator-module
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    code_change:
+      - path: scripts/auth_validator.py
+        area: validate_auth_payload
+      - path: scripts/cli_handler.py
+        area: validate_token_scopes call site
+    notes:
+      - Pending deterministic unit tests for validator outcomes.
+  - id: task-02
+    title: Add a unit test that passes `None` into the auth validator and asserts
+      the exact error result.
+    pr_1304_concern: auth-validator-none-test
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    code_change:
+      - path: tests/test_auth_validator.py
+        area: test_validate_auth_payload_none
+    notes: []
+  - id: task-03
+    title: Add a unit test that passes an empty payload into the auth validator and
+      asserts the missing field list.
+    pr_1304_concern: auth-validator-empty-payload-test
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    code_change:
+      - path: tests/test_auth_validator.py
+        area: test_validate_auth_payload_missing_fields
+    notes: []
+  - id: task-04
+    title: Generate and commit an auth coverage artifact and document the exact command
+      in DECISIONS.
+    pr_1304_concern: auth-coverage-artifact
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    code_change:
+      - path: artifacts/coverage-auth.txt
+        area: coverage report output
+      - path: DECISIONS.md
+        area: auth coverage artifact entry
+    notes: []
+  - id: task-05
+    title: Pin `langchain-community` to a full semantic version in `tools/requirements-llm.txt`.
+    pr_1304_concern: langchain-semver-pin
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    code_change:
+      - path: tools/requirements-llm.txt
+        area: dependency pin
+    notes: []
+  - id: task-06
+    title: Add a CI step that runs `ruff check .` and fails on lint violations.
+    pr_1304_concern: ci-ruff-check
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    code_change:
+      - path: .github/workflows/ci.yml
+        area: ruff check step
+    notes:
+      - Requires agent-high-privilege to modify workflow files.
+  - id: task-07
+    title: Add a CI step that runs the full pytest suite and fails on test failures.
+    pr_1304_concern: ci-pytest-full
+    status: todo
+    started_at: null
+    finished_at: null
+    commit: ''
+    code_change:
+      - path: .github/workflows/ci.yml
+        area: pytest full-suite step
+    notes:
+      - Requires agent-high-privilege to modify workflow files.

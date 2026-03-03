@@ -5,6 +5,15 @@ on:
     # 07:15 UTC each Monday keeps results inside a quiet window.
     - cron: '15 7 * * 1'
   workflow_dispatch:
+    inputs:
+      include_branches:
+        description: 'Include stale-branch scan (set false to skip heavy branch enumeration)'
+        type: boolean
+        default: true
+      include_prs:
+        description: 'Include stale PR scan (set false to skip PR enumeration)'
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -23,6 +32,17 @@ jobs:
     outputs:
       proceed: ${{ steps.check.outputs.proceed || 'true' }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
+
       - name: Check API quota
         id: check
         uses: actions/github-script@v8
@@ -54,10 +74,15 @@ jobs:
               if (!proceed) {
                 const reset = data?.resources?.core?.reset || 0;
                 const resetTime = new Date(reset * 1000).toISOString();
-                core.notice(`Deferring repo health: API quota low (${remaining}/${limit}). Resets at ${resetTime}`);
-                await core.summary
+                const notice = `Deferring repo health: API quota low (${remaining}/${limit}).`;
+                core.notice(`${notice} Resets at ${resetTime}`);
+                  const quotaMessage = [
+                    'API quota too low for non-critical health checks',
+                    `(${remaining}/${limit} remaining).`,
+                  ].join(' ');
+                  await core.summary
                   .addHeading('Repo Health Deferred', 3)
-                  .addRaw(`API quota too low for non-critical health checks (${remaining}/${limit} remaining).`)
+                    .addRaw(quotaMessage)
                   .addEOL()
                   .addRaw(`Threshold: ${threshold}. Resets at: ${resetTime}`)
                   .write();
@@ -75,7 +100,46 @@ jobs:
       STALE_BRANCH_DAYS: ${{ vars.REPO_HEALTH_STALE_BRANCH_DAYS || '30' }}
       STALE_PR_DAYS: ${{ vars.REPO_HEALTH_STALE_PR_DAYS || '30' }}
       MAX_TABLE_ROWS: '20'
+      INCLUDE_BRANCHES: 'true'
+      INCLUDE_PRS: 'true'
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+      - name: Apply workflow_dispatch overrides
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+
+          def normalize(value: str | None, default: str) -> str:
+              if value is None:
+                  return default
+              return 'false' if str(value).lower() == 'false' else 'true'
+
+          event_path = os.environ["GITHUB_EVENT_PATH"]
+          include_branches = os.environ.get("INCLUDE_BRANCHES", "true")
+          include_prs = os.environ.get("INCLUDE_PRS", "true")
+
+          with open(event_path, encoding="utf-8") as handle:
+              data = json.load(handle)
+
+          inputs = data.get("inputs") or {}
+          include_branches = normalize(inputs.get("include_branches"), include_branches)
+          include_prs = normalize(inputs.get("include_prs"), include_prs)
+
+          env_path = os.environ["GITHUB_ENV"]
+          with open(env_path, "a", encoding="utf-8") as handle:
+              handle.write(f"INCLUDE_BRANCHES={include_branches}\n")
+              handle.write(f"INCLUDE_PRS={include_prs}\n")
+          PY
+
       - name: Summarise repository health signals
         id: summarise
         uses: actions/github-script@v8
@@ -93,6 +157,10 @@ jobs:
                 };
             const { withRetry, paginateWithRetry } = retryHelpers;
 
+            const includeBranches =
+              (process.env.INCLUDE_BRANCHES || 'true').toLowerCase() !== 'false';
+            const includePrs = (process.env.INCLUDE_PRS || 'true').toLowerCase() !== 'false';
+
             const staleBranchDays = parseInt(process.env.STALE_BRANCH_DAYS || '30', 10);
             const stalePrDays = parseInt(process.env.STALE_PR_DAYS || '30', 10);
             const maxRows = parseInt(process.env.MAX_TABLE_ROWS || '20', 10);
@@ -106,76 +174,90 @@ jobs:
             core.setOutput('default-branch', defaultBranch);
 
             // --- Stale Branches ---
-            const branches = await paginateWithRetry(github, github.rest.repos.listBranches, {
-              ...context.repo,
-              per_page: 100,
-            });
+            let staleBranches = [];
+            if (includeBranches) {
+              const branches = await paginateWithRetry(github, github.rest.repos.listBranches, {
+                ...context.repo,
+                per_page: 100,
+              });
 
-            const staleBranches = [];
-            for (const branch of branches) {
-              if (!branch || branch.name === defaultBranch) {
-                continue;
+              for (const branch of branches) {
+                if (!branch || branch.name === defaultBranch) {
+                  continue;
+                }
+
+                try {
+                  const commitSha = branch.commit?.sha;
+                  if (!commitSha) {
+                    continue;
+                  }
+
+                  const commit = await withRetry(() => github.rest.repos.getCommit({
+                    ...context.repo,
+                    ref: commitSha,
+                  }));
+
+                  const commitDateRaw =
+                    commit.data.commit?.committer?.date ||
+                    commit.data.commit?.author?.date;
+                  if (!commitDateRaw) {
+                    continue;
+                  }
+
+                  const commitDate = new Date(commitDateRaw);
+                  if (Number.isNaN(commitDate.getTime())) {
+                    continue;
+                  }
+
+                  if (commitDate <= staleCutoff) {
+                    const ageDays = Math.floor(
+                      (now.getTime() - commitDate.getTime()) / (24 * 60 * 60 * 1000),
+                    );
+                    staleBranches.push({
+                      name: branch.name,
+                      lastCommit: commitDate.toISOString().slice(0, 10),
+                      ageDays,
+                    });
+                  }
+                } catch (error) {
+                  core.warning(`Failed to inspect branch ${branch.name}: ${error.message}`);
+                }
               }
 
-              try {
-                const commitSha = branch.commit?.sha;
-                if (!commitSha) {
-                  continue;
-                }
-
-                const commit = await withRetry(() => github.rest.repos.getCommit({
-                  ...context.repo,
-                  ref: commitSha,
-                }));
-
-                const commitDateRaw = commit.data.commit?.committer?.date || commit.data.commit?.author?.date;
-                if (!commitDateRaw) {
-                  continue;
-                }
-
-                const commitDate = new Date(commitDateRaw);
-                if (Number.isNaN(commitDate.getTime())) {
-                  continue;
-                }
-
-                if (commitDate <= staleCutoff) {
-                  const ageDays = Math.floor((now.getTime() - commitDate.getTime()) / (24 * 60 * 60 * 1000));
-                  staleBranches.push({
-                    name: branch.name,
-                    lastCommit: commitDate.toISOString().slice(0, 10),
-                    ageDays,
-                  });
-                }
-              } catch (error) {
-                core.warning(`Failed to inspect branch ${branch.name}: ${error.message}`);
-              }
+              staleBranches.sort((a, b) => b.ageDays - a.ageDays);
+            } else {
+              core.info('Skipping stale branch scan per workflow_dispatch input.');
             }
-
-            staleBranches.sort((a, b) => b.ageDays - a.ageDays);
 
             // --- Stale PRs ---
-            const openPrs = await paginateWithRetry(github, github.rest.pulls.list, {
-              ...context.repo,
-              state: 'open',
-              per_page: 100,
-            });
+            let stalePrs = [];
+            if (includePrs) {
+              const openPrs = await paginateWithRetry(github, github.rest.pulls.list, {
+                ...context.repo,
+                state: 'open',
+                per_page: 100,
+              });
 
-            const stalePrs = [];
-            for (const pr of openPrs) {
+              for (const pr of openPrs) {
                 const updatedDate = new Date(pr.updated_at);
                 if (updatedDate <= stalePrCutoff) {
-                    const ageDays = Math.floor((now.getTime() - updatedDate.getTime()) / (24 * 60 * 60 * 1000));
-                    stalePrs.push({
-                        number: pr.number,
-                        title: pr.title,
-                        url: pr.html_url,
-                        updatedAt: updatedDate.toISOString().slice(0, 10),
-                        ageDays,
-                        user: pr.user.login
-                    });
+                  const ageDays = Math.floor(
+                    (now.getTime() - updatedDate.getTime()) / (24 * 60 * 60 * 1000),
+                  );
+                  stalePrs.push({
+                    number: pr.number,
+                    title: pr.title,
+                    url: pr.html_url,
+                    updatedAt: updatedDate.toISOString().slice(0, 10),
+                    ageDays,
+                    user: pr.user.login,
+                  });
                 }
+              }
+              stalePrs.sort((a, b) => b.ageDays - a.ageDays);
+            } else {
+              core.info('Skipping stale PR scan per workflow_dispatch input.');
             }
-            stalePrs.sort((a, b) => b.ageDays - a.ageDays);
 
             // --- Unassigned Issues ---
             const openItems = await paginateWithRetry(github, github.rest.issues.listForRepo, {
@@ -317,7 +399,12 @@ jobs:
 
             const defaultBranch = process.env.DEFAULT_BRANCH || null;
             if (!defaultBranch) {
-              core.setFailed('Default branch name was not provided by the summary step. Ensure the summarise step completed successfully and outputs.default-branch is set.');
+              const failure = [
+                'Default branch name was not provided by the summary step.',
+                'Ensure the summarise step completed successfully and',
+                'outputs.default-branch is set.',
+              ].join(' ');
+              core.setFailed(failure);
               return;
             }
 
@@ -343,7 +430,8 @@ jobs:
               }
               branchProtectionResult.source = 'branchProtection';
             } catch (error) {
-              core.warning(`Falling back to branch metadata for protection details: ${error.message}`);
+                const warningPrefix = 'Falling back to branch metadata for protection details:';
+                core.warning(`${warningPrefix} ${error.message}`);
               const branch = await withRetry(() => github.rest.repos.getBranch({
                 ...context.repo,
                 branch: defaultBranch,
@@ -354,18 +442,34 @@ jobs:
               }
             }
 
-            const uniqueContexts = Array.from(new Set(branchProtectionResult.contexts.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+            const uniqueContexts = Array.from(
+              new Set(branchProtectionResult.contexts.filter(Boolean)),
+            ).sort((a, b) => a.localeCompare(b));
             const expectedSorted = [...expectedContexts].sort((a, b) => a.localeCompare(b));
-            const missing = expectedSorted.filter(contextName => !uniqueContexts.includes(contextName));
-            const unexpected = uniqueContexts.filter(contextName => !expectedSorted.includes(contextName));
+            const missing = expectedSorted.filter(
+              (contextName) => !uniqueContexts.includes(contextName),
+            );
+            const unexpected = uniqueContexts.filter(
+              (contextName) => !expectedSorted.includes(contextName),
+            );
 
             const summary = core.summary;
-            const expectedListForPointer = expectedSorted.length > 0 ? expectedSorted.join(', ') : 'no required checks';
-            const actualListForPointer = uniqueContexts.length > 0 ? uniqueContexts.join(', ') : 'no required checks';
+            const expectedListForPointer =
+              expectedSorted.length > 0 ? expectedSorted.join(', ') : 'no required checks';
+            const actualListForPointer =
+              uniqueContexts.length > 0 ? uniqueContexts.join(', ') : 'no required checks';
 
             core.info(`Expected required contexts: ${expectedListForPointer}`);
             core.info(`Observed required contexts: ${actualListForPointer}`);
             summary.addHeading('Default branch protection', 2);
+            const expectedContextsText =
+              expectedContexts.length > 0 ? expectedContexts.join(', ') : '–';
+            const requiredContextsText =
+              uniqueContexts.length > 0 ? uniqueContexts.join(', ') : '–';
+            const upToDateText =
+              branchProtectionResult.strict === null
+                ? 'unknown'
+                : String(branchProtectionResult.strict);
             summary.addTable([
               [
                 { data: 'Property', header: true },
@@ -373,9 +477,9 @@ jobs:
               ],
               ['Branch', defaultBranch],
               ['Source', branchProtectionResult.source],
-              ['Expected contexts', expectedContexts.length > 0 ? expectedContexts.join(', ') : '–'],
-              ['Required contexts', uniqueContexts.length > 0 ? uniqueContexts.join(', ') : '–'],
-              ['Required “up to date”', branchProtectionResult.strict === null ? 'unknown' : String(branchProtectionResult.strict)],
+              ['Expected contexts', expectedContextsText],
+              ['Required contexts', requiredContextsText],
+              ['Required “up to date”', upToDateText],
             ]);
 
             if (missing.length > 0 || unexpected.length > 0) {
@@ -388,17 +492,42 @@ jobs:
               }
               const failurePrefix = `Branch protection drift detected for ${defaultBranch}`;
               summary.addRaw(`❌ ${failurePrefix} — ${problems.join('; ')}`, true);
-              summary.addRaw(
-                `➡️ Update branch protection (Settings → Branches → ${defaultBranch}) so required status checks are exactly: ${expectedListForPointer}.`,
-                true,
-              );
+              const pointer = [
+                '➡️ Update branch protection (Settings → Branches →',
+                `${defaultBranch}) so required status checks are exactly:`,
+                `${expectedListForPointer}.`,
+              ].join(' ');
+              summary.addRaw(pointer, true);
 
               await summary.write();
 
+              const protectionUrl = [
+                'https://github.com',
+                context.repo.owner,
+                context.repo.repo,
+                'settings/branch_protection_rules',
+              ].join('/');
               if (missing.includes('Gate / gate')) {
-                core.setFailed(`Default branch ("${defaultBranch}") no longer requires the "Gate / gate" status check. Expected: ${expectedListForPointer}. Actual: ${actualListForPointer}. Update branch protection to restore Gate. You can update branch protection here: https://github.com/${context.repo.owner}/${context.repo.repo}/settings/branch_protection_rules`);
+                const gateFailure = [
+                    `Default branch ("${defaultBranch}") no longer requires`,
+                    'the "Gate / gate" status check.',
+                  `Expected: ${expectedListForPointer}.`,
+                  `Actual: ${actualListForPointer}.`,
+                  'Update branch protection to restore Gate.',
+                  `Update URL: ${protectionUrl}`,
+                ].join(' ');
+                core.setFailed(gateFailure);
               } else {
-                core.setFailed(`${failurePrefix}. Expected: ${expectedListForPointer}. Actual: ${actualListForPointer}. (${problems.join('; ')}). Update branch protection (Settings → Branches → ${defaultBranch}) so required status checks are exactly: ${expectedListForPointer}.`);
+                const driftFailure = [
+                  `${failurePrefix}.`,
+                  `Expected: ${expectedListForPointer}.`,
+                  `Actual: ${actualListForPointer}.`,
+                  `(${problems.join('; ')}).`,
+                  'Update branch protection (Settings → Branches →',
+                  `${defaultBranch}) so required status checks are exactly:`,
+                  `${expectedListForPointer}.`,
+                ].join(' ');
+                core.setFailed(driftFailure);
               }
               return;
             }

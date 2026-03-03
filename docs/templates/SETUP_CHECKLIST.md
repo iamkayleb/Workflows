@@ -20,6 +20,7 @@ Before starting, ensure you have:
 - [ ] Access to [stranske/Workflows](https://github.com/stranske/Workflows) repository
 - [ ] A GitHub PAT for the service bot account (for SERVICE_BOT_PAT)
 - [ ] Admin access to create repository secrets and variables
+- [ ] Claude Code login/session available if you want Claude-run workflows
 - [ ] Python 3.11+ installed locally for testing
 
 ---
@@ -147,21 +148,41 @@ Create these labels in **Settings** → **Labels** (exact names required):
 | Label | Color | Description | Required For |
 |-------|-------|-------------|--------------|
 | `agent:codex` | `#0052CC` | Assigns Codex agent to issue | Issue intake, keepalive |
+| `agent:retry` | `#D93F0B` | Retries keepalive loop for agent PRs | Keepalive recovery |
 | `agent:needs-attention` | `#D93F0B` | Agent needs human help | Error recovery |
 | `agents:keepalive` | `#0E8A16` | Enables keepalive automation | PR keepalive loops |
+| `agents:auto-pilot` | `#0052CC` | Triggers end-to-end auto-pilot pipeline | Issue automation |
+| `runner:<agent>` | `#6f42c1` | Optional auto-pilot override (`runner:claude`, etc.) without triggering the issue intake workflow | Issue automation |
+| `agents:decompose` | `#5319E7` | Triggers issue decomposition workflow | Issue planning |
+| `agents:format` | `#5319E7` | Triggers direct issue formatting | Issue formatting |
+| `agents:optimize` | `#5319E7` | Triggers issue analysis/suggestions | Issue optimization |
+| `agents:apply-suggestions` | `#5319E7` | Applies optimizer suggestions | Issue optimization |
 | `autofix` | `#1D76DB` | Triggers autofix on PR | Autofix workflow |
 | `autofix:clean` | `#5319E7` | Aggressive autofix mode | Autofix workflow |
+| `autofix:bot-comments` | `#1D76DB` | Triggers bot comment autofix sweep | PR bot-comment cleanup |
 | `autofix:applied` | `#0E8A16` | Autofix was applied | Auto-created by workflow |
 | `autofix:clean-only` | `#FBCA04` | Clean-only autofix | Autofix workflow |
+| `verify:create-issue` | `#5319E7` | Creates follow-up issue from verifier output | Verify follow-up |
+| `verify:create-new-pr` | `#5319E7` | Creates follow-up PR from verifier output | Verify follow-up |
 
 Create each label:
 - [ ] `agent:codex`
+- [ ] `agent:retry`
 - [ ] `agent:needs-attention`
 - [ ] `agents:keepalive`
+- [ ] `agents:auto-pilot`
+- [ ] `runner:codex` (optional override, repeat per agent)
+- [ ] `agents:decompose`
+- [ ] `agents:format`
+- [ ] `agents:optimize`
+- [ ] `agents:apply-suggestions`
 - [ ] `autofix`
 - [ ] `autofix:clean`
+- [ ] `autofix:bot-comments`
 - [ ] `autofix:applied`
 - [ ] `autofix:clean-only`
+- [ ] `verify:create-issue`
+- [ ] `verify:create-new-pr`
 
 **Quick creation script:**
 ```bash
@@ -169,12 +190,22 @@ REPO="stranske/<your-repo>"
 
 # Create required labels
 gh label create "agent:codex" --color "0052CC" --description "Assigns Codex agent" --repo "$REPO" 2>/dev/null || echo "agent:codex exists"
+gh label create "agent:retry" --color "D93F0B" --description "Retries keepalive loop" --repo "$REPO" 2>/dev/null || echo "agent:retry exists"
 gh label create "agent:needs-attention" --color "D93F0B" --description "Agent needs human help" --repo "$REPO" 2>/dev/null || echo "agent:needs-attention exists"
 gh label create "agents:keepalive" --color "0E8A16" --description "Enables keepalive automation" --repo "$REPO" 2>/dev/null || echo "agents:keepalive exists"
+gh label create "agents:auto-pilot" --color "0052CC" --description "Runs full auto-pilot issue pipeline" --repo "$REPO" 2>/dev/null || echo "agents:auto-pilot exists"
+gh label create "runner:codex" --color "6f42c1" --description "Auto-pilot runner override: codex" --repo "$REPO" 2>/dev/null || echo "runner:codex exists"
+gh label create "agents:decompose" --color "5319E7" --description "Triggers issue decomposition workflow" --repo "$REPO" 2>/dev/null || echo "agents:decompose exists"
+gh label create "agents:format" --color "5319E7" --description "Formats issue into template" --repo "$REPO" 2>/dev/null || echo "agents:format exists"
+gh label create "agents:optimize" --color "5319E7" --description "Analyzes issue and posts suggestions" --repo "$REPO" 2>/dev/null || echo "agents:optimize exists"
+gh label create "agents:apply-suggestions" --color "5319E7" --description "Applies optimizer suggestions" --repo "$REPO" 2>/dev/null || echo "agents:apply-suggestions exists"
 gh label create "autofix" --color "1D76DB" --description "Triggers autofix on PR" --repo "$REPO" 2>/dev/null || echo "autofix exists"
 gh label create "autofix:clean" --color "5319E7" --description "Aggressive autofix mode" --repo "$REPO" 2>/dev/null || echo "autofix:clean exists"
+gh label create "autofix:bot-comments" --color "1D76DB" --description "Triggers bot comment autofix sweep" --repo "$REPO" 2>/dev/null || echo "autofix:bot-comments exists"
 gh label create "autofix:applied" --color "0E8A16" --description "Autofix was applied" --repo "$REPO" 2>/dev/null || echo "autofix:applied exists"
 gh label create "autofix:clean-only" --color "FBCA04" --description "Clean-only autofix" --repo "$REPO" 2>/dev/null || echo "autofix:clean-only exists"
+gh label create "verify:create-issue" --color "5319E7" --description "Creates follow-up issue from verifier output" --repo "$REPO" 2>/dev/null || echo "verify:create-issue exists"
+gh label create "verify:create-new-pr" --color "5319E7" --description "Creates follow-up PR from verifier output" --repo "$REPO" 2>/dev/null || echo "verify:create-new-pr exists"
 ```
 
 ### 2.2 Optional Labels
@@ -216,18 +247,104 @@ Navigate to: **Settings** → **Secrets and variables** → **Actions** → **Se
 |-------------|-------------|--------|
 | `SERVICE_BOT_PAT` | PAT for service bot account | Contact admin for token |
 | `ACTIONS_BOT_PAT` | PAT for workflow dispatch | Same as SERVICE_BOT_PAT or dedicated |
+| `AGENTS_AUTOMATION_PAT` | PAT used by autofix/retry flows when available | Contact admin for token |
 | `OWNER_PR_PAT` | PAT for PR creation | Repository owner's PAT |
 | `CODEX_AUTH_JSON` | Codex CLI authentication | Export from `~/.codex/auth.json` |
 | `WORKFLOWS_APP_ID` | GitHub App ID for token minting | Contact admin for App ID |
 | `WORKFLOWS_APP_PRIVATE_KEY` | GitHub App private key | Contact admin for private key |
+| `KEEPALIVE_APP_ID` | Keepalive App ID (preferred for keepalive loop auth) | Contact admin for App ID |
+| `KEEPALIVE_APP_PRIVATE_KEY` | Keepalive App private key | Contact admin for private key |
+| `OPENAI_API_KEY` | OpenAI API key for verify/optimizer/decompose flows | Contact admin for token |
+| `CLAUDE_API_STRANSKE` | Claude API key for verify/optimizer/decompose flows | Contact admin for token |
+| `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (preferred for Claude CLI runs) | `claude setup-token` |
+| `CLAUDE_AUTH_JSON` | Claude auth JSON fallback when OAuth token is unavailable | Export from existing Claude auth file |
 
 Add each secret:
 - [ ] `SERVICE_BOT_PAT` — Required for orchestrator and agent workflows
 - [ ] `ACTIONS_BOT_PAT` — Required for triggering workflows between repos
+- [ ] `AGENTS_AUTOMATION_PAT` — Recommended for autofix/retry dispatches
 - [ ] `OWNER_PR_PAT` — Required for creating PRs from agent bridge
 - [ ] `CODEX_AUTH_JSON` — Required for Codex CLI to authenticate with ChatGPT
 - [ ] `WORKFLOWS_APP_ID` — **Required for keepalive** - Used for GitHub App token minting
 - [ ] `WORKFLOWS_APP_PRIVATE_KEY` — **Required for keepalive** - GitHub App authentication
+- [ ] `KEEPALIVE_APP_ID` — **Required for keepalive parity** - Explicit keepalive app alias
+- [ ] `KEEPALIVE_APP_PRIVATE_KEY` — **Required for keepalive parity** - Explicit keepalive app key
+- [ ] `OPENAI_API_KEY` — Required for verify/decompose/optimizer workflows
+- [ ] `CLAUDE_API_STRANSKE` — Required for verify/decompose/optimizer workflows
+- [ ] `CLAUDE_CODE_OAUTH_TOKEN` (or `CLAUDE_AUTH_JSON`) — Required for Claude CLI workflow runs
+
+### 3.2.1 Bulk PAT Sync (No Organization Required)
+
+If you manage multiple repositories without GitHub organization secrets, use the
+shared script to fan out PATs from one local source of truth:
+
+```bash
+# 1) Export PAT values once in your local shell
+export SERVICE_BOT_PAT='...'
+export ACTIONS_BOT_PAT='...'
+export OWNER_PR_PAT='...'
+export AGENTS_AUTOMATION_PAT='...'
+
+# 2) Sync to all repos in one command
+scripts/sync_pat_secrets.sh \
+  --repos stranske/Counter_Risk,stranske/Template,stranske/Manager-Database \
+  --verify
+```
+
+Notes:
+- `--verify` validates each token against GitHub API before writing secrets.
+- This avoids per-repo copy/paste while keeping repository-level secrets.
+- Script path: `scripts/sync_pat_secrets.sh`.
+
+### 3.2.2 Codex CLI Secret (`CODEX_AUTH_JSON`) — Explicit Setup
+
+`CODEX_AUTH_JSON` must contain the full JSON payload from your Codex CLI auth file.
+Keepalive Codex runs fail without it.
+
+```bash
+# Validate local auth file and set secret in one step
+test -f ~/.codex/auth.json
+gh secret set CODEX_AUTH_JSON \
+  --repo stranske/<your-repo> \
+  --body "$(cat ~/.codex/auth.json)"
+```
+
+Verify secret exists:
+
+```bash
+gh secret list --repo stranske/<your-repo> | grep CODEX_AUTH_JSON
+```
+
+### 3.2.3 Claude CLI Secrets (`CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_AUTH_JSON`)
+
+Claude-run workflows (for example `reusable-claude-run.yml`) require one of:
+
+- Preferred: `CLAUDE_CODE_OAUTH_TOKEN`
+- Fallback: `CLAUDE_AUTH_JSON`
+
+Set the preferred token:
+
+```bash
+# Generates/refreshes a long-lived token and writes it directly to the repo secret
+gh secret set CLAUDE_CODE_OAUTH_TOKEN \
+  --repo stranske/<your-repo> \
+  --body "$(claude setup-token)"
+```
+
+Fallback using auth JSON:
+
+```bash
+# If you maintain a claude auth JSON export locally
+gh secret set CLAUDE_AUTH_JSON \
+  --repo stranske/<your-repo> \
+  --body "$(cat /path/to/claude-auth.json)"
+```
+
+Verify at least one exists:
+
+```bash
+gh secret list --repo stranske/<your-repo> | grep -E "CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_AUTH_JSON"
+```
 
 > **Important**: `WORKFLOWS_APP_ID` and `WORKFLOWS_APP_PRIVATE_KEY` are essential for
 > keepalive automation. While workflows have PAT fallback logic, the keepalive system
@@ -244,19 +361,23 @@ Navigate to: **Settings** → **Secrets and variables** → **Actions** → **Va
 Add the variable:
 - [ ] `ALLOWED_KEEPALIVE_LOGINS` — Comma-separated list of usernames
 
-### 3.4 Install GitHub App on Repository
+### 3.4 Install GitHub Apps on Repository
 
-> **Critical**: Even if you've configured `WORKFLOWS_APP_ID` and `WORKFLOWS_APP_PRIVATE_KEY` 
-> secrets, the GitHub App must be explicitly granted access to this repository.
+> **Critical**: Even if you've configured app secrets, each GitHub App must be
+> explicitly granted access to this repository.
 
 **Symptom if skipped:** Keepalive fails with `Failed to create token for "<repo-name>": Not Found`
+
+Apps to verify:
+- `WORKFLOWS_APP_ID` / `WORKFLOWS_APP_PRIVATE_KEY`
+- `KEEPALIVE_APP_ID` / `KEEPALIVE_APP_PRIVATE_KEY` (if set)
 
 **Steps to install:**
 
 1. Go to: **Settings** → **Applications** → **Installed GitHub Apps**
    - Direct link: https://github.com/settings/installations
    
-2. Find your GitHub App in the list (the one matching `WORKFLOWS_APP_ID`)
+2. Find each GitHub App in the list (matching the App IDs in your secrets)
 
 3. Click **"Configure"** button on the right side of that row
 
@@ -272,7 +393,8 @@ Add the variable:
 - Confirm your GitHub App is listed there
 
 **Checklist:**
-- [ ] GitHub App has access to this repository (verified in repo's settings/installations)
+- [ ] Workflows app has access to this repository
+- [ ] Keepalive app has access to this repository (if configured separately)
 
 > **Note**: This is separate from repository secrets. Secrets tell workflows which App 
 > credentials to use, but the App itself must be installed on the repository to grant 

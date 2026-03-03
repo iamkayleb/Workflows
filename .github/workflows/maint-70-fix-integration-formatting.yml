@@ -23,12 +23,58 @@ jobs:
     name: Apply formatting fixes
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
+      - name: Prepare integration repo token
+        id: integration_token
+        env:
+          CODESPACES_PAT: ${{ secrets.CODESPACES_WORKFLOWS }}
+          SERVICE_PAT: ${{ secrets.SERVICE_BOT_PAT }}
+        run: |
+          if [ -n "${CODESPACES_PAT}" ]; then
+            echo "token_available=true" >> "$GITHUB_OUTPUT"
+            echo "SYNC_TOKEN=${CODESPACES_PAT}" >> "$GITHUB_ENV"
+          elif [ -n "${SERVICE_PAT}" ]; then
+            echo "token_available=true" >> "$GITHUB_OUTPUT"
+            echo "SYNC_TOKEN=${SERVICE_PAT}" >> "$GITHUB_ENV"
+          else
+            echo "token_available=false" >> "$GITHUB_OUTPUT"
+            echo "WARNING: No integration repo token available; skipping sync steps."
+          fi
+
+      - name: Resolve integration repo default branch
+        id: integration_ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-70-fix-integration-formatting',
+              capabilities: ['contents:read']
+            });
+            const { data } = await withRetry((client) => client.rest.repos.get({
+              owner: 'stranske',
+              repo: 'Workflows-Integration-Tests'
+            }));
+            if (!data?.default_branch) {
+              core.setFailed('Could not determine integration repo default branch');
+              return;
+            }
+            core.setOutput('ref', data.default_branch);
+          github-token: ${{ github.token }}
       - name: Checkout Integration-Tests repo
+        if: steps.integration_token.outputs.token_available == 'true'
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows-Integration-Tests
-          ref: main
-          token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS }}
+          ref: ${{ steps.integration_ref.outputs.ref }}
+          token: ${{ env.SYNC_TOKEN }}
           path: integration-tests
 
       - name: Set up Python
@@ -41,6 +87,7 @@ jobs:
           python3 -m pip install black ruff
 
       - name: Apply formatting fixes
+        if: steps.integration_token.outputs.token_available == 'true'
         run: |
           cd integration-tests
           echo "Running black on Python files (using pyproject.toml config)..."
@@ -51,6 +98,7 @@ jobs:
           ruff check --fix --exclude '.workflows-lib' . || true
 
       - name: Check for changes
+        if: steps.integration_token.outputs.token_available == 'true'
         id: changes
         run: |
           cd integration-tests
@@ -70,15 +118,25 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+          run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
           git add -A
           git commit -m "${{ inputs.commit_message }}" \
             -m "" \
-            -m "Applied by: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -m "Applied by: ${run_url}"
 
           git push
 
       - name: Summary
         run: |
+          if [ "${{ steps.integration_token.outputs.token_available }}" != "true" ]; then
+            {
+              echo "## Integration Tests Formatting Fix"
+              echo ""
+              echo "⚠️ Skipped: no integration repo token available."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           cd integration-tests
           {
             echo "## Integration Tests Formatting Fix"

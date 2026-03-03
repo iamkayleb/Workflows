@@ -40,7 +40,7 @@ runs:
   using: composite
   steps:
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
         # Note: pip cache disabled because we use uv for dependency installation
@@ -118,9 +118,19 @@ runs:
         fi
 
         if [ -f pyproject.toml ]; then
-          specs+=('-e' '.[app,dev]')
+          extra_spec='.[dev]'
+          if python - <<'PY' >/dev/null 2>&1; then
+import tomllib
+from pathlib import Path
+data = tomllib.loads(Path("pyproject.toml").read_text())
+extras = data.get("project", {}).get("optional-dependencies", {})
+raise SystemExit(0 if "app" in extras else 1)
+PY
+            extra_spec='.[app,dev]'
+          fi
+          specs+=('-e' "$extra_spec")
         elif [ -f setup.cfg ] || [ -f setup.py ]; then
-          specs+=('-e' '.[app,dev]')
+          specs+=('-e' '.[dev]')
         fi
 
         black_spec="black"

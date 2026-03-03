@@ -47,8 +47,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: bot-comments-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || inputs.pr_number || github.run_id }}
-  cancel-in-progress: false
+  group: bot-comments-${{ github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   # Resolve PR number from different trigger types
@@ -59,14 +59,48 @@ jobs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
       should_run: ${{ steps.resolve.outputs.should_run }}
     steps:
+      # Mint GitHub App token early to use for API calls (avoids rate limits)
+      - name: Mint GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
+          owner: ${{ github.repository_owner }}
+
       - name: Checkout retry helpers
         uses: actions/checkout@v6
         with:
+
+          token: ${{ steps.app_token.outputs.token || github.token }}
           repository: ${{ github.repository }}
-          ref: ${{ github.event.pull_request.base.sha || github.event.pull_request.base.ref || github.event.repository.default_branch || github.ref_name }}
+          ref: >-
+            ${{
+              github.event.pull_request.base.sha ||
+              github.event.pull_request.base.ref ||
+              github.event.repository.default_branch ||
+              github.ref_name
+            }}
           sparse-checkout: |
+            .github/actions/setup-api-client
             .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
           sparse-checkout-cone-mode: false
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Install GitHub API dependencies
+        run: npm install --no-save --no-package-lock @octokit/rest @octokit/auth-app
       - name: Resolve PR number and check conditions
         id: resolve
         uses: actions/github-script@v8
@@ -74,14 +108,17 @@ jobs:
           script: |
             const fs = require('fs');
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
-            const retryHelpers = fs.existsSync(retryHelperPath)
-              ? require(retryHelperPath)
-              : {
-                  withRetry: (fn) => fn(),
-                  paginateWithRetry: (githubInstance, method, params) =>
-                    githubInstance.paginate(method, params),
-                };
-            const { withRetry } = retryHelpers;
+            const retryHelpers = fs.existsSync(retryHelperPath) ? require(retryHelperPath) : null;
+            let withRetry = (fn) => fn();
+            if (retryHelpers?.createTokenAwareRetry) {
+              ({ withRetry } = await retryHelpers.createTokenAwareRetry({
+                github,
+                core,
+                task: 'bot-comment-handler',
+              }));
+            } else if (retryHelpers?.withRetry) {
+              ({ withRetry } = retryHelpers);
+            }
 
             const eventName = context.eventName;
             let prNumber = null;
@@ -107,9 +144,23 @@ jobs:
               // Only run if Gate succeeded and PR has agent:* label
               const workflowRun = context.payload.workflow_run;
 
-              // Skip main branch
-              if (workflowRun.head_branch === 'main') {
-                console.log('Skipping main branch');
+              let defaultBranch = context.payload.repository?.default_branch;
+              if (!defaultBranch) {
+                const repoResponse = await withRetry((client) => client.rest.repos.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo
+                }));
+                defaultBranch = repoResponse.data?.default_branch;
+              }
+              if (!defaultBranch) {
+                console.log('Could not determine default branch; skipping.');
+                core.setOutput('should_run', 'false');
+                return;
+              }
+
+              // Skip default branch
+              if (workflowRun.head_branch === defaultBranch) {
+                console.log(`Skipping default branch ${defaultBranch}`);
                 core.setOutput('should_run', 'false');
                 return;
               }
@@ -133,14 +184,16 @@ jobs:
               // Check if PR has agent label
               let pr;
               try {
-                const response = await withRetry(() => github.rest.pulls.get({
+                const response = await withRetry((client) => client.rest.pulls.get({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   pull_number: prNumber
                 }));
                 pr = response.data;
               } catch (error) {
-                console.log(`Failed to fetch PR #${prNumber} details, skipping. Error: ${error.message || error}`);
+                const errorMessage = error.message || error;
+                console.log(`Failed to fetch PR #${prNumber} details; skipping.`);
+                console.log(`Error: ${errorMessage}`);
                 core.setOutput('should_run', 'false');
                 return;
               }
@@ -148,6 +201,14 @@ jobs:
               const hasAgentLabel = pr.labels.some(l => /^agent:/.test(l.name));
               if (!hasAgentLabel) {
                 console.log(`PR #${prNumber} has no agent label, skipping`);
+                core.setOutput('should_run', 'false');
+                return;
+              }
+
+              // Skip auto-pilot PRs — auto-pilot manages its own quality flow
+              const hasAutoPilot = pr.labels.some(l => l.name === 'agents:auto-pilot');
+              if (hasAutoPilot) {
+                console.log(`PR #${prNumber} is auto-pilot managed, skipping bot-comment handler`);
                 core.setOutput('should_run', 'false');
                 return;
               }
@@ -168,6 +229,7 @@ jobs:
     with:
       pr_number: ${{ needs.resolve.outputs.pr_number }}
       dry_run: ${{ inputs.dry_run == true }}
+      ignored_paths: '.agents/,scripts/langchain/prompts/,docs/,templates/'
     secrets:
       service_bot_pat: ${{ secrets.SERVICE_BOT_PAT }}
       gh_app_id: ${{ secrets.GH_APP_ID }}
@@ -177,20 +239,54 @@ jobs:
   cleanup:
     name: Cleanup
     needs: [resolve, handle]
-    if: always() && github.event_name == 'pull_request' && github.event.label.name == 'autofix:bot-comments'
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.label.name == 'autofix:bot-comments'
     runs-on: ubuntu-latest
     steps:
+      # Mint GitHub App token early to use for API calls (avoids rate limits)
+      - name: Mint GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
+          owner: ${{ github.repository_owner }}
+
+      # Mint GitHub App token early to use for API calls (avoids rate limits)
       - name: Checkout retry helpers
         uses: actions/checkout@v6
         with:
+
+          token: ${{ steps.app_token.outputs.token || github.token }}
           repository: ${{ github.repository }}
-          ref: ${{ github.event.pull_request.base.sha || github.event.pull_request.base.ref || github.event.repository.default_branch || github.ref_name }}
+          ref: >-
+            ${{
+              github.event.pull_request.base.sha ||
+              github.event.pull_request.base.ref ||
+              github.event.repository.default_branch ||
+              github.ref_name
+            }}
           sparse-checkout: |
             .github/scripts/github-api-with-retry.js
+            .github/actions/setup-api-client
+            .github/scripts/github-rate-limited-wrapper.js
+            .github/scripts/token_load_balancer.js
           sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
       - name: Remove trigger label
         uses: actions/github-script@v8
         with:
+
+          github-token: ${{ steps.app_token.outputs.token || github.token }}
           script: |
             const fs = require('fs');
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';

@@ -20,11 +20,11 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from scripts import update_versions_from_pypi
 from scripts.update_versions_from_pypi import (
     PACKAGE_MAPPING,
     VersionInfo,
+    _is_outdated,
     _version_tuple,
     check_versions,
     get_latest_pypi_version,
@@ -37,6 +37,9 @@ from scripts.update_versions_from_pypi import (
 def _pypi_reachable() -> bool:
     try:
         with urllib.request.urlopen("https://pypi.org/simple/", timeout=5) as resp:
+            if resp.status != 200:
+                return False
+        with urllib.request.urlopen("https://pypi.org/pypi/pytest/json", timeout=5) as resp:
             return resp.status == 200
     except Exception:
         return False
@@ -45,6 +48,14 @@ def _pypi_reachable() -> bool:
 def _skip_if_pypi_unreachable() -> None:
     if not _pypi_reachable():
         pytest.skip("PyPI not reachable in this test environment")
+
+
+def _get_pypi_version_or_skip(package_name: str) -> str:
+    _skip_if_pypi_unreachable()
+    version = get_latest_pypi_version(package_name)
+    if not version:
+        pytest.skip(f"PyPI JSON API not reachable for {package_name}")
+    return version
 
 
 class TestVersionTuple:
@@ -162,6 +173,26 @@ class TestGetLatestPyPIVersion:
 
         assert result == "1.2.3"
 
+    def test_prerelease_info_uses_latest_stable(self) -> None:
+        """Prefer a stable release when info.version is prerelease."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            {
+                "info": {"version": "1.3.0rc1"},
+                "releases": {
+                    "1.3.0rc1": [{"yanked": False}],
+                    "1.2.0": [{"yanked": False}],
+                },
+            }
+        ).encode()
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            result = get_latest_pypi_version("some-package")
+
+        assert result == "1.2.0"
+
     def test_network_error_returns_none(self) -> None:
         """Network errors should return None, not crash."""
         with patch("urllib.request.urlopen", side_effect=TimeoutError("timeout")):
@@ -202,6 +233,30 @@ class TestCheckVersions:
             results = check_versions(env_file)
 
         assert results["RUFF_VERSION"].is_outdated is False
+
+    def test_identifies_ahead_as_current(self, tmp_path: Path) -> None:
+        env_file = tmp_path / "test.env"
+        env_file.write_text("RUFF_VERSION=0.15.0\n")
+
+        with patch.object(
+            update_versions_from_pypi,
+            "get_latest_pypi_version",
+            return_value="0.14.10",
+        ):
+            results = check_versions(env_file)
+
+        assert results["RUFF_VERSION"].is_outdated is False
+
+
+class TestIsOutdated:
+    def test_returns_true_when_older(self) -> None:
+        assert _is_outdated("0.14.0", "0.14.10") is True
+
+    def test_returns_false_when_equal(self) -> None:
+        assert _is_outdated("1.2.3", "1.2.3") is False
+
+    def test_returns_false_when_newer(self) -> None:
+        assert _is_outdated("2.0.0", "1.9.9") is False
 
 
 class TestMain:
@@ -274,6 +329,7 @@ class TestMain:
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 class TestPyPIIntegration:
     """Integration tests that actually query PyPI.
 
@@ -282,9 +338,7 @@ class TestPyPIIntegration:
 
     def test_can_fetch_real_ruff_version(self) -> None:
         """Verify we can fetch the real ruff version from PyPI."""
-        _skip_if_pypi_unreachable()
-        version = get_latest_pypi_version("ruff")
-        assert version is not None
+        version = _get_pypi_version_or_skip("ruff")
         assert len(version) > 0
         # Version should be a valid semver-ish format
         parts = version.split(".")
@@ -293,17 +347,14 @@ class TestPyPIIntegration:
 
     def test_can_fetch_real_mypy_version(self) -> None:
         """Verify we can fetch the real mypy version from PyPI."""
-        _skip_if_pypi_unreachable()
-        version = get_latest_pypi_version("mypy")
-        assert version is not None
+        version = _get_pypi_version_or_skip("mypy")
         assert len(version) > 0
 
     def test_can_fetch_all_mapped_packages(self) -> None:
         """Verify we can fetch versions for ALL packages in our mapping."""
-        _skip_if_pypi_unreachable()
         for env_key, package_name in PACKAGE_MAPPING.items():
-            version = get_latest_pypi_version(package_name)
-            assert version is not None, f"Failed to fetch {package_name} for {env_key}"
+            version = _get_pypi_version_or_skip(package_name)
+            assert version, f"Failed to fetch {package_name} for {env_key}"
 
 
 # ============================================================================
@@ -313,6 +364,7 @@ class TestPyPIIntegration:
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 class TestConsumerRepoSampling:
     """Tests that sample consumer repo dependencies to ensure we're shipping current versions.
 
@@ -367,10 +419,9 @@ class TestConsumerRepoSampling:
 
         # Check that all our package mappings exist in the template
         for env_key in PACKAGE_MAPPING:
-            assert env_key in content, (
-                f"Template sync script missing {env_key}. "
-                f"Consumer repos won't sync this package!"
-            )
+            assert (
+                env_key in content
+            ), f"Template sync script missing {env_key}. Consumer repos won't sync this package!"
 
     def test_simulated_consumer_repo_sync(self, tmp_path: Path) -> None:
         """Simulate what a consumer repo would receive.

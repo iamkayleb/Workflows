@@ -1,0 +1,46 @@
+version: 1
+issue: 1211
+base: main
+branch: codex/issue-1211
+tasks:
+  - id: task-01
+    title: Create a shared utility module (e.g., `tools/langchain_client.py`) that
+      builds chat clients with standardized timeouts, retries, and provider selection
+      (GitHub Models then OpenAI fallback).
+    status: done
+    started_at: null
+    finished_at: null
+    commit: 5dc4f5ced3a31f0abf187fcff5f85bfea364b63b
+    notes: []
+  - id: task-02
+    title: Refactor `scripts/langchain/issue_formatter.py` to use the shared utility
+      (remove duplicated client code).
+    status: done
+    started_at: null
+    finished_at: null
+    commit: 5dc4f5ced3a31f0abf187fcff5f85bfea364b63b
+    notes: []
+  - id: task-03
+    title: Refactor `scripts/langchain/issue_optimizer.py` to use the shared utility
+      (remove duplicated client code).
+    status: done
+    started_at: null
+    finished_at: null
+    commit: 5dc4f5ced3a31f0abf187fcff5f85bfea364b63b
+    notes: []
+  - id: task-04
+    title: Refactor `scripts/langchain/pr_verifier.py` to use the shared utility for
+      client construction in both single-provider and compare modes.
+    status: done
+    started_at: null
+    finished_at: null
+    commit: 5dc4f5ced3a31f0abf187fcff5f85bfea364b63b
+    notes: []
+  - id: task-05
+    title: Add unit tests for the utility module covering provider selection and env
+      override behavior.
+    status: done
+    started_at: null
+    finished_at: null
+    commit: 5dc4f5ced3a31f0abf187fcff5f85bfea364b63b
+    notes: []

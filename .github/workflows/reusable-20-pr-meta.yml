@@ -45,7 +45,7 @@ on:
         type: boolean
         default: false
       allow_replay:
-        description: 'Enable replay mode for workflow_run triggers (re-evaluates keepalive after Gate completes)'
+        description: 'Replay mode for workflow_run triggers (re-evaluate after Gate completes)'
         required: false
         type: boolean
         default: false
@@ -64,6 +64,9 @@ on:
         required: false
       WORKFLOWS_APP_PRIVATE_KEY:
         description: 'GitHub App private key for minting installation tokens'
+        required: false
+      TOKEN_ROTATION_JSON:
+        description: 'Token rotation JSON payload'
         required: false
     outputs:
       keepalive_detected:
@@ -112,6 +115,64 @@ jobs:
         with:
           fetch-depth: 1
           path: consumer
+          token: >-
+            ${{
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.service_bot_pat ||
+              github.token
+            }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Setup API client
+        uses: ./consumer/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
+
+      - name: Resolve Workflows default branch
+        id: workflows_ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const payloadDefault = context.payload?.repository?.default_branch;
+            if (payloadDefault) {
+              core.setOutput('ref', payloadDefault);
+              return;
+            }
+
+            const { createTokenAwareRetry } = require(
+              './consumer/.github/scripts/github-api-with-retry.js'
+            );
+
+            const { withRetry, github: retryGithub } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'pr-meta-workflows-ref',
+              capabilities: ['read-repo'],
+            });
+
+            const client = retryGithub || github;
+            try {
+              const { data } = await withRetry((octokit) =>
+                octokit.rest.repos.get({ owner: 'stranske', repo: 'Workflows' })
+              );
+              if (data?.default_branch) {
+                core.setOutput('ref', data.default_branch);
+                return;
+              }
+            } catch (error) {
+              core.warning(`Failed to resolve Workflows default branch: ${error.message}`);
+            }
+
+            core.warning('Falling back to Workflows ref "main".');
+            core.setOutput('ref', 'main');
 
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
@@ -124,11 +185,32 @@ jobs:
           sparse-checkout-cone-mode: false
           path: workflows-lib
           fetch-depth: 1
+          token: >-
+            ${{
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.service_bot_pat ||
+              github.token
+            }}
 
       - name: Set scripts path
         run: |
           echo "WORKFLOWS_SCRIPTS_PATH=${GITHUB_WORKSPACE}/workflows-lib" >> "$GITHUB_ENV"
           echo "CONSUMER_PATH=${GITHUB_WORKSPACE}/consumer" >> "$GITHUB_ENV"
+
+      - name: Link node_modules for Workflows scripts
+        run: |
+          # ESM import() resolves relative to file location, not NODE_PATH.
+          # setup-api-client installs to $GITHUB_WORKSPACE/.github/scripts
+          # by default — symlink so workflows-lib scripts can find @octokit/rest.
+          SRC="${GITHUB_WORKSPACE}/.github/scripts/node_modules"
+          DST="${GITHUB_WORKSPACE}/workflows-lib/.github/scripts/node_modules"
+          if [ -d "$SRC" ] && [ ! -d "$DST" ]; then
+            mkdir -p "$(dirname "$DST")"
+            ln -sfn "$SRC" "$DST"
+            echo "✅ Linked node_modules → workflows-lib scripts path"
+          elif [ ! -d "$SRC" ]; then
+            echo "::warning::node_modules not found at $SRC — token rotation may fail"
+          fi
 
       - name: Evaluate keepalive pre-gate
         id: pre_gate
@@ -140,7 +222,8 @@ jobs:
         with:
           script: |
             const scriptsPath = process.env.WORKFLOWS_SCRIPTS_PATH;
-            const { evaluateKeepaliveGate } = require(`${scriptsPath}/.github/scripts/keepalive_gate.js`);
+            const gateScript = `${scriptsPath}/.github/scripts/keepalive_gate.js`;
+            const { evaluateKeepaliveGate } = require(gateScript);
             const result = await evaluateKeepaliveGate({
               core, github, context,
               options: {
@@ -176,7 +259,8 @@ jobs:
         with:
           script: |
             const scriptsPath = process.env.WORKFLOWS_SCRIPTS_PATH;
-            const { detectKeepalive } = require(`${scriptsPath}/.github/scripts/agents_pr_meta_keepalive.js`);
+            const keepaliveScript = `${scriptsPath}/.github/scripts/agents_pr_meta_keepalive.js`;
+            const { detectKeepalive } = require(keepaliveScript);
             await detectKeepalive({ core, github, context, env: process.env });
 
       - name: Write keepalive dispatch summary (comment lane)
@@ -213,31 +297,45 @@ jobs:
           ref: main
           sparse-checkout: |
             .github/scripts
+            .github/actions/setup-api-client
           sparse-checkout-cone-mode: false
           path: workflows-lib
+          token: >-
+            ${{
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.service_bot_pat ||
+              github.token
+            }}
           fetch-depth: 1
 
       - name: Set scripts path
         run: |
           echo "WORKFLOWS_SCRIPTS_PATH=${GITHUB_WORKSPACE}/workflows-lib" >> "$GITHUB_ENV"
 
-      - name: Mint GitHub App token (preferred)
-        id: app_token
-        continue-on-error: true
-        uses: actions/create-github-app-token@v2
+      - name: Setup API client
+        uses: ./workflows-lib/.github/actions/setup-api-client
         with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+          install_dir: ${{ github.workspace }}/workflows-lib/.github/scripts
 
       - name: Run orchestrator
         uses: actions/github-script@v8
         env:
           INSTRUCTION_BODY: ${{ needs.keepalive_dispatch.outputs.instruction_body }}
         with:
-          github-token: ${{ steps.app_token.outputs.token || secrets.ACTIONS_BOT_PAT || secrets.SERVICE_BOT_PAT || secrets.AGENTS_AUTOMATION_PAT || github.token }}
+          github-token: >-
+            ${{
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.SERVICE_BOT_PAT ||
+              secrets.AGENTS_AUTOMATION_PAT ||
+              github.token
+            }}
           script: |
             const scriptsPath = process.env.WORKFLOWS_SCRIPTS_PATH;
-            const { runKeepaliveOrchestrator } = require(`${scriptsPath}/.github/scripts/agents_pr_meta_orchestrator.js`);
+            const orchestratorScript =
+              `${scriptsPath}/.github/scripts/agents_pr_meta_orchestrator.js`;
+            const { runKeepaliveOrchestrator } = require(orchestratorScript);
             const result = await runKeepaliveOrchestrator({
               github, context, core,
               inputs: {
@@ -276,13 +374,27 @@ jobs:
           ref: main
           sparse-checkout: |
             .github/scripts
+            .github/actions/setup-api-client
           sparse-checkout-cone-mode: false
           path: workflows-lib
+          token: >-
+            ${{
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.service_bot_pat ||
+              github.token
+            }}
           fetch-depth: 1
 
       - name: Set scripts path
         run: |
           echo "WORKFLOWS_SCRIPTS_PATH=${GITHUB_WORKSPACE}/workflows-lib" >> "$GITHUB_ENV"
+
+      - name: Setup API client
+        uses: ./workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+          install_dir: ${{ github.workspace }}/workflows-lib/.github/scripts
 
       - name: Evaluate keepalive gate
         id: gate
@@ -292,7 +404,8 @@ jobs:
         with:
           script: |
             const scriptsPath = process.env.WORKFLOWS_SCRIPTS_PATH;
-            const { evaluateKeepaliveGate } = require(`${scriptsPath}/.github/scripts/keepalive_gate.js`);
+            const gateScript = `${scriptsPath}/.github/scripts/keepalive_gate.js`;
+            const { evaluateKeepaliveGate } = require(gateScript);
             const result = await evaluateKeepaliveGate({
               core, github, context,
               options: {
@@ -309,8 +422,14 @@ jobs:
             core.setOutput('run_cap', String(result.runCap ?? ''));
             core.setOutput('active_runs', String(result.activeRuns ?? ''));
             core.setOutput('pr_number', result.prNumber || process.env.PR_NUMBER);
-            core.setOutput('activation_comment', result.activationComment ? JSON.stringify(result.activationComment) : '');
-            core.setOutput('activation_comment_id', result.activationComment?.id ? String(result.activationComment.id) : '');
+            const activationCommentJson = result.activationComment
+              ? JSON.stringify(result.activationComment)
+              : '';
+            const activationCommentId = result.activationComment?.id
+              ? String(result.activationComment.id)
+              : '';
+            core.setOutput('activation_comment', activationCommentJson);
+            core.setOutput('activation_comment_id', activationCommentId);
 
       - name: Detect keepalive from activation
         id: detect
@@ -326,7 +445,8 @@ jobs:
         with:
           script: |
             const scriptsPath = process.env.WORKFLOWS_SCRIPTS_PATH;
-            const { detectKeepalive } = require(`${scriptsPath}/.github/scripts/agents_pr_meta_keepalive.js`);
+            const keepaliveScript = `${scriptsPath}/.github/scripts/agents_pr_meta_keepalive.js`;
+            const { detectKeepalive } = require(keepaliveScript);
             const comment = JSON.parse(process.env.ACTIVATION_COMMENT || '{}');
             // Synthesize context payload to match issue_comment structure
             const detectionContext = {
@@ -334,15 +454,6 @@ jobs:
               payload: { comment, issue: { number: Number(process.env.PR_NUMBER) } },
             };
             await detectKeepalive({ core, github, context: detectionContext, env: process.env });
-
-      - name: Mint GitHub App token for gate orchestrator
-        id: app_token_gate
-        if: steps.gate.outputs.ok == 'true' && steps.detect.outputs.dispatch == 'true'
-        continue-on-error: true
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
-          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
 
       - name: Run orchestrator from gate
         if: steps.gate.outputs.ok == 'true' && steps.detect.outputs.dispatch == 'true'
@@ -353,15 +464,26 @@ jobs:
           AGENTS_AUTOMATION_PAT: ${{ secrets.AGENTS_AUTOMATION_PAT || '' }}
           INSTRUCTION_BODY: ${{ steps.detect.outputs.instruction_body }}
         with:
-          github-token: ${{ steps.app_token_gate.outputs.token || secrets.ACTIONS_BOT_PAT || secrets.service_bot_pat || secrets.AGENTS_AUTOMATION_PAT || github.token }}
+          github-token: >-
+            ${{
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.service_bot_pat ||
+              secrets.AGENTS_AUTOMATION_PAT ||
+              github.token
+            }}
           script: |
             const scriptsPath = process.env.WORKFLOWS_SCRIPTS_PATH;
-            const { runKeepaliveOrchestrator } = require(`${scriptsPath}/.github/scripts/agents_pr_meta_orchestrator.js`);
+            const orchestratorScript =
+              `${scriptsPath}/.github/scripts/agents_pr_meta_orchestrator.js`;
+            const { runKeepaliveOrchestrator } = require(orchestratorScript);
+
+            const prNumber =
+              '${{ steps.detect.outputs.pr }}' || '${{ steps.gate.outputs.pr_number }}';
             const result = await runKeepaliveOrchestrator({
               github, context, core,
               inputs: {
                 commentId: '${{ steps.detect.outputs.comment_id }}',
-                prNumber: '${{ steps.detect.outputs.pr || steps.gate.outputs.pr_number }}',
+                prNumber,
                 issue: '${{ steps.detect.outputs.issue }}',
                 branch: '${{ steps.detect.outputs.branch }}',
                 base: '${{ steps.detect.outputs.base }}',
@@ -409,13 +531,27 @@ jobs:
           ref: main
           sparse-checkout: |
             .github/scripts
+            .github/actions/setup-api-client
           sparse-checkout-cone-mode: false
           path: workflows-lib
+          token: >-
+            ${{
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.service_bot_pat ||
+              github.token
+            }}
           fetch-depth: 1
 
       - name: Set scripts path
         run: |
           echo "WORKFLOWS_SCRIPTS_PATH=${GITHUB_WORKSPACE}/workflows-lib" >> "$GITHUB_ENV"
+
+      - name: Setup API client
+        uses: ./workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+          install_dir: ${{ github.workspace }}/workflows-lib/.github/scripts
 
       - name: Upsert PR body sections
         uses: actions/github-script@v8

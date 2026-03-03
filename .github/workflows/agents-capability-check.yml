@@ -16,7 +16,9 @@ permissions:
   models: read
  
 concurrency:
-  group: agents-capability-check-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}
+  group: >-
+    agents-capability-check-${{ github.repository }}-
+    ${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: false
  
 jobs:
@@ -104,17 +106,26 @@ jobs:
   capability-check:
     needs: check-agent-label
     runs-on: ubuntu-latest
-    # Only run if an agent label was added
-    if: needs.check-agent-label.outputs.is_agent_label == 'true'
- 
+    # Trigger when an agent assignment label is added (pre-agent gate)
+    if: contains(fromJSON('["agent:codex","agent:claude","agent:auto"]'), github.event.label.name)
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
+            .github/actions/setup-api-client
             .github/scripts/github-api-with-retry.js
-            .github/agents/registry.yml
+            .github/scripts/token_load_balancer.js
           sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -154,6 +165,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
           python -c "
@@ -205,34 +217,45 @@ jobs:
             const retryHelpers = fs.existsSync(retryHelperPath)
               ? require(retryHelperPath)
               : {
-                  withRetry: (fn) => fn(),
-                  paginateWithRetry: (githubInstance, method, params) =>
-                    githubInstance.paginate(method, params),
+                  createTokenAwareRetry: async ({ github }) => ({
+                    github,
+                    withRetry: (fn) => fn(),
+                  }),
                 };
-            const { withRetry } = retryHelpers;
- 
-            const agentLabel = process.env.AGENT_LABEL;
-            const agentName = process.env.AGENT_NAME;
- 
-            await withRetry(() => github.rest.issues.addLabels({
+            const { withRetry } = await retryHelpers.createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'agents-capability-check',
+              capabilities: ['issues:write'],
+            });
+
+            await withRetry((client) => client.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
               labels: ['needs-human']
             }));
- 
-            // Remove the agent label since agent can't complete this
-            // DYNAMIC: Uses detected agent label from registry
-            try {
-              await withRetry(() => github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                name: agentLabel
-              }));
-              core.info(`Removed ${agentLabel} - ${agentName} cannot complete this issue`);
-            } catch (e) {
-              core.warning(`Could not remove ${agentLabel} label: ${e.message}`);
+
+            // Remove all agent:* labels since an agent can't complete this.
+            const issueLabels = Array.isArray(context.payload.issue?.labels)
+              ? context.payload.issue.labels
+              : [];
+            const agentLabels = issueLabels
+              .map((label) => (label?.name ? String(label.name) : ''))
+              .filter((name) => /^agent:/i.test(name));
+            const uniqueAgentLabels = Array.from(new Set(agentLabels));
+            for (const agentLabel of uniqueAgentLabels) {
+              try {
+                await withRetry((client) => client.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.issue.number,
+                  name: agentLabel,
+                }));
+              } catch (e) {
+                core.warning(`Could not remove ${agentLabel} label`);
+              }
             }
 
       - name: Post capability report
@@ -251,11 +274,19 @@ jobs:
             const retryHelpers = fs.existsSync(retryHelperPath)
               ? require(retryHelperPath)
               : {
-                  withRetry: (fn) => fn(),
-                  paginateWithRetry: (githubInstance, method, params) =>
-                    githubInstance.paginate(method, params),
+                  createTokenAwareRetry: async ({ github }) => ({
+                    github,
+                    withRetry: (fn) => fn(),
+                    paginateWithRetry: (method, params) => github.paginate(method, params),
+                  }),
                 };
-            const { withRetry } = retryHelpers;
+            const { withRetry, paginateWithRetry } = await retryHelpers.createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'agents-capability-check',
+              capabilities: ['issues:read', 'issues:write'],
+            });
 
             const result = JSON.parse(process.env.RESULT_JSON || '{}');
             const recommendation = process.env.RECOMMENDATION || 'UNKNOWN';

@@ -12,8 +12,10 @@ ALLOWED_PREFIXES = (
     "enforce-",
     "health-",
     "selftest-",
+    "debug-",
 )
 WORKFLOW_DIR = pathlib.Path(".github/workflows")
+DOC_INVENTORY_EXEMPT_WORKFLOWS = set()
 
 
 def _workflow_paths():
@@ -129,7 +131,11 @@ def test_inventory_docs_list_all_workflows():
         return any(option in contents for option in options)
 
     missing_by_doc = {
-        doc_name: [path.name for path in _workflow_paths() if not _listed(contents, path.name)]
+        doc_name: [
+            path.name
+            for path in _workflow_paths()
+            if path.name not in DOC_INVENTORY_EXEMPT_WORKFLOWS and not _listed(contents, path.name)
+        ]
         for doc_name, contents in docs.items()
     }
     failures = {doc: names for doc, names in missing_by_doc.items() if names}
@@ -162,8 +168,12 @@ def test_workflow_display_names_are_unique():
 
 EXPECTED_NAMES = {
     "agents-autofix-loop.yml": "Agents Autofix Loop",
+    "agents-autofix-dispatcher.yml": "Agents Autofix Dispatch",
     "agents-auto-label.yml": "Auto-Label Issues",
     "agents-auto-pilot.yml": "Agents Auto-Pilot",
+    "agents-belt-conveyor.yml": "Agents Belt Conveyor",
+    "agents-belt-dispatcher.yml": "Agents Belt Dispatcher",
+    "agents-belt-worker.yml": "Agents Belt Worker",
     "agents-bot-comment-handler.yml": "Agents Bot Comment Handler",
     "agents-capability-check.yml": "Capability Check",
     "agents-decompose.yml": "Task Decomposition",
@@ -178,7 +188,6 @@ EXPECTED_NAMES = {
     "agents-verifier.yml": "Agents Verifier",
     "agents-verify-to-issue-v2.yml": "Create Issue from Verification (Enhanced)",
     "agents-verify-to-new-pr.yml": "Create New PR from Verification",
-    "agents-verify-to-new-pr-autopilot.yml": "Verify-to-New-PR Auto-Pilot Continuation",
     "agents-weekly-metrics.yml": "agents-weekly-metrics",
     "agents-70-orchestrator.yml": "Agents 70 Orchestrator",
     "agents-moderate-connector.yml": "Agents Moderate Connector Comments",
@@ -188,6 +197,7 @@ EXPECTED_NAMES = {
     "agents-73-codex-belt-conveyor.yml": "Agents 73 Codex Belt Conveyor",
     "agents-debug-issue-event.yml": "Agents Debug Issue Event",
     "agents-keepalive-loop.yml": "Agents Keepalive Loop",
+    "agents-keepalive-loop-reporter.yml": "Keepalive Loop Reporter",
     "agents-keepalive-branch-sync.yml": "Keepalive Branch Sync",
     "agents-keepalive-dispatch-handler.yml": "Keepalive Dispatch Handler",
     # Note: agents-pr-meta.yml, v2, v3 archived to archives/github-actions/2025-12-02-pr-meta-legacy/
@@ -220,14 +230,18 @@ EXPECTED_NAMES = {
     "health-71-sync-health-check.yml": "Health 71 Sync Health Check",
     "health-72-template-sync.yml": "Health 72 Template Sync",
     "health-73-template-completeness.yml": "Health 73 Template Completeness",
+    "health-74-template-drift.yml": "Health 74 Template Drift",
     "health-75-api-rate-diagnostic.yml": "Health 75 API Rate Diagnostic",
     "maint-68-sync-consumer-repos.yml": "Maint 68 Sync Consumer Repos",
     "maint-69-sync-integration-repo.yml": "Maint 69 Sync Integration Repo",
     "maint-69-sync-labels.yml": "Maint 69 Sync Labels",
+    "maint-73-refresh-reusable-tags.yml": "Maint 73 Refresh Reusable Tags",
     "maint-60-release.yml": "Maint 60 Release",
     "maint-70-fix-integration-formatting.yml": "Fix Integration Tests Formatting",
     "maint-71-auto-fix-integration.yml": "Auto-Fix Integration Test Failures",
     "maint-71-merge-sync-prs.yml": "Merge Sync PRs",
+    "maint-74-ledger-base-sync.yml": "Ledger Base Sync",
+    "maint-80-langsmith-metrics-dashboard.yml": "LangSmith Metrics Dashboard",
     "maint-72-fix-pr-body-conflicts.yml": "Maint 72 Fix PR Body Conflicts",
     "maint-61-create-floating-v1-tag.yml": "Maint 61 Create Floating v1 Tag",
     "maint-coverage-guard.yml": "Maint Coverage Guard",
@@ -238,11 +252,13 @@ EXPECTED_NAMES = {
     "reusable-12-ci-docker.yml": "Reusable Docker Smoke",
     "reusable-16-agents.yml": "Reusable 16 Agents",
     "reusable-18-autofix.yml": "Reusable 18 Autofix",
+    "reusable-claude-run.yml": "Reusable Claude Run",
     "reusable-codex-run.yml": "Reusable Codex Run",
     "reusable-20-pr-meta.yml": "Reusable 20 PR Meta",
     "reusable-70-orchestrator-init.yml": "Agents 70 Init (Reusable)",
     "reusable-70-orchestrator-main.yml": "Agents 70 Main (Reusable)",
     "reusable-agents-issue-bridge.yml": "Reusable Agents Issue Bridge",
+    "reusable-agents-pr-health.yml": "Reusable Agents PR Health",
     "reusable-agents-verifier.yml": "Reusable Agents Verifier",
     "reusable-bot-comment-handler.yml": "Reusable Bot Comment Handler",
     "reusable-pr-context.yml": "Reusable PR Context Fetcher",

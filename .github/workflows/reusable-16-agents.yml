@@ -19,7 +19,9 @@ on:
         default: ''
         type: string
       require_all:
-        description: 'Fail readiness job if any requested agent/custom login not assignable (true/false)'
+        description: >-
+          Fail readiness job if any requested agent/custom login is not assignable
+          (true/false)
         required: false
         default: 'false'
         type: string
@@ -37,6 +39,11 @@ on:
         description: 'Command phrase to post for Codex'
         required: false
         default: ''
+        type: string
+      preflight_overrides_json:
+        description: 'JSON map of per-agent overrides for preflight ({"codex":{"assign_user":"bot","command_phrase":"/ping"}})'
+        required: false
+        default: '{}'
         type: string
       enable_diagnostic:
         description: 'Run bootstrap diagnostic job (true/false)'
@@ -84,7 +91,7 @@ on:
         default: 'false'
         type: string
       bootstrap_issues_label:
-        description: 'Label to trigger Codex bootstrap'
+        description: 'Label to trigger agent bootstrap (e.g. agent:codex, agent:claude)'
         required: false
         default: 'agent:codex'
         type: string
@@ -146,8 +153,20 @@ jobs:
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
+            .github/actions/setup-api-client
             .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
+            .github/scripts/agent_registry.js
+            .github/agents/registry.yml
           sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
 
       - name: Probe assignable actors
         id: gql
@@ -163,28 +182,45 @@ jobs:
                   paginateWithRetry: (githubInstance, method, params) =>
                     githubInstance.paginate(method, params),
                 };
+            const { withRetry } = retryHelpers;
             const { owner, repo } = context.repo;
-            const q = `query($owner:String!, $repo:String!) { repository(owner:$owner, name:$repo) { suggestedActors(capabilities:[CAN_BE_ASSIGNED], first:100) { nodes { login } } } }`;
+            const q = [
+              'query($owner:String!, $repo:String!) {',
+              '  repository(owner:$owner, name:$repo) {',
+              '    suggestedActors(capabilities:[CAN_BE_ASSIGNED], first:100) {',
+              '      nodes { login }',
+              '    }',
+              '  }',
+              '}',
+            ].join('\n');
             const res = await withRetry(() => github.graphql(q, { owner, repo }));
-            const actors = (res.repository?.suggestedActors?.nodes || []).map(n => (n.login || '').toLowerCase());
+            const actors = (res.repository?.suggestedActors?.nodes || []).map((node) =>
+              String(node?.login || '').toLowerCase(),
+            );
             core.setOutput('actors', JSON.stringify(actors));
       - name: Create temp issue
         id: tmp
         uses: actions/github-script@v8
         with:
           script: |
-            const fs = require('fs');
-            const retryHelperPath = './.github/scripts/github-api-with-retry.js';
-            const retryHelpers = fs.existsSync(retryHelperPath)
-              ? require(retryHelperPath)
-              : {
-                  withRetry: (fn) => fn(),
-                  paginateWithRetry: (githubInstance, method, params) =>
-                    githubInstance.paginate(method, params),
-                };
-            const { withRetry } = retryHelpers;
+            const retryScript = './.github/scripts/github-api-with-retry.js';
+            const { createTokenAwareRetry } = require(retryScript);
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'bootstrap-find-issues',
+              capabilities: ['issues:read', 'contents:read']
+            });
             const { owner, repo } = context.repo;
-            const { data: issue } = await withRetry(() => github.rest.issues.create({ owner, repo, title: '[readiness] probe', body: 'temp' }));
+            const { data: issue } = await withRetry(() =>
+              github.rest.issues.create({
+                owner,
+                repo,
+                title: '[readiness] probe',
+                body: 'temp',
+              }),
+            );
             core.setOutput('num', String(issue.number));
       - name: Try agent assignment
         id: try
@@ -196,34 +232,79 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const num = Number(core.getInput('issue_number') || process.env.ISSUE_NUM || '${{ steps.tmp.outputs.num }}');
+            const issueNumberRaw =
+              core.getInput('issue_number') ||
+              process.env.ISSUE_NUM ||
+              '${{ steps.tmp.outputs.num }}';
+            const num = Number(issueNumberRaw);
             const actors = JSON.parse(process.env.ACTORS_JSON || '[]');
-            const requested = (process.env.AGENTS_REQ || 'copilot,codex').split(',').map(s=>s.trim()).filter(Boolean);
-            const custom = (process.env.CUSTOM_LOGINS || '').split(',').map(s=>s.trim()).filter(Boolean);
-            const CANDIDATES = {
-              copilot: ['copilot','copilot-swe-agent'],
-              codex: ['chatgpt-codex-connector']
+            const requested = (process.env.AGENTS_REQ || 'copilot,codex')
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean);
+            const custom = (process.env.CUSTOM_LOGINS || '')
+              .split(',')
+              .map((value) => value.trim())
+              .filter(Boolean);
+            // Load candidates from registry; keep
+            // copilot hardcoded (not in agent registry)
+            let CANDIDATES = {
+              copilot: ['copilot', 'copilot-swe-agent'],
             };
+            try {
+              const { getReadinessCandidates } =
+                require('./.github/scripts/agent_registry.js');
+              const rc = getReadinessCandidates();
+              CANDIDATES = { ...CANDIDATES, ...rc };
+            } catch (err) {
+              core.warning(
+                `Registry load failed: ${err.message}`
+              );
+              // Fallback for backwards compat
+              CANDIDATES.codex =
+                ['chatgpt-codex-connector'];
+            }
             const rows = [];
             const report = {};
             // Handle keyed agents
             for (const key of requested) {
               const cands = CANDIDATES[key]||[];
               let ok=false, used='';
-              for (const c of cands) { if (actors.includes(c)) { ok=true; used=c; break; } }
+              for (const candidate of cands) {
+                if (actors.includes(candidate)) {
+                  ok = true;
+                  used = candidate;
+                  break;
+                }
+              }
               report[key]={ok, used};
-              rows.push({ label:key, type:'builtin', requested:true, ok, used });
+              rows.push({
+                label: key,
+                type: 'builtin',
+                requested: true,
+                ok,
+                used,
+              });
             }
             // Handle custom explicit logins (exact matches)
             for (const login of custom) {
               const ok = actors.includes(login.toLowerCase());
-              report[`custom:${login}`] = { ok, used: ok ? login.toLowerCase(): '' };
-              rows.push({ label:login.toLowerCase(), type:'custom', requested:true, ok, used: ok? login.toLowerCase(): '' });
+              const resolved = ok ? login.toLowerCase() : '';
+              report[`custom:${login}`] = { ok, used: resolved };
+              rows.push({
+                label: login.toLowerCase(),
+                type: 'custom',
+                requested: true,
+                ok,
+                used: resolved,
+              });
             }
             // Build markdown table
             const header = '| Agent | Kind | Requested | Assignable | Resolved Login |';
             const sep = '|-------|------|-----------|-----------|---------------|';
-            const mdRows = rows.map(r => `| ${r.label} | ${r.type} | yes | ${r.ok? '':''} | ${r.used} |`);
+            const mdRows = rows.map(
+              (row) => `| ${row.label} | ${row.type} | yes | ${row.ok ? '✅' : ''} | ${row.used} |`,
+            );
             const table = [header, sep, ...mdRows].join('\n');
             core.setOutput('report', JSON.stringify(report));
             core.setOutput('table', table);
@@ -250,24 +331,37 @@ jobs:
                 };
             const { withRetry } = retryHelpers;
             const { owner, repo } = context.repo;
-            await withRetry(() => github.rest.issues.update({ owner, repo, issue_number: Number('${{ steps.tmp.outputs.num }}'), state: 'closed' }));
+            await withRetry(() =>
+              github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: Number('${{ steps.tmp.outputs.num }}'),
+                state: 'closed',
+              }),
+            );
       - name: Summary
         if: always()
         run: |
           {
-            printf '### Agent Readiness Report %s\n' "${{ steps.try.outcome == 'failure' && '' || '' }}"
+            printf '### Agent Readiness Report\n'
             printf '\n```json\n'
             printf '%s\n' "${{ steps.try.outputs.report }}"
             printf '```\n\n'
             printf '%s\n\n' "${{ steps.try.outputs.table }}"
             printf 'Require all: %s\n' "${{ inputs.require_all }}"
-            printf 'Custom logins: %s\n' "${{ inputs.readiness_custom_logins }}"
-            printf 'Overall: %s\n' "${{ steps.try.outcome == 'failure' && 'failure (missing required agents)' || 'success' }}"
+            printf 'Custom logins: %s\n' \
+              "${{ inputs.readiness_custom_logins }}"
+            if [ "${{ steps.try.outcome }}" = "failure" ]; then
+              overall="failure (missing agents)"
+            else
+              overall="success"
+            fi
+            printf 'Overall: %s\n' "$overall"
           } >>"$GITHUB_STEP_SUMMARY"
 
   preflight:
     if: inputs.enable_preflight == 'true'
-    name: Codex Preflight
+    name: Agent Preflight
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -276,11 +370,24 @@ jobs:
         with:
           sparse-checkout: |
             .github/scripts/github-api-with-retry.js
+            .github/scripts/agent_registry.js
+            .github/actions/setup-api-client
+            .github/scripts/github-rate-limited-wrapper.js
+            .github/scripts/token_load_balancer.js
+            .github/agents/registry.yml
           sparse-checkout-cone-mode: false
 
-      - name: Preflight probe
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+      - name: Run agent preflight probes
+        id: agent_preflight
         uses: actions/github-script@v8
         env:
+          PREFLIGHT_OVERRIDES: ${{ inputs.preflight_overrides_json }}
           CODEX_USER: ${{ inputs.codex_user }}
           CODEX_COMMAND: ${{ inputs.codex_command_phrase }}
         with:
@@ -296,13 +403,180 @@ jobs:
                     githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
-            const user = process.env.CODEX_USER;
-            if (!user) { core.warning('No CODEX_USER provided'); return; }
-            const { data: issue } = await withRetry(() => github.rest.issues.create({ owner, repo, title: '[probe] codex-assignability', body: 'temp' }));
-            try { await withRetry(() => github.rest.issues.addAssignees({ owner, repo, issue_number: issue.number, assignees: [user] })); core.info('Assignable'); }
-            catch (e) { core.warning('Not assignable: '+e.message); }
-            if (process.env.CODEX_COMMAND) { await withRetry(() => github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: process.env.CODEX_COMMAND })); }
-            await withRetry(() => github.rest.issues.update({ owner, repo, issue_number: issue.number, state: 'closed' }));
+            const { getAgentPreflightConfigs } = require('./.github/scripts/agent_registry.js');
+
+            let overrides = {};
+            try {
+              overrides = JSON.parse(process.env.PREFLIGHT_OVERRIDES || '{}');
+            } catch (error) {
+              core.warning(`Failed to parse preflight_overrides_json: ${error?.message || error}`);
+            }
+            if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+              core.warning('preflight_overrides_json must be a JSON object; ignoring non-object input.');
+              overrides = {};
+            }
+
+            const ensureOverride = (agentKey) => {
+              if (!agentKey) {
+                return null;
+              }
+              const current = overrides[agentKey];
+              if (!current || typeof current !== 'object' || Array.isArray(current)) {
+                overrides[agentKey] = {};
+              }
+              return overrides[agentKey];
+            };
+
+            const codexUser = (process.env.CODEX_USER || '').trim();
+            if (codexUser) {
+              ensureOverride('codex').assign_user = codexUser;
+            }
+            const codexCmd = (process.env.CODEX_COMMAND || '').trim();
+            if (codexCmd) {
+              ensureOverride('codex').command_phrase = codexCmd;
+            }
+
+            const configs = getAgentPreflightConfigs();
+            if (!configs.length) {
+              core.warning('No agents with preflight configuration were found in the registry.');
+            }
+
+            const results = [];
+            for (const entry of configs) {
+              const overrideEntry = overrides[entry.key];
+              const override =
+                overrideEntry && typeof overrideEntry === 'object' && !Array.isArray(overrideEntry)
+                  ? overrideEntry
+                  : {};
+              const assignUser =
+                (override.assign_user || override.user || entry.assign_user || '').trim();
+              const commandPhrase =
+                (override.command_phrase || override.command || entry.command_phrase || '').trim();
+
+              if (!assignUser) {
+                results.push({
+                  key: entry.key,
+                  user: '',
+                  status: 'skipped',
+                  reason: 'missing-assign-user',
+                  command_sent: false,
+                });
+                continue;
+              }
+
+              const title = `[probe] ${entry.key}-assignability`;
+              let issueNumber = null;
+              let assignable = false;
+              let errorMessage = '';
+              let commentSent = false;
+
+              try {
+                const { data: issue } = await withRetry(() =>
+                  github.rest.issues.create({
+                    owner,
+                    repo,
+                    title,
+                    body: 'temp',
+                  }),
+                );
+                issueNumber = issue.number;
+              } catch (createError) {
+                errorMessage = createError?.message || String(createError);
+                results.push({
+                  key: entry.key,
+                  user: assignUser,
+                  status: 'error',
+                  error: errorMessage,
+                  command_sent: false,
+                });
+                continue;
+              }
+
+              try {
+                await withRetry(() =>
+                  github.rest.issues.addAssignees({
+                    owner,
+                    repo,
+                    issue_number: issueNumber,
+                    assignees: [assignUser],
+                  }),
+                );
+                assignable = true;
+              } catch (assignError) {
+                errorMessage = assignError?.message || String(assignError);
+                core.warning(
+                  `Agent ${entry.key} (${assignUser}) not assignable: ${errorMessage}`,
+                );
+              }
+
+              if (commandPhrase) {
+                try {
+                  await withRetry(() =>
+                    github.rest.issues.createComment({
+                      owner,
+                      repo,
+                      issue_number: issueNumber,
+                      body: commandPhrase,
+                    }),
+                  );
+                  commentSent = true;
+                } catch (commentError) {
+                  core.warning(
+                    `Failed to post command for ${entry.key}: ${commentError?.message || commentError}`,
+                  );
+                }
+              }
+
+              try {
+                await withRetry(() =>
+                  github.rest.issues.update({
+                    owner,
+                    repo,
+                    issue_number: issueNumber,
+                    state: 'closed',
+                  }),
+                );
+              } catch (closeError) {
+                core.warning(
+                  `Failed to close probe issue for ${entry.key}: ${closeError?.message || closeError}`,
+                );
+              }
+
+              results.push({
+                key: entry.key,
+                user: assignUser,
+                status: assignable ? 'assignable' : 'unassignable',
+                error: assignable ? '' : errorMessage,
+                command_sent: commentSent,
+              });
+            }
+
+            const header = '| Agent | Assignable | User | Command Sent | Notes |';
+            const sep = '|---|---|---|---|---|';
+            const rows = results.map((row) => {
+              const ok = row.status === 'assignable' ? '✅' : row.status === 'skipped' ? '—' : '';
+              const note = row.error || row.reason || '';
+              return `| ${row.key} | ${ok || row.status} | ${row.user || ''} | ${
+                row.command_sent ? 'yes' : ''
+              } | ${note} |`;
+            });
+            const table = [header, sep, ...rows].join('\n');
+            core.setOutput('json', JSON.stringify(results));
+            core.setOutput('table', table);
+            if (!results.length) {
+              core.warning('No preflight probes executed.');
+            }
+      - name: Summarize preflight probes
+        if: always()
+        run: |
+          {
+            printf '### Agent Preflight Report\n\n'
+            if [ -n "${{ steps.agent_preflight.outputs.table }}" ]; then
+              printf '%s\n\n' "${{ steps.agent_preflight.outputs.table }}"
+            else
+              printf '_No preflight data available_\n\n'
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
 
   diagnostic:
     if: inputs.enable_diagnostic == 'true'
@@ -311,6 +585,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
       - name: Token / Env Probe
         shell: bash
         env:
@@ -319,21 +599,36 @@ jobs:
         run: |
           set -euo pipefail
           echo "Diagnostic dry_run=$DRY_RUN attempt_branch=$ATTEMPT"
-          echo "Tokens present: GITHUB_TOKEN=${GITHUB_TOKEN:+yes} SERVICE_BOT_PAT=${SERVICE_BOT_PAT:+yes}"
+            echo "Tokens present: GITHUB_TOKEN=${GITHUB_TOKEN:+yes}"
+            echo "Tokens present: SERVICE_BOT_PAT=${SERVICE_BOT_PAT:+yes}"
       - name: Attempt branch create
         if: inputs.diagnostic_attempt_branch == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          base=$(git rev-parse HEAD)
-            ts=$(date -u +%Y%m%d%H%M%S)
-            target="diagnostic/codex-${ts}"
-            echo "Creating $target from $base"
-            curl -s -o /tmp/create.json -w '%{http_code}' -X POST \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H 'Accept: application/vnd.github+json' \
-              https://api.github.com/repos/${{ github.repository }}/git/refs \
-              -d '{"ref":"refs/heads/'"$target"'","sha":"'"$base"'"}' || true
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'reusable-agents-diagnostic-branch',
+              capabilities: ['contents:write']
+            });
+            const base = context.sha;
+            const ts = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+            const target = `diagnostic/codex-${ts}`;
+            core.info(`Creating ${target} from ${base}`);
+            try {
+              await withRetry((client) => client.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: `refs/heads/${target}`,
+                sha: base
+              }));
+              core.notice(`Created ${target}`);
+            } catch (error) {
+              core.warning(`Failed to create ${target}: ${error?.message || error}`);
+            }
 
   verify_issue:
     if: inputs.enable_verify_issue == 'true' && inputs.verify_issue_number != ''
@@ -379,7 +674,7 @@ jobs:
 
             core.info(`Verify issue status: ${status || 'unknown'}`);
             core.info(`Issue reference: ${issueNumber}`);
-            core.info(`Has agent:codex label: ${hasLabel}`);
+            core.info(`Has agent label: ${hasLabel}`);
             if (matched) {
               core.info(`Matched assignee: ${matched}`);
             }
@@ -390,11 +685,19 @@ jobs:
             if (table.trim()) {
               summary.addRaw(table, true).addEOL();
             } else {
-              const linkCell = issueUrl ? `[${issueNumber}](${issueUrl})` : '—';
-              summary.addTable([
-                [{ data: 'Issue', header: true }, { data: 'Has agent:codex', header: true }, { data: 'Matched assignee', header: true }, { data: 'Status', header: true }],
-                [linkCell, hasLabel, matchedCell, rawStatus || 'unknown']
-              ]);
+                const linkCell = issueUrl
+                  ? `[${issueNumber}](${issueUrl})`
+                  : '—';
+                const tableHeader = [
+                  { data: 'Issue', header: true },
+                  { data: 'Has agent label', header: true },
+                  { data: 'Matched assignee', header: true },
+                  { data: 'Status', header: true },
+                ];
+                summary.addTable([
+                  tableHeader,
+                  [linkCell, hasLabel, matchedCell, rawStatus || 'unknown'],
+                ]);
             }
 
             if (issueUrl) {
@@ -407,7 +710,7 @@ jobs:
 
             summary.addList([
               `Status: **${rawStatus || 'unknown'}**`,
-              `Has agent:codex label: ${hasLabel}`,
+              `Has agent label: ${hasLabel}`,
               `Matched assignee: ${matchedCell}`
             ]);
 
@@ -420,7 +723,9 @@ jobs:
             } else if (status === 'fail') {
               core.warning(message || 'Agent assignment verification reported a failure.');
             } else {
-              core.info(message || 'Agent assignment verification completed with status unavailable.');
+                const fallback =
+                  'Agent assignment verification completed (status unavailable).';
+                core.info(message || fallback);
             }
 
   bootstrap-codex:
@@ -463,8 +768,14 @@ jobs:
                 };
             const { withRetry } = retryHelpers;
 
-            const fallbackLabel = 'agent:codex';
-            const fallbackMessage = 'bootstrap_issues_label not provided; defaulting to agent:codex.';
+            let fallbackLabel = 'agent:codex';
+            try {
+              const { loadAgentRegistry } = require('./.github/scripts/agent_registry.js');
+              const registry = loadAgentRegistry();
+              fallbackLabel = `agent:${registry.default_agent || 'codex'}`;
+            } catch (_) { /* registry not available */ }
+              const fallbackMessage =
+                `bootstrap_issues_label not provided; defaulting to ${fallbackLabel}.`;
             const raw = process.env.LABEL || '';
             const trimmed = raw
               .split(/[,\n]/)
@@ -489,9 +800,12 @@ jobs:
             const dedupeReduced = unique.length === 1 && trimmed.length > 1;
 
             if (unique.length > 1) {
-              const provided = unique.map((entry) => `\`${entry.raw}\``).join(', ');
+                const provided = unique
+                  .map((entry) => `\`${entry.raw}\``)
+                  .join(', ');
               const message =
-                `bootstrap_issues_label must define exactly one label. Received multiple entries: ${provided}`;
+                  'bootstrap_issues_label must define exactly one label. ' +
+                  `Received multiple entries: ${provided}`;
               core.setFailed(message);
               summary.addRaw(message).addEOL();
               clearOutputs();
@@ -548,24 +862,31 @@ jobs:
             let scanned = 0;
             let truncated = false;
             const issues = [];
-            const issueIterator = github.paginate.iterator(
-              github.rest.issues.listForRepo,
-              {
+            let page = 1;
+            const perPage = 50;
+            const maxPages = Math.ceil(scanLimit / perPage) + 1;
+            while (page <= maxPages && issues.length < scanLimit) {
+              const { data } = await withRetry((client) => client.rest.issues.listForRepo({
                 owner,
                 repo,
                 state: 'open',
                 labels: label,
-                per_page: 50
-              }
-            );
-
-            for await (const response of issueIterator) {
-              issues.push(...response.data);
-              if (issues.length >= scanLimit) {
-                truncated = true;
-                core.warning(`Bootstrap issue scan truncated after ${scanLimit} records.`);
+                per_page: perPage,
+                page
+              }));
+              if (!data?.length) {
                 break;
               }
+              issues.push(...data);
+              if (data.length < perPage) {
+                break;
+              }
+              page += 1;
+            }
+
+            if (issues.length >= scanLimit) {
+              truncated = true;
+              core.warning(`Bootstrap issue scan truncated after ${scanLimit} records.`);
             }
 
             const limitedIssues = issues.slice(0, scanLimit);
@@ -577,9 +898,10 @@ jobs:
                 continue;
               }
 
-              const labelNames = (issue.labels || [])
-                .map((entry) => (typeof entry === 'string' ? entry : entry?.name || '').toLowerCase())
-                .filter(Boolean);
+                const labelNames = (issue.labels || [])
+                  .map((entry) => (typeof entry === 'string' ? entry : entry?.name || ''))
+                  .map((value) => value.toLowerCase())
+                  .filter(Boolean);
               if (!labelNames.includes(labelLower)) {
                 logSkip(issue, `missing required label ${label}`);
                 continue;
@@ -677,17 +999,43 @@ jobs:
         with:
           fetch-depth: 1
           path: consumer
+
+      - name: Resolve Workflows default branch
+        id: workflows_ref
+        uses: actions/github-script@v8
+        with:
+          script: |
+            // NOTE: github-api-with-retry.js is NOT available here because the
+            // Workflows repo hasn't been checked out yet (that happens in the next
+            // step). Use a plain GitHub API call — no retry wrapper needed for this
+            // single low-risk read.
+            const { data } = await github.rest.repos.get({
+              owner: 'stranske',
+              repo: 'Workflows'
+            });
+            if (!data?.default_branch) {
+              core.setFailed('Could not determine Workflows default branch');
+              return;
+            }
+            core.setOutput('ref', data.default_branch);
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
           repository: stranske/Workflows
-          ref: main
+          ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             scripts
             .github/scripts
+            .github/actions/setup-api-client
           sparse-checkout-cone-mode: false
           path: workflows-lib
           fetch-depth: 1
+      - name: Setup API client
+        uses: ./workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+          install_dir: ${{ github.workspace }}/workflows-lib/.github/scripts
       - name: Set scripts path
         run: |
           echo "WORKFLOWS_SCRIPTS_PATH=${GITHUB_WORKSPACE}/workflows-lib" >> "$GITHUB_ENV"
@@ -702,9 +1050,14 @@ jobs:
           private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
 
       - name: Ensure keepalive token present
-        if: ${{ env.SERVICE_BOT_PAT == '' && steps.app_token.outputs.token == '' }}
+        if: >-
+          ${{
+            env.SERVICE_BOT_PAT == '' &&
+            steps.app_token.outputs.token == ''
+          }}
         run: |
-          echo "::error::SERVICE_BOT_PAT or WORKFLOWS_APP token is required for keepalive comments." >&2
+          echo "::error::SERVICE_BOT_PAT or WORKFLOWS_APP token is required" \
+            "for keepalive comments." >&2
           exit 1
       - name: Verify keepalive identity
         if: ${{ env.SERVICE_BOT_PAT != '' }}
@@ -722,21 +1075,38 @@ jobs:
                     githubInstance.paginate(method, params),
                 };
             const { withRetry } = retryHelpers;
-            const { data: me } = await withRetry(() => github.rest.users.getAuthenticated());
+              const { data: me } = await withRetry(() =>
+                github.rest.users.getAuthenticated(),
+              );
             const login = (me.login || '').toLowerCase();
             if (login !== 'stranske-automation-bot') {
-              core.setFailed(`SERVICE_BOT_PAT must belong to stranske-automation-bot; received ${login || 'unknown'}.`);
+              core.setFailed(
+                'SERVICE_BOT_PAT must belong to stranske-automation-bot; ' +
+                  `received ${login || 'unknown'}.`,
+              );
               return;
             }
             core.info('Verified keepalive identity: stranske-automation-bot.');
       - name: Ensure dispatch token present
-        if: ${{ env.ACTIONS_BOT_PAT == '' && steps.app_token.outputs.token == '' }}
+        if: >-
+          ${{
+            env.ACTIONS_BOT_PAT == '' &&
+            steps.app_token.outputs.token == ''
+          }}
         run: |
-          echo "::error::ACTIONS_BOT_PAT or WORKFLOWS_APP token is required so keepalive dispatches can trigger the connector." >&2
+          echo "::error::ACTIONS_BOT_PAT or WORKFLOWS_APP token is required" \
+            "so keepalive dispatches can trigger the connector." >&2
           exit 1
       - name: Generate keepalive trace token
         run: |
-          trace="$(python -c 'import secrets, time; print(f"{int(time.time())}-{secrets.token_hex(4)}")')"
+          trace="$(
+          python - <<'PY'
+          import secrets
+          import time
+
+          print(f"{int(time.time())}-{secrets.token_hex(4)}")
+          PY
+          )"
           printf 'KEEPALIVE_TRACE=%s\n' "$trace" >> "$GITHUB_ENV"
       - name: Resume Codex on unattended checklists
         uses: actions/github-script@v8
@@ -873,7 +1243,9 @@ jobs:
                 label: 'Keepalive',
                 enabled: enabled.keepalive,
                 result: process.env.KEEPALIVE_RESULT,
-                extras: [dryRun && enabled.keepalive ? 'Dry run: preview only' : null].filter(Boolean)
+                  extras: [
+                    dryRun && enabled.keepalive ? 'Dry run: preview only' : null,
+                  ].filter(Boolean)
               },
               {
                 key: 'verify',

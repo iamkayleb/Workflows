@@ -25,7 +25,7 @@ on:
         description: 'Resolved agent login when validation passed'
         value: ${{ jobs.verify.outputs.matched_assignee }}
       has_label:
-        description: 'Whether the issue currently has the agent:codex label'
+        description: 'Whether the issue currently has an agent:* label'
         value: ${{ jobs.verify.outputs.has_label }}
       issue_url:
         description: 'Direct link to the inspected issue'
@@ -45,7 +45,7 @@ permissions:
   issues: read
 
 concurrency:
-  group: agents-verify-assignment-${{ github.repository }}-${{ inputs.issue_number || github.run_id }}
+  group: agents-verify-assignment-${{ inputs.issue_number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -66,15 +66,25 @@ jobs:
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
+            .github/actions/setup-api-client
             .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
           sparse-checkout-cone-mode: false
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
+
       - name: Inspect issue
         id: check
         uses: actions/github-script@v8
         env:
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           VALID_ASSIGNEES: ${{ inputs.valid_assignees }}
-          DEFAULT_VALID_ASSIGNEES: ${{ vars.AGENT_VERIFY_DEFAULT_ASSIGNEES || 'copilot,chatgpt-codex-connector,stranske-automation-bot' }}
+          DEFAULT_VALID_ASSIGNEES: ${{ vars.AGENT_VERIFY_DEFAULT_ASSIGNEES || '' }}
         with:
           script: |
             const fs = require('fs');
@@ -82,11 +92,20 @@ jobs:
             const retryHelpers = fs.existsSync(retryHelperPath)
               ? require(retryHelperPath)
               : {
-                  withRetry: (fn) => fn(),
-                  paginateWithRetry: (githubInstance, method, params) =>
-                    githubInstance.paginate(method, params),
+                  createTokenAwareRetry: async ({ github }) => ({
+                    github,
+                    withRetry: (fn) => fn(github),
+                  }),
                 };
-            const { withRetry } = retryHelpers;
+            const { github: balancedGithub, withRetry } = await retryHelpers.createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'verify-agent-assignment',
+              capabilities: ['read-repo'],
+              minRemaining: 50,
+            });
+            github = balancedGithub;
 
             const rawInput = (process.env.ISSUE_NUMBER || '').trim();
             const issueNumber = Number(rawInput);
@@ -107,9 +126,10 @@ jobs:
             };
 
             if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
-              const message = `Input issue_number must be a positive integer. Received: ${rawInput}`;
+              const message =
+                `Input issue_number must be a positive integer. Received: ${rawInput}`;
               const table = [
-                '| Issue | Title | Has agent:codex? | Valid Agent Assignee | Status |',
+                '| Issue | Title | Has agent label? | Valid Agent Assignee | Status |',
                 '|-------|-------|-----------------|----------------------|--------|',
                 `| #${escapeCell(rawInput)} | — | unknown | — | error |`
               ].join('\n');
@@ -144,7 +164,10 @@ jobs:
                 .filter(Boolean);
 
             const providedLogins = parseAssignees(process.env.VALID_ASSIGNEES);
-            const fallbackLogins = parseAssignees(process.env.DEFAULT_VALID_ASSIGNEES);
+            const defaultAssignees =
+              (process.env.DEFAULT_VALID_ASSIGNEES || '').trim() ||
+              'copilot,chatgpt-codex-connector,stranske-automation-bot';
+            const fallbackLogins = parseAssignees(defaultAssignees);
             const REQUIRED_LOGINS = (providedLogins.length ? providedLogins : fallbackLogins)
               .map((login) => login.toLowerCase());
             let issueTitle = '—';
@@ -155,7 +178,7 @@ jobs:
             let fetched = false;
 
             try {
-              const { data: issue } = await withRetry(() => github.rest.issues.get({
+              const { data: issue } = await withRetry((client) => client.rest.issues.get({
                 owner,
                 repo,
                 issue_number: issueNumber
@@ -169,23 +192,28 @@ jobs:
                 }
                 return (label.name ?? '').toLowerCase();
               });
-              hasLabel = labels.includes('agent:codex');
+              hasLabel = labels.some(l => l.startsWith('agent:'));
 
-              const assignees = (issue.assignees ?? []).map((assignee) => (assignee.login ?? '').toLowerCase());
+              const assignees = (issue.assignees ?? [])
+                .map((assignee) => (assignee.login ?? '').toLowerCase());
               matched = REQUIRED_LOGINS.find((login) => assignees.includes(login)) ?? '';
 
               if (!hasLabel) {
                 status = 'skipped';
-                message = `Issue #${issueNumber} does not carry the agent:codex label. Verification skipped.`;
+                message = `Issue #${issueNumber} does not carry an agent:* label. ` +
+                  'Verification skipped.';
                 core.notice(message);
               } else if (!matched) {
                 status = 'fail';
                 const expectedList = REQUIRED_LOGINS.join(', ');
-                message = `Issue #${issueNumber} is labelled agent:codex but missing a valid agent assignee (expected one of: ${expectedList}).`;
+                message = `Issue #${issueNumber} has an agent label but is missing ` +
+                  'a valid agent assignee.';
+                message += ` Expected one of: ${expectedList}.`;
                 core.error(message);
               } else {
                 status = 'pass';
-                message = `Issue #${issueNumber} has a valid agent assignee (${matched}).`;
+                message = `Issue #${issueNumber} has a valid agent assignee ` +
+                  `(${matched}).`;
                 core.info(message);
               }
             } catch (error) {
@@ -199,11 +227,19 @@ jobs:
               status === 'fail' ? 'fail' :
               status === 'skipped' ? 'skipped' : 'error';
 
-            const labelText = status === 'error' && !fetched ? 'unknown' : (hasLabel ? 'yes' : 'no');
+            const labelText =
+              status === 'error' && !fetched
+                ? 'unknown'
+                : (hasLabel ? 'yes' : 'no');
+            const assigneeCell = matched ? `\`${matched}\`` : '_none_';
+            const issueCell = `[#${issueNumber}](${issueUrl})`;
+            const row =
+              `| ${issueCell} | ${escapeCell(issueTitle)} | ${labelText} | ` +
+              `${assigneeCell} | ${statusLabel} |`;
             const table = [
-              '| Issue | Title | Has agent:codex? | Valid Agent Assignee | Status |',
+              '| Issue | Title | Has agent label? | Valid Agent Assignee | Status |',
               '|-------|-------|-----------------|----------------------|--------|',
-              `| [#${issueNumber}](${issueUrl}) | ${escapeCell(issueTitle)} | ${labelText} | ${matched ? `\`${matched}\`` : '_none_'} | ${statusLabel} |`
+              row
             ].join('\n');
 
             await core.summary
@@ -216,7 +252,10 @@ jobs:
               .addEOL()
               .write();
 
-            const hasLabelOutput = status === 'error' && !fetched ? 'unknown' : (hasLabel ? 'true' : 'false');
+            const hasLabelOutput =
+              status === 'error' && !fetched
+                ? 'unknown'
+                : (hasLabel ? 'true' : 'false');
 
             setOutputs({
               status: statusLabel,

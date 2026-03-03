@@ -1,0 +1,77 @@
+name: Ledger Base Sync
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync-ledger-base:
+    name: Align .agents ledger base
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - name: Export load-balancer tokens
+        uses: ./.github/actions/setup-api-client
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml
+
+      - name: Resolve default branch
+        id: base
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-74-ledger-base-sync',
+              capabilities: ['contents:read']
+            });
+            const { data } = await withRetry((client) => client.rest.repos.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            }));
+            if (!data?.default_branch) {
+              core.setFailed('Repository default branch not available');
+              return;
+            }
+            core.setOutput('branch', data.default_branch);
+          github-token: ${{ github.token }}
+
+      - name: Migrate ledger base entries
+        run: |
+          set -euo pipefail
+          python scripts/ledger_migrate_base.py --default "${{ steps.base.outputs.branch }}"
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          add-paths: |
+            .agents/**
+          commit-message: "chore: align agent ledgers to default branch"
+          title: "chore: align agent ledgers to default branch"
+          body: |
+            Align .agents ledger base entries to the repository default branch.
+          branch: "chore/ledger-base-sync"
+          delete-branch: true
+          labels: "chore"

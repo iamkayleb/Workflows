@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -15,12 +16,87 @@ def _require_node() -> None:
         pytest.skip("Node.js is required for keepalive harness tests")
 
 
+def _clean_token_env(env: dict[str, str]) -> dict[str, str]:
+    token_keys = {
+        "ACTIONS_BOT_PAT",
+        "actions_bot_pat",
+        "SERVICE_BOT_PAT",
+        "service_bot_pat",
+        "GH_TOKEN",
+        "gh_token",
+        "GITHUB_TOKEN",
+        "github_token",
+        "KEEPALIVE_DISPATCH_TOKEN",
+        "keepalive_dispatch_token",
+        "KEEPALIVE_DISPATCH_PAT",
+        "keepalive_dispatch_pat",
+        "GH_DISPATCH_TOKEN",
+        "gh_dispatch_token",
+    }
+    for key in token_keys:
+        env.pop(key, None)
+    return env
+
+
+def _run_harness(
+    scenario_path: Path, *, extra_env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    env = _clean_token_env(os.environ.copy())
+    try:
+        scenario_data = json.loads(scenario_path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        scenario_data = {}
+    scenario_env = scenario_data.get("env", {}) if isinstance(scenario_data, dict) else {}
+    token_keys = {
+        "ACTIONS_BOT_PAT",
+        "actions_bot_pat",
+        "SERVICE_BOT_PAT",
+        "service_bot_pat",
+        "GH_TOKEN",
+        "gh_token",
+        "GITHUB_TOKEN",
+        "github_token",
+        "KEEPALIVE_DISPATCH_TOKEN",
+        "keepalive_dispatch_token",
+        "KEEPALIVE_DISPATCH_PAT",
+        "keepalive_dispatch_pat",
+        "GH_DISPATCH_TOKEN",
+        "gh_dispatch_token",
+    }
+    explicit_values = [
+        scenario_env[key]
+        for key in token_keys
+        if isinstance(scenario_env, dict) and key in scenario_env
+    ]
+    all_explicit_blank = bool(explicit_values) and all(
+        str(value or "").strip() == "" for value in explicit_values
+    )
+    if (
+        scenario_data.get("clear_token_defaults")
+        or scenario_data.get("clearTokenDefaults")
+        or all_explicit_blank
+    ):
+        env.setdefault("CLEAR_TOKEN_DEFAULTS", "true")
+        env.setdefault("clear_token_defaults", "true")
+    if extra_env:
+        env.update(extra_env)
+    clear_tokens_flag = (
+        env.get("CLEAR_TOKEN_DEFAULTS")
+        or env.get("clear_token_defaults")
+        or scenario_data.get("clear_token_defaults")
+        or scenario_data.get("clearTokenDefaults")
+    )
+    if clear_tokens_flag:
+        _clean_token_env(env)
+    command = ["node", str(HARNESS), str(scenario_path)]
+    return subprocess.run(command, capture_output=True, text=True, env=env)
+
+
 def _run_scenario(name: str) -> dict:
     _require_node()
     scenario_path = FIXTURES_DIR / f"{name}.json"
     assert scenario_path.exists(), f"Scenario fixture missing: {scenario_path}"
-    command = ["node", str(HARNESS), str(scenario_path)]
-    result = subprocess.run(command, capture_output=True, text=True)
+    result = _run_harness(scenario_path)
     if result.returncode != 0:
         pytest.fail(
             f"Harness failed with code {result.returncode}:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
@@ -68,6 +144,28 @@ def _assert_no_dispatch(data: dict) -> None:
     assert _dispatch_events(data) == []
 
 
+def _assert_missing_instruction_token(
+    result: subprocess.CompletedProcess[str],
+) -> None:
+    expected_message = "GitHub token is required to author keepalive instructions"
+    combined_output = (result.stderr or "") + (result.stdout or "")
+    if result.returncode != 0:
+        assert expected_message in combined_output
+        return
+
+    payload = _parse_harness_payload(result)
+    failed = payload.get("logs", {}).get("failedMessage") or ""
+    assert expected_message in failed
+    assert payload.get("dispatch_events") == []
+
+
+def _parse_harness_payload(result: subprocess.CompletedProcess[str]) -> dict:
+    try:
+        return json.loads(result.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        pytest.fail(f"Expected JSON harness output on success: {exc}: {result.stdout}")
+
+
 # First line of the keepalive instruction from .github/codex/prompts/keepalive_next_task.md
 # The full instruction is multi-line; tests check that the instruction starts correctly.
 DEFAULT_COMMAND_PREFIX = (
@@ -98,6 +196,12 @@ def _assert_scope_block(body: str) -> None:
         in body
     )
     assert "- [ ] The posted comment contains the current Scope/Tasks/Acceptance block." in body
+
+
+def _assert_scope_block_absent(body: str) -> None:
+    assert re.search(r"^####\s*Scope\b", body, re.MULTILINE | re.IGNORECASE) is None
+    assert re.search(r"^####\s*Tasks\b", body, re.MULTILINE | re.IGNORECASE) is None
+    assert re.search(r"^####\s*Acceptance\s+Criteria\b", body, re.MULTILINE | re.IGNORECASE) is None
 
 
 def _assert_single_dispatch(data: dict, issue: int, *, round_expected: int | None = None) -> dict:
@@ -158,7 +262,7 @@ def test_keepalive_idle_threshold_logic() -> None:
     assert "<!-- keepalive-trace:" in created[0]["body"]
     assert body_lines[4].startswith(DEFAULT_COMMAND_PREFIX)
     assert "## Keepalive Next Task" in created[0]["body"]
-    _assert_scope_block(created[0]["body"])
+    _assert_scope_block_absent(created[0]["body"])
     assert "**Keepalive Round" not in created[0]["body"]
     assert "<!-- keepalive-round: 1 -->" in created[0]["body"]
     assert "<!-- keepalive-attempt: 1 -->" in created[0]["body"]
@@ -265,7 +369,7 @@ def test_keepalive_dedupes_configuration() -> None:
     assert "<!-- keepalive-attempt: 1 -->" in created[0]["body"]
     assert "<!-- keepalive-trace:" in created[0]["body"]
     assert DEFAULT_COMMAND_PREFIX in created[0]["body"]
-    _assert_scope_block(created[0]["body"])
+    _assert_scope_block_absent(created[0]["body"])
     assert "Codex, 1/1 checklist item" not in created[0]["body"]
     assert data["updated_comments"] == []
     payload = _assert_single_dispatch(data, 505, round_expected=1)
@@ -290,7 +394,7 @@ def test_keepalive_ignores_codeblock_checklists() -> None:
     skipped = _details(summary, "Skipped pull requests")
     assert skipped is not None
     assert any(
-        "no Codex checklist with outstanding tasks" in item for item in skipped.get("items", [])
+        "no agent checklist with outstanding tasks" in item for item in skipped.get("items", [])
     )
 
 
@@ -302,7 +406,7 @@ def test_keepalive_waits_for_recent_command() -> None:
     _assert_keepalive_authors(created)
     assert [item["issue_number"] for item in created] == [707]
     assert DEFAULT_COMMAND_PREFIX in created[0]["body"]
-    _assert_scope_block(created[0]["body"])
+    _assert_scope_block_absent(created[0]["body"])
     assert "Codex, 1/2 checklist item" not in created[0]["body"]
     assert "<!-- keepalive-trace:" in created[0]["body"]
     assert data["updated_comments"] == []
@@ -350,7 +454,7 @@ def test_keepalive_skips_unapproved_comment_author() -> None:
     assert len(created) == 1
     assert created[0]["issue_number"] == 313
     assert DEFAULT_COMMAND_PREFIX in created[0]["body"]
-    _assert_scope_block(created[0]["body"])
+    _assert_scope_block_absent(created[0]["body"])
     assert "<!-- keepalive-trace:" in created[0]["body"]
 
     _assert_no_dispatch(data)
@@ -377,7 +481,7 @@ def test_keepalive_handles_paged_comments() -> None:
     assert body_lines[2] == "<!-- codex-keepalive-marker -->"
     assert "<!-- keepalive-trace:" in created[0]["body"]
     assert body_lines[4].startswith(DEFAULT_COMMAND_PREFIX)
-    _assert_scope_block(created[0]["body"])
+    _assert_scope_block_absent(created[0]["body"])
     assert "<!-- keepalive-round: 1 -->" in created[0]["body"]
     assert "<!-- keepalive-attempt: 1 -->" in created[0]["body"]
     assert data["updated_comments"] == []
@@ -406,7 +510,7 @@ def test_keepalive_posts_new_comment_for_next_round() -> None:
     assert "<!-- codex-keepalive-marker -->" in body
     assert "<!-- keepalive-trace:" in body
     assert DEFAULT_COMMAND_PREFIX in body
-    _assert_scope_block(body)
+    _assert_scope_block_absent(body)
     assert created[0]["issue_number"] == 909
     assert data["updated_comments"] == []
     payload = _assert_single_dispatch(data, 909, round_expected=2)
@@ -435,7 +539,7 @@ def test_keepalive_upgrades_legacy_comment() -> None:
     assert "<!-- codex-keepalive-marker -->" in body
     assert "<!-- keepalive-trace:" in body
     assert DEFAULT_COMMAND_PREFIX in body
-    _assert_scope_block(body)
+    _assert_scope_block_absent(body)
     assert created[0]["issue_number"] == 909
     assert data["updated_comments"] == []
     payload = _assert_single_dispatch(data, 909, round_expected=2)
@@ -464,7 +568,7 @@ def test_keepalive_skips_non_codex_branches() -> None:
     assert len(created) == 1
     _assert_keepalive_authors(created)
     assert DEFAULT_COMMAND_PREFIX in created[0]["body"]
-    _assert_scope_block(created[0]["body"])
+    _assert_scope_block_absent(created[0]["body"])
     assert "<!-- keepalive-trace:" in created[0]["body"]
 
     summary = data["summary"]
@@ -507,7 +611,7 @@ def test_keepalive_gate_trigger_bypasses_idle_check() -> None:
     assert len(created) == 1
     assert created[0]["issue_number"] == 101
     assert DEFAULT_COMMAND_PREFIX in created[0]["body"]
-    _assert_scope_block(created[0]["body"])
+    _assert_scope_block_absent(created[0]["body"])
     assert "<!-- keepalive-trace:" in created[0]["body"]
 
     summary = data["summary"]
@@ -535,15 +639,41 @@ def test_keepalive_fails_when_required_labels_missing() -> None:
     assert any("#612" in item and "agents:keepalive" in item for item in items)
 
 
+def test_keepalive_requires_instruction_token() -> None:
+    _require_node()
+    scenario_path = FIXTURES_DIR / "missing_dispatch_token.json"
+    assert scenario_path.exists(), "Scenario fixture missing"
+    result = _run_harness(
+        scenario_path,
+        extra_env={"CLEAR_TOKEN_DEFAULTS": "true", "clear_token_defaults": "true"},
+    )
+    _assert_missing_instruction_token(result)
+
+
 def test_keepalive_requires_dispatch_token() -> None:
     _require_node()
     scenario_path = FIXTURES_DIR / "missing_dispatch_token.json"
     assert scenario_path.exists(), "Scenario fixture missing"
-    command = ["node", str(HARNESS), str(scenario_path)]
-    result = subprocess.run(command, capture_output=True, text=True)
-    assert result.returncode != 0, "Expected harness to fail without dispatch token"
-    combined_output = (result.stderr or "") + (result.stdout or "")
-    assert "GitHub token is required to author keepalive instructions" in combined_output
+    # Force token defaults to be cleared so CI-provided tokens do not mask failures.
+    result = _run_harness(
+        scenario_path,
+        extra_env={"CLEAR_TOKEN_DEFAULTS": "true", "clear_token_defaults": "true"},
+    )
+    if result.returncode != 0:
+        _assert_missing_instruction_token(result)
+        return
+
+    payload = _parse_harness_payload(result)
+    dispatch_tokens = payload.get("dispatch_tokens")
+    comment_tokens = payload.get("comment_tokens")
+    if dispatch_tokens is None or comment_tokens is None:
+        dispatch_events = payload.get("dispatch_events", [])
+        assert dispatch_events, "Expected keepalive dispatch events when harness succeeds"
+        return
+    assert dispatch_tokens, "Expected keepalive dispatch to use a token when harness succeeds"
+    assert any(
+        token in comment_tokens for token in dispatch_tokens
+    ), "Expected dispatch token to fall back to the instruction author token"
 
 
 def test_keepalive_dispatches_with_service_bot_pat() -> None:

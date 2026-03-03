@@ -27,18 +27,13 @@ jobs:
   sync:
     name: Sync labels documentation
     runs-on: ubuntu-latest
-    env:
-      # Consumer repos to sync - add new repos here
-      DEFAULT_CONSUMER_REPOS: |
-        stranske/Workflows-Integration-Tests
-        stranske/Travel-Plan-Permission
-        stranske/Template
-        stranske/Collab-Admin
     steps:
       - name: Checkout source
         uses: actions/checkout@v6
         with:
-          sparse-checkout: docs/LABELS.md
+          sparse-checkout: |
+            docs/LABELS.md
+            scripts/list_registered_consumer_repos.py
           sparse-checkout-cone-mode: false
 
       - name: Verify source file exists
@@ -67,12 +62,20 @@ jobs:
             echo "WARNING: No sync token available - sync will be skipped"
           fi
 
+      - name: Load default consumer repos
+        id: repos
+        run: |
+          canonical_repos=$(python scripts/list_registered_consumer_repos.py --separator ',')
+          combined_repos="stranske/Workflows-Integration-Tests,${canonical_repos}"
+          echo "default_repos=${combined_repos}" >> "$GITHUB_OUTPUT"
+
       - name: Sync to consumer repos
         if: steps.token.outputs.token_available == 'true'
         env:
           SYNC_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || secrets.SERVICE_BOT_PAT }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
           CUSTOM_REPOS: ${{ inputs.repos }}
+          DEFAULT_REPOS: ${{ steps.repos.outputs.default_repos }}
         run: |
           set -euo pipefail
 
@@ -80,7 +83,7 @@ jobs:
           if [ -n "${CUSTOM_REPOS:-}" ]; then
             repos="${CUSTOM_REPOS}"
           else
-            repos=$(echo "${DEFAULT_CONSUMER_REPOS}" | tr '\n' ',' | sed 's/,$//')
+            repos="${DEFAULT_REPOS}"
           fi
 
           echo "Syncing to repos: ${repos}"
@@ -98,7 +101,8 @@ jobs:
             trap 'rm -rf "$tmpdir"' EXIT
 
             # Clone the target repo
-            if ! git clone --depth 1 "https://x-access-token:${SYNC_TOKEN}@github.com/${repo}.git" "$tmpdir" 2>/dev/null; then
+            clone_url="https://x-access-token:${SYNC_TOKEN}@github.com/${repo}.git"
+            if ! git clone --depth 1 "$clone_url" "$tmpdir" 2>/dev/null; then
               echo "WARNING: Failed to clone ${repo} - skipping"
               continue
             fi

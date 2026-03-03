@@ -1,0 +1,13 @@
+{
+  "pr_number": 2202,
+  "gate_conclusion": "cancelled",
+  "run_id": 556688,
+  "logs": "HTTP 403: secondary rate limit exceeded while calling GitHub API",
+  "rateLimit": {
+    "core": {
+      "remaining": 4200,
+      "limit": 5000,
+      "reset": 9999999999
+    }
+  }
+}

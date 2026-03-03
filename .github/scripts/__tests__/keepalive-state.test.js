@@ -162,6 +162,42 @@ test('loadKeepaliveState returns stored payload when present', async () => {
   assert.ok(Number.isFinite(Date.parse(result.state.current_iteration_at)));
 });
 
+test('loadKeepaliveState prefers loop state when trace is empty', async () => {
+  const nonLoopBody = formatStateComment({ trace: 'trace-x', head_sha: 'abc', version: 'v1' });
+  const loopBody = formatStateComment({ trace: 'trace-y', iteration: 2, tasks: { total: 3 }, version: 'v1' });
+  const github = buildGithubStub({
+    comments: [
+      { id: 41, body: loopBody, html_url: 'https://example.com/41' },
+      { id: 42, body: nonLoopBody, html_url: 'https://example.com/42' },
+    ],
+  });
+  const result = await loadKeepaliveState({
+    github,
+    context: { repo: { owner: 'o', repo: 'r' } },
+    prNumber: 41,
+    trace: '',
+  });
+  assert.equal(result.commentId, 41);
+  assert.equal(result.state.iteration, 2);
+});
+
+test('loadKeepaliveState falls back to latest non-loop state when trace is empty', async () => {
+  const nonLoopBody = formatStateComment({ trace: 'trace-x', head_sha: 'abc', version: 'v1' });
+  const github = buildGithubStub({
+    comments: [
+      { id: 52, body: nonLoopBody, html_url: 'https://example.com/52' },
+    ],
+  });
+  const result = await loadKeepaliveState({
+    github,
+    context: { repo: { owner: 'o', repo: 'r' } },
+    prNumber: 52,
+    trace: '',
+  });
+  assert.equal(result.commentId, 52);
+  assert.equal(result.state.head_sha, 'abc');
+});
+
 test('parseStateComment returns empty data for malformed payload', () => {
   const body = '<!-- keepalive-state:v1 {"trace":"x", } -->';
   const parsed = parseStateComment(body);

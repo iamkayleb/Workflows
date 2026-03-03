@@ -30,19 +30,26 @@ jobs:
           key: workflow-linters-actionlint-1.7.3-yq-4.44.3
 
       - name: Install workflow linters
-        if: steps.cache-linters.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.local/bin"
 
-          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v1.7.3/actionlint_1.7.3_linux_amd64.tar.gz" \
-            | tar -xz -C "$HOME/.local/bin" actionlint
-          chmod +x "$HOME/.local/bin/actionlint"
+          if [ ! -x "$HOME/.local/bin/actionlint" ]; then
+            actionlint_base="https://github.com/rhysd/actionlint/releases/download/v1.7.3"
+            actionlint_url="${actionlint_base}/actionlint_1.7.3_linux_amd64.tar.gz"
+            curl -sSL "$actionlint_url" \
+              | tar -xz -C "$HOME/.local/bin" actionlint
+            chmod +x "$HOME/.local/bin/actionlint"
+          fi
 
-          curl -sSL "https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64.tar.gz" \
-            | tar -xz -C "$HOME/.local/bin"
-          mv "$HOME/.local/bin/yq_linux_amd64" "$HOME/.local/bin/yq"
-          chmod +x "$HOME/.local/bin/yq"
+          if [ ! -x "$HOME/.local/bin/yq" ]; then
+            yq_base="https://github.com/mikefarah/yq/releases/download/v4.44.3"
+            yq_url="${yq_base}/yq_linux_amd64.tar.gz"
+            curl -sSL "$yq_url" \
+              | tar -xz -C "$HOME/.local/bin"
+            mv "$HOME/.local/bin/yq_linux_amd64" "$HOME/.local/bin/yq"
+            chmod +x "$HOME/.local/bin/yq"
+          fi
 
       - name: Add linters to PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -51,7 +58,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          mapfile -t workflow_files < <(find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) | sort)
+          mapfile -t workflow_files < <(
+            find .github/workflows -type f \( -name '*.yml' -o -name '*.yaml' \) | sort
+          )
           if [ "${#workflow_files[@]}" -eq 0 ]; then
             echo "No workflow files found." >&2
             exit 1
@@ -88,3 +97,10 @@ jobs:
           set -euo pipefail
           mapfile -t extra_args < <(sed -e 's/[[:space:]]*$//' -e '/^$/d' actionlint-allowlist.args)
           actionlint "${extra_args[@]}" -oneline
+
+      - name: Check GitHub API wrapper usage
+        env:
+          BASE_REF: ${{ github.base_ref || 'main' }}
+        run: |
+          set -euo pipefail
+          python scripts/check_api_wrapper_guard.py --base-ref "${BASE_REF:-main}"

@@ -17,6 +17,25 @@ const prBodyFixture = fs.readFileSync(path.join(fixturesDir, 'pr-body.md'), 'utf
 const issueBodyOpen = fs.readFileSync(path.join(fixturesDir, 'issue-body-open.md'), 'utf8');
 const issueBodyClosed = fs.readFileSync(path.join(fixturesDir, 'issue-body-closed.md'), 'utf8');
 
+const withEnv = async (key, value, callback) => {
+  const hadKey = Object.prototype.hasOwnProperty.call(process.env, key);
+  const previous = process.env[key];
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
+  try {
+    return await callback();
+  } finally {
+    if (hadKey) {
+      process.env[key] = previous;
+    } else {
+      delete process.env[key];
+    }
+  }
+};
+
 const buildCore = () => {
   const outputs = {};
   const notices = [];
@@ -92,6 +111,13 @@ const buildGithubStub = ({
   },
 });
 
+const withEmptyJobs = (result) => ({
+  ...result,
+  jobs_summary: { total: 0, conclusions: {}, samples: [], truncated: false },
+  jobs_error_category: '',
+  jobs_error_message: '',
+});
+
 test('buildVerifierContext skips when pull request is not merged', async () => {
   const core = buildCore();
   const context = {
@@ -111,8 +137,130 @@ test('buildVerifierContext skips when pull request is not merged', async () => {
   assert.ok(core.outputs.skip_reason.includes('not merged'));
 });
 
-test('buildVerifierContext skips when base branch mismatches default', async () => {
+test('buildVerifierContext resolves PR from VERIFIER_PR_NUMBER', async () => {
+  await withEnv('VERIFIER_PR_NUMBER', '101', async () => {
+    const core = buildCore();
+    const prDetails = {
+      merged: true,
+      number: 101,
+      title: 'Verifier PR resolution',
+      body: prBodyFixture,
+      html_url: 'https://example.com/pr/101',
+      merge_commit_sha: 'merge-sha-101',
+      base: {
+        ref: 'main',
+        repo: { full_name: 'octo/workflows', owner: { login: 'octo' } },
+      },
+      head: {
+        sha: 'head-sha-101',
+        repo: { full_name: 'octo/workflows', owner: { login: 'octo' }, fork: false },
+      },
+    };
+    const context = {
+      eventName: 'workflow_call',
+      repo: { owner: 'octo', repo: 'workflows' },
+      payload: {
+        repository: { default_branch: 'main' },
+      },
+      sha: 'sha-101',
+    };
+    const result = await buildVerifierContext({
+      github: buildGithubStub({ prDetails }),
+      context,
+      core,
+    });
+    assert.equal(result.shouldRun, true);
+    assert.equal(core.outputs.pr_number, '101');
+  });
+});
+
+test('buildVerifierContext skips when VERIFIER_PR_NUMBER PR is not merged', async () => {
+  await withEnv('VERIFIER_PR_NUMBER', '202', async () => {
+    const core = buildCore();
+    const prDetails = {
+      merged: false,
+      number: 202,
+      title: 'Unmerged PR',
+      body: prBodyFixture,
+      html_url: 'https://example.com/pr/202',
+      merge_commit_sha: 'merge-sha-202',
+      base: { ref: 'main' },
+      head: { sha: 'head-sha-202' },
+    };
+    const context = {
+      eventName: 'workflow_call',
+      repo: { owner: 'octo', repo: 'workflows' },
+      payload: {
+        repository: { default_branch: 'main' },
+      },
+      sha: 'sha-202',
+    };
+    const result = await buildVerifierContext({
+      github: buildGithubStub({ prDetails }),
+      context,
+      core,
+    });
+    assert.equal(result.shouldRun, false);
+    assert.equal(core.outputs.should_run, 'false');
+    assert.ok(core.outputs.skip_reason.includes('not merged'));
+  });
+});
+
+test('buildVerifierContext warns on invalid VERIFIER_PR_NUMBER and falls back', async () => {
+  await withEnv('VERIFIER_PR_NUMBER', 'not-a-number', async () => {
+    const core = buildCore();
+    const prDetails = {
+      merged: true,
+      number: 303,
+      title: 'Fallback PR',
+      body: prBodyFixture,
+      html_url: 'https://example.com/pr/303',
+      merge_commit_sha: 'merge-sha-303',
+      base: { ref: 'main' },
+      head: { sha: 'head-sha-303' },
+    };
+    const context = {
+      eventName: 'pull_request',
+      repo: { owner: 'octo', repo: 'workflows' },
+      payload: {
+        repository: { default_branch: 'main' },
+        pull_request: {
+          merged: true,
+          number: 303,
+          base: { ref: 'main' },
+          html_url: 'https://example.com/pr/303',
+        },
+      },
+      sha: 'sha-303',
+    };
+    const result = await buildVerifierContext({
+      github: buildGithubStub({ prDetails }),
+      context,
+      core,
+    });
+    assert.equal(result.shouldRun, true);
+    assert.equal(core.outputs.pr_number, '303');
+    assert.ok(core.warnings.some((message) => message.includes('Invalid VERIFIER_PR_NUMBER')));
+  });
+});
+
+test('buildVerifierContext allows non-default base branches when acceptance criteria exist', async () => {
   const core = buildCore();
+  const prDetails = {
+    number: 99,
+    title: 'Stacked branch verifier target',
+    body: prBodyFixture,
+    html_url: 'https://example.com/pr/99',
+    merge_commit_sha: 'merge-sha-99',
+    base: {
+      ref: 'dev',
+      repo: { full_name: 'octo/workflows', owner: { login: 'octo' } },
+    },
+    head: {
+      sha: 'head-sha-99',
+      repo: { full_name: 'octo/workflows', owner: { login: 'octo' }, fork: false },
+    },
+  };
   const context = {
     eventName: 'pull_request',
     repo: { owner: 'octo', repo: 'workflows' },
@@ -128,13 +276,14 @@ test('buildVerifierContext skips when base branch mismatches default', async () 
     sha: 'sha-2',
   };
   const result = await buildVerifierContext({
-    github: buildGithubStub(),
+    github: buildGithubStub({ prDetails }),
     context,
     core,
   });
-  assert.equal(result.shouldRun, false);
+  assert.equal(result.shouldRun, true);
+  assert.equal(core.outputs.should_run, 'true');
   assert.equal(core.outputs.pr_number, '99');
-  assert.ok(core.outputs.skip_reason.includes('base ref'));
+  assert.equal(core.outputs.skip_reason, '');
 });
 
 test('buildVerifierContext skips forked pull requests', async () => {
@@ -642,27 +791,27 @@ test('buildVerifierContext selects CI results for the merge commit SHA', async (
   assert.ok(headShas.length > 0);
   assert.ok(headShas.every((sha) => sha === 'merge-sha-333'));
   assert.deepEqual(result.ciResults, [
-    {
+    withEmptyJobs({
       workflow_name: 'Gate',
       conclusion: 'success',
       run_url: 'https://ci/gate-merge',
       error_category: '',
       error_message: '',
-    },
-    {
+    }),
+    withEmptyJobs({
       workflow_name: 'Selftest CI',
       conclusion: 'success',
       run_url: 'https://ci/selftest-merge',
       error_category: '',
       error_message: '',
-    },
-    {
+    }),
+    withEmptyJobs({
       workflow_name: 'PR 11 - Minimal invariant CI',
       conclusion: 'success',
       run_url: 'https://ci/pr11-merge',
       error_category: '',
       error_message: '',
-    },
+    }),
   ]);
 
   const contextPath = result.contextPath || path.join(process.cwd(), 'verifier-context.md');
@@ -770,27 +919,27 @@ test('buildVerifierContext falls back to head SHA when merge runs are missing', 
 
   assert.equal(result.shouldRun, true);
   assert.deepEqual(result.ciResults, [
-    {
+    withEmptyJobs({
       workflow_name: 'Gate',
       conclusion: 'success',
       run_url: 'https://ci/pr-00-gate.yml',
       error_category: '',
       error_message: '',
-    },
-    {
+    }),
+    withEmptyJobs({
       workflow_name: 'Selftest CI',
       conclusion: 'success',
       run_url: 'https://ci/selftest-ci.yml',
       error_category: '',
       error_message: '',
-    },
-    {
+    }),
+    withEmptyJobs({
       workflow_name: 'PR 11 - Minimal invariant CI',
       conclusion: 'success',
       run_url: 'https://ci/pr-11-ci-smoke.yml',
       error_category: '',
       error_message: '',
-    },
+    }),
   ]);
   for (const workflowId of workflowIds) {
     assert.ok(calls.includes(`${workflowId}:merge-sha-555`));
@@ -857,27 +1006,27 @@ test('buildVerifierContext uses merge commit SHA for push events', async () => {
   assert.ok(headShas.length > 0);
   assert.ok(headShas.every((sha) => sha === 'merge-sha-444'));
   assert.deepEqual(result.ciResults, [
-    {
+    withEmptyJobs({
       workflow_name: 'Gate',
       conclusion: 'success',
       run_url: 'https://ci/gate-push',
       error_category: '',
       error_message: '',
-    },
-    {
+    }),
+    withEmptyJobs({
       workflow_name: 'Selftest CI',
       conclusion: 'success',
       run_url: 'https://ci/selftest-push',
       error_category: '',
       error_message: '',
-    },
-    {
+    }),
+    withEmptyJobs({
       workflow_name: 'PR 11 - Minimal invariant CI',
       conclusion: 'success',
       run_url: 'https://ci/pr11-push',
       error_category: '',
       error_message: '',
-    },
+    }),
   ]);
 
   const contextPath = result.contextPath || path.join(process.cwd(), 'verifier-context.md');
@@ -980,4 +1129,154 @@ test('fetchLocalGitDiff returns diff output when exec succeeds', () => {
   });
   assert.ok(result.includes('diff --git'));
   assert.ok(result.includes('+hello'));
+});
+
+// === Chain depth extraction tests ===
+
+test('buildVerifierContext extracts chain_depth from issue body marker', async () => {
+  const issueBody = '<!-- follow-up-depth: 2 -->\n## Scope\nFix bugs\n## Tasks\n- [ ] Fix it\n## Acceptance Criteria\n- [ ] It works';
+  const prBody = prBodyFixture;
+  const github = buildGithubStub({
+    prDetails: {
+      number: 100,
+      html_url: 'https://github.com/example/test/pull/100',
+      title: 'follow-up fix',
+      body: prBody,
+      base: { ref: 'main', sha: 'base123' },
+      head: { sha: 'head456' },
+      merge_commit_sha: 'merge789',
+    },
+    closingIssues: [
+      {
+        number: 50,
+        title: 'follow-up issue',
+        body: issueBody,
+        state: 'OPEN',
+        url: 'https://github.com/example/test/issues/50',
+        labels: { nodes: [] },
+      },
+    ],
+  });
+  const core = buildCore();
+  const ctx = {
+    eventName: 'pull_request',
+    repo: { owner: 'example', repo: 'test' },
+    payload: {
+      repository: { default_branch: 'main' },
+      pull_request: { merged: true, number: 100, base: { ref: 'main' }, html_url: 'https://github.com/example/test/pull/100' },
+    },
+    sha: 'merge789',
+  };
+  await buildVerifierContext({ github, context: ctx, core });
+  assert.equal(core.outputs.chain_depth, '2');
+});
+
+test('buildVerifierContext outputs chain_depth 0 when no marker present', async () => {
+  const github = buildGithubStub({
+    prDetails: {
+      number: 101,
+      html_url: 'https://github.com/example/test/pull/101',
+      title: 'regular PR',
+      body: prBodyFixture,
+      base: { ref: 'main', sha: 'base123' },
+      head: { sha: 'head456' },
+      merge_commit_sha: 'merge789',
+    },
+    closingIssues: [
+      {
+        number: 51,
+        title: 'feature request',
+        body: issueBodyOpen,
+        state: 'OPEN',
+        url: 'https://github.com/example/test/issues/51',
+        labels: { nodes: [] },
+      },
+    ],
+  });
+  const core = buildCore();
+  const ctx = {
+    eventName: 'pull_request',
+    repo: { owner: 'example', repo: 'test' },
+    payload: {
+      repository: { default_branch: 'main' },
+      pull_request: { merged: true, number: 101, base: { ref: 'main' }, html_url: 'https://github.com/example/test/pull/101' },
+    },
+    sha: 'merge789',
+  };
+  await buildVerifierContext({ github, context: ctx, core });
+  assert.equal(core.outputs.chain_depth, '0');
+});
+
+test('buildVerifierContext detects follow-up label as depth 1', async () => {
+  const github = buildGithubStub({
+    prDetails: {
+      number: 102,
+      html_url: 'https://github.com/example/test/pull/102',
+      title: 'follow-up fix',
+      body: prBodyFixture,
+      base: { ref: 'main', sha: 'base123' },
+      head: { sha: 'head456' },
+      merge_commit_sha: 'merge789',
+    },
+    closingIssues: [
+      {
+        number: 52,
+        title: 'follow-up from verifier',
+        body: issueBodyOpen,
+        state: 'OPEN',
+        url: 'https://github.com/example/test/issues/52',
+        labels: { nodes: [{ name: 'follow-up' }] },
+      },
+    ],
+  });
+  const core = buildCore();
+  const ctx = {
+    eventName: 'pull_request',
+    repo: { owner: 'example', repo: 'test' },
+    payload: {
+      repository: { default_branch: 'main' },
+      pull_request: { merged: true, number: 102, base: { ref: 'main' }, html_url: 'https://github.com/example/test/pull/102' },
+    },
+    sha: 'merge789',
+  };
+  await buildVerifierContext({ github, context: ctx, core });
+  assert.equal(core.outputs.chain_depth, '1');
+});
+
+test('buildVerifierContext includes chain depth in context markdown', async () => {
+  const issueBody = '<!-- follow-up-depth: 3 -->\n' + issueBodyOpen;
+  const github = buildGithubStub({
+    prDetails: {
+      number: 103,
+      html_url: 'https://github.com/example/test/pull/103',
+      title: 'iteration 3',
+      body: prBodyFixture,
+      base: { ref: 'main', sha: 'base123' },
+      head: { sha: 'head456' },
+      merge_commit_sha: 'merge789',
+    },
+    closingIssues: [
+      {
+        number: 53,
+        title: 'iteration issue',
+        body: issueBody,
+        state: 'OPEN',
+        url: 'https://github.com/example/test/issues/53',
+        labels: { nodes: [] },
+      },
+    ],
+  });
+  const core = buildCore();
+  const ctx = {
+    eventName: 'pull_request',
+    repo: { owner: 'example', repo: 'test' },
+    payload: {
+      repository: { default_branch: 'main' },
+      pull_request: { merged: true, number: 103, base: { ref: 'main' }, html_url: 'https://github.com/example/test/pull/103' },
+    },
+    sha: 'merge789',
+  };
+  const result = await buildVerifierContext({ github, context: ctx, core });
+  assert.ok(result.markdown.includes('Chain depth: 3'));
+  assert.equal(core.outputs.chain_depth, '3');
 });

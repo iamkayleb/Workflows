@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -28,6 +29,10 @@ def _load_workflow() -> dict:
     return yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
 
 
+def _normalize_expr(value: str) -> str:
+    return re.sub(r"\s+", "", value).strip()
+
+
 def test_matrix_expression_supports_arrays_and_singletons() -> None:
     assert _matrix_candidates('["3.11", "3.12"]', "3.10") == ["3.11", "3.12"]
     assert _matrix_candidates("3.12", "3.11") == ["3.12"]
@@ -50,12 +55,14 @@ def test_workflow_inputs_include_python_version_defaults() -> None:
     assert call_inputs.get("python-version", {}).get("default") == "3.11"
     assert call_inputs.get("python-versions", {}).get("default") == "[]"
     assert call_inputs.get("primary-python-version", {}).get("default") == "3.11"
+    assert call_inputs.get("pytest_args", {}).get("default") == ""
 
     # workflow_dispatch has reduced inputs (10-input limit) but python-versions remains
     assert dispatch_inputs.get("working-directory", {}).get("default") == "."
     assert dispatch_inputs.get("python-versions", {}).get("default") == '["3.11"]'
     # python-version was removed from workflow_dispatch to meet GitHub's 10-input limit
     assert "python-version" not in dispatch_inputs
+    assert "pytest_args" not in dispatch_inputs
 
 
 def test_artifact_names_normalized() -> None:
@@ -69,9 +76,8 @@ def test_artifact_names_normalized() -> None:
         raise AssertionError(f"Expected step `{name}` to exist")
 
     coverage_step = _step("Upload coverage artifact")
-    assert (
-        coverage_step["with"]["name"]
-        == "${{ inputs['artifact-prefix'] }}coverage-${{ matrix.python-version }}-${{ github.run_attempt }}"
+    assert _normalize_expr(coverage_step["with"]["name"]) == _normalize_expr(
+        "${{ inputs['artifact-prefix'] }}coverage-${{ matrix.python-version }}-${{ github.run_attempt }}"
     )
     assert coverage_step["with"]["retention-days"] == 7
 
@@ -115,7 +121,7 @@ def test_working_directory_propagates_to_steps() -> None:
 
     env = job.get("env", {})
     assert env.get("WORKDIR") == "${{ inputs['working-directory'] || '.' }}"
-    assert env.get("PROJECT_ROOT") == (
+    assert _normalize_expr(env.get("PROJECT_ROOT", "")) == _normalize_expr(
         "${{ inputs['working-directory'] != '' && inputs['working-directory'] != '.' "
         "&& format('{0}/{1}', github.workspace, inputs['working-directory']) || github.workspace }}"
     )

@@ -31,6 +31,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
+
+
       - name: Extract action versions from workflows
         id: extract
         run: |
@@ -86,23 +95,34 @@ jobs:
 
           # Update all YAML files in templates/ (using find -exec for SC2044)
           find templates/ -name "*.yml" -type f -exec sh -c '
+            checkout="$1"
+            github_script="$2"
+            upload_artifact="$3"
+            download_artifact="$4"
+            cache="$5"
+            shift 5
+
             for file do
               orig_hash=$(md5sum "$file" | cut -d" " -f1)
 
-              sed -i \
-                -e "s|actions/checkout@v[0-9]\+|actions/checkout@'"${checkout}"'|g" \
-                -e "s|actions/github-script@v[0-9]\+|actions/github-script@'"${github_script}"'|g" \
-                -e "s|actions/upload-artifact@v[0-9]\+|actions/upload-artifact@'"${upload_artifact}"'|g" \
-                -e "s|actions/download-artifact@v[0-9]\+|actions/download-artifact@'"${download_artifact}"'|g" \
-                -e "s|actions/cache@v[0-9]\+|actions/cache@'"${cache}"'|g" \
-                "$file"
+              update_action() {
+                local name="$1"
+                local version="$2"
+                sed -i -e "s|${name}@v[0-9]\\+|${name}@${version}|g" "$file"
+              }
+
+              update_action actions/checkout "$checkout"
+              update_action actions/github-script "$github_script"
+              update_action actions/upload-artifact "$upload_artifact"
+              update_action actions/download-artifact "$download_artifact"
+              update_action actions/cache "$cache"
 
               new_hash=$(md5sum "$file" | cut -d" " -f1)
               if [ "$orig_hash" != "$new_hash" ]; then
                 echo "Updated: $file"
               fi
             done
-          ' sh {} +
+          ' sh "$checkout" "$github_script" "$upload_artifact" "$download_artifact" "$cache" {} +
 
       - name: Check for changes
         id: check
@@ -116,10 +136,9 @@ jobs:
             git diff --stat templates/
           fi
 
-      - name: Create PR if changes exist
+      - name: Create branch and push
         if: steps.check.outputs.has_changes == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: branch
         run: |
           set -euo pipefail
 
@@ -143,17 +162,61 @@ jobs:
 
           git push origin "$branch"
 
-          gh pr create \
-            --title "ci(deps): sync action versions to templates" \
-            --body "Automated PR to sync GitHub Action versions from \`.github/workflows/\` to \`templates/\`.
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
 
-          This ensures templates stay in sync with Dependabot updates.
+      - name: Create PR
+        if: steps.check.outputs.has_changes == 'true'
+        uses: actions/github-script@v8
+        env:
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          CHECKOUT_VERSION: ${{ steps.extract.outputs.checkout }}
+          GITHUB_SCRIPT_VERSION: ${{ steps.extract.outputs.github_script }}
+          UPLOAD_ARTIFACT_VERSION: ${{ steps.extract.outputs.upload_artifact }}
+          DOWNLOAD_ARTIFACT_VERSION: ${{ steps.extract.outputs.download_artifact }}
+          CACHE_VERSION: ${{ steps.extract.outputs.cache }}
+        with:
+          script: |
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'sync-action-versions-pr',
+              capabilities: ['pull-requests:write', 'contents:read']
+            });
+            const { owner, repo } = context.repo;
+            const branch = process.env.BRANCH;
+            const title = 'ci(deps): sync action versions to templates';
+            const body = [
+              (
+                'Automated PR to sync GitHub Action versions from `.github/workflows/` to ' +
+                '`templates/.`'
+              ),
+              '',
+              'This ensures templates stay in sync with Dependabot updates.',
+              '',
+              '**Updated versions:**',
+              `- actions/checkout: \`${process.env.CHECKOUT_VERSION}\``,
+              `- actions/github-script: \`${process.env.GITHUB_SCRIPT_VERSION}\``,
+              `- actions/upload-artifact: \`${process.env.UPLOAD_ARTIFACT_VERSION}\``,
+              `- actions/download-artifact: \`${process.env.DOWNLOAD_ARTIFACT_VERSION}\``,
+              `- actions/cache: \`${process.env.CACHE_VERSION}\``
+            ].join('\n');
 
-          **Updated versions:**
-          - actions/checkout: \`${{ steps.extract.outputs.checkout }}\`
-          - actions/github-script: \`${{ steps.extract.outputs.github_script }}\`
-          - actions/upload-artifact: \`${{ steps.extract.outputs.upload_artifact }}\`
-          - actions/download-artifact: \`${{ steps.extract.outputs.download_artifact }}\`
-          - actions/cache: \`${{ steps.extract.outputs.cache }}\`" \
-            --label "dependencies" \
-            --label "github-actions"
+            const { data: pr } = await withRetry((client) => client.rest.pulls.create({
+              owner,
+              repo,
+              title,
+              head: branch,
+              base: context.ref.replace('refs/heads/', ''),
+              body
+            }));
+
+            await withRetry((client) => client.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: pr.number,
+              labels: ['dependencies', 'github-actions']
+            }));
+
+            core.info(`Created PR #${pr.number}`);

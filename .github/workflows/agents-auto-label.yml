@@ -19,7 +19,8 @@ env:
   SUGGEST_THRESHOLD: "0.75"
 
 concurrency:
-  group: agents-auto-label-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}
+  group: >-
+    agents-auto-label-${{ github.repository }}-${{ github.event.issue.number || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -31,11 +32,32 @@ jobs:
       !contains(github.event.issue.labels.*.name, 'agents:formatted') &&
       !contains(github.event.issue.labels.*.name, 'agents:autofix') &&
       !contains(github.event.issue.labels.*.name, 'agent:codex') &&
+      !contains(github.event.issue.labels.*.name, 'agent:claude') &&
+      !contains(github.event.issue.labels.*.name, 'agent:auto') &&
       !contains(github.event.issue.labels.*.name, 'automated')
 
     steps:
+      # Mint GitHub App token early to use for API calls (avoids rate limits)
+      - name: Mint GitHub App Token
+        id: app_token
+        uses: actions/create-github-app-token@v2
+        continue-on-error: true
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
+          owner: ${{ github.repository_owner }}
+
       - name: Checkout repository
         uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app_token.outputs.token || github.token }}
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -50,6 +72,7 @@ jobs:
         id: get-labels
         uses: actions/github-script@v8
         with:
+          github-token: ${{ steps.app_token.outputs.token || github.token }}
           script: |
             const fs = require('fs');
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
@@ -88,6 +111,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
           LABELS_JSON: ${{ steps.get-labels.outputs.labels_json }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
@@ -189,6 +213,7 @@ jobs:
           steps.match.outputs.auto_apply_labels != '[]'
         uses: actions/github-script@v8
         with:
+          github-token: ${{ steps.app_token.outputs.token || github.token }}
           script: |
             const fs = require('fs');
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';
@@ -239,6 +264,7 @@ jobs:
           steps.match.outputs.suggested_labels != '[]'
         uses: actions/github-script@v8
         with:
+          github-token: ${{ steps.app_token.outputs.token || github.token }}
           script: |
             const fs = require('fs');
             const retryHelperPath = './.github/scripts/github-api-with-retry.js';

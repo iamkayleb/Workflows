@@ -1,9 +1,13 @@
 {
   "repo": {"owner": "stranske", "repo": "Workflows"},
   "now": "2024-05-18T12:00:00Z",
+  "clear_token_defaults": true,
   "env": {
     "OPTIONS_JSON": "{}",
     "DRY_RUN": "false",
+    "CLEAR_TOKEN_DEFAULTS": "true",
+    "clear_token_defaults": "true",
+    "KEEPALIVE_DISPATCH_TOKEN": "",
     "ACTIONS_BOT_PAT": "",
     "SERVICE_BOT_PAT": ""
   },

@@ -18,6 +18,7 @@ import argparse
 import json
 import re
 import sys
+import time
 import urllib.request
 from pathlib import Path
 from typing import NamedTuple
@@ -48,6 +49,15 @@ class VersionInfo(NamedTuple):
     is_outdated: bool
 
 
+def _is_prerelease(version: str) -> bool:
+    return re.search(r"(a|b|rc|dev|alpha|beta)\d*$", version, re.IGNORECASE) is not None
+
+
+def _is_yanked(version: str, releases: dict[str, list[dict[str, object]]]) -> bool:
+    files = releases.get(version, [])
+    return bool(files) and all(f.get("yanked", False) for f in files)
+
+
 def get_latest_pypi_version(package_name: str) -> str | None:
     """Fetch the latest stable version from PyPI.
 
@@ -55,37 +65,46 @@ def get_latest_pypi_version(package_name: str) -> str | None:
     Falls back to the latest release if all releases are prereleases.
     """
     url = f"https://pypi.org/pypi/{package_name}/json"
-    try:
-        with urllib.request.urlopen(url, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-            # Get the latest version (this is the current stable release)
-            latest: str | None = data.get("info", {}).get("version")
-            if latest:
-                return latest
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+                latest: str | None = data.get("info", {}).get("version")
+                releases: dict[str, list[dict[str, object]]] = data.get("releases", {})
 
-            # Fallback: find the latest from releases
-            releases: dict[str, list[dict[str, object]]] = data.get("releases", {})
-            if releases:
-                # Filter out prereleases and yanked versions
-                stable_versions: list[str] = []
-                for ver, files in releases.items():
-                    # Skip if all files are yanked
-                    if files and all(f.get("yanked", False) for f in files):
-                        continue
-                    # Skip prereleases (contains a, b, rc, dev, etc.)
-                    if re.search(r"(a|b|rc|dev|alpha|beta)\d*$", ver, re.IGNORECASE):
-                        continue
-                    stable_versions.append(ver)
+                if latest and not _is_prerelease(latest) and not _is_yanked(latest, releases):
+                    return latest
 
-                if stable_versions:
-                    # Sort by version tuple
-                    stable_versions.sort(key=_version_tuple, reverse=True)
-                    return stable_versions[0]
+                # Fallback: find the latest from releases
+                if releases:
+                    # Filter out prereleases and yanked versions
+                    stable_versions: list[str] = []
+                    for ver, files in releases.items():
+                        # Skip if all files are yanked
+                        if files and all(f.get("yanked", False) for f in files):
+                            continue
+                        # Skip prereleases (contains a, b, rc, dev, etc.)
+                        if _is_prerelease(ver):
+                            continue
+                        stable_versions.append(ver)
 
-            return None
-    except Exception as e:
-        print(f"  ⚠️  Could not fetch {package_name} from PyPI: {e}", file=sys.stderr)
-        return None
+                    if stable_versions:
+                        # Sort by version tuple
+                        stable_versions.sort(key=_version_tuple, reverse=True)
+                        return stable_versions[0]
+
+                return None
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                # Brief backoff to tolerate transient network issues.
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            break
+
+    print(f"  ⚠️  Could not fetch {package_name} from PyPI: {last_error}", file=sys.stderr)
+    return None
 
 
 def _version_tuple(version: str) -> tuple[int, ...]:
@@ -95,6 +114,11 @@ def _version_tuple(version: str) -> tuple[int, ...]:
     if clean:
         return tuple(int(x) for x in clean.group(1).split("."))
     return (0,)
+
+
+def _is_outdated(current: str, latest: str) -> bool:
+    """Return True when the current version is older than the latest version."""
+    return _version_tuple(current) < _version_tuple(latest)
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
@@ -160,8 +184,13 @@ def check_versions(pin_file: Path) -> dict[str, VersionInfo]:
             print("failed to fetch")
             continue
 
-        is_outdated = current_version != latest_version
-        status = "OUTDATED" if is_outdated else "OK"
+        is_outdated = _is_outdated(current_version, latest_version)
+        if is_outdated:
+            status = "OUTDATED"
+        elif _version_tuple(current_version) > _version_tuple(latest_version):
+            status = "AHEAD"
+        else:
+            status = "OK"
         print(f"{current_version} -> {latest_version} [{status}]")
 
         results[env_key] = VersionInfo(

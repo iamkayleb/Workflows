@@ -15,6 +15,9 @@ jobs:
   scenarios:
     name: Integration - ${{ matrix.name }}
     uses: ./.github/workflows/reusable-10-ci-python.yml
+    permissions:
+      contents: read
+      actions: read
     strategy:
       fail-fast: false
       matrix:
@@ -57,17 +60,17 @@ jobs:
             coverage-alert-drop: '1'
     with:
       working-directory: templates/integration-repo
-      python-versions: ${{ matrix.python-versions }}
+      python-versions: ${{ matrix['python-versions'] }}
       coverage: ${{ matrix.coverage }}
-      format_check: ${{ matrix.format-check }}
+      format_check: ${{ matrix['format-check'] }}
       lint: ${{ matrix.lint }}
       typecheck: ${{ matrix.typecheck }}
-      enable-soft-gate: ${{ matrix.enable-soft-gate }}
-      enable-coverage-delta: ${{ matrix.enable-coverage-delta }}
-      enable-metrics: ${{ matrix.enable-metrics }}
-      enable-history: ${{ matrix.enable-history }}
-      baseline-coverage: ${{ matrix.baseline-coverage }}
-      coverage-alert-drop: ${{ matrix.coverage-alert-drop }}
+      enable-soft-gate: ${{ matrix['enable-soft-gate'] }}
+      enable-coverage-delta: ${{ matrix['enable-coverage-delta'] }}
+      enable-metrics: ${{ matrix['enable-metrics'] }}
+      enable-history: ${{ matrix['enable-history'] }}
+      baseline-coverage: ${{ matrix['baseline-coverage'] }}
+      coverage-alert-drop: ${{ matrix['coverage-alert-drop'] }}
       artifact-prefix: integration-${{ matrix.name }}-
     secrets: inherit
 
@@ -96,8 +99,18 @@ jobs:
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
+            .github/actions/setup-api-client
             .github/scripts/github-api-with-retry.js
+            .github/scripts/token_load_balancer.js
           sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+
+
 
       - name: Open or update failure issue
         if: ${{ needs.scenarios.result != 'success' }}
@@ -121,10 +134,24 @@ jobs:
 
             async function ensureLabel() {
               try {
-                await withRetry(() => github.rest.issues.getLabel({ owner, repo, name: label }));
+                await withRetry(() =>
+                  github.rest.issues.getLabel({
+                    owner,
+                    repo,
+                    name: label,
+                  })
+                );
               } catch (error) {
                 if (error.status === 404) {
-                  await withRetry(() => github.rest.issues.createLabel({ owner, repo, name: label, color: 'd73a4a', description: 'Integration consumer workflow failures' }));
+                  await withRetry(() =>
+                    github.rest.issues.createLabel({
+                      owner,
+                      repo,
+                      name: label,
+                      color: 'd73a4a',
+                      description: 'Integration consumer workflow failures',
+                    })
+                  );
                 } else {
                   throw error;
                 }
@@ -133,15 +160,38 @@ jobs:
 
             await ensureLabel();
 
-            const { data: issues } = await withRetry(() => github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: label, per_page: 30 }));
+            const { data: issues } = await withRetry(() =>
+              github.rest.issues.listForRepo({
+                owner,
+                repo,
+                state: 'open',
+                labels: label,
+                per_page: 30,
+              })
+            );
             const existing = issues.find((issue) => issue.title === title);
             const body = `Integration consumer workflow failed.\n\nRun: ${runUrl}`;
 
             if (existing) {
-              await withRetry(() => github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body }));
+              await withRetry(() =>
+                github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: existing.number,
+                  body,
+                })
+              );
               core.info(`Updated existing issue #${existing.number}`);
             } else {
-              const created = await withRetry(() => github.rest.issues.create({ owner, repo, title, body, labels: [label] }));
+              const created = await withRetry(() =>
+                github.rest.issues.create({
+                  owner,
+                  repo,
+                  title,
+                  body,
+                  labels: [label],
+                })
+              );
               core.info(`Created issue #${created.data.number}`);
             }
 
@@ -165,13 +215,36 @@ jobs:
                 };
             const { withRetry } = retryHelpers;
 
-            const { data: issues } = await withRetry(() => github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: label, per_page: 30 }));
+            const { data: issues } = await withRetry(() =>
+              github.rest.issues.listForRepo({
+                owner,
+                repo,
+                state: 'open',
+                labels: label,
+                per_page: 30,
+              })
+            );
             const existing = issues.find((issue) => issue.title === title);
             if (!existing) {
               core.info('No open integration failure issue to resolve.');
               return;
             }
 
-            await withRetry(() => github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `Latest integration consumer run succeeded.\n\nRun: ${runUrl}` }));
-            await withRetry(() => github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' }));
+            await withRetry(() =>
+              github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: existing.number,
+                body: `Latest integration consumer run succeeded.\n\nRun: ${runUrl}`,
+              })
+            );
+            await withRetry(() =>
+              github.rest.issues.update({
+                owner,
+                repo,
+                issue_number: existing.number,
+                state: 'closed',
+                state_reason: 'completed',
+              })
+            );
             core.info(`Closed issue #${existing.number}`);

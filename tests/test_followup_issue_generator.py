@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Tests for followup_issue_generator.py"""
 
-import pytest
+import json
+import logging
+import sys
 
+import pytest
+from scripts.langchain import followup_issue_generator
 from scripts.langchain.followup_issue_generator import (
     OriginalIssueData,
     VerificationData,
@@ -33,6 +37,25 @@ class TestExtractVerificationData:
 
         assert "anthropic" in data.provider_verdicts
         assert data.provider_verdicts["anthropic"]["verdict"] == "Needs Work"
+
+    def test_extract_provider_verdicts_normalizes_provider_and_confidence(self):
+        """Normalize provider labels and parse fractional confidence values."""
+        comment = """
+## Provider Comparison Report
+
+### Provider Summary
+| Provider | Model | Verdict | Confidence | Summary |
+| --- | --- | --- | --- | --- |
+| openai/gpt-5.2 | gpt-5.2 | CONCERNS | 0.72 | Needs follow-up. |
+| anthropic/claude-sonnet-4-5 | claude-sonnet-4-5 | PASS | 92% | Looks good. |
+"""
+        data = extract_verification_data(comment)
+
+        assert "openai" in data.provider_verdicts
+        assert data.provider_verdicts["openai"]["verdict"] == "CONCERNS"
+        assert data.provider_verdicts["openai"]["confidence"] == 72
+        assert "anthropic" in data.provider_verdicts
+        assert data.provider_verdicts["anthropic"]["confidence"] == 92
 
     def test_extract_provider_verdicts_comparison_report_summary(self):
         """Extract verdicts from Provider Comparison Report format."""
@@ -82,6 +105,18 @@ Verdict: **Not Ready** @75%
         assert "default" in data.provider_verdicts
         assert data.provider_verdicts["default"]["verdict"] == "Not Ready"
 
+    def test_extract_single_verdict_fractional_confidence(self):
+        """Extract fractional confidence from single provider format."""
+        comment = """
+## PR Verification Report
+
+Verdict: **CONCERNS** @0.72
+"""
+        data = extract_verification_data(comment)
+
+        assert "default" in data.provider_verdicts
+        assert data.provider_verdicts["default"]["confidence"] == 72
+
     def test_extract_concerns(self):
         """Extract concerns list."""
         comment = """
@@ -96,6 +131,48 @@ Verdict: **Not Ready** @75%
         assert len(data.concerns) == 3
         assert "Missing test coverage for edge cases" in data.concerns
         assert "Error handling not comprehensive" in data.concerns
+
+    def test_extract_concerns_heading_variants(self):
+        """Extract concerns from alternate heading levels."""
+        comment = """
+## Concerns from Verification
+
+- Missing unit tests for edge cases
+- Error handling needs improvement
+"""
+        data = extract_verification_data(comment)
+
+        assert len(data.concerns) == 2
+        assert "Missing unit tests for edge cases" in data.concerns
+        assert "Error handling needs improvement" in data.concerns
+
+    def test_extract_concerns_label_format(self):
+        """Extract concerns from plain label + bullets."""
+        comment = """
+Concerns:
+- Coverage gap in workflow_health_check.py
+- Missing tests for error classification
+"""
+        data = extract_verification_data(comment)
+
+        assert len(data.concerns) == 2
+        assert "Coverage gap in workflow_health_check.py" in data.concerns
+        assert "Missing tests for error classification" in data.concerns
+
+    def test_extract_missing_concerns_for_unknown_verdict(self):
+        """Add a default concern when verdict is unknown and concerns are missing."""
+        comment = """
+## PR Verification Report
+
+Verdict: **Unknown** @0%
+"""
+        data = extract_verification_data(comment)
+
+        assert data.concerns == [
+            "Verification output did not include extractable concerns; "
+            "re-run verification to capture verifier-context.md and verifier-diff-summary.md."
+        ]
+        assert data.missing_concerns is True
 
     def test_extract_low_scores(self):
         """Extract scores below 7/10."""
@@ -123,28 +200,120 @@ Agent ran 5 iterations before completion.
         data = extract_verification_data(comment)
         assert data.iteration_count == 5
 
-    def test_extract_task_completion(self):
-        """Extract task completion stats."""
-        comment = """
+
+def test_main_guard_blocks_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    injection_samples: list[dict[str, str]],
+) -> None:
+    raw = injection_samples[0]["text"]
+
+    def _fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("LLM should not be invoked when guard blocks input.")
+
+    monkeypatch.setattr(followup_issue_generator, "generate_followup_issue", _fail)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "followup_issue_generator.py",
+            "--pr-number",
+            "123",
+            "--verification-comment",
+            raw,
+            "--original-issue",
+            "Original issue body",
+            "--json",
+        ],
+    )
+
+    exit_code = followup_issue_generator.main()
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    payload = json.loads(captured.out.strip())
+    assert payload["guard_blocked"] is True
+    assert payload["guard_reason"]
+
+
+def test_guard_blocked_followup_structure(
+    injection_samples: list[dict[str, str]],
+) -> None:
+    """Verify the generated guard-blocked follow-up meets documented requirements."""
+    from scripts.langchain.followup_issue_generator import _generate_guard_blocked_followup
+
+    followup = _generate_guard_blocked_followup(
+        pr_number=42,
+        original_issue_number=100,
+        original_issue_title="Test issue title",
+        guard_reason="INSTRUCTION_OVERRIDE: test reason",
+    )
+
+    # Title format
+    assert "PR #42" in followup.title
+    assert "Human review" in followup.title
+
+    # Body structure: must contain Why, Source, Tasks, Acceptance Criteria sections
+    assert "## Why" in followup.body
+    assert "## Source" in followup.body
+    assert "## Tasks" in followup.body
+    assert "## Acceptance Criteria" in followup.body
+    assert "## Implementation Notes" in followup.body
+
+    # Body references
+    assert "#42" in followup.body  # PR number
+    assert "#100" in followup.body  # original issue number
+    assert "Test issue title" in followup.body
+
+    # Guard reason mention
+    assert "INSTRUCTION_OVERRIDE" in followup.body
+
+    # Labels match workflow expected schema
+    assert "needs-human" in followup.labels
+    assert "agents:auto-pilot-pause" in followup.labels
+
+
+def test_guard_blocked_followup_labels_match_workflow_schema() -> None:
+    """Labels on guard-blocked followup must match what auto-pilot expects."""
+    from scripts.langchain.followup_issue_generator import _generate_guard_blocked_followup
+
+    followup = _generate_guard_blocked_followup(
+        pr_number=1,
+        original_issue_number=None,
+        original_issue_title=None,
+        guard_reason="test",
+    )
+
+    # These are the exact labels the auto-pilot workflow checks
+    assert set(followup.labels) == {"needs-human", "agents:auto-pilot-pause"}
+
+    # Unknown issue fields handled gracefully
+    assert "unknown" in followup.body
+
+
+def test_extract_task_completion():
+    """Extract task completion stats."""
+    comment = """
 Remaining unchecked items: 3 of 10
 """
-        data = extract_verification_data(comment)
-        assert data.tasks_attempted == 10
-        assert data.tasks_completed == 7
+    data = extract_verification_data(comment)
+    assert data.tasks_attempted == 10
+    assert data.tasks_completed == 7
 
-    def test_extract_structural_issues(self):
-        """Extract structural issues detected."""
-        comment = """
+
+def test_extract_structural_issues():
+    """Extract structural issues detected."""
+    comment = """
 ### ⚠️ Issues Detected in Issue Structure
 
 **Problem:** Tasks contain code snippets instead of actionable items
 
 - Example: `def foo(): pass`
 """
-        data = extract_verification_data(comment)
+    data = extract_verification_data(comment)
 
-        assert len(data.structural_issues) >= 1
-        assert any("code snippets" in issue.lower() for issue in data.structural_issues)
+    assert len(data.structural_issues) >= 1
+    assert any("code snippets" in issue.lower() for issue in data.structural_issues)
 
 
 class TestExtractOriginalIssueData:
@@ -323,6 +492,88 @@ class TestGenerateFollowupIssue:
         assert "Not Ready" in followup.body
         assert "follow-up" in followup.labels
 
+    def test_split_verdicts_use_worst_case(self):
+        """Split verdicts should resolve to the worst-case provider verdict."""
+        verification_data = VerificationData(
+            provider_verdicts={
+                "openai": {"verdict": "PASS", "confidence": 90},
+                "anthropic": {"verdict": "CONCERNS", "confidence": 80},
+            },
+            concerns=["Missing test coverage"],
+        )
+
+        verdict = followup_issue_generator._resolve_verdict_policy(verification_data).verdict
+
+        assert verdict == "CONCERNS"
+
+    def test_advisory_concerns_are_notes(self):
+        """Advisory concerns should be placed in Notes instead of tasks."""
+        verification_data = VerificationData(
+            provider_verdicts={"openai": {"verdict": "CONCERNS", "confidence": 70}},
+            concerns=["Missing tests for edge cases", "Could add a clarifying comment"],
+        )
+
+        original_issue = OriginalIssueData(number=100, title="Add caching feature")
+
+        followup = generate_followup_issue(
+            verification_data=verification_data,
+            original_issue=original_issue,
+            pr_number=200,
+            use_llm=False,
+        )
+
+        assert "Missing tests for edge cases" in followup.body
+        assert "Could add a clarifying comment" in followup.body
+        assert "- [ ] Address: Missing tests for edge cases" in followup.body
+        assert "- [ ] Address: Could add a clarifying comment" not in followup.body
+        assert "## Notes" in followup.body
+
+    def test_split_high_confidence_requires_needs_human(self):
+        """High-confidence CONCERNS in a split verdict should trigger needs-human labeling."""
+        verification_data = VerificationData(
+            provider_verdicts={
+                "openai": {"verdict": "PASS", "confidence": 90},
+                "anthropic": {"verdict": "CONCERNS", "confidence": 92},
+            },
+            concerns=["Missing test coverage"],
+        )
+
+        original_issue = OriginalIssueData(number=100, title="Add caching feature")
+
+        followup = generate_followup_issue(
+            verification_data=verification_data,
+            original_issue=original_issue,
+            pr_number=200,
+            use_llm=False,
+        )
+
+        assert "needs-human" in followup.labels
+
+    def test_generate_without_llm_missing_concerns_adds_rerun_task(self):
+        """Missing concerns should yield a concrete re-verification task."""
+        verification_data = VerificationData(
+            provider_verdicts={"openai": {"verdict": "Unknown", "confidence": 0}},
+            concerns=[
+                "Verification output did not include extractable concerns; "
+                "re-run verification to capture verifier-context.md and verifier-diff-summary.md."
+            ],
+            missing_concerns=True,
+        )
+
+        original_issue = OriginalIssueData(number=100, title="Add caching feature")
+
+        followup = generate_followup_issue(
+            verification_data=verification_data,
+            original_issue=original_issue,
+            pr_number=200,
+            use_llm=False,
+        )
+
+        assert (
+            "Re-run verification to capture verifier-context.md and verifier-diff-summary.md."
+            in (followup.body)
+        )
+
     def test_includes_background_context(self):
         """Follow-up should include collapsible background section."""
         verification_data = VerificationData(
@@ -447,6 +698,310 @@ Create parsers and validators for JSON and CSV formats.
         assert "<details>" in followup.body
         # Verify structural issues are captured in background
         assert "52" in followup.body or "structural" in followup.body.lower()
+
+
+def test_build_llm_config_includes_standard_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GITHUB_REPOSITORY", "octo/repo")
+    monkeypatch.setenv("GITHUB_RUN_ID", "999")
+    monkeypatch.setenv("RUN_ID", "999")
+
+    config = followup_issue_generator._build_llm_config(
+        operation="generate_tasks",
+        pr_number=42,
+        issue_number=7,
+    )
+
+    metadata = config["metadata"]
+    assert metadata["repo"] == "octo/repo"
+    assert metadata["run_id"] == "999"
+    assert metadata["issue_or_pr_number"] == "42"
+    assert metadata["operation"] == "generate_tasks"
+    assert metadata["pr_number"] == "42"
+    assert metadata["issue_number"] == "7"
+
+    tags = config["tags"]
+    assert "workflows-agents" in tags
+    assert "operation:generate_tasks" in tags
+    assert "repo:octo/repo" in tags
+    assert "issue_or_pr:42" in tags
+    assert "run_id:999" in tags
+
+
+def test_invoke_llm_passes_config_metadata(llm_config_sentinel) -> None:
+    class DummyResponse:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class DummyClient:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, object]] = []
+
+        def invoke(self, *args: object, **kwargs: object) -> DummyResponse:
+            self.calls.append(dict(kwargs))
+            return DummyResponse("ok")
+
+    client = DummyClient()
+    result, trace_id, trace_url = followup_issue_generator._invoke_llm(
+        "prompt",
+        client,
+        operation="generate_tasks",
+        pr_number=111,
+        issue_number=222,
+    )
+
+    expected_config = llm_config_sentinel(
+        operation="generate_tasks",
+        pr_number=111,
+        issue_number=222,
+    )
+
+    assert result == "ok"
+    assert trace_id is None  # No trace ID from DummyClient
+    assert trace_url is None
+    assert client.calls
+    assert client.calls[0]["config"] == expected_config
+
+
+def test_generate_with_llm_passes_config_metadata(llm_config_sentinel) -> None:
+    class DummyResponse:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class DummyClient:
+        def __init__(self, responses: list[str]) -> None:
+            self.responses = list(responses)
+            self.calls: list[dict[str, object]] = []
+
+        def invoke(self, *args: object, **kwargs: object) -> DummyResponse:
+            self.calls.append(dict(kwargs))
+            return DummyResponse(self.responses.pop(0))
+
+    analysis_payload = {
+        "rewritten_acceptance_criteria": [],
+        "blockers_to_avoid": [],
+        "concrete_tasks": [{"task": "Fix issue"}],
+    }
+    tasks_payload = {"tasks": ["Task 1"], "deferred": []}
+    ac_payload = {"acceptance_criteria": ["AC 1"]}
+
+    reasoning_client = DummyClient([json.dumps(analysis_payload)])
+    standard_client = DummyClient([json.dumps(tasks_payload), json.dumps(ac_payload), "Issue body"])
+
+    verification_data = VerificationData(
+        provider_verdicts={"default": {"verdict": "FAIL", "confidence": 50}},
+        concerns=["Missing tests"],
+    )
+    original_issue = OriginalIssueData(
+        title="Original issue",
+        number=99,
+        tasks=["Do the thing"],
+        acceptance_criteria=["AC 1"],
+    )
+
+    issue = followup_issue_generator._generate_with_llm(
+        verification_data,
+        original_issue,
+        pr_number=123,
+        codex_log=None,
+        blocking_concerns=["Missing tests"],
+        advisory_concerns=[],
+        verdict="FAIL",
+        needs_human_reason="",
+        reasoning_client=reasoning_client,
+        reasoning_model="o3-mini",
+        standard_client=standard_client,
+        standard_model="gpt-4o",
+    )
+
+    def expected_config(operation: str) -> dict[str, object]:
+        return llm_config_sentinel(
+            operation=operation,
+            pr_number=123,
+            issue_number=99,
+        )
+
+    assert issue.body == "Issue body"
+    assert reasoning_client.calls[0]["config"] == expected_config("analyze_verification")
+    assert standard_client.calls[0]["config"] == expected_config("generate_tasks")
+    assert standard_client.calls[1]["config"] == expected_config("generate_acceptance_criteria")
+    assert standard_client.calls[2]["config"] == expected_config("format_followup_issue")
+
+
+@pytest.mark.parametrize(
+    ("client_kind", "call_index", "operation"),
+    [
+        ("reasoning", 0, "analyze_verification"),
+        ("standard", 0, "generate_tasks"),
+        ("standard", 1, "generate_acceptance_criteria"),
+        ("standard", 2, "format_followup_issue"),
+    ],
+)
+def test_generate_with_llm_config_propagation(
+    client_kind: str,
+    call_index: int,
+    operation: str,
+    llm_config_sentinel,
+) -> None:
+    class DummyResponse:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class DummyClient:
+        def __init__(self, responses: list[str]) -> None:
+            self.responses = list(responses)
+            self.calls: list[dict[str, object]] = []
+
+        def invoke(self, *args: object, **kwargs: object) -> DummyResponse:
+            self.calls.append(dict(kwargs))
+            return DummyResponse(self.responses.pop(0))
+
+    analysis_payload = {
+        "rewritten_acceptance_criteria": [],
+        "blockers_to_avoid": [],
+        "concrete_tasks": [{"task": "Fix issue"}],
+    }
+    tasks_payload = {"tasks": ["Task 1"], "deferred": []}
+    ac_payload = {"acceptance_criteria": ["AC 1"]}
+
+    reasoning_client = DummyClient([json.dumps(analysis_payload)])
+    standard_client = DummyClient([json.dumps(tasks_payload), json.dumps(ac_payload), "Issue body"])
+
+    verification_data = VerificationData(
+        provider_verdicts={"default": {"verdict": "FAIL", "confidence": 50}},
+        concerns=["Missing tests"],
+    )
+    original_issue = OriginalIssueData(
+        title="Original issue",
+        number=99,
+        tasks=["Do the thing"],
+        acceptance_criteria=["AC 1"],
+    )
+
+    followup_issue_generator._generate_with_llm(
+        verification_data,
+        original_issue,
+        pr_number=123,
+        codex_log=None,
+        blocking_concerns=["Missing tests"],
+        advisory_concerns=[],
+        verdict="FAIL",
+        needs_human_reason="",
+        reasoning_client=reasoning_client,
+        reasoning_model="o3-mini",
+        standard_client=standard_client,
+        standard_model="gpt-4o",
+    )
+
+    expected_config = llm_config_sentinel(
+        operation=operation,
+        pr_number=123,
+        issue_number=99,
+    )
+    calls = reasoning_client.calls if client_kind == "reasoning" else standard_client.calls
+    assert calls[call_index]["config"] == expected_config
+
+
+@pytest.mark.parametrize(
+    ("client_kind", "call_index", "operation"),
+    [
+        ("reasoning", 0, "analyze_verification"),
+        ("standard", 0, "generate_tasks"),
+        ("standard", 1, "generate_acceptance_criteria"),
+        ("standard", 2, "format_followup_issue"),
+    ],
+)
+def test_generate_with_llm_metadata_propagation(
+    client_kind: str,
+    call_index: int,
+    operation: str,
+    llm_metadata_sentinel,
+) -> None:
+    class DummyResponse:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    class DummyClient:
+        def __init__(self, responses: list[str]) -> None:
+            self.responses = list(responses)
+            self.calls: list[dict[str, object]] = []
+
+        def invoke(self, *args: object, **kwargs: object) -> DummyResponse:
+            self.calls.append(dict(kwargs))
+            return DummyResponse(self.responses.pop(0))
+
+    analysis_payload = {
+        "rewritten_acceptance_criteria": [],
+        "blockers_to_avoid": [],
+        "concrete_tasks": [{"task": "Fix issue"}],
+    }
+    tasks_payload = {"tasks": ["Task 1"], "deferred": []}
+    ac_payload = {"acceptance_criteria": ["AC 1"]}
+
+    reasoning_client = DummyClient([json.dumps(analysis_payload)])
+    standard_client = DummyClient([json.dumps(tasks_payload), json.dumps(ac_payload), "Issue body"])
+
+    verification_data = VerificationData(
+        provider_verdicts={"default": {"verdict": "FAIL", "confidence": 50}},
+        concerns=["Missing tests"],
+    )
+    original_issue = OriginalIssueData(
+        title="Original issue",
+        number=99,
+        tasks=["Do the thing"],
+        acceptance_criteria=["AC 1"],
+    )
+
+    followup_issue_generator._generate_with_llm(
+        verification_data,
+        original_issue,
+        pr_number=123,
+        codex_log=None,
+        blocking_concerns=["Missing tests"],
+        advisory_concerns=[],
+        verdict="FAIL",
+        needs_human_reason="",
+        reasoning_client=reasoning_client,
+        reasoning_model="o3-mini",
+        standard_client=standard_client,
+        standard_model="gpt-4o",
+    )
+
+    expected_metadata = llm_metadata_sentinel(
+        operation=operation,
+        pr_number=123,
+        issue_number=99,
+    )
+    calls = reasoning_client.calls if client_kind == "reasoning" else standard_client.calls
+    assert calls[call_index]["config"]["metadata"] == expected_metadata
+
+
+def test_invoke_llm_typeerror_fallback_logs_and_retries(
+    caplog: pytest.LogCaptureFixture,
+    llm_typeerror_client_factory,
+) -> None:
+    class DummyResponse:
+        def __init__(self, content: str) -> None:
+            self.content = content
+
+    client = llm_typeerror_client_factory(DummyResponse("ok"), message="bad config")
+    caplog.set_level(logging.WARNING, logger=followup_issue_generator.__name__)
+
+    result, trace_id, trace_url = followup_issue_generator._invoke_llm(
+        "prompt",
+        client,
+        operation="generate_tasks",
+        pr_number=101,
+        issue_number=202,
+    )
+
+    assert result == "ok"
+    assert trace_id is None  # No trace ID from DummyClient
+    assert trace_url is None
+    assert len(client.calls) == 2
+    assert "config" in client.calls[0][1]
+    assert "config" not in client.calls[1][1]
+    assert "config/metadata fallback" in caplog.text
+    assert "bad config" in caplog.text
 
 
 if __name__ == "__main__":
