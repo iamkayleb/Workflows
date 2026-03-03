@@ -42,12 +42,14 @@ jobs:
       security_blocked: ${{ steps.security_gate.outputs.blocked }}
       security_reason: ${{ steps.security_gate.outputs.reason }}
     steps:
-      - name: Checkout (for security gate)
+      - name: Checkout (for security gate and registry)
         uses: actions/checkout@v6
         with:
           sparse-checkout: |
             .github/scripts/prompt_injection_guard.js
             .github/scripts/github-api-with-retry.js
+            .github/agents/registry.yml
+
           sparse-checkout-cone-mode: false
 
       - name: Security gate - prompt injection guard

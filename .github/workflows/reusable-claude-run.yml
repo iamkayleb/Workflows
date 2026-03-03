@@ -1,0 +1,1118 @@
+name: Reusable Claude Run
+ 
+on:
+  workflow_call:
+    inputs:
+      skip:
+        description: 'If true, skip execution entirely. Used for conditional calls.'
+        required: false
+        default: false
+        type: boolean
+      prompt_file:
+        description: 'Path to the prompt file that Claude should read.'
+        required: true
+        type: string
+      mode:
+        description: 'Claude mode for logging purposes (keepalive | autofix | verifier).'
+        required: false
+        default: keepalive
+        type: string
+      pr_number:
+        description: 'Optional pull request number (used for logging or comments by callers).'
+        required: false
+        default: ''
+        type: string
+      pr_ref:
+        description: 'The branch/ref to checkout and push to (e.g., refs/heads/feature-branch).'
+        required: false
+        default: ''
+        type: string
+      workflows_ref:
+        description: 'The ref of the Workflows repo to checkout for scripts. Defaults to main.'
+        required: false
+        default: 'main'
+        type: string
+      max_runtime_minutes:
+        description: 'Upper bound for the job runtime in minutes.'
+        required: false
+        default: 45
+        type: number
+      appendix:
+        description: 'Optional context appended to the prompt passed to Claude.'
+        required: false
+        default: ''
+        type: string
+      iteration:
+        description: 'Current iteration number (for tracking in completion comments).'
+        required: false
+        default: ''
+        type: string
+      environment:
+        description: 'GitHub environment to run in (agent-standard or agent-high-privilege).'
+        required: false
+        default: 'agent-standard'
+        type: string
+      bedrock_region:
+        description: 'AWS region for Bedrock (default: us-east-1).'
+        required: false
+        default: 'us-east-1'
+        type: string
+      bedrock_model_id:
+        description: 'Bedrock model ID (default: anthropic.claude-sonnet-4-20250514-v1:0).'
+        required: false
+        default: 'anthropic.claude-sonnet-4-20250514-v1:0'
+        type: string
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        description: 'AWS access key ID for Bedrock'
+        required: true
+      AWS_SECRET_ACCESS_KEY:
+        description: 'AWS secret access key for Bedrock'
+        required: true
+      AWS_SESSION_TOKEN:
+        description: 'AWS session token (optional, for assumed roles)'
+        required: false
+      WORKFLOWS_APP_ID:
+        required: false
+      WORKFLOWS_APP_PRIVATE_KEY:
+        required: false
+    outputs:
+      final-message:
+        description: 'Full Claude output message (base64 encoded)'
+        value: ${{ jobs.claude.outputs.final-message }}
+      final-message-summary:
+        description: 'First 500 chars of Claude output (safe for PR comments)'
+        value: ${{ jobs.claude.outputs.final-message-summary }}
+      exit-code:
+        description: 'Claude run exit code (0=success)'
+        value: ${{ jobs.claude.outputs.exit-code }}
+      changes-made:
+        description: 'Whether Claude made file changes (true/false)'
+        value: ${{ jobs.claude.outputs.changes-made }}
+      commit-sha:
+        description: 'SHA of the commit if changes were pushed'
+        value: ${{ jobs.claude.outputs.commit-sha }}
+      files-changed:
+        description: 'Number of files changed by Claude'
+        value: ${{ jobs.claude.outputs.files-changed }}
+      error-category:
+        description: 'Error category if failure occurred (transient/auth/resource/logic/unknown)'
+        value: ${{ jobs.claude.outputs.error-category }}
+      error-type:
+        description: 'Error type if failure occurred (claude/infrastructure/auth/unknown)'
+        value: ${{ jobs.claude.outputs.error-type }}
+      error-recovery:
+        description: 'Suggested recovery action if failure occurred'
+        value: ${{ jobs.claude.outputs.error-recovery }}
+      # LLM task analysis outputs
+      llm-analysis-run:
+        description: 'Whether LLM analysis was performed'
+        value: ${{ jobs.claude.outputs.llm-analysis-run }}
+      llm-provider:
+        description: 'LLM provider used for analysis'
+        value: ${{ jobs.claude.outputs.llm-provider }}
+      llm-confidence:
+        description: 'Confidence level of LLM analysis (0-1)'
+        value: ${{ jobs.claude.outputs.llm-confidence }}
+      llm-completed-tasks:
+        description: 'JSON array of completed task descriptions'
+        value: ${{ jobs.claude.outputs.llm-completed-tasks }}
+ 
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  id-token: write
+ 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+ 
+jobs:
+  claude:
+    name: Claude (${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: ${{ inputs.max_runtime_minutes }}
+    if: ${{ !inputs.skip }}
+    outputs:
+      final-message: ${{ steps.run_claude.outputs.final-message }}
+      final-message-summary: ${{ steps.run_claude.outputs.final-message-summary }}
+      exit-code: ${{ steps.run_claude.outputs.exit-code }}
+      changes-made: ${{ steps.commit.outputs.changes-made }}
+      commit-sha: ${{ steps.commit.outputs.commit-sha }}
+      files-changed: ${{ steps.commit.outputs.files-changed }}
+      error-category: ${{ steps.classify_failure.outputs.error_category }}
+      error-type: ${{ steps.classify_failure.outputs.error_type }}
+      error-recovery: ${{ steps.classify_failure.outputs.error_recovery }}
+      # LLM analysis outputs
+      llm-analysis-run: ${{ steps.llm_analysis.outputs.llm-analysis-run }}
+      llm-completed-tasks: ${{ steps.llm_analysis.outputs.completed-tasks }}
+      llm-provider: ${{ steps.llm_analysis.outputs.provider }}
+      llm-confidence: ${{ steps.llm_analysis.outputs.confidence }}
+    steps:
+      - name: Mint GitHub App token (preferred)
+        id: app_token
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.WORKFLOWS_APP_ID }}
+          private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}
+ 
+      - name: Select auth token
+        id: auth_token
+        env:
+          APP_TOKEN: ${{ steps.app_token.outputs.token || '' }}
+        run: |
+          set -euo pipefail
+          checkout_token="${APP_TOKEN:-${GITHUB_TOKEN}}"
+          push_token="${APP_TOKEN:-}"
+          source="app-token"
+          push_allowed="true"
+ 
+          if [ -z "$push_token" ]; then
+            source="github-token"
+            push_allowed="false"
+          fi
+ 
+          {
+            echo "checkout_token=${checkout_token}"
+            echo "push_token=${push_token}"
+            echo "source=${source}"
+            echo "push_allowed=${push_allowed}"
+          } >> "$GITHUB_OUTPUT"
+ 
+          {
+            echo "WORKFLOWS_TOKEN=${checkout_token}"
+            echo "CLAUDE_MODE=${{ inputs.mode }}"
+            echo "CLAUDE_PR_NUMBER=${{ inputs.pr_number }}"
+          } >> "$GITHUB_ENV"
+ 
+          printf 'Checkout auth: %s; push permitted with app token: %s.\n' "$source" "$push_allowed"
+ 
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.pr_ref || github.ref }}
+          token: ${{ steps.auth_token.outputs.checkout_token }}
+ 
+      - name: Checkout Workflows scripts
+        uses: actions/checkout@v6
+        with:
+          repository: stranske/Workflows
+          ref: ${{ inputs.workflows_ref }}
+          path: .workflows-lib
+          token: ${{ steps.auth_token.outputs.checkout_token }}
+ 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+ 
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            requirements*.txt
+ 
+      - name: Install Python dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+ 
+          # Install repo dependencies if present
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+ 
+          if [ -f requirements-dev.txt ]; then
+            python -m pip install -r requirements-dev.txt
+          fi
+ 
+          if [ -f pyproject.toml ]; then
+            python -m pip install -e ".[dev]" || python -m pip install -e . || true
+          fi
+ 
+          # Install boto3 for Bedrock API
+          python -m pip install boto3
+ 
+      - name: Install Workflows repo LLM dependencies
+        run: |
+          # Install LLM dependencies from Workflows repo for session analysis
+          if [ -f .workflows-lib/tools/requirements.txt ]; then
+            echo "Installing LLM analysis dependencies..."
+            python -m pip install -r .workflows-lib/tools/requirements.txt || {
+              echo "::notice::LLM dependencies not installed, will fall back to regex analysis"
+            }
+          fi
+ 
+      - name: Configure AWS credentials
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+          AWS_REGION: ${{ inputs.bedrock_region }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.aws
+ 
+          # Create credentials file
+          cat > ~/.aws/credentials << EOF
+          [default]
+          aws_access_key_id = ${AWS_ACCESS_KEY_ID}
+          aws_secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+          EOF
+ 
+          if [ -n "${AWS_SESSION_TOKEN:-}" ]; then
+            echo "aws_session_token = ${AWS_SESSION_TOKEN}" >> ~/.aws/credentials
+          fi
+ 
+          # Create config file
+          cat > ~/.aws/config << EOF
+          [default]
+          region = ${AWS_REGION}
+          EOF
+ 
+          chmod 600 ~/.aws/credentials ~/.aws/config
+          echo "✅ AWS credentials configured for region ${AWS_REGION}"
+ 
+          # Verify credentials work
+          aws sts get-caller-identity || {
+            echo "::error::AWS credentials validation failed"
+            exit 1
+          }
+ 
+      - name: Install Claude Code CLI
+        run: |
+          set -euo pipefail
+          echo "Installing Claude Code CLI..."
+          npm install -g @anthropic-ai/claude-code
+          claude --version || echo "Claude CLI installed"
+ 
+      - name: Validate prompt template integrity
+        id: guard
+        env:
+          BASE_PROMPT: ${{ inputs.prompt_file }}
+        run: |
+          set -euo pipefail
+          if [ -f ".github/scripts/prompt_integrity_guard.js" ]; then
+            echo "Checking prompt template for embedded task content..."
+            node .github/scripts/prompt_integrity_guard.js "${BASE_PROMPT}" || {
+              echo "::error::Prompt template integrity check failed."
+              exit 1
+            }
+          else
+            echo "Guard script not found, skipping integrity check"
+          fi
+ 
+      - name: Assemble prompt
+        id: prompt
+        env:
+          BASE_PROMPT: ${{ inputs.prompt_file }}
+          APPENDIX: ${{ inputs.appendix }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          base="${BASE_PROMPT}"
+ 
+          # Use PR-specific filename to avoid merge conflicts
+          if [ -n "${PR_NUMBER}" ]; then
+            output="claude-prompt-${PR_NUMBER}.md"
+          else
+            output="claude-prompt.md"
+          fi
+ 
+          if [ -z "$base" ] || [ ! -f "$base" ]; then
+            echo "::error::Base prompt file not found: ${base}"
+            exit 1
+          fi
+ 
+          # Start with agent instructions if available
+          if [ -f ".github/codex/AGENT_INSTRUCTIONS.md" ]; then
+            {
+              cat ".github/codex/AGENT_INSTRUCTIONS.md"
+              echo
+              echo "---"
+              echo
+              echo "## Task Prompt"
+              echo
+            } > "$output"
+            cat "$base" >> "$output"
+          else
+            cat "$base" > "$output"
+          fi
+ 
+          if [ -n "$APPENDIX" ]; then
+            {
+              echo
+              echo "## Run context"
+              printf '%s\n' "$APPENDIX"
+            } >> "$output"
+          fi
+ 
+          echo "file=${output}" >> "$GITHUB_OUTPUT"
+          echo "Prompt assembled: ${output}"
+ 
+      - name: Clean workspace for Claude
+        id: clean_workspace
+        run: |
+          set -euo pipefail
+          echo "Cleaning workspace to ensure clean git state for Claude..."
+ 
+          # Handle .workflows-lib directory
+          if [ -d ".workflows-lib" ]; then
+            if ! grep -q "^\.workflows-lib" .git/info/exclude 2>/dev/null; then
+              echo ".workflows-lib" >> .git/info/exclude 2>/dev/null || true
+            fi
+          fi
+ 
+          # Remove old session/output files
+          rm -f claude-session*.jsonl claude-output*.md claude-analysis*.json 2>/dev/null || true
+ 
+          echo "Git status after cleanup:"
+          git status --short || true
+ 
+      # Surface merge conflicts before Claude runs
+      - name: Surface merge conflicts
+        if: inputs.prompt_file == '.github/codex/prompts/fix_merge_conflicts.md'
+        env:
+          WORKFLOW_BASE_REF: ${{ github.event.pull_request.base.ref || '' }}
+        run: |
+          set -euo pipefail
+ 
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+ 
+          base_branch="${GITHUB_BASE_REF:-}"
+          if [ -z "$base_branch" ] && [ -n "${WORKFLOW_BASE_REF:-}" ]; then
+            base_branch="$WORKFLOW_BASE_REF"
+          fi
+          if [ -z "$base_branch" ]; then
+            base_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@' || true)"
+          fi
+          if [ -z "$base_branch" ]; then
+            echo "Warning: could not determine base branch; defaulting to 'main'."
+            base_branch="main"
+          fi
+ 
+          echo "Using base branch '$base_branch' to surface merge conflicts."
+          git fetch origin "$base_branch"
+ 
+          merge_exit=0
+          git merge --no-commit --no-ff "origin/$base_branch" || merge_exit=$?
+          if [ $merge_exit -ne 0 ]; then
+            echo "Merge conflicts detected (expected for conflict resolution)"
+            git status
+          else
+            echo "No merge conflicts - merge succeeded automatically"
+          fi
+ 
+      - name: Run Claude
+        id: run_claude
+        env:
+          AWS_REGION: ${{ inputs.bedrock_region }}
+          BEDROCK_MODEL_ID: ${{ inputs.bedrock_model_id }}
+          CLAUDE_CODE_USE_BEDROCK: '1'
+          ANTHROPIC_MODEL: ${{ inputs.bedrock_model_id }}
+        run: |
+          set -euo pipefail
+ 
+          PROMPT_FILE="${{ steps.prompt.outputs.file }}"
+          PR_NUM="${{ inputs.pr_number }}"
+ 
+          if [ -n "${PR_NUM}" ]; then
+            OUTPUT_FILE="claude-output-${PR_NUM}.md"
+            SESSION_FILE="claude-session-${PR_NUM}.jsonl"
+          else
+            OUTPUT_FILE="claude-output.md"
+            SESSION_FILE="claude-session.jsonl"
+          fi
+ 
+          echo "Running Claude Code with Bedrock backend..."
+          echo "Prompt file: $PROMPT_FILE"
+          echo "Model: $BEDROCK_MODEL_ID"
+          echo "Region: $AWS_REGION"
+ 
+          PROMPT_CONTENT=$(cat "$PROMPT_FILE")
+ 
+          # Try Claude Code CLI first
+          CLAUDE_EXIT=0
+          if command -v claude &> /dev/null; then
+            echo "Using Claude Code CLI..."
+            # Configure Claude to use Bedrock
+            claude config set --global provider bedrock 2>/dev/null || true
+            claude config set --global model "$BEDROCK_MODEL_ID" 2>/dev/null || true
+ 
+            # Run Claude in non-interactive mode with JSON output for session tracking
+            claude --print --output-format json "$PROMPT_CONTENT" > "$SESSION_FILE" 2>&1 || CLAUDE_EXIT=$?
+ 
+            # Extract final message from session
+            if [ -f "$SESSION_FILE" ]; then
+              # Try to extract the last assistant message
+              python3 -c "
+            import json
+            import sys
+            try:
+                with open('$SESSION_FILE', 'r') as f:
+                    content = f.read()
+                # Try parsing as JSONL
+                lines = content.strip().split('\n')
+                last_msg = ''
+                for line in lines:
+                    try:
+                        obj = json.loads(line)
+                        if obj.get('type') == 'assistant' or obj.get('role') == 'assistant':
+                            last_msg = obj.get('content', obj.get('message', ''))
+                    except:
+                        pass
+                if last_msg:
+                    print(last_msg)
+                else:
+                    print(content)
+            except Exception as e:
+                print(f'Error parsing session: {e}', file=sys.stderr)
+                with open('$SESSION_FILE', 'r') as f:
+                    print(f.read())
+            " > "$OUTPUT_FILE" || cp "$SESSION_FILE" "$OUTPUT_FILE"
+                        fi
+                    else
+                        echo "Claude CLI not available, using direct Bedrock API..."
+                        # Fallback to direct Bedrock API call via Python
+                        python3 << PYEOF
+            import boto3
+            import json
+            import os
+            import sys
+            
+            bedrock = boto3.client(
+                service_name='bedrock-runtime',
+                region_name=os.environ.get('AWS_REGION', 'us-east-1')
+            )
+            
+            model_id = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-sonnet-4-20250514-v1:0')
+            prompt_file = "${PROMPT_FILE}"
+            output_file = "${OUTPUT_FILE}"
+            session_file = "${SESSION_FILE}"
+            
+            with open(prompt_file, 'r') as f:
+                prompt_content = f.read()
+            
+            body = json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": 4096,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt_content
+                    }
+                ]
+            })
+            
+            try:
+                response = bedrock.invoke_model(
+                    modelId=model_id,
+                    body=body,
+                    contentType='application/json',
+                    accept='application/json'
+                )
+            
+                response_body = json.loads(response['body'].read())
+                output_text = response_body.get('content', [{}])[0].get('text', '')
+            
+                with open(output_file, 'w') as f:
+                    f.write(output_text)
+            
+                # Write session info
+                with open(session_file, 'w') as f:
+                    json.dump({
+                        'type': 'assistant',
+                        'content': output_text,
+                        'model': model_id,
+                        'usage': response_body.get('usage', {})
+                    }, f)
+            
+                print(f"Claude response written to {output_file}")
+                sys.exit(0)
+            
+            except Exception as e:
+                print(f"::error::Bedrock API call failed: {e}")
+                with open(output_file, 'w') as f:
+                    f.write(f"Error: {str(e)}")
+                sys.exit(1)
+            PYEOF
+                        CLAUDE_EXIT=$?
+                    fi
+            
+                    echo "exit-code=${CLAUDE_EXIT}" >> "$GITHUB_OUTPUT"
+            
+                    if [ "$CLAUDE_EXIT" -ne 0 ]; then
+                        echo "::error::Claude run exited with code ${CLAUDE_EXIT}"
+                    fi
+            
+                    echo "Claude completed with exit code ${CLAUDE_EXIT}."
+            
+                    # Set outputs
+                    if [ -f "$OUTPUT_FILE" ]; then
+                        encoded=$(base64 -w 0 "$OUTPUT_FILE")
+                        echo "final-message=${encoded}" >> "$GITHUB_OUTPUT"
+            
+                        summary=$(head -c 500 "$OUTPUT_FILE" | tr '\n' ' ' | sed 's/"/\\"/g')
+                        echo "final-message-summary=${summary}" >> "$GITHUB_OUTPUT"
+                    else
+                        echo "final-message=" >> "$GITHUB_OUTPUT"
+                        echo "final-message-summary=No output captured" >> "$GITHUB_OUTPUT"
+                    fi
+            
+                    exit "$CLAUDE_EXIT"
+            
+                - name: Analyze Claude session
+                    id: analyze_session
+                    if: always()
+                    env:
+                    PYTHONPATH: ${{ github.workspace }}/.workflows-lib:${{ github.workspace }}
+                    PR_NUM: ${{ inputs.pr_number }}
+                    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    run: |
+                    set -euo pipefail
+            
+                    if [ -n "${PR_NUM}" ]; then
+                        SESSION_FILE="claude-session-${PR_NUM}.jsonl"
+                    else
+                        SESSION_FILE="claude-session.jsonl"
+                    fi
+                    export SESSION_FILE
+            
+                    if [ ! -f "$SESSION_FILE" ] || [ ! -s "$SESSION_FILE" ]; then
+                        echo "No session file found or file is empty"
+                        echo "session-available=false" >> "$GITHUB_OUTPUT"
+                        exit 0
+                    fi
+            
+                    echo "Session file captured: $(wc -l < "$SESSION_FILE") lines"
+                    echo "session-available=true" >> "$GITHUB_OUTPUT"
+            
+                    # Basic metrics
+                    python3 << 'PYEOF'
+                    import os
+                    import json
+            
+                    session_file = os.environ.get("SESSION_FILE", "claude-session.jsonl")
+                    github_output = os.environ.get("GITHUB_OUTPUT", "/dev/null")
+            
+                    try:
+                        event_count = 0
+                        with open(session_file, 'r') as f:
+                            for line in f:
+                                try:
+                                    json.loads(line.strip())
+                                    event_count += 1
+                                except:
+                                    pass
+            
+                        print(f"::notice::Session parsed: {event_count} events")
+            
+                        with open(github_output, "a") as f:
+                            f.write(f"event-count={event_count}\n")
+            
+                    except Exception as e:
+                        print(f"::warning::Session analysis failed: {e}")
+                    PYEOF
+            
+                - name: Analyze task completion with LLM
+                    id: llm_analysis
+                    if: always() && steps.analyze_session.outputs.session-available == 'true' && inputs.pr_number != ''
+                    env:
+                    PYTHONPATH: ${{ github.workspace }}/.workflows-lib:${{ github.workspace }}
+                    PR_NUM: ${{ inputs.pr_number }}
+                    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                    run: |
+                    set -euo pipefail
+            
+                    SESSION_FILE="claude-session-${PR_NUM}.jsonl"
+                    ANALYSIS_FILE="claude-analysis-${PR_NUM}.json"
+            
+                    echo "Fetching PR #${PR_NUM} body..."
+                    PR_BODY=$(gh pr view "${PR_NUM}" --json body --jq '.body' 2>/dev/null || echo "")
+            
+                    if [ -z "$PR_BODY" ]; then
+                        echo "::notice::Could not fetch PR body, skipping LLM analysis"
+                        echo "llm-analysis-run=false" >> "$GITHUB_OUTPUT"
+                        exit 0
+                    fi
+            
+                    echo "$PR_BODY" > pr_body.md
+ 
+          # Try to run analysis if script exists
+          if [ -f ".workflows-lib/scripts/analyze_codex_session.py" ]; then
+            echo "Running LLM-powered task completion analysis..."
+            python3 .workflows-lib/scripts/analyze_codex_session.py \
+              --session-file "$SESSION_FILE" \
+              --pr-body-file pr_body.md \
+              --output json > "$ANALYSIS_FILE" 2>/dev/null || {
+                echo "::warning::LLM analysis failed, continuing without it"
+                echo "llm-analysis-run=false" >> "$GITHUB_OUTPUT"
+                rm -f "$ANALYSIS_FILE"
+                exit 0
+              }
+ 
+            echo "llm-analysis-run=true" >> "$GITHUB_OUTPUT"
+ 
+            if [ -f "$ANALYSIS_FILE" ]; then
+              COMPLETED=$(python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); print(json.dumps(d.get('completed_tasks', [])))")
+              PROVIDER=$(python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); print(d.get('provider', 'claude-bedrock'))")
+              CONFIDENCE=$(python3 -c "import json; d=json.load(open('$ANALYSIS_FILE')); print(d.get('confidence', 0))")
+              {
+                echo "completed-tasks=$COMPLETED"
+                echo "provider=$PROVIDER"
+                echo "confidence=$CONFIDENCE"
+              } >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "::notice::Analysis script not available"
+            echo "llm-analysis-run=false" >> "$GITHUB_OUTPUT"
+          fi
+ 
+      - name: Commit and push changes
+        id: commit
+        env:
+          MODE: ${{ inputs.mode }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_REF: ${{ inputs.pr_ref }}
+          PUSH_ALLOWED: ${{ steps.auth_token.outputs.push_allowed }}
+          PUSH_TOKEN: ${{ steps.auth_token.outputs.push_token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+ 
+          TARGET_REF="${PR_REF:-${{ github.ref_name }}}"
+          TARGET_BRANCH="${TARGET_REF#refs/heads/}"
+          echo "Target branch: ${TARGET_BRANCH}"
+ 
+          CHANGED_FILES=$(git status --porcelain | wc -l)
+          echo "files-changed=${CHANGED_FILES}" >> "$GITHUB_OUTPUT"
+ 
+          if [ "$CHANGED_FILES" -eq 0 ]; then
+            echo "No uncommitted changes."
+            REMOTE_URL="https://x-access-token:${PUSH_TOKEN}@github.com/${{ github.repository }}"
+            git fetch "${REMOTE_URL}" "${TARGET_BRANCH}" 2>/dev/null || true
+ 
+            UNPUSHED_COMMITS=0
+            if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+              UNPUSHED_COMMITS=$(git rev-list FETCH_HEAD..HEAD --count 2>/dev/null || echo "0")
+            else
+              UNPUSHED_COMMITS=$(git rev-list HEAD --count 2>/dev/null || echo "0")
+            fi
+ 
+            if [ "$UNPUSHED_COMMITS" -gt 0 ]; then
+              echo "Found ${UNPUSHED_COMMITS} unpushed commit(s) - pushing them."
+              COMMIT_SHA=$(git rev-parse HEAD)
+              echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+              echo "changes-made=true" >> "$GITHUB_OUTPUT"
+              if [ "$PUSH_ALLOWED" != "true" ]; then
+                echo "::error::GitHub App token missing; refusing to push."
+                exit 1
+              fi
+              git push "${REMOTE_URL}" "HEAD:${TARGET_BRANCH}"
+              echo "::notice::Pushed ${UNPUSHED_COMMITS} commit(s) (SHA: ${COMMIT_SHA})"
+              exit 0
+            fi
+ 
+            echo "No uncommitted changes and no unpushed commits."
+            echo "changes-made=false" >> "$GITHUB_OUTPUT"
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+ 
+          # Exclude prompt/output files from commits
+          git checkout -- claude-output*.md claude-prompt*.md 2>/dev/null || true
+ 
+          CHANGED_FILES=$(git status --porcelain | wc -l)
+          echo "files-changed=${CHANGED_FILES}" >> "$GITHUB_OUTPUT"
+ 
+          if [ "$CHANGED_FILES" -eq 0 ]; then
+            echo "No changes to commit after excluding artifacts."
+            echo "changes-made=false" >> "$GITHUB_OUTPUT"
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+ 
+          echo "changes-made=true" >> "$GITHUB_OUTPUT"
+          echo "::notice::Claude made changes to ${CHANGED_FILES} file(s)"
+ 
+          commit_message="chore(claude-${MODE}): apply updates"
+          if [ -n "$PR_NUMBER" ]; then
+            commit_message="${commit_message} (PR #${PR_NUMBER})"
+          fi
+ 
+          if [ "$PUSH_ALLOWED" != "true" ]; then
+            echo "::error::GitHub App token missing; refusing to push."
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+ 
+          REMOTE_URL="https://x-access-token:${PUSH_TOKEN}@github.com/${{ github.repository }}"
+ 
+          git add -A
+          git reset HEAD -- claude-output*.md claude-prompt*.md claude-session-*.jsonl claude-analysis-*.json \
+            .coverage .workflows-lib coverage.xml pr_body.md 2>/dev/null || true
+ 
+          if git diff --cached --quiet; then
+            echo "::warning::No non-artifact changes to commit."
+            git fetch "${REMOTE_URL}" "${TARGET_BRANCH}" 2>/dev/null || true
+            UNPUSHED=$(git rev-list FETCH_HEAD..HEAD --count 2>/dev/null || echo "0")
+            if [ "$UNPUSHED" -gt 0 ]; then
+              echo "::notice::Found ${UNPUSHED} unpushed commit(s) - pushing them."
+              git push "${REMOTE_URL}" "HEAD:${TARGET_BRANCH}"
+              echo "commit-sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+              echo "changes-made=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "changes-made=false" >> "$GITHUB_OUTPUT"
+            echo "commit-sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+ 
+          echo "::group::Changes being committed"
+          git diff --cached --stat
+          echo "::endgroup::"
+ 
+          git commit -m "$commit_message" || { echo "::error::git commit failed"; exit 1; }
+ 
+          COMMIT_SHA=$(git rev-parse HEAD)
+          echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+ 
+          echo "::group::Sync with remote before push"
+          git fetch "${REMOTE_URL}" "${TARGET_BRANCH}" 2>/dev/null || true
+          if git rev-parse "FETCH_HEAD" >/dev/null 2>&1; then
+            if ! git rebase FETCH_HEAD; then
+              echo "::warning::Rebase failed, attempting merge"
+              git rebase --abort 2>/dev/null || true
+              git pull --no-rebase "${REMOTE_URL}" "${TARGET_BRANCH}" --allow-unrelated-histories || true
+            fi
+            COMMIT_SHA=$(git rev-parse HEAD)
+            echo "commit-sha=${COMMIT_SHA}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "::endgroup::"
+ 
+          git push "${REMOTE_URL}" "HEAD:${TARGET_BRANCH}"
+          echo "::notice::Pushed commit ${COMMIT_SHA} with ${CHANGED_FILES} file(s) changed"
+ 
+      - name: Upload Claude output
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: claude-output-${{ inputs.pr_number || github.run_id }}
+          path: |
+            claude-output*.md
+            claude-session*.jsonl
+            claude-analysis*.json
+          if-no-files-found: ignore
+ 
+      - name: Post completion checkpoint comment
+        id: completion_comment
+        if: steps.commit.outputs.changes-made == 'true' && inputs.pr_number != ''
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          COMMIT_SHA: ${{ steps.commit.outputs.commit-sha }}
+          ITERATION: ${{ inputs.iteration || '' }}
+        with:
+          script: |
+            const { postCompletionComment } = require('./.workflows-lib/.github/scripts/post_completion_comment.js');
+            const result = await postCompletionComment({
+              github, context, core,
+              inputs: {
+                pr_number: process.env.PR_NUMBER,
+                commit_sha: process.env.COMMIT_SHA,
+                iteration: process.env.ITERATION,
+                prompt_file: 'claude-prompt.md',
+              },
+            });
+            core.setOutput('posted', result.posted ? 'true' : 'false');
+            core.setOutput('tasks', String(result.tasks || 0));
+            core.setOutput('acceptance', String(result.acceptance || 0));
+            if (result.posted) {
+              core.info(`Posted completion checkpoint: ${result.tasks} tasks, ${result.acceptance} acceptance criteria`);
+            }
+ 
+      - name: Classify failure type
+        id: classify_failure
+        if: always() && steps.run_claude.outputs.exit-code != '0'
+        uses: actions/github-script@v8
+        env:
+          EXIT_CODE: ${{ steps.run_claude.outputs.exit-code }}
+          OUTPUT_SUMMARY: ${{ steps.run_claude.outputs.final-message-summary }}
+          MODE: ${{ inputs.mode }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const { classifyError, ERROR_CATEGORIES } = require('./.workflows-lib/.github/scripts/error_classifier.js');
+ 
+            const exitCode = process.env.EXIT_CODE || '';
+            const summary = process.env.OUTPUT_SUMMARY || '';
+            const mode = process.env.MODE || 'unknown';
+ 
+            const errorInfo = classifyError({
+              code: exitCode,
+              message: summary,
+            });
+ 
+            let errorType = 'unknown';
+            if (exitCode && exitCode !== '0') {
+              if (errorInfo.category === ERROR_CATEGORIES.transient) {
+                errorType = 'infrastructure';
+              } else if (errorInfo.category === ERROR_CATEGORIES.auth) {
+                errorType = 'auth';
+              } else {
+                errorType = 'claude';
+              }
+            }
+ 
+            core.setOutput('error_category', errorInfo.category);
+            core.setOutput('error_type', errorType);
+            core.setOutput('error_recovery', errorInfo.recovery);
+            core.setOutput('is_transient', errorInfo.category === ERROR_CATEGORIES.transient ? 'true' : 'false');
+ 
+            console.log(`Error Classification:`);
+            console.log(`  Category: ${errorInfo.category}`);
+            console.log(`  Type: ${errorType}`);
+            console.log(`  Recovery: ${errorInfo.recovery}`);
+ 
+      - name: Write error summary to GITHUB_STEP_SUMMARY
+        if: always() && steps.run_claude.outputs.exit-code != '0'
+        env:
+          EXIT_CODE: ${{ steps.run_claude.outputs.exit-code }}
+          OUTPUT_SUMMARY: ${{ steps.run_claude.outputs.final-message-summary }}
+          ERROR_CATEGORY: ${{ steps.classify_failure.outputs.error_category }}
+          ERROR_TYPE: ${{ steps.classify_failure.outputs.error_type }}
+          ERROR_RECOVERY: ${{ steps.classify_failure.outputs.error_recovery }}
+          MODE: ${{ inputs.mode }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## ❌ Claude Run Failed"
+            echo ""
+            echo "| Field | Value |"
+            echo "|-------|-------|"
+            echo "| Mode | ${MODE:-unknown} |"
+            echo "| Exit Code | ${EXIT_CODE:-unknown} |"
+            echo "| Error Category | ${ERROR_CATEGORY:-unknown} |"
+            echo "| Error Type | ${ERROR_TYPE:-unknown} |"
+            if [ -n "${PR_NUMBER:-}" ]; then
+              echo "| PR | #${PR_NUMBER} |"
+            fi
+            echo ""
+            echo "### 🔍 Recovery Guidance"
+            echo ""
+            echo "${ERROR_RECOVERY:-Check logs for more details.}"
+            echo ""
+            if [ -n "${OUTPUT_SUMMARY:-}" ]; then
+              echo "### 📝 Output Summary"
+              echo ""
+              echo '```'
+              echo "${OUTPUT_SUMMARY}"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+ 
+      - name: Create error diagnostics artifact
+        if: always() && steps.run_claude.outputs.exit-code != '0'
+        env:
+          EXIT_CODE: ${{ steps.run_claude.outputs.exit-code }}
+          OUTPUT_SUMMARY: ${{ steps.run_claude.outputs.final-message-summary }}
+          ERROR_CATEGORY: ${{ steps.classify_failure.outputs.error_category }}
+          ERROR_TYPE: ${{ steps.classify_failure.outputs.error_type }}
+          ERROR_RECOVERY: ${{ steps.classify_failure.outputs.error_recovery }}
+          IS_TRANSIENT: ${{ steps.classify_failure.outputs.is_transient }}
+          MODE: ${{ inputs.mode }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p error-diagnostics
+ 
+          cat > error-diagnostics/diagnostics.json << JSONEOF
+          {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "run_id": "${{ github.run_id }}",
+            "run_url": "${RUN_URL}",
+            "mode": "${MODE:-unknown}",
+            "pr_number": "${PR_NUMBER:-}",
+            "exit_code": "${EXIT_CODE:-unknown}",
+            "error_category": "${ERROR_CATEGORY:-unknown}",
+            "error_type": "${ERROR_TYPE:-unknown}",
+            "is_transient": ${IS_TRANSIENT:-false},
+            "recovery_guidance": "${ERROR_RECOVERY:-unknown}"
+          }
+          JSONEOF
+ 
+          cat > error-diagnostics/README.md << MDEOF
+          # Claude Run Error Diagnostics
+ 
+          **Generated:** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          **Run URL:** ${RUN_URL}
+ 
+          ## Error Summary
+ 
+          | Field | Value |
+          |-------|-------|
+          | Mode | ${MODE:-unknown} |
+          | Exit Code | ${EXIT_CODE:-unknown} |
+          | Error Category | ${ERROR_CATEGORY:-unknown} |
+          | Error Type | ${ERROR_TYPE:-unknown} |
+          | Is Transient | ${IS_TRANSIENT:-false} |
+ 
+          ## Recovery Guidance
+ 
+          ${ERROR_RECOVERY:-Check logs for more details.}
+ 
+          ## Output Summary
+ 
+          \`\`\`
+          ${OUTPUT_SUMMARY:-No output captured}
+          \`\`\`
+          MDEOF
+ 
+          PR_NUM="${{ inputs.pr_number }}"
+          if [ -n "$PR_NUM" ] && [ -f "claude-output-${PR_NUM}.md" ]; then
+            cp "claude-output-${PR_NUM}.md" error-diagnostics/
+          elif [ -f "claude-output.md" ]; then
+            cp claude-output.md error-diagnostics/
+          fi
+ 
+          echo "Created error diagnostics in error-diagnostics/"
+ 
+      - name: Upload error diagnostics
+        if: always() && steps.run_claude.outputs.exit-code != '0'
+        uses: actions/upload-artifact@v6
+        with:
+          name: error-diagnostics-${{ inputs.mode }}-${{ github.run_id }}
+          path: error-diagnostics/
+          retention-days: 30
+ 
+      - name: Post PR comment on non-transient failure
+        if: always() && steps.run_claude.outputs.exit-code != '0' && steps.classify_failure.outputs.is_transient != 'true' && inputs.pr_number != ''
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          EXIT_CODE: ${{ steps.run_claude.outputs.exit-code }}
+          ERROR_CATEGORY: ${{ steps.classify_failure.outputs.error_category }}
+          ERROR_TYPE: ${{ steps.classify_failure.outputs.error_type }}
+          ERROR_RECOVERY: ${{ steps.classify_failure.outputs.error_recovery }}
+          OUTPUT_SUMMARY: ${{ steps.run_claude.outputs.final-message-summary }}
+          MODE: ${{ inputs.mode }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const { withRetry } = require('./.workflows-lib/.github/scripts/github-api-with-retry.js');
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            if (!prNumber || prNumber <= 0) {
+              console.log('No valid PR number, skipping comment');
+              return;
+            }
+ 
+            const exitCode = process.env.EXIT_CODE || 'unknown';
+            const category = process.env.ERROR_CATEGORY || 'unknown';
+            const errorType = process.env.ERROR_TYPE || 'unknown';
+            const recovery = process.env.ERROR_RECOVERY || 'Check logs for details.';
+            const summary = process.env.OUTPUT_SUMMARY || 'No output captured';
+            const mode = process.env.MODE || 'unknown';
+            const runUrl = process.env.RUN_URL || '';
+ 
+            const marker = '<!-- claude-failure-notification -->';
+ 
+            const body = `${marker}
+            ## ⚠️ Claude ${mode} run failed
+ 
+            | Field | Value |
+            |-------|-------|
+            | Exit Code | \`${exitCode}\` |
+            | Error Category | \`${category}\` |
+            | Error Type | \`${errorType}\` |
+            | Run | [View logs](${runUrl}) |
+ 
+            ### 🔧 Suggested Recovery
+ 
+            ${recovery}
+ 
+            ### 📝 What to do
+ 
+            1. Check the [workflow logs](${runUrl}) for detailed error output
+            2. If this is a configuration issue, update the relevant settings
+            3. If the error persists, consider adding the \`needs-human\` label for manual review
+            4. Re-run the workflow once the issue is resolved
+ 
+            <details>
+            <summary>Output summary</summary>
+ 
+            \`\`\`
+            ${summary.slice(0, 500)}
+            \`\`\`
+ 
+            </details>
+            `.trim().split('\n').map(l => l.trim()).join('\n');
+ 
+            const { data: comments } = await withRetry(() =>
+              github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                per_page: 100,
+              })
+            );
+ 
+            const existingComment = comments.find(c => c.body && c.body.includes(marker));
+ 
+            if (existingComment) {
+              await withRetry(() =>
+                github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existingComment.id,
+                  body,
+                })
+              );
+              console.log(`Updated existing failure comment: ${existingComment.html_url}`);
+            } else {
+              const { data: newComment } = await withRetry(() =>
+                github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body,
+                })
+              );
+              console.log(`Created failure comment: ${newComment.html_url}`);
+            }
+ 
+      - name: Add needs-attention label on non-transient failure
+        if: always() && steps.run_claude.outputs.exit-code != '0' && steps.classify_failure.outputs.is_transient != 'true' && inputs.pr_number != ''
+        continue-on-error: true
+        uses: actions/github-script@v8
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const { withRetry } = require('./.workflows-lib/.github/scripts/github-api-with-retry.js');
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            if (!prNumber || prNumber <= 0) return;
+ 
+            try {
+              await withRetry(() =>
+                github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  labels: ['agent:needs-attention'],
+                })
+              );
+              console.log('Added agent:needs-attention label');
+            } catch (error) {
+              console.log(`Could not add label: ${error.message}`);
+            }
