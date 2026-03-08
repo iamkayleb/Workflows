@@ -534,7 +534,7 @@ jobs:
 
       - name: Upload scan data
         if: steps.categorise.outputs.has_work == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pr-health-scan-${{ github.run_id }}
           path: |
