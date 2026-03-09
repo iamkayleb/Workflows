@@ -20,7 +20,7 @@ attrs==25.4.0
     #   aiohttp
     #   jsonschema
     #   referencing
-black==26.1.0
+black==26.3.0
     # via workflows (pyproject.toml)
 certifi==2026.1.4
     # via
@@ -267,7 +267,7 @@ rpds-py==0.30.0
     # via
     #   jsonschema
     #   referencing
-ruff==0.15.4
+ruff==0.15.5
     # via workflows (pyproject.toml)
 six==1.17.0
     # via python-dateutil
