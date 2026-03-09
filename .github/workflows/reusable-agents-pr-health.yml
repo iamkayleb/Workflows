@@ -583,7 +583,7 @@ jobs:
           GITHUB_TOKEN_FALLBACK: ${{ github.token }}
 
       - name: Download scan data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pr-health-scan-${{ github.run_id }}
           path: /tmp/scan-data
@@ -707,7 +707,7 @@ jobs:
           GITHUB_TOKEN_FALLBACK: ${{ github.token }}
 
       - name: Download scan data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pr-health-scan-${{ github.run_id }}
           path: /tmp/scan-data
@@ -794,7 +794,7 @@ jobs:
           GITHUB_TOKEN_FALLBACK: ${{ github.token }}
 
       - name: Download scan data
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pr-health-scan-${{ github.run_id }}
           path: /tmp/scan-data
