@@ -298,7 +298,9 @@ jobs:
       matrix: ${{ fromJson(needs.prepare.outputs.repos) }}
     env:
       # Job-level alias for repo token (uses OWNER_PR_PAT or SERVICE_BOT_PAT)
-      REPO_TOKEN: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT }}
+      # Falls back to github.token so clone/read ops succeed even without PATs;
+      # cross-repo PR creation still requires a PAT with repo scope.
+      REPO_TOKEN: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
     steps:
       - name: Checkout Workflows
         uses: actions/checkout@v6
@@ -691,6 +693,16 @@ jobs:
                   for s in skipped:
                       f.write(f"- {s}\n")
           SYNC_SCRIPT
+
+      - name: Verify cross-repo token
+        if: steps.sync.outputs.has_changes == 'true' && inputs.dry_run != true
+        run: |
+          if [ -z "${{ secrets.OWNER_PR_PAT }}" ] && [ -z "${{ secrets.SERVICE_BOT_PAT }}" ]; then
+            echo "::error::No cross-repo PAT available (OWNER_PR_PAT or SERVICE_BOT_PAT)."
+            echo "::error::Clone succeeded with GITHUB_TOKEN but PR creation requires a PAT with repo scope."
+            echo "::error::Configure OWNER_PR_PAT or SERVICE_BOT_PAT in repository/org secrets."
+            exit 1
+          fi
 
       - name: Check for required labels
         if: steps.sync.outputs.has_changes == 'true'
