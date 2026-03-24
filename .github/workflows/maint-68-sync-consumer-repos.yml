@@ -81,7 +81,7 @@ env:
     stranske/Portable-Alpha-Extension-Model
     stranske/Trend_Model_Project
     stranske/Collab-Admin
-    iamkayleb/Workflows-Integrations-Tests
+    iamkayleb/Workflows-Integration-Tests
 concurrency:
   group: sync-consumer-repos-${{ github.repository }}-${{ github.ref }}
   cancel-in-progress: true
