@@ -305,14 +305,14 @@ Keepalive Codex runs fail without it.
 # Validate local auth file and set secret in one step
 test -f ~/.codex/auth.json
 gh secret set CODEX_AUTH_JSON \
-  --repo stranske/<your-repo> \
+  --repo iamkayleb/Workflows-Integration-Tests \
   --body "$(cat ~/.codex/auth.json)"
 ```
 
 Verify secret exists:
 
 ```bash
-gh secret list --repo stranske/<your-repo> | grep CODEX_AUTH_JSON
+gh secret list --repo iamkayleb/Workflows-Integration-Tests| grep CODEX_AUTH_JSON
 ```
 
 ### 3.2.3 Claude CLI Secrets (`CLAUDE_CODE_OAUTH_TOKEN` / `CLAUDE_AUTH_JSON`)
@@ -327,7 +327,7 @@ Set the preferred token:
 ```bash
 # Generates/refreshes a long-lived token and writes it directly to the repo secret
 gh secret set CLAUDE_CODE_OAUTH_TOKEN \
-  --repo stranske/<your-repo> \
+  --repo iamkayleb/Workflows-Integration-Tests \
   --body "$(claude setup-token)"
 ```
 
@@ -336,14 +336,14 @@ Fallback using auth JSON:
 ```bash
 # If you maintain a claude auth JSON export locally
 gh secret set CLAUDE_AUTH_JSON \
-  --repo stranske/<your-repo> \
+  --repo iamkayleb/Workflows-Integration-Tests  \
   --body "$(cat /path/to/claude-auth.json)"
 ```
 
 Verify at least one exists:
 
 ```bash
-gh secret list --repo stranske/<your-repo> | grep -E "CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_AUTH_JSON"
+gh secret list --repo iamkayleb/Workflows-Integration-Tests | grep -E "CLAUDE_CODE_OAUTH_TOKEN|CLAUDE_AUTH_JSON"
 ```
 
 > **Important**: `WORKFLOWS_APP_ID` and `WORKFLOWS_APP_PRIVATE_KEY` are essential for
@@ -389,7 +389,7 @@ Apps to verify:
      - Click **"Save"**
 
 **Verify installation:**
-- Go to: `https://github.com/stranske/<your-repo>/settings/installations`
+- Go to: `https://github.com/iamkayleb/Workflows-Integration-Tests/settings/installations`
 - Confirm your GitHub App is listed there
 
 **Checklist:**
