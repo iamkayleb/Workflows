@@ -207,6 +207,15 @@ scripts:
   - source: tools/coverage_trend.py
     description: "Generates coverage trend summaries - required by reusable CI workflow"
 
+  - source: tools/__init__.py
+    description: "Package init - required for tools.post_ci_summary import"
+
+  - source: tools/post_ci_summary.py
+    description: "Builds consolidated post-CI summary - required by pr-00-gate.yml summary job"
+
+  - source: tools/ci_failure_triage.py
+    description: "CI failure triage helper - required by post_ci_summary.py"
+
   # Scripts directory - CI helpers used by reusable-10-ci-python.yml
   - source: scripts/coverage_history_append.py
     description: "Appends coverage data to history file - required by reusable CI workflow"

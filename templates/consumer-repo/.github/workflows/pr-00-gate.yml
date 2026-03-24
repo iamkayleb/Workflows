@@ -808,6 +808,10 @@ jobs:
             const { upsertAnchoredComment } = require('./.github/scripts/comment-dedupe.js');
 
             const commentPath = path.resolve('gate-summary.md');
+            if (!fs.existsSync(commentPath)) {
+              core.warning('gate-summary.md not found; skipping PR comment.');
+              return;
+            }
             const body = fs.readFileSync(commentPath, 'utf8');
             await upsertAnchoredComment({
               github,
