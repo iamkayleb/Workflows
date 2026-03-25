@@ -841,6 +841,8 @@ jobs:
 
           gh pr create \
             --head "$branch_name" \
+            --base main \
+            --repo "${{ matrix.repo }}" \
             --title "chore: sync workflow templates" \
             --body "$pr_body" \
             --label "sync,automated"
