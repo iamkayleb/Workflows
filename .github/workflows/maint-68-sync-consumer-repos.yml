@@ -160,6 +160,7 @@ jobs:
           print(f"  - {len(manifest.get('docs', []))} docs")
           print(f"  - {len(manifest.get('llm_config', []))} llm configs")
           print(f"  - {len(manifest.get('git_config', []))} git configs")
+          print(f"  - {len(manifest.get('python_config', []))} python configs")
           print(f"  - {len(manifest.get('issue_templates', []))} issue templates")
           print(f"  - {len(manifest.get('user_docs', []))} user docs")
           MANIFEST_SCRIPT
@@ -385,6 +386,9 @@ jobs:
               add_target(item.get('source', ''))
 
           for item in manifest.get('git_config', []):
+              add_target(item.get('source', ''))
+
+          for item in manifest.get('python_config', []):
               add_target(item.get('source', ''))
 
           for item in manifest.get('issue_templates', []):
@@ -617,6 +621,19 @@ jobs:
               template_src = Path('workflows/templates/consumer-repo') / source
               consumer_dst = Path('consumer') / source
               sync_file(template_src, consumer_dst, description)
+
+          # Process python_config
+          print("Processing python config...")
+          for item in manifest.get('python_config', []):
+              source = item.get('source', '')
+              description = item.get('description', 'No description')
+              sync_mode = item.get('sync_mode', 'sync')
+              template_src = Path('workflows/templates/consumer-repo') / source
+              consumer_dst = Path('consumer') / source
+              skip_fn = None
+              if sync_mode == 'create_only':
+                  skip_fn = lambda: consumer_dst.exists()
+              sync_file(template_src, consumer_dst, description, skip_fn)
 
           # Process issue_templates
           print("Processing issue templates...")
