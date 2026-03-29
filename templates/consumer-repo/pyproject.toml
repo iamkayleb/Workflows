@@ -12,8 +12,11 @@ requires-python = ">=3.11"
 app = []
 dev = []
 
-[tool.setuptools]
-packages = []
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
 
 [tool.black]
 line-length = 100
@@ -48,6 +51,7 @@ known-third-party = ["scripts", "tools"]
 
 [tool.pytest.ini_options]
 minversion = "7.0"
+pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 addopts = ["-ra", "--strict-markers", "--strict-config"]
