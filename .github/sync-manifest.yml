@@ -601,6 +601,11 @@ git_config:
   - source: .gitattributes
     description: "Git attributes - merge strategies to prevent pr_body.md conflicts"
 
+# Python project configuration - lint/format settings matching reusable CI workflow
+python_config:
+  - source: pyproject.toml
+    description: "Python project config - ruff/black/isort settings matching reusable-10-ci-python.yml"
+    sync_mode: create_only  # Don't overwrite - repos customize dependencies, test paths, coverage
 
 # Files that exist in templates but are NOT synced (consumer creates their own)
 excluded:
