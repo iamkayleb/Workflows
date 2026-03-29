@@ -28,7 +28,7 @@ workflows:
   # Core CI/CD
   - source: .github/workflows/pr-00-gate.yml
     description: "Gate workflow - runs tests, lint, type checking before merge"
-    sync_mode: create_only  # Don't overwrite - repos customize coverage-min, python versions
+    sync_mode: sync  # TEMPORARY: force-sync Gate fix to consumers (revert to create_only after)
 
   - source: .github/workflows/ci.yml
     description: "CI workflow - main continuous integration entry point"
@@ -605,7 +605,7 @@ git_config:
 python_config:
   - source: pyproject.toml
     description: "Python project config - ruff/black/isort settings matching reusable-10-ci-python.yml"
-    sync_mode: create_only  # Don't overwrite - repos customize dependencies, test paths, coverage
+    sync_mode: sync  # TEMPORARY: force-sync pyproject.toml to consumers (revert to create_only after)
 
 # Files that exist in templates but are NOT synced (consumer creates their own)
 excluded:
