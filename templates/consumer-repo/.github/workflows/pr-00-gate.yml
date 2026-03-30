@@ -126,7 +126,7 @@ jobs:
       - detect
       - environment-gate
     if: ${{ needs.detect.outputs.doc_only != 'true' && needs.detect.outputs.run_core == 'true' }}
-    uses: ./.github/workflows/reusable-10-ci-python.yml
+    uses: stranske/Workflows/.github/workflows/reusable-10-ci-python.yml@main
     secrets: inherit
     permissions:
       contents: read
@@ -225,7 +225,7 @@ jobs:
         fromJSON(needs.detect.outputs.run_core || 'true') &&
         fromJSON(needs.detect.outputs.docker_changed || 'false')
       }}
-    uses: ./.github/workflows/reusable-12-ci-docker.yml
+    uses: stranske/Workflows/.github/workflows/reusable-12-ci-docker.yml@main
 
   ledger-validation:
     name: ledger validation
