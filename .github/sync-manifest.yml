@@ -28,7 +28,7 @@ workflows:
   # Core CI/CD
   - source: .github/workflows/pr-00-gate.yml
     description: "Gate workflow - runs tests, lint, type checking before merge"
-    sync_mode: sync  # TEMPORARY: force-sync Gate fix to consumers (revert to create_only after)
+    sync_mode: sync  # TEMPORARY: force-sync cross-repo reusable workflow refs (revert to create_only after)
 
   - source: .github/workflows/ci.yml
     description: "CI workflow - main continuous integration entry point"
@@ -574,6 +574,10 @@ docs:
     target: docs/CODEX_TOKEN_REFRESH.md
     description: "Codex OAuth token refresh guide"
 
+  - source: AGENTS.md
+    target: AGENTS.md
+    description: "Context file for agents and coding assistants"
+
   - source: CLAUDE.md
     target: CLAUDE.md
     description: "Context file for Claude/AI assistants"
@@ -605,7 +609,7 @@ git_config:
 python_config:
   - source: pyproject.toml
     description: "Python project config - ruff/black/isort settings matching reusable-10-ci-python.yml"
-    sync_mode: sync  # TEMPORARY: force-sync pyproject.toml to consumers (revert to create_only after)
+    sync_mode: create_only  # Don't overwrite - repos customize dependencies, test paths, coverage
 
 # Files that exist in templates but are NOT synced (consumer creates their own)
 excluded:
