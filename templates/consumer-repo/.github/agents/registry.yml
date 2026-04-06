@@ -35,11 +35,11 @@ agents:
     branch_prefix: claude/issue-
     ui_mentions_allowed: false
     automation_logins:
-      - stranske-automation-bot
+      - kayleb-automation-bot
     readiness_candidates:
-      - stranske-automation-bot
+      - kayleb-automation-bot
     preflight:
-      assign_user: stranske-automation-bot
+      assign_user: kayleb-automation-bot
       command_phrase: ''
       enabled: true
     capabilities:
