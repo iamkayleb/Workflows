@@ -341,7 +341,318 @@ sync_mode: create_only
 
 ---
 
+---
+
+# Part 2: Keepalive System Troubleshooting
+
+> Issues encountered while verifying the keepalive system end-to-end on
+> `iamkayleb/WIT-Standalone`. Written April 2026 after testing the full
+> keepalive flow from PR comment to agent dispatch.
+
+---
+
+## Background
+
+The **keepalive system** detects `@codex` comments on PRs, evaluates
+pre-conditions (labels, Gate status, issue reference, repo type), and dispatches
+the Agents 70 Orchestrator to continue agent work. The flow is:
+
+```
+@codex comment → agents-pr-meta.yml → reusable-20-pr-meta.yml (keepalive gate)
+  → keepalive dispatch → agents-70-orchestrator.yml → agent work
+```
+
+Testing was initially done on a fork (`iamkayleb/Workflows-Integration-Tests`)
+before migrating to a standalone repo (`iamkayleb/WIT-Standalone`).
+
+---
+
+## Error 11: `reason=keepalive-label-missing`
+
+**Step:** Evaluate keepalive gate (in `reusable-20-pr-meta.yml`)
+**Dispatch summary:** `ok=false reason=gate-failed`
+
+### Root Cause
+
+The PR was missing the `agents:keepalive` label. The keepalive gate in
+`keepalive_gate.js` requires this label before evaluating any other conditions.
+The dispatch summary normalises this to `gate-failed`, which can be misleading.
+
+### Fix
+
+Add the `agents:keepalive` label to the PR. Create the label first if it
+doesn't exist in the consumer repo.
+
+---
+
+## Error 12: `reason=no-human-activation`
+
+**Step:** Evaluate keepalive gate
+**Context:** `agents:keepalive` label present, but no agent alias labels
+
+### Root Cause
+
+The keepalive gate extracts agent aliases from labels with the `agent:` prefix
+(e.g., `agent:codex`). Without any agent alias labels,
+`shouldCheckHumanActivation` is false, and the gate skips human activation
+detection entirely.
+
+### Fix
+
+Add the `agent:codex` label (or whichever agent you're activating) to the PR.
+The gate uses these labels to build mention patterns like `@codex` for
+scanning PR comments.
+
+---
+
+## Error 13: `reason=fork-pr`
+
+**Step:** Evaluate keepalive gate (in `agents_pr_meta_keepalive.js`)
+**Line:** ~637 in `agents_pr_meta_keepalive.js`
+
+### Root Cause
+
+The keepalive script checks `headRepo.fork` via the GitHub API. If the PR's
+head repo is a GitHub fork (`repo.fork = true`), dispatch is blocked for
+security reasons. This is a hard block — fork repos cannot run keepalive.
+
+### Fix
+
+Use a **standalone (non-fork) repo** as the consumer. If you forked the
+integration tests repo, create a new repo via GitHub's "Import repository"
+feature instead. Imported repos have `fork = false`.
+
+**Key lesson:** GitHub's `fork` flag is permanent and cannot be changed.
+The only workaround is to create a standalone repo.
+
+---
+
+## Error 14: Bot comment cancelling human comment's workflow run
+
+**Step:** `agents-pr-meta.yml` triggered by `@codex` comment
+**Symptom:** The workflow run from your comment is cancelled by a newer run
+
+### Root Cause
+
+The `agents-pr-meta.yml` has a concurrency group with
+`cancel-in-progress: true`. When you post `@codex`, it triggers a workflow run.
+If a bot then comments on the same PR (e.g., posting a status update), that
+triggers a new `issue_comment` event, which starts a new run that cancels yours.
+
+### Fix
+
+The concurrency group in the consumer template uses `comment.id` for
+`issue_comment` events, so each comment gets its own concurrency group. If
+you're using an older template, update to the latest `agents-pr-meta.yml`.
+Alternatively, post `@codex` again after the bot has finished commenting.
+
+---
+
+## Error 15: `reason=missing-issue-reference`
+
+**Step:** Detect keepalive from activation (in `agents_pr_meta_keepalive.js`)
+
+### Root Cause
+
+The keepalive script requires the PR to be linked to an issue. If no issue
+reference is found in the PR title or body, dispatch is blocked.
+
+### Fix
+
+Link the PR to an issue by either:
+- Adding `Fix #N` or `Closes #N` to the PR title
+- Adding `Closes #N` to the PR body
+
+Create an issue first if one doesn't exist.
+
+---
+
+## Error 16: `forbidden-token` (GITHUB_TOKEN fallback)
+
+**Step:** Dispatch keepalive orchestrator (in `reusable-20-pr-meta.yml`)
+**Log output:**
+```
+Token registry initialized with 1 tokens
+Selected token: GITHUB_TOKEN (4989 remaining, 99.8% capacity)
+Error: forbidden-token
+```
+
+### Root Cause
+
+The orchestrator script at `agents_pr_meta_orchestrator.js` line 378 checks
+for PAT secrets:
+
+```js
+const token = secrets.AGENTS_AUTOMATION_PAT || secrets.ACTIONS_BOT_PAT || secrets.SERVICE_BOT_PAT;
+```
+
+These are passed as booleans from environment variables. If the env vars are
+empty (secrets not reaching the workflow), all booleans are `false`, and the
+check fails.
+
+`GITHUB_TOKEN` cannot trigger `workflow_dispatch` events — a PAT with `repo`
+and `workflow` scopes is required.
+
+### Fix
+
+1. Add a classic PAT with `repo` and `workflow` scopes as `SERVICE_BOT_PAT`
+   in the **consumer repo's** repository secrets (Settings → Secrets → Actions)
+2. Ensure the PAT belongs to an account that has push access to the consumer repo
+3. Do **not** use PATs from the upstream Workflows repo — they authenticate as
+   a different user and won't have access to your repos
+
+---
+
+## Error 17: Reusable workflow reference pointing to wrong repo
+
+**Step:** Consumer repo's `agents-pr-meta.yml` calling reusable workflow
+**Symptom:** Secrets not reaching the reusable workflow; scripts checked out
+from wrong repo
+
+### Root Cause
+
+The consumer template references `stranske/Workflows` for reusable workflows:
+
+```yaml
+uses: stranske/Workflows/.github/workflows/reusable-20-pr-meta.yml@main
+```
+
+If you're using a fork of the Workflows repo (e.g., `iamkayleb/Workflows`),
+the consumer should reference your fork instead. While `secrets: inherit`
+passes secrets from the caller regardless of where the reusable workflow lives,
+the reusable workflow also checks out scripts from the referenced repo, which
+may not match your fork's scripts.
+
+### Fix
+
+Update all reusable workflow references in the consumer's workflow files to
+point to your Workflows fork:
+
+```yaml
+uses: iamkayleb/Workflows/.github/workflows/reusable-20-pr-meta.yml@main
+```
+
+---
+
+## Error 18: `agents-70-orchestrator.yml` missing from consumer repo
+
+**Step:** Dispatch keepalive orchestrator
+**Error:** `Failed to dispatch agents-70-orchestrator.yml after 1 attempts (primary-token): Resource not accessible by integration`
+
+### Root Cause
+
+The keepalive dispatch script in `agents_pr_meta_orchestrator.js` triggers
+`agents-70-orchestrator.yml` via `workflow_dispatch` on the **consumer repo**.
+But this workflow file only exists in the Workflows repo — it's not included
+in the consumer template or sync manifest.
+
+### Fix
+
+Copy `agents-70-orchestrator.yml` from the Workflows repo to the consumer
+repo at `.github/workflows/agents-70-orchestrator.yml`. Update the local
+reusable workflow references to cross-repo references:
+
+```yaml
+# From (local, only works in Workflows repo):
+uses: ./.github/workflows/reusable-70-orchestrator-init.yml
+
+# To (cross-repo, for consumer repos):
+uses: iamkayleb/Workflows/.github/workflows/reusable-70-orchestrator-init.yml@main
+```
+
+Don't forget the `@main` suffix — cross-repo refs require a version/branch.
+
+**Note:** This is a gap in the consumer template. The orchestrator template
+(`agents-orchestrator.yml`) uses `reusable-16-agents.yml`, which is a
+different workflow. The `agents-70-orchestrator.yml` variant is what the
+keepalive dispatch targets.
+
+---
+
+## Error 19: `keepalive_instruction_segment.js` not found
+
+**Step:** Execute / Prepare keepalive round (in `agents-70-orchestrator.yml`)
+**Error:** `Cannot find module '/home/runner/work/WIT-Standalone/WIT-Standalone/scripts/keepalive_instruction_segment.js'`
+
+### Root Cause
+
+The orchestrator's "Extract instruction payload" step requires
+`scripts/keepalive_instruction_segment.js` in the consumer repo. This script
+exists in the Workflows repo at `scripts/keepalive_instruction_segment.js`
+but is not in the consumer template or sync manifest.
+
+### Fix
+
+Copy `scripts/keepalive_instruction_segment.js` from the Workflows repo to
+the consumer repo at the same path: `scripts/keepalive_instruction_segment.js`.
+
+**Important:** The file must be on the `main` branch. The orchestrator runs
+on `main` (dispatched via `workflow_dispatch`), not on the PR branch.
+
+---
+
+## Error 20: `@octokit/rest` and `@octokit/auth-app` import failures
+
+**Step:** Detect keepalive comments (token load balancer)
+**Error:** `Cannot find package '@octokit/rest' imported from .../token_load_balancer.js`
+**Severity:** Warning (non-blocking)
+
+### Root Cause
+
+The `setup-api-client` action installs `@octokit/*` packages, but the token
+load balancer script may attempt imports before the packages are fully
+available, or from a different path than where they were installed.
+
+The `@octokit/auth-app` failures are for GitHub App token minting
+(`KEEPALIVE_APP`, `WORKFLOWS_APP`). If those App secrets are from the upstream
+repo, they won't work on your consumer repo.
+
+### Fix
+
+These warnings are **non-blocking** — the system falls back to PATs when App
+tokens can't be minted. No action required unless you need GitHub App
+authentication. You can safely ignore these warnings as long as `SERVICE_BOT_PAT`
+or `ACTIONS_BOT_PAT` is configured.
+
+---
+
+## Keepalive Verification Checklist
+
+After resolving all the above issues, the successful keepalive flow is:
+
+1. **PR setup:** PR has `agents:keepalive` and `agent:codex` labels, linked
+   to an issue (`Fix #N` in title)
+2. **Gate passes:** `pr-00-gate.yml` completes successfully on the PR
+3. **Human activation:** Post `@codex` comment on the PR
+4. **PR Meta detects:** `agents-pr-meta.yml` triggers, calls
+   `reusable-20-pr-meta.yml`
+5. **Keepalive gate:** Evaluates to `ok=true reason=ok`
+6. **Dispatch:** Triggers `agents-70-orchestrator.yml` on the consumer repo
+7. **Orchestrator runs:** Initialize + Execute jobs complete
+8. **Agent work:** Belt dispatch triggers agent work on the PR branch
+
+---
+
+## Summary of Keepalive-Specific Commits
+
+All keepalive fixes were made directly in the consumer repo
+(`iamkayleb/WIT-Standalone`), not in the Workflows repo. This section
+documents the consumer-side changes:
+
+| Change | Location | Description |
+|--------|----------|-------------|
+| Add labels | PR settings | `agents:keepalive` and `agent:codex` labels |
+| Link issue | PR title | `Fix #N` in PR title |
+| Add `SERVICE_BOT_PAT` | Repo secrets | Classic PAT with `repo` + `workflow` scopes |
+| Update workflow refs | `agents-pr-meta.yml` | Point to `iamkayleb/Workflows` fork |
+| Add orchestrator | `.github/workflows/agents-70-orchestrator.yml` | With cross-repo refs + `@main` |
+| Add script | `scripts/keepalive_instruction_segment.js` | Required by orchestrator |
+
+---
+
 ## Key Lessons
+
+### Gate / Sync Lessons
 
 1. **Gate templates must not assume Workflows-repo-only files exist in consumers.** Always guard with existence checks (`if [ -f ... ]`, `if ls ... 2>/dev/null`).
 
@@ -356,3 +667,21 @@ sync_mode: create_only
 6. **Separate label operations from PR creation.** Labels that don't exist in the target repo will fail the entire `gh pr create` command.
 
 7. **Consumer repos with `src/` layout need `pythonpath = ["src"]` in pytest config.** Without it, test imports fail even though the package structure is correct.
+
+### Keepalive Lessons
+
+8. **Fork repos cannot run keepalive.** The `headRepo.fork` check is a hard block. Use standalone repos (created via import, not fork) for consumer testing.
+
+9. **`GITHUB_TOKEN` cannot dispatch workflows.** The keepalive orchestrator needs a classic PAT with `repo` + `workflow` scopes stored as `SERVICE_BOT_PAT` or `ACTIONS_BOT_PAT`.
+
+10. **PATs must belong to a user with repo access.** Don't copy PATs from the upstream Workflows repo — they authenticate as a different user. Use your own PAT.
+
+11. **Reusable workflow refs need `@main` (or a branch/tag).** Cross-repo `uses:` references without a version suffix are invalid. GitHub will reject them at parse time.
+
+12. **The orchestrator runs on `main`, not on the PR branch.** Files required by the orchestrator (like `keepalive_instruction_segment.js`) must be committed to `main` to be found.
+
+13. **Consumer repos need `agents-70-orchestrator.yml`.** The keepalive dispatch targets this workflow via `workflow_dispatch`, but it's not in the consumer template. This is a known gap.
+
+14. **Keepalive requires three PR labels.** `agents:keepalive`, `agent:codex` (or the relevant agent), and the PR must be linked to an issue. Missing any of these produces different `reason` values that can be confusing.
+
+15. **App token warnings are non-blocking.** `KEEPALIVE_APP` and `WORKFLOWS_APP` failures are expected when those GitHub Apps aren't installed on your repo. The system falls back to PATs.
