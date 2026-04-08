@@ -28,7 +28,7 @@ workflows:
   # Core CI/CD
   - source: .github/workflows/pr-00-gate.yml
     description: "Gate workflow - runs tests, lint, type checking before merge"
-    sync_mode: create_only  # Don't overwrite - repos customize coverage-min, python versions
+    sync_mode: sync  # Temporarily forced to sync to push guard fixes to consumers
 
   - source: .github/workflows/ci.yml
     description: "CI workflow - main continuous integration entry point"
