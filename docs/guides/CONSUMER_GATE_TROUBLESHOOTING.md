@@ -650,6 +650,195 @@ documents the consumer-side changes:
 
 ---
 
+---
+
+# Part 3: Autofix System Troubleshooting
+
+> Issues encountered while verifying the autofix system end-to-end on
+> `iamkayleb/WIT-Standalone`. Written April 2026 after testing the full
+> autofix flow from lint failure to automated fix commit.
+
+---
+
+## Background
+
+The **autofix system** detects lint/format failures on PRs and automatically
+pushes fix commits. The flow is:
+
+```
+Gate fails (lint-format / lint-ruff) → autofix.yml triggers via workflow_run
+  → resolve context → reusable-18-autofix.yml → bot pushes fix commit
+```
+
+Autofix can also be triggered manually by adding the `autofix` or
+`autofix:clean` label to a PR.
+
+---
+
+## Error 21: Autofix workflow not appearing in Actions sidebar
+
+**Symptom:** `autofix.yml` exists on `main` but doesn't appear in the Actions
+sidebar workflow list. No autofix runs appear.
+
+### Root Cause
+
+The `autofix.yml` template includes a `workflow_job` trigger:
+
+```yaml
+on:
+  workflow_run:
+    workflows: ["Gate", "CI", "Python CI"]
+    types: [completed]
+  workflow_job:
+    types: [completed]
+  pull_request_target:
+    types:
+      - labeled
+```
+
+GitHub rejects the entire workflow file when it encounters `workflow_job` as
+a trigger in a regular repository context. The error is:
+
+```
+Invalid workflow file: .github/workflows/autofix.yml#L1
+(Line: 23, Col: 3): Unexpected value 'workflow_job'
+```
+
+This error is **silent** — the workflow doesn't appear in the sidebar at all,
+and no error is surfaced unless you navigate to a specific failed run.
+
+### Fix
+
+Remove the `workflow_job` trigger from `autofix.yml`:
+
+```yaml
+on:
+  workflow_dispatch:    # optional, useful for testing
+  workflow_run:
+    workflows: ["Gate", "CI", "Python CI"]
+    types: [completed]
+  pull_request_target:
+    types:
+      - labeled
+```
+
+**Key lesson:** The `workflow_job` event is not universally supported. When
+GitHub silently rejects a workflow file, it won't appear in the Actions
+sidebar. Navigate to the direct URL
+(`/actions/workflows/autofix.yml`) to find hidden runs with error annotations.
+
+---
+
+## Error 22: Autofix reusable workflow reference not found
+
+**Symptom:** Editor shows "Unable to find reusable workflow" for the
+`reusable-18-autofix.yml` reference.
+
+### Root Cause
+
+The consumer template defaults to `stranske/Workflows`:
+
+```yaml
+uses: stranske/Workflows/.github/workflows/reusable-18-autofix.yml@main
+```
+
+If you're using a fork (e.g., `iamkayleb/Workflows`), the reference needs
+to point to your fork.
+
+### Fix
+
+Update the `uses:` line in the consumer's `autofix.yml`:
+
+```yaml
+uses: iamkayleb/Workflows/.github/workflows/reusable-18-autofix.yml@main
+```
+
+Also ensure your fork's `main` branch is synced with the upstream repo so
+the reusable workflow file actually exists. Use GitHub's "Sync fork" button
+if your fork is behind.
+
+---
+
+## Error 23: Autofix not triggering automatically after Gate failure
+
+**Symptom:** Gate fails with `lint-format` and `lint-ruff` failures, but
+autofix doesn't run automatically.
+
+### Root Cause
+
+Multiple possible causes:
+
+1. **`autofix.yml` not on `main`**: The `workflow_run` trigger only works
+   when the workflow file exists on the default branch at the time the
+   upstream workflow completes.
+
+2. **`workflow_job` trigger causing silent rejection** (see Error 21): If
+   the entire file is invalid, no triggers work — including `workflow_run`
+   and `pull_request_target`.
+
+3. **Gate workflow name mismatch**: The `workflow_run` trigger specifies
+   `workflows: ["Gate", "CI", "Python CI"]`. If the Gate workflow's `name:`
+   field doesn't exactly match `"Gate"`, autofix won't trigger.
+
+### Fix
+
+1. Ensure `autofix.yml` is on `main` with the `workflow_job` trigger removed
+2. Verify the Gate workflow name matches: check `pr-00-gate.yml`'s `name:` field
+3. As a workaround, manually trigger by adding the `autofix` label to the PR
+
+---
+
+## Error 24: Resolve job fails — missing `.github/actions/setup-api-client`
+
+**Symptom:** The resolve job in `autofix.yml` fails during the "Setup API
+client" step.
+
+### Root Cause
+
+The resolve job checks out `.github/actions/setup-api-client` and
+`.github/scripts/` from the **consumer repo itself** (not from the Workflows
+repo). If these files don't exist in the consumer repo, the setup step fails.
+
+### Fix
+
+The consumer repo needs these files. They should be delivered via the sync
+workflow. If they're missing, either:
+- Run the sync workflow to deliver them
+- Copy `.github/actions/setup-api-client/` and the required scripts from the
+  Workflows repo
+
+---
+
+## Autofix Verification Checklist
+
+After resolving all issues, the successful autofix flow is:
+
+1. **Prerequisites:** `autofix.yml` and `autofix-versions.env` on `main`,
+   `SERVICE_BOT_PAT` secret configured, `autofix` and `autofix:clean` labels exist
+2. **Trigger:** Gate fails with `lint-format` or `lint-ruff` failures
+   (automatic), or `autofix` label added to PR (manual)
+3. **Resolve:** Autofix workflow evaluates whether the PR needs fixing
+4. **Fix:** Reusable autofix workflow runs formatters (black, ruff, isort)
+5. **Commit:** Bot pushes `chore(autofix): formatting/lint` commit to PR branch
+6. **Comment:** Bot comments on PR listing fixed files
+7. **Re-run:** Gate re-runs on the new commit; lint checks should now pass
+
+---
+
+## Summary of Autofix-Specific Changes
+
+All autofix fixes were made in the consumer repo (`iamkayleb/WIT-Standalone`):
+
+| Change | Location | Description |
+|--------|----------|-------------|
+| Remove `workflow_job` | `autofix.yml` `on:` section | Unsupported trigger causing silent rejection |
+| Update workflow ref | `autofix.yml` `uses:` line | Point to `iamkayleb/Workflows` fork |
+| Add `workflow_dispatch` | `autofix.yml` `on:` section | Optional, enables manual "Run workflow" testing |
+| Create labels | Repository labels | `autofix` and `autofix:clean` |
+| Sync fork | `iamkayleb/Workflows` | Ensure `reusable-18-autofix.yml` exists on `main` |
+
+---
+
 ## Key Lessons
 
 ### Gate / Sync Lessons
@@ -685,3 +874,15 @@ documents the consumer-side changes:
 14. **Keepalive requires three PR labels.** `agents:keepalive`, `agent:codex` (or the relevant agent), and the PR must be linked to an issue. Missing any of these produces different `reason` values that can be confusing.
 
 15. **App token warnings are non-blocking.** `KEEPALIVE_APP` and `WORKFLOWS_APP` failures are expected when those GitHub Apps aren't installed on your repo. The system falls back to PATs.
+
+### Autofix Lessons
+
+16. **`workflow_job` trigger causes silent workflow rejection.** GitHub rejects the entire workflow file without surfacing errors in the Actions sidebar. The only way to find the error is navigating to the direct workflow URL (`/actions/workflows/<file>.yml`).
+
+17. **Use the direct URL to find hidden workflows.** If a workflow doesn't appear in the sidebar, go to `https://github.com/<owner>/<repo>/actions/workflows/<filename>.yml` — it may show runs with error annotations.
+
+18. **Autofix requires lint-specific check failures.** The resolve job only proceeds if it finds checks named `lint-format` or `lint-ruff` with a `failure` conclusion. Other failures (tests, type checks) don't trigger autofix.
+
+19. **Consumer `autofix.yml` checks out scripts from itself.** Unlike other workflows that get scripts from the Workflows repo, the autofix resolve job checks out `.github/actions/setup-api-client` from the consumer repo. These files must exist locally.
+
+20. **Add `workflow_dispatch` for testing.** Adding a temporary `workflow_dispatch` trigger to `autofix.yml` lets you manually trigger runs via "Run workflow" button, making it much easier to debug issues.
