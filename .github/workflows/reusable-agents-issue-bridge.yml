@@ -1159,14 +1159,14 @@ jobs:
             let assignees = ['stranske-automation-bot'];
             try {
               const { getAgentConfig } = require('./.github/scripts/agent_registry.js');
-              const cfg = getAgentConfig(agentKey || 'codex');
+              const cfg = getAgentConfig(agent || 'codex');
               if (cfg.assignees && cfg.assignees.length) {
                 assignees = cfg.assignees;
-              } else if ((agentKey || 'codex') === 'codex') {
+              } else if ((agent || 'codex') === 'codex') {
                 assignees = ['chatgpt-codex-connector', 'stranske-automation-bot'];
               }
             } catch (_) {
-              if ((agentKey || 'codex') === 'codex') {
+              if ((agent || 'codex') === 'codex') {
                 assignees = ['chatgpt-codex-connector', 'stranske-automation-bot'];
               }
             }
