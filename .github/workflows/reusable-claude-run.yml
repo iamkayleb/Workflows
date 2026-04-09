@@ -210,6 +210,7 @@ jobs:
         id: auth_token
         env:
           APP_TOKEN: ${{ steps.app_token.outputs.token || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           checkout_token="${APP_TOKEN:-${GITHUB_TOKEN}}"
