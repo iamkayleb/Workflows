@@ -1156,19 +1156,17 @@ jobs:
 
             core.setOutput('number', String(pr.number));
 
-            let assignees = ['stranske-automation-bot'];
+            let assignees = [];
             try {
               const { getAgentConfig } = require('./.github/scripts/agent_registry.js');
               const cfg = getAgentConfig(agent || 'codex');
               if (cfg.assignees && cfg.assignees.length) {
                 assignees = cfg.assignees;
-              } else if ((agent || 'codex') === 'codex') {
-                assignees = ['chatgpt-codex-connector', 'stranske-automation-bot'];
+              } else if (Array.isArray(cfg.automation_logins) && cfg.automation_logins.length) {
+                assignees = cfg.automation_logins.map(String);
               }
             } catch (_) {
-              if ((agent || 'codex') === 'codex') {
-                assignees = ['chatgpt-codex-connector', 'stranske-automation-bot'];
-              }
+              core.warning('Could not load agent registry for assignees');
             }
             try {
               await withRetry(() =>
