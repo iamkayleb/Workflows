@@ -1,5 +1,5 @@
 # Thin caller for Python CI - delegates to Workflows repo reusable workflow
-# No local scripts required - all logic is centralized in stranske/Workflows
+# No local scripts required - all logic is centralized in iamkayleb/Workflows
 #
 # This workflow runs:
 # - Lint (Ruff)
@@ -25,7 +25,7 @@ on:
 jobs:
   python:
     name: Python CI
-    uses: stranske/Workflows/.github/workflows/reusable-10-ci-python.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-10-ci-python.yml@main
     with:
       python-versions: '["3.11", "3.12"]'
       typecheck: true
