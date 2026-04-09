@@ -1159,38 +1159,51 @@ jobs:
             let assignees = [];
             try {
               const { getAgentConfig } = require('./.github/scripts/agent_registry.js');
-              const cfg = getAgentConfig(agent || 'codex');
+              const agentKey = agent || 'codex';
+              core.info(`Resolving assignees for agent: "${agentKey}"`);
+              const cfg = getAgentConfig(agentKey);
               if (cfg.assignees && cfg.assignees.length) {
                 assignees = cfg.assignees;
+                core.info(`Using cfg.assignees: ${JSON.stringify(assignees)}`);
               } else if (Array.isArray(cfg.automation_logins) && cfg.automation_logins.length) {
                 assignees = cfg.automation_logins.map(String);
+                core.info(`Using cfg.automation_logins: ${JSON.stringify(assignees)}`);
+              } else {
+                core.warning(`No assignees or automation_logins found for agent "${agentKey}"`);
               }
-            } catch (_) {
-              core.warning('Could not load agent registry for assignees');
+            } catch (err) {
+              core.warning(`Could not load agent registry for assignees: ${err.message}`);
             }
-            try {
-              await withRetry(() =>
-                github.rest.issues.addAssignees({
-                  owner,
-                  repo,
-                  issue_number: pr.number,
-                  assignees,
-                }),
-              );
-            } catch (e) {
-              core.warning(`PR assign failed: ${e.message}`);
-            }
-            try {
-              await withRetry(() =>
-                github.rest.issues.addAssignees({
-                  owner,
-                  repo,
-                  issue_number,
-                  assignees,
-                }),
-              );
-            } catch (e) {
-              core.warning(`Issue assign failed: ${e.message}`);
+            core.info(`Final assignees list: ${JSON.stringify(assignees)}`);
+            if (assignees.length > 0) {
+              try {
+                await withRetry(() =>
+                  github.rest.issues.addAssignees({
+                    owner,
+                    repo,
+                    issue_number: pr.number,
+                    assignees,
+                  }),
+                );
+                core.info(`PR #${pr.number} assignees set successfully`);
+              } catch (e) {
+                core.warning(`PR assign failed: ${e.message}`);
+              }
+              try {
+                await withRetry(() =>
+                  github.rest.issues.addAssignees({
+                    owner,
+                    repo,
+                    issue_number,
+                    assignees,
+                  }),
+                );
+                core.info(`Issue #${issue_number} assignees set successfully`);
+              } catch (e) {
+                core.warning(`Issue assign failed: ${e.message}`);
+              }
+            } else {
+              core.warning('No assignees resolved — skipping assignment');
             }
 
       - name: Label PR with agent
