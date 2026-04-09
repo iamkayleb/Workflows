@@ -1001,3 +1001,100 @@ try {
 24. **PR assignees must be repo collaborators.** GitHub silently drops assignees that aren't collaborators. The bridge code wraps the `addAssignees` call in try/catch, so you won't see a hard failure — just an empty assignee list. Check repo collaborator settings if assignees are missing.
 
 25. **Use `automation_logins` from the agent registry.** The consumer's `.github/agents/registry.yml` is the right place to define which accounts handle each agent's work. The bridge reads this registry to determine assignees, so keep it in sync with your repo's actual bot collaborators.
+
+---
+
+## Part 5: Claude Runner Failures
+
+> Errors encountered getting the Claude agent runner (`reusable-claude-run.yml`) to
+> execute successfully when dispatched from consumer repos via keepalive or autofix.
+
+---
+
+### Error 29: `GITHUB_TOKEN: unbound variable` in "Select auth token" step
+
+**Job:** `run-claude` (via `agents-keepalive-loop.yml` or `agents-autofix-loop.yml`)
+**Exit code:** 1 (shell `set -u` violation)
+
+#### Root Cause
+
+The "Select auth token" step in `reusable-claude-run.yml` used `set -euo pipefail`, which includes `-u` (treat unset variables as errors). The shell script referenced `${GITHUB_TOKEN}` as a fallback:
+
+```bash
+checkout_token="${APP_TOKEN:-${GITHUB_TOKEN}}"
+```
+
+But `GITHUB_TOKEN` was not in the step's `env:` block — only `APP_TOKEN` was declared. When the GitHub App token minting step failed (no `WORKFLOWS_APP_ID` secret), `APP_TOKEN` was empty, so bash tried to expand `${GITHUB_TOKEN}`, which was unbound, and the step crashed.
+
+#### Cascade Effect
+
+This is the **real** root cause of the "Prompt preparation failed (missing prompt file)" error. When "Select auth token" fails:
+1. Checkout step skips (depends on auth token output)
+2. `setup-api-client` skips (no checkout)
+3. Prompt assembly skips (no files available)
+4. The "Run Claude" step sees an empty `PROMPT_FILE` variable and reports "missing prompt file"
+
+The misleading error diverts attention from the actual auth token issue.
+
+#### Fix
+
+Added `GITHUB_TOKEN: ${{ github.token }}` to the step's `env:` block:
+
+```yaml
+- name: Select auth token
+  id: auth_token
+  env:
+    APP_TOKEN: ${{ steps.app_token.outputs.token || '' }}
+    GITHUB_TOKEN: ${{ github.token }}
+  run: |
+    set -euo pipefail
+    checkout_token="${APP_TOKEN:-${GITHUB_TOKEN}}"
+```
+
+**Commit:** `a5c279d`
+
+---
+
+### Error 30: Fix on `main` not picked up — wrong repo reference
+
+**Job:** `autofix-claude` (via `agents-autofix-loop.yml`)
+**Symptom:** Same `GITHUB_TOKEN: unbound variable` error after fix was merged to `main`
+
+#### Root Cause
+
+The fix was merged to `iamkayleb/Workflows@main`, but the consumer's `agents-autofix-loop.yml` still referenced `stranske/Workflows/.github/workflows/reusable-claude-run.yml@main` — the **upstream** repo without the fix. The keepalive loop had been updated to `iamkayleb/Workflows` but the autofix loop had not.
+
+#### Fix
+
+Updated **all** `uses:` declarations across both in-repo workflows (`.github/workflows/`) and consumer templates (`templates/consumer-repo/`) to reference `iamkayleb/Workflows` instead of `stranske/Workflows`. This ensures the fork's own fixes are always used.
+
+**Affected files:** `agents-autofix-loop.yml`, `agents-keepalive-loop.yml`, `agents-bot-comment-handler.yml`, `agents-verifier.yml`, `agents-guard.yml`, `agents-80-pr-event-hub.yml`, `agents-81-gate-followups.yml`, `agents-issue-intake.yml`, `agents-orchestrator.yml`, `agents-pr-meta.yml`, `agents-pr-health.yml`, `autofix.yml`, `ci.yml`, `pr-00-gate.yml`.
+
+---
+
+### Error 31: Workflows scripts checkout referencing wrong repo
+
+**Job:** `run-claude` (Checkout Workflows scripts step)
+**Symptom:** Checkout fails or pulls wrong scripts
+
+#### Root Cause
+
+Line 264 of `reusable-claude-run.yml` had `repository: stranske/Workflows` for the scripts checkout. In a fork, this pulls scripts from the upstream instead of the fork.
+
+#### Fix
+
+Changed `repository: stranske/Workflows` to `repository: iamkayleb/Workflows`.
+
+**Commit:** `6a91a9c`
+
+---
+
+### Claude Runner Lessons
+
+26. **`set -euo pipefail` with `-u` requires all referenced variables in `env:`.** If a shell script references `${VAR}`, that variable must be in the step's `env:` block or it will cause an unbound variable error. `github.token` is only available via expressions — it's not automatically set as an environment variable.
+
+27. **Cascade failures obscure root causes.** When an early step fails in a reusable workflow, all dependent steps skip. The error message from the last step (which runs unconditionally or with a fallback) may be completely misleading. Always check the **first** failing step.
+
+28. **Fork repos must update cross-repo `uses:` references.** When forking a Workflows repository, all `uses: original-owner/Repo/...@ref` declarations in both the in-repo workflows AND consumer templates must be updated to point at the fork. Otherwise, changes to reusable workflows in the fork won't take effect.
+
+29. **Autofix and keepalive are separate dispatch chains.** Even if the keepalive loop is correctly configured, the autofix loop may have different `uses:` references. Both must be checked when verifying cross-repo workflow references.
