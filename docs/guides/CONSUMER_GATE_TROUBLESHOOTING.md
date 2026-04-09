@@ -886,3 +886,118 @@ All autofix fixes were made in the consumer repo (`iamkayleb/WIT-Standalone`):
 19. **Consumer `autofix.yml` checks out scripts from itself.** Unlike other workflows that get scripts from the Workflows repo, the autofix resolve job checks out `.github/actions/setup-api-client` from the consumer repo. These files must exist locally.
 
 20. **Add `workflow_dispatch` for testing.** Adding a temporary `workflow_dispatch` trigger to `autofix.yml` lets you manually trigger runs via "Run workflow" button, making it much easier to debug issues.
+
+---
+
+## Part 4: Issue Intake System Troubleshooting
+
+The issue intake system (`agents-issue-intake.yml`) reacts to issue events, creates a branch and PR for the agent to work on, and assigns the relevant automation accounts.
+
+### Error 25 — Issue Intake Workflow Not Appearing in Actions Sidebar
+
+**Symptoms:**
+- Created an issue with `agent:codex` label
+- No workflow run appeared
+- The workflow doesn't show in the Actions sidebar
+
+**Root cause:** Workflows that only use `issues` and `workflow_dispatch` triggers don't appear in the sidebar until they've had at least one successful run. GitHub only lists workflows that have run recently.
+
+**Fix:** Navigate directly to `/actions/workflows/agents-issue-intake.yml`. If the page loads, the workflow is registered — it just hasn't run yet. If you see a YAML error, fix it first.
+
+---
+
+### Error 26 — Bridge Job Permissions Error
+
+**Symptoms:**
+```
+Error: Resource not accessible by integration
+```
+The `bridge` job fails because it can't create branches, PRs, or write to issues.
+
+**Root cause:** The `bridge` job in `agents-issue-intake.yml` was missing a `permissions` block. Without job-level permissions, it inherits restrictive defaults (especially when top-level permissions are intentionally omitted from the template).
+
+**Fix:** Add explicit permissions to the `bridge` job at the same indentation level as `needs:` and `if:`:
+
+```yaml
+bridge:
+  needs: [triage]
+  if: <condition>
+  permissions:
+    contents: write
+    issues: write
+    pull-requests: write
+    actions: write
+  uses: ...
+```
+
+**Common mistake:** Indenting the `permissions` block inside the `if:` block instead of at job level. This causes a YAML syntax error like `"mapping values are not allowed in this context"`.
+
+---
+
+### Error 27 — `ReferenceError: agentKey is not defined`
+
+**Symptoms:**
+- Bridge job partially succeeds (branch and PR are created)
+- PR has no assignees
+- Workflow logs show `ReferenceError: agentKey is not defined`
+
+**Root cause:** In `reusable-agents-issue-bridge.yml`, the PR assignee section referenced `agentKey` — a variable defined in a different `github-script` step (the agent resolution step). In the PR creation step, the variable is named `agent`, not `agentKey`. Each `github-script` step runs in its own scope.
+
+**Fix:** Replace all `agentKey` references in the assignee block with `agent` (the in-scope variable):
+
+```javascript
+// Before (buggy):
+const cfg = getAgentConfig(agentKey || 'codex');
+
+// After (fixed):
+const cfg = getAgentConfig(agent || 'codex');
+```
+
+**Lesson:** Variables defined in one `actions/github-script@v8` step are NOT shared with other steps. Each step has its own JavaScript scope. Always verify which variables are defined in the current step's `script:` block.
+
+---
+
+### Error 28 — PR Assignees Are Empty
+
+**Symptoms:**
+- Bridge succeeds, PR is created
+- PR shows no assignees despite the workflow not logging errors
+
+**Root cause (two layers):**
+
+1. **Hardcoded assignees.** The bridge code originally hardcoded `['chatgpt-codex-connector', 'stranske-automation-bot']` as assignees for the `codex` agent. These accounts don't exist as collaborators on consumer/fork repos, so GitHub silently drops the assignment (the code catches the API error).
+
+2. **Registry not consulted.** The code checked for a `cfg.assignees` field in the agent registry, but the registry uses `automation_logins` instead. Since `cfg.assignees` was always undefined, the hardcoded fallback ran.
+
+**Fix:** Updated the bridge to use `cfg.automation_logins` from the consumer's agent registry as the assignee source. This way each consumer controls which accounts get assigned via their own `registry.yml`:
+
+```javascript
+let assignees = [];
+try {
+  const { getAgentConfig } = require('./.github/scripts/agent_registry.js');
+  const cfg = getAgentConfig(agent || 'codex');
+  if (cfg.assignees && cfg.assignees.length) {
+    assignees = cfg.assignees;
+  } else if (Array.isArray(cfg.automation_logins) && cfg.automation_logins.length) {
+    assignees = cfg.automation_logins.map(String);
+  }
+} catch (_) {
+  core.warning('Could not load agent registry for assignees');
+}
+```
+
+**Key point:** The accounts in `automation_logins` must be collaborators on the consumer repo for assignment to work. GitHub's API silently ignores non-collaborator assignees.
+
+---
+
+### Issue Intake Lessons
+
+21. **Workflow triggers don't guarantee sidebar visibility.** Workflows using only `issues` + `workflow_dispatch` triggers may not appear in the Actions sidebar. Use the direct URL pattern: `/actions/workflows/<filename>.yml`.
+
+22. **Each `github-script` step has its own scope.** Variables defined in one step's `script:` block don't carry over to other steps. Don't reference variables from other steps without re-deriving them (typically from `process.env` or step outputs).
+
+23. **Job-level permissions are required for cross-repo reusable workflows.** When a consumer workflow calls a reusable workflow that needs write access, the calling job must declare its own `permissions` block. Top-level permissions (or lack thereof) don't automatically propagate to jobs correctly.
+
+24. **PR assignees must be repo collaborators.** GitHub silently drops assignees that aren't collaborators. The bridge code wraps the `addAssignees` call in try/catch, so you won't see a hard failure — just an empty assignee list. Check repo collaborator settings if assignees are missing.
+
+25. **Use `automation_logins` from the agent registry.** The consumer's `.github/agents/registry.yml` is the right place to define which accounts handle each agent's work. The bridge reads this registry to determine assignees, so keep it in sync with your repo's actual bot collaborators.
