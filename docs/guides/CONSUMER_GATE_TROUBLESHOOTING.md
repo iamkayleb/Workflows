@@ -1004,6 +1004,87 @@ try {
 
 ---
 
+### Error 28b — Assignees Resolve But Don't Appear on PR
+
+**Symptoms:**
+- Debug logging shows assignees being resolved correctly from registry
+- `addAssignees` API call succeeds (no error thrown)
+- PR still shows no assignees
+
+**Root cause:** GitHub's `addAssignees` API silently succeeds even when the specified accounts aren't actually assignable. An account must appear in the repo's **assignee dropdown** (Settings > Collaborators or repo member list) to be assigned. Being listed as a collaborator in a different role or being a bot account without proper permissions isn't sufficient.
+
+To check: Go to the PR, click the "Assignees" gear icon, and see which accounts appear in the dropdown. Only those can be assigned.
+
+**Fix:** Update the consumer's `registry.yml` to use an account that is a valid assignee. For example, if `kayleb-automation-bot` doesn't appear in the dropdown but `iamkayleb` does:
+
+```yaml
+# .github/agents/registry.yml
+claude:
+  automation_logins:
+    - iamkayleb    # Must appear in repo's assignee dropdown
+```
+
+**Key point:** Bot/service accounts often need explicit collaborator invitations with write access before they appear as valid assignees.
+
+---
+
+### Error 28c — `agent:claude` Label Not Recognized by Issue Intake
+
+**Symptoms:**
+- Created an issue with `agent:claude` label
+- Issue intake workflow either doesn't run or defaults to the codex agent
+- No label matching `agent:claude` in the repo's label list
+
+**Root cause:** The issue intake system routes work to agents based on labels matching the pattern `agent:<name>`. If the `agent:claude` label doesn't exist in the consumer repo, GitHub can't apply it to issues, and the intake workflow can't match on it.
+
+**Fix (three parts):**
+
+1. **Create the label** in the consumer repo. Go to Issues > Labels > New Label and create `agent:claude` (color: any, description: "Route to Claude agent").
+
+2. **Add the label to the repo's label config** if one exists (`.github/labels.yml` or equivalent).
+
+3. **Add a `runner:claude` label** if the consumer uses auto-pilot to let users request the Claude agent without triggering the full issue intake workflow.
+
+**Verification:** After adding the label, create a test issue with `agent:claude` applied. The intake workflow should run and the bridge should create a PR with the claude agent assigned.
+
+---
+
+### Error 28d — `@claude start` Comment Doesn't Activate Agent
+
+**Symptoms:**
+- PR exists with the claude branch
+- Posted `@claude start` as a comment on the PR
+- No agent activation occurs
+- `agents-bot-comment-handler.yml` doesn't react
+
+**Root cause (investigation path):**
+
+1. **`agents-bot-comment-handler.yml` is NOT the right workflow.** Despite the name, this workflow handles unresolved **review comments** from bots (e.g., lint suggestions), not `@claude start` activation comments.
+
+2. **`agents-pr-meta.yml` handles activation.** This workflow listens for `issue_comment` events (`types: [created]`) and detects activation patterns like `@claude start`. It evaluates the keepalive gate and dispatches the orchestrator.
+
+3. **`agents-80-pr-event-hub.yml` is an alternative path** but requires the `USE_CONSOLIDATED_WORKFLOWS` repository variable to be set to `true`. Without this variable, the event hub's `if:` condition skips all jobs.
+
+**Fix:** Ensure `agents-pr-meta.yml` exists in the consumer repo. If using the consolidated event hub instead, add `USE_CONSOLIDATED_WORKFLOWS` as a repository variable set to `true` (Settings > Secrets and variables > Actions > Variables).
+
+**Lesson:** When debugging "why doesn't my comment trigger anything," trace the exact event type (`issue_comment` vs `pull_request_review_comment`) and check which workflow files listen for that event.
+
+---
+
+### Issue Intake Lessons (continued)
+
+26. **GitHub's `addAssignees` API is silently permissive.** It returns success even when accounts can't actually be assigned. Always verify assignments by checking the PR UI, not just the API response.
+
+27. **The assignee dropdown is the source of truth.** Only accounts that appear in the repo's assignee dropdown (when editing a PR/issue) can be assigned. This is a stricter check than "is a collaborator."
+
+28. **`agent:claude` label must exist before use.** The issue intake system matches on label names. If the label doesn't exist in the repo, it can't be applied to issues and the routing won't work.
+
+29. **Know which workflow handles which event.** `agents-pr-meta.yml` handles `issue_comment` (including `@agent start`). `agents-bot-comment-handler.yml` handles review comments from bots. `agents-80-pr-event-hub.yml` consolidates multiple events but requires the `USE_CONSOLIDATED_WORKFLOWS` variable.
+
+30. **The keepalive loop is the actual runner dispatcher.** After `@claude start` is posted, `agents-pr-meta.yml` evaluates the keepalive gate, then the keepalive loop dispatches the correct runner (`reusable-claude-run.yml` or `reusable-codex-run.yml`) based on `agent_type` from the evaluate step.
+
+---
+
 ## Part 5: Claude Runner Failures
 
 > Errors encountered getting the Claude agent runner (`reusable-claude-run.yml`) to
@@ -1098,3 +1179,212 @@ Changed `repository: stranske/Workflows` to `repository: iamkayleb/Workflows`.
 28. **Fork repos must update cross-repo `uses:` references.** When forking a Workflows repository, all `uses: original-owner/Repo/...@ref` declarations in both the in-repo workflows AND consumer templates must be updated to point at the fork. Otherwise, changes to reusable workflows in the fork won't take effect.
 
 29. **Autofix and keepalive are separate dispatch chains.** Even if the keepalive loop is correctly configured, the autofix loop may have different `uses:` references. Both must be checked when verifying cross-repo workflow references.
+
+---
+
+## Part 6: Consumer Repo Reference Migration (Fork Setup)
+
+> When operating a fork of the Workflows repository, all cross-repo `uses:`
+> references must point to the fork, not the upstream. This section covers
+> the systematic migration required and the pitfalls encountered.
+
+---
+
+### Error 32: Consumer workflows still referencing upstream after Workflows fix
+
+**Symptoms:**
+- Fix is confirmed on `iamkayleb/Workflows@main` (verified via raw GitHub URL)
+- Consumer repo's keepalive loop correctly points to fork
+- Claude runner STILL fails with the same pre-fix error
+- Workflow run timestamp is AFTER the fix was merged
+
+**Investigation:**
+
+The workflow run metadata showed `event: workflow_run` — meaning this was an **autofix** run, not a keepalive run. The autofix loop and keepalive loop are independent workflow files with their own `uses:` declarations. Even though the keepalive loop was updated, the autofix loop still referenced the upstream.
+
+**Root cause:** Multiple workflow files in the consumer repo call reusable workflows via `uses:` declarations. Each file independently specifies the source repository. Updating one file doesn't update the others.
+
+**Workflows in WIT-Standalone that reference reusable runners:**
+
+| Workflow | Calls | Status before fix |
+|----------|-------|-------------------|
+| `agents-keepalive-loop.yml` | `reusable-claude-run.yml`, `reusable-codex-run.yml` | Updated to fork |
+| `agents-autofix-loop.yml` | `reusable-claude-run.yml`, `reusable-codex-run.yml` | Still upstream |
+| `agents-81-gate-followups.yml` | `reusable-claude-run.yml` (x2), `reusable-codex-run.yml` (x2) | Still upstream |
+| `agents-80-pr-event-hub.yml` | `reusable-pr-context.yml`, `reusable-20-pr-meta.yml`, `reusable-bot-comment-handler.yml` | Still upstream |
+| `agents-verifier.yml` | `reusable-agents-verifier.yml` | Still upstream |
+| `agents-orchestrator.yml` | `reusable-16-agents.yml` | Still upstream |
+| `agents-guard.yml` | `setup-api-client` action (pinned SHA) | Still upstream |
+| `pr-00-gate.yml` | `reusable-10-ci-python.yml`, `reusable-12-ci-docker.yml` | Still upstream |
+| `ci.yml` | `reusable-10-ci-python.yml` (x4) | Still upstream |
+
+**Fix (consumer repo):**
+
+Bulk-replace all `stranske/Workflows` references in the consumer's workflow directory:
+
+```bash
+cd .github/workflows
+sed -i 's|stranske/Workflows|iamkayleb/Workflows|g' *.yml
+```
+
+For `agents-guard.yml`, also update pinned SHAs that don't exist on the fork:
+
+```bash
+sed -i 's|@6deed4d3937adab2370b4ddf96046ed295efe68f|@main|g' agents-guard.yml
+```
+
+**Fix (Workflows repo — source of truth):**
+
+Updated all `uses:` declarations in both in-repo workflows (`.github/workflows/`) and consumer templates (`templates/consumer-repo/.github/workflows/`) from `stranske/Workflows` to `iamkayleb/Workflows`. This ensures future template syncs propagate the correct references.
+
+**Commit:** `05d6ffe`
+
+---
+
+### Error 33: Pinned SHA references don't exist on fork
+
+**Symptoms:**
+- `agents-guard.yml` references `stranske/Workflows/.github/actions/setup-api-client@6deed4d...`
+- After changing `stranske` to `iamkayleb`, the action still fails
+- The SHA `6deed4d` is a commit in the upstream repo that may not exist (or has a different SHA) in the fork
+
+**Root cause:** When a workflow pins a cross-repo action to a specific commit SHA, that SHA is tied to the source repo's git history. Forks may not have the same SHA if the fork was created after a rebase, or if the commit predates the fork point.
+
+**Fix:** Replace pinned SHA references with `@main` for fork workflows:
+
+```yaml
+# Before:
+uses: "stranske/Workflows/.github/actions/setup-api-client@6deed4d3937adab2370b4ddf96046ed295efe68f"
+
+# After:
+uses: "iamkayleb/Workflows/.github/actions/setup-api-client@main"
+```
+
+**Trade-off:** Using `@main` instead of a pinned SHA means the action can change without warning. For production setups, pin to a known-good SHA from the fork instead.
+
+---
+
+### Error 34: Template sync reverts consumer customizations
+
+**Symptoms:**
+- Consumer repo manually updated to point to fork
+- Template sync runs and creates a PR
+- Sync PR overwrites consumer's `iamkayleb/Workflows` references back to `stranske/Workflows`
+
+**Root cause:** The sync workflow pushes files from `templates/consumer-repo/` to consumers. If the templates still reference `stranske/Workflows`, the sync will overwrite any manual consumer fixes.
+
+**Fix:** Always update the **Workflows repo templates first**, then sync. The source of truth for consumer workflow files is `templates/consumer-repo/`. Editing the consumer directly is a temporary measure — the next sync will revert it unless the template matches.
+
+**Prevention:** The `sync_mode: create_only` setting in `.github/sync-manifest.yml` prevents overwrites for specific files (like `ci.yml`). But most workflow files use the default `sync` mode, meaning they're always overwritten on sync.
+
+---
+
+### How Template Sync Works
+
+The sync mechanism (`maint-68-sync-consumer-repos.yml`) pushes template files to registered consumer repos:
+
+1. **Trigger:** Automatic on push to `main` when `templates/consumer-repo/**` changes, or manual via `workflow_dispatch`
+2. **Manifest:** `.github/sync-manifest.yml` declares every file to sync, with optional `sync_mode: create_only` for repo-specific files
+3. **Consumer list:** Registered repos are listed in the workflow's `REGISTERED_CONSUMER_REPOS` env variable (includes `iamkayleb/WIT-Standalone`)
+4. **Process:** For each consumer, the workflow clones both repos, compares files, and creates a sync PR if changes are detected
+5. **Branch pattern:** `sync/workflows-<HASH>` — idempotent, won't create duplicates
+
+**To manually trigger sync:**
+- Go to `iamkayleb/Workflows` > Actions > `maint-68-sync-consumer-repos`
+- Click "Run workflow"
+- Optionally set `repos` to `iamkayleb/WIT-Standalone` to sync only that consumer
+
+---
+
+### Fork Migration Lessons
+
+31. **Fork setup requires a full reference audit.** When forking a Workflows repo, do a global search for the upstream owner in all `*.yml` files and replace with the fork owner. This includes `uses:` declarations, `repository:` checkout parameters, and JavaScript code that constructs API paths.
+
+32. **Each dispatch chain is independent.** Keepalive, autofix, gate-followups, and verifier are separate workflow files that each independently call reusable runners. Fixing one doesn't fix the others.
+
+33. **Pinned SHA references break across forks.** Commit SHAs are repo-specific. When migrating to a fork, replace pinned SHAs with `@main` or a known-good SHA from the fork's own history.
+
+34. **Always fix templates first, then sync.** Editing consumer repos directly is a stopgap. The next template sync will overwrite manual changes. Make the authoritative change in `templates/consumer-repo/` and let the sync propagate it.
+
+35. **`sed` is your friend for bulk migrations.** A single `sed -i 's|old-owner/Repo|new-owner/Repo|g' *.yml` in the workflows directory handles most references. Follow up by checking for pinned SHAs and `repository:` parameters that need manual attention.
+
+36. **Verify with raw GitHub URLs.** After pushing a fix, confirm the actual file content on `main` using `https://raw.githubusercontent.com/<owner>/<repo>/main/<path>`. Don't trust local state or cached workflow run logs.
+
+---
+
+## Part 7: End-to-End Success — Full Agent Pipeline Verified
+
+> After resolving all issues in Parts 4-6, the complete agent pipeline was
+> verified working end-to-end on `iamkayleb/WIT-Standalone`.
+
+### The Complete Chain (What Works)
+
+The following pipeline was verified as functional:
+
+1. **Issue created** with `agent:claude` label on WIT-Standalone
+2. **`agents-issue-intake.yml`** triggers on the issue event
+3. **`reusable-agents-issue-bridge.yml`** (from `iamkayleb/Workflows@main`):
+   - Creates a branch (`claude/issue-<number>-<slug>`)
+   - Creates a PR linked to the issue
+   - Resolves assignees from `registry.yml` `automation_logins`
+   - Assigns the correct account
+4. **`@claude start`** comment posted on the PR (manually or by the intake system)
+5. **`agents-pr-meta.yml`** detects the activation comment
+6. **Keepalive gate** evaluates and dispatches the orchestrator
+7. **`agents-keepalive-loop.yml`** dispatches the Claude runner:
+   - `uses: iamkayleb/Workflows/.github/workflows/reusable-claude-run.yml@main`
+8. **`reusable-claude-run.yml`** executes:
+   - Mints GitHub App token (or falls back to `github.token`)
+   - Checks out the PR branch
+   - Installs API client and dependencies
+   - Assembles prompt from `.github/codex/prompts/`
+   - Runs Claude agent with the prompt
+   - Commits and pushes changes
+9. **Autofix loop** triggers on CI results, dispatches Claude for fixes
+10. **PR #40** on WIT-Standalone — Claude successfully created `src/example/hello.py` with the requested `hello_world` function, ran autofix iterations, and completed all tasks.
+
+**Verification PR:** `iamkayleb/WIT-Standalone#40` (co-authored by Claude Sonnet 4.6)
+
+### Key Files in the Working Pipeline
+
+| Component | File | Location |
+|-----------|------|----------|
+| Issue intake (consumer) | `agents-issue-intake.yml` | WIT-Standalone |
+| Bridge (reusable) | `reusable-agents-issue-bridge.yml` | iamkayleb/Workflows |
+| PR activation (consumer) | `agents-pr-meta.yml` | WIT-Standalone |
+| Keepalive loop (consumer) | `agents-keepalive-loop.yml` | WIT-Standalone |
+| Claude runner (reusable) | `reusable-claude-run.yml` | iamkayleb/Workflows |
+| Autofix loop (consumer) | `agents-autofix-loop.yml` | WIT-Standalone |
+| Agent registry (consumer) | `.github/agents/registry.yml` | WIT-Standalone |
+| Prompts (consumer) | `.github/codex/prompts/*.md` | WIT-Standalone |
+
+### Prerequisites for a Working Consumer Repo
+
+Based on all issues encountered, here is the complete checklist for a consumer repo to support the Claude agent:
+
+1. **Labels exist:** `agent:claude`, `runner:claude` (optional), `agent:needs-attention`
+2. **Registry configured:** `.github/agents/registry.yml` has a `claude` entry with `automation_logins` set to a valid repo collaborator
+3. **Workflow references point to fork:** All `uses:` declarations reference `iamkayleb/Workflows` (not `stranske/Workflows`)
+4. **Prompt files present:** `.github/codex/prompts/` contains the required prompt files (`keepalive_next_task.md`, `autofix_from_ci_failure.md`, etc.)
+5. **Secrets configured:** `CLAUDE_CODE_OAUTH_TOKEN` (or equivalent auth) available as a repo or org secret
+6. **API client action available:** `.github/actions/setup-api-client/` exists locally (synced from templates)
+7. **Agent scripts present:** `.github/scripts/agent_registry.js` and related helpers exist locally
+8. **Collaborator access:** The account listed in `automation_logins` has write access and appears in the repo's assignee dropdown
+
+### Summary of All Fixes Applied
+
+| # | Error | Fix | Commit |
+|---|-------|-----|--------|
+| 25 | Intake not in sidebar | Use direct URL | (workflow exists, just hidden) |
+| 26 | Bridge permissions | Add job-level `permissions` block | (prior session) |
+| 27 | `agentKey` undefined | Replace with `agent` (correct scope variable) | (prior session) |
+| 28 | Empty assignees (hardcoded) | Use `cfg.automation_logins` from registry | `d50bdce` |
+| 28b | Assignees resolve but don't stick | Use account that appears in assignee dropdown | (consumer registry change) |
+| 28c | `agent:claude` not recognized | Create the label in consumer repo | (manual) |
+| 28d | `@claude start` doesn't activate | Use `agents-pr-meta.yml` (not bot-comment-handler) | (investigation, no code change) |
+| 29 | `GITHUB_TOKEN: unbound variable` | Add `GITHUB_TOKEN` to step `env:` block | `a5c279d` |
+| 30 | Fix not picked up (wrong repo) | Update all `uses:` to fork references | `05d6ffe` |
+| 31 | Scripts checkout wrong repo | Change `repository:` to fork | `6a91a9c` |
+| 32 | Consumer still on upstream | Bulk `sed` replace in consumer workflows | (consumer-side) |
+| 33 | Pinned SHA doesn't exist on fork | Replace with `@main` | `05d6ffe` |
+| 34 | Sync reverts consumer changes | Fix templates first, then sync | `05d6ffe` |
