@@ -1010,7 +1010,7 @@ jobs:
             // step). Use a plain GitHub API call — no retry wrapper needed for this
             // single low-risk read.
             const { data } = await github.rest.repos.get({
-              owner: 'stranske',
+              owner: 'iamkayleb',
               repo: 'Workflows'
             });
             if (!data?.default_branch) {
@@ -1021,7 +1021,7 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             scripts
