@@ -1413,9 +1413,168 @@ Based on all issues encountered, here is the complete checklist for a consumer r
 | 28c | `agent:claude` not recognized | Create the label in consumer repo | (manual) |
 | 28d | `@claude start` doesn't activate | Use `agents-pr-meta.yml` (not bot-comment-handler) | (investigation, no code change) |
 | 29 | `GITHUB_TOKEN: unbound variable` (Claude) | Add `GITHUB_TOKEN` to step `env:` block | `a5c279d` |
-| 29b | `GITHUB_TOKEN: unbound variable` (Codex) | Same fix applied to Codex runner | (same session as 29) |
+| 29b | `GITHUB_TOKEN: unbound variable` (Codex) | Same fix applied to Codex runner | `15707b5` |
 | 30 | Fix not picked up (wrong repo) | Update all `uses:` to fork references | `05d6ffe` |
-| 31 | Scripts checkout wrong repo (both runners) | Change `repository:` to fork | `6a91a9c` + Codex fix |
+| 31 | Scripts checkout wrong repo (both runners) | Change `repository:` to fork | `6a91a9c` + `15707b5` |
 | 32 | Consumer still on upstream | Bulk `sed` replace in consumer workflows | (consumer-side) |
 | 33 | Pinned SHA doesn't exist on fork | Replace with `@main` | `05d6ffe` |
 | 34 | Sync reverts consumer changes | Fix templates first, then sync | `05d6ffe` |
+| 35 | `CODEX_AUTH_JSON` secret missing | Add secret via `codex login --device-auth` | (consumer secret) |
+| 36 | No `@codex start` comment on PR | By design — Codex uses keepalive loop directly | (no code change) |
+
+---
+
+## Part 8: Codex Agent — Activation and Authentication
+
+> Issues specific to the Codex agent runner that differ from the Claude runner.
+> The Codex agent shares the same auth token pattern as Claude but has additional
+> requirements around CLI authentication and a different activation model.
+
+---
+
+### Error 35: `CODEX_AUTH_JSON secret is not set or empty`
+
+**Job:** `run-codex` (via keepalive or gate-followups)
+**Step:** "Setup Codex auth"
+**Exit code:** 1
+
+#### Symptoms
+
+After the `GITHUB_TOKEN` fix (Error 29b), the Codex runner progresses past the "Select auth token" step but fails at "Setup Codex auth":
+
+```
+Error: CODEX_AUTH_JSON secret is not set or empty.
+Error: Please add it to repository secrets.
+Go to: https://github.com/<owner>/<repo>/settings/secrets/actions
+```
+
+#### Root Cause
+
+The Codex CLI requires OpenAI authentication credentials stored in `~/.codex/auth.json`. The runner reads this from the `CODEX_AUTH_JSON` repository secret, writes it to disk, and validates the token expiration. Without this secret, the Codex CLI cannot authenticate with OpenAI's API.
+
+This is different from the Claude runner, which uses `CLAUDE_CODE_OAUTH_TOKEN`.
+
+#### Fix
+
+Two options:
+
+**Option A — ChatGPT Subscription (free with Plus/Pro, ~10-day refresh cycle):**
+
+```bash
+# 1. Install Codex CLI
+npm install -g @openai/codex
+
+# 2. Authenticate with device code flow
+codex login --device-auth
+#    Follow prompts: open URL, enter code, authenticate
+
+# 3. Copy the auth file
+cat ~/.codex/auth.json
+
+# 4. Add as GitHub secret: CODEX_AUTH_JSON
+#    Paste the raw JSON content
+```
+
+**Option B — OpenAI API Key (pay-as-you-go, no expiration):**
+
+Set `OPENAI_API_KEY` as a repository secret instead. This is the recommended approach for long-running CI since subscription tokens expire every ~10 days and require manual re-authentication.
+
+**Reference:** See `docs/ci/CHATGPT_SUBSCRIPTION_CI.md` for full details on token lifecycle, refresh rotation issues, and expiration monitoring.
+
+---
+
+### Error 36: No `@codex start` Comment Posted on PR
+
+**Job:** Bridge (`reusable-agents-issue-bridge.yml`)
+**Symptom:** PR is created by intake but no activation comment appears
+
+#### Root Cause
+
+This is **by design**, not a bug. The issue intake workflow (`agents-issue-intake.yml`) explicitly suppresses `post_agent_comment` for the Codex agent:
+
+```yaml
+# Skip post_agent_comment for codex - CLI keepalive loop handles it,
+# posting @codex would trigger UI agent alongside CLI causing conflicts
+post_agent_comment: >-
+  ${{ needs.check_labels.outputs.agent != 'codex' && 'true' || 'false' }}
+```
+
+The rationale: posting `@codex start` would trigger both the UI agent and the CLI keepalive loop simultaneously, causing conflicts. Instead, the keepalive loop detects the PR directly and dispatches the Codex runner without needing an activation comment.
+
+**How each agent activates:**
+
+| Agent | Activation | Comment posted? |
+|-------|-----------|----------------|
+| Claude | `@claude start` comment on PR | Yes (auto-posted by bridge) |
+| Codex | Keepalive loop detects PR exists | No (suppressed to avoid conflicts) |
+
+**Verification:** Check the keepalive status comment on the PR. If it shows iteration counts and agent status (even "agent-run-failed"), the keepalive loop IS running — the agent is activated, the runner just hasn't succeeded yet.
+
+---
+
+### Codex-Specific Lessons
+
+37. **Each agent has different auth secrets.** Claude uses `CLAUDE_CODE_OAUTH_TOKEN`, Codex uses `CODEX_AUTH_JSON` (or `OPENAI_API_KEY`). When enabling a new agent, check the runner workflow's `secrets:` block to see what credentials it needs.
+
+38. **Codex subscription tokens expire.** Unlike API keys, ChatGPT subscription auth tokens last ~10 days and refresh tokens are single-use (rotation). Plan for periodic manual refresh or use `OPENAI_API_KEY` instead.
+
+39. **Not all agents use activation comments.** The `post_agent_comment` input on the bridge controls this per-agent. Codex skips it to avoid UI/CLI conflicts. Don't assume a missing `@agent start` comment means activation failed — check the keepalive status instead.
+
+40. **Debug agent runners step-by-step.** The runner steps execute sequentially: auth token -> checkout -> setup API client -> install CLI -> setup agent auth -> assemble prompt -> run agent. When the runner fails, check the **first** failing step, not the last one.
+
+---
+
+## Part 9: Both Agents Verified — End-to-End Success
+
+> After resolving all issues in Parts 4-8, both the Claude and Codex agent
+> pipelines were verified working end-to-end on `iamkayleb/WIT-Standalone`.
+
+### Verification Results
+
+| Agent | Test Issue | PR | Result | Key Commit |
+|-------|-----------|-----|--------|-----------|
+| Claude | #39 | [#40](https://github.com/iamkayleb/WIT-Standalone/pull/40) | 2/2 tasks complete | `86d0a2d` (feat: add hello_world function) |
+| Codex | #45 | [#46](https://github.com/iamkayleb/WIT-Standalone/pull/46) | 2/2 tasks complete | `c74be7c` (Add example2 hello function) |
+
+### Complete Pipeline — Both Agents
+
+```
+Issue created with agent:<name> label
+  │
+  ├─ agents-issue-intake.yml triggers
+  │
+  ├─ reusable-agents-issue-bridge.yml creates branch + PR
+  │    ├─ Resolves assignees from registry.yml automation_logins
+  │    ├─ Claude: posts @claude start comment
+  │    └─ Codex: skips comment (keepalive detects PR directly)
+  │
+  ├─ Keepalive loop dispatches runner
+  │    ├─ Claude: reusable-claude-run.yml
+  │    └─ Codex: reusable-codex-run.yml
+  │
+  ├─ Runner executes:
+  │    ├─ Auth token selection (GITHUB_TOKEN fallback)
+  │    ├─ Checkout PR branch
+  │    ├─ Setup API client + Workflows scripts
+  │    ├─ Agent-specific auth (CLAUDE_CODE_OAUTH_TOKEN / CODEX_AUTH_JSON)
+  │    ├─ Assemble prompt from .github/codex/prompts/
+  │    ├─ Run agent CLI
+  │    └─ Commit and push changes
+  │
+  ├─ Autofix loop runs on CI results
+  │
+  └─ Keepalive summary updates PR status
+```
+
+### Full Prerequisites Checklist (Both Agents)
+
+| Requirement | Claude | Codex |
+|-------------|--------|-------|
+| Label | `agent:claude` | `agent:codex` |
+| Auth secret | `CLAUDE_CODE_OAUTH_TOKEN` | `CODEX_AUTH_JSON` or `OPENAI_API_KEY` |
+| Registry entry | `claude` in `registry.yml` | `codex` in `registry.yml` |
+| `automation_logins` | Valid repo collaborator | Valid repo collaborator |
+| Workflow references | `iamkayleb/Workflows@main` | `iamkayleb/Workflows@main` |
+| Prompt files | `.github/codex/prompts/*.md` | `.github/codex/prompts/*.md` |
+| API client action | `.github/actions/setup-api-client/` | `.github/actions/setup-api-client/` |
+| Agent scripts | `.github/scripts/agent_registry.js` | `.github/scripts/agent_registry.js` |
