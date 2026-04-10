@@ -221,6 +221,7 @@ jobs:
         id: auth_token
         env:
           APP_TOKEN: ${{ steps.app_token.outputs.token || '' }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           checkout_token="${APP_TOKEN:-${GITHUB_TOKEN}}"
@@ -261,7 +262,7 @@ jobs:
           node-version: 20
 
       # Checkout Workflows repo scripts for post-completion, error handling, and LLM analysis
-      # These scripts are in stranske/Workflows but need to be available when
+      # These scripts are in iamkayleb/Workflows but need to be available when
       # this reusable workflow runs in consumer repos
       - name: Setup API client
         uses: ./.github/actions/setup-api-client
@@ -274,7 +275,7 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v6
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           # Use the workflows_ref input which should match the @ref in the uses: line
           ref: ${{ inputs.workflows_ref }}
           path: .workflows-lib
