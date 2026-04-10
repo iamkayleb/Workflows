@@ -1085,21 +1085,24 @@ claude:
 
 ---
 
-## Part 5: Claude Runner Failures
+## Part 5: Agent Runner Failures (Claude and Codex)
 
-> Errors encountered getting the Claude agent runner (`reusable-claude-run.yml`) to
-> execute successfully when dispatched from consumer repos via keepalive or autofix.
+> Errors encountered getting both agent runners (`reusable-claude-run.yml` and
+> `reusable-codex-run.yml`) to execute successfully when dispatched from consumer
+> repos via keepalive or autofix. Both runners share the same auth token pattern
+> and had identical bugs.
 
 ---
 
 ### Error 29: `GITHUB_TOKEN: unbound variable` in "Select auth token" step
 
-**Job:** `run-claude` (via `agents-keepalive-loop.yml` or `agents-autofix-loop.yml`)
+**Job:** `run-claude` or `run-codex` (via `agents-keepalive-loop.yml`, `agents-autofix-loop.yml`, or `agents-81-gate-followups.yml`)
 **Exit code:** 1 (shell `set -u` violation)
+**Affects:** Both `reusable-claude-run.yml` AND `reusable-codex-run.yml`
 
 #### Root Cause
 
-The "Select auth token" step in `reusable-claude-run.yml` used `set -euo pipefail`, which includes `-u` (treat unset variables as errors). The shell script referenced `${GITHUB_TOKEN}` as a fallback:
+The "Select auth token" step in both runner workflows used `set -euo pipefail`, which includes `-u` (treat unset variables as errors). The shell script referenced `${GITHUB_TOKEN}` as a fallback:
 
 ```bash
 checkout_token="${APP_TOKEN:-${GITHUB_TOKEN}}"
@@ -1132,7 +1135,29 @@ Added `GITHUB_TOKEN: ${{ github.token }}` to the step's `env:` block:
     checkout_token="${APP_TOKEN:-${GITHUB_TOKEN}}"
 ```
 
-**Commit:** `a5c279d`
+**Commits:**
+- Claude runner: `a5c279d`
+- Codex runner: same fix applied to `reusable-codex-run.yml` (line 223)
+
+**Important:** This bug existed in BOTH runners because they share the same auth token pattern. When fixing one runner, always check the other for the same issue.
+
+---
+
+### Error 29b: Codex runner fails with identical `GITHUB_TOKEN: unbound variable`
+
+**Job:** `run-codex` (via `agents-keepalive-loop.yml` or `agents-81-gate-followups.yml`)
+**Symptom:** Codex runner fails at "Select auth token" step — same error as Error 29
+**Tested on:** WIT-Standalone PR #42 (issue #41, `agent:codex` label)
+
+#### Root Cause
+
+The Codex runner (`reusable-codex-run.yml`) had the exact same bug as the Claude runner — `GITHUB_TOKEN` missing from the `env:` block at line 223. The fix for the Claude runner was not applied to the Codex runner because they are separate workflow files.
+
+#### Fix
+
+Same as Error 29 — added `GITHUB_TOKEN: ${{ github.token }}` to the Codex runner's "Select auth token" step. Also updated the scripts checkout `repository:` from `stranske/Workflows` to `iamkayleb/Workflows` (same issue as Error 31).
+
+**Lesson:** When both runners share the same code pattern, fixes must be applied to both. Search for the pattern across all runner files, not just the one that failed first.
 
 ---
 
@@ -1155,22 +1180,25 @@ Updated **all** `uses:` declarations across both in-repo workflows (`.github/wor
 
 ### Error 31: Workflows scripts checkout referencing wrong repo
 
-**Job:** `run-claude` (Checkout Workflows scripts step)
+**Job:** `run-claude` or `run-codex` (Checkout Workflows scripts step)
 **Symptom:** Checkout fails or pulls wrong scripts
+**Affects:** Both `reusable-claude-run.yml` AND `reusable-codex-run.yml`
 
 #### Root Cause
 
-Line 264 of `reusable-claude-run.yml` had `repository: stranske/Workflows` for the scripts checkout. In a fork, this pulls scripts from the upstream instead of the fork.
+Both runners had `repository: stranske/Workflows` for the scripts checkout. In a fork, this pulls scripts from the upstream instead of the fork.
 
 #### Fix
 
-Changed `repository: stranske/Workflows` to `repository: iamkayleb/Workflows`.
+Changed `repository: stranske/Workflows` to `repository: iamkayleb/Workflows` in both runners.
 
-**Commit:** `6a91a9c`
+**Commits:**
+- Claude runner: `6a91a9c`
+- Codex runner: same fix applied alongside Error 29b fix
 
 ---
 
-### Claude Runner Lessons
+### Agent Runner Lessons
 
 26. **`set -euo pipefail` with `-u` requires all referenced variables in `env:`.** If a shell script references `${VAR}`, that variable must be in the step's `env:` block or it will cause an unbound variable error. `github.token` is only available via expressions — it's not automatically set as an environment variable.
 
@@ -1179,6 +1207,8 @@ Changed `repository: stranske/Workflows` to `repository: iamkayleb/Workflows`.
 28. **Fork repos must update cross-repo `uses:` references.** When forking a Workflows repository, all `uses: original-owner/Repo/...@ref` declarations in both the in-repo workflows AND consumer templates must be updated to point at the fork. Otherwise, changes to reusable workflows in the fork won't take effect.
 
 29. **Autofix and keepalive are separate dispatch chains.** Even if the keepalive loop is correctly configured, the autofix loop may have different `uses:` references. Both must be checked when verifying cross-repo workflow references.
+
+30. **Both runners share the same auth pattern — fix both.** `reusable-claude-run.yml` and `reusable-codex-run.yml` use an identical "Select auth token" step with the same `${APP_TOKEN:-${GITHUB_TOKEN}}` fallback. When a bug is found in one runner, always check the other. The Codex runner bug was only discovered after the Claude runner was fixed and a Codex test was run.
 
 ---
 
@@ -1382,9 +1412,10 @@ Based on all issues encountered, here is the complete checklist for a consumer r
 | 28b | Assignees resolve but don't stick | Use account that appears in assignee dropdown | (consumer registry change) |
 | 28c | `agent:claude` not recognized | Create the label in consumer repo | (manual) |
 | 28d | `@claude start` doesn't activate | Use `agents-pr-meta.yml` (not bot-comment-handler) | (investigation, no code change) |
-| 29 | `GITHUB_TOKEN: unbound variable` | Add `GITHUB_TOKEN` to step `env:` block | `a5c279d` |
+| 29 | `GITHUB_TOKEN: unbound variable` (Claude) | Add `GITHUB_TOKEN` to step `env:` block | `a5c279d` |
+| 29b | `GITHUB_TOKEN: unbound variable` (Codex) | Same fix applied to Codex runner | (same session as 29) |
 | 30 | Fix not picked up (wrong repo) | Update all `uses:` to fork references | `05d6ffe` |
-| 31 | Scripts checkout wrong repo | Change `repository:` to fork | `6a91a9c` |
+| 31 | Scripts checkout wrong repo (both runners) | Change `repository:` to fork | `6a91a9c` + Codex fix |
 | 32 | Consumer still on upstream | Bulk `sed` replace in consumer workflows | (consumer-side) |
 | 33 | Pinned SHA doesn't exist on fork | Replace with `@main` | `05d6ffe` |
 | 34 | Sync reverts consumer changes | Fix templates first, then sync | `05d6ffe` |
