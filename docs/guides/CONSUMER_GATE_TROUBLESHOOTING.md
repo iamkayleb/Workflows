@@ -1578,3 +1578,91 @@ Issue created with agent:<name> label
 | Prompt files | `.github/codex/prompts/*.md` | `.github/codex/prompts/*.md` |
 | API client action | `.github/actions/setup-api-client/` | `.github/actions/setup-api-client/` |
 | Agent scripts | `.github/scripts/agent_registry.js` | `.github/scripts/agent_registry.js` |
+
+---
+
+## Part 10: Verifier System (Post-Merge Quality Gate)
+
+The verifier system (`verify:checkbox`, `verify:evaluate`, `verify:compare`) runs after a PR is merged to validate that changes meet acceptance criteria.
+
+### Error 37: `verify:checkbox` — "Unknown model: codex-mini-latest"
+
+**Symptom:** Adding `verify:checkbox` label to a merged PR produces a CONCERNS verdict with "Unknown model: codex-mini-latest" in the output.
+
+**Root Cause:** The `codex exec` command in checkbox mode did not pass a `--model` flag, so the Codex CLI defaulted to `codex-mini-latest`. This model requires specific subscription access and may not be available with all auth tokens.
+
+**Fix:** Updated the verifier workflow to pass `--model` from `inputs.model` when provided. Users can now override the Codex CLI model via the `model` input parameter.
+
+**Lesson 37:** The Codex CLI defaults to `codex-mini-latest` which requires an active Codex subscription with that model. Use the workflow `model` input to override when needed.
+
+### Error 38: `verify:evaluate` — "LLM evaluation could not run"
+
+**Symptom:** Adding `verify:evaluate` label produces a CONCERNS verdict with zero confidence. The evaluation summary says "LLM evaluation could not run" or "LLM invocation failed".
+
+**Root Cause (Primary):** The LLM provider fallback chain was misconfigured. When no `OPENAI_API_KEY` or `CLAUDE_API_STRANSKE` secrets are set, the auto-select logic falls through to GitHub Models (slot 3). But the GitHub Models slot was configured to use `codex-mini-latest` — a model that does NOT exist on the GitHub Models inference API (`https://models.inference.ai.azure.com`). The API returned "Unknown model" which is not an auth error, so the fallback to other providers was never triggered.
+
+**Root Cause (Secondary):** The `config/` directory was not included in the verifier workflow's sparse-checkout, so `llm_slots.json` was never loaded. The fallback `_default_slots()` function also used `DEFAULT_MODEL` (`codex-mini-latest`) for GitHub Models.
+
+**The Fix (multi-part):**
+1. Changed `DEFAULT_MODEL` from `codex-mini-latest` to `gpt-4.1` in `tools/llm_provider.py` — `gpt-4.1` is available on both GitHub Models and OpenAI
+2. Updated `config/llm_slots.json` slot 3 model to `gpt-4.1`
+3. Updated `_default_slots()` in `tools/langchain_client.py` to use explicit `gpt-4.1` for the GitHub Models slot
+4. Added `config` to the verifier workflow's sparse-checkout so `llm_slots.json` is actually loaded
+5. Applied the same fixes to consumer templates
+
+**Files Changed:**
+- `tools/llm_provider.py` — `DEFAULT_MODEL = "gpt-4.1"`
+- `tools/langchain_client.py` — `_default_slots()` slot 3 model
+- `config/llm_slots.json` — slot 3 model
+- `.github/workflows/reusable-agents-verifier.yml` — sparse-checkout includes `config`, checkbox mode supports `--model`
+- All consumer template equivalents
+
+**Lesson 38:** The verifier's LLM provider chain uses a 3-slot system: OpenAI (gpt-5.2) → Anthropic (claude-sonnet-4-5) → GitHub Models (gpt-4.1). Each slot requires its own API key except GitHub Models which uses `GITHUB_TOKEN` with `models: read` permission. If no keys are configured, GitHub Models is the last-resort provider and must use a model that actually exists on the GitHub Models API.
+
+### Error 39: `verify:evaluate` — GitHub Models 401 / Permission Error
+
+**Symptom:** After fixing the model name, `verify:evaluate` may still fail with a 401 error from the GitHub Models API if the `GITHUB_TOKEN` lacks `models: read` permission.
+
+**Explanation:** The reusable verifier workflow declares `permissions: { models: read }` (line 70). However, consumer repos may have restrictive default token permissions, or the permission scope may not propagate correctly through reusable workflow calls.
+
+**Troubleshooting:**
+1. Confirm the reusable workflow has `models: read` in its permissions block
+2. Check the consumer repo's Settings → Actions → General → "Workflow permissions" — ensure it's not set to "Read repository contents only" (which excludes `models`)
+3. If GitHub Models 401 persists, the verifier's auth fallback tries OpenAI as backup (if `OPENAI_API_KEY` is set)
+
+**Lesson 39:** GitHub Models requires `models: read` permission on the `GITHUB_TOKEN`. This is a relatively new permission scope and may not be available in all GitHub plans or repository configurations.
+
+### Verifier Provider Fallback Chain
+
+```
+verify:evaluate auto-select order:
+  Slot 1: OpenAI (gpt-5.2)      — requires OPENAI_API_KEY
+  Slot 2: Anthropic (claude-sonnet-4-5) — requires CLAUDE_API_STRANSKE
+  Slot 3: GitHub Models (gpt-4.1)      — requires GITHUB_TOKEN + models:read
+
+If the selected provider fails with an auth error:
+  → GitHub Models fails → tries OpenAI as fallback
+  → OpenAI fails → tries GitHub Models as fallback
+
+If no providers have credentials:
+  → build_chat_client returns None → "LLM client unavailable"
+
+If the API call fails with a non-auth error (e.g., "Unknown model"):
+  → No fallback attempted → "LLM invocation failed" → CONCERNS verdict
+```
+
+### Verifier Modes Summary
+
+| Mode | Backend | Requires | Notes |
+|------|---------|----------|-------|
+| `verify:checkbox` | Codex CLI | `CODEX_AUTH_JSON` | Uses `codex exec` with sandbox mode. Default model is `codex-mini-latest`, override via `model` input |
+| `verify:evaluate` | LangChain/Python | `GITHUB_TOKEN` (minimum) | Auto-selects from 3-slot provider chain. Works with just `GITHUB_TOKEN` + `models:read` |
+| `verify:compare` | Both | `CODEX_AUTH_JSON` + LLM key | Dual-model consensus, requires two providers |
+
+### Summary Table Update
+
+| # | Error | Root Cause | Resolution |
+|---|-------|-----------|------------|
+| 37 | verify:checkbox "Unknown model" | Codex CLI defaults to codex-mini-latest | Pass `--model` input to override |
+| 38 | verify:evaluate "LLM evaluation could not run" | DEFAULT_MODEL was codex-mini-latest (not on GitHub Models) | Changed to gpt-4.1 across slot config, provider defaults, and templates |
+| 39 | verify:evaluate GitHub Models 401 | GITHUB_TOKEN missing models:read permission | Ensure workflow permission + repo settings allow models scope |
