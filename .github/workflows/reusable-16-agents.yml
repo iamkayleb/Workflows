@@ -73,7 +73,7 @@ on:
       verify_issue_valid_assignees:
         description: 'Comma-separated list of acceptable agent logins for verification'
         required: false
-        default: 'copilot,chatgpt-codex-connector,stranske-automation-bot'
+        default: 'copilot,chatgpt-codex-connector,kayleb-automation-bot'
         type: string
       enable_watchdog:
         description: 'Run watchdog checks (true/false)'
@@ -1079,14 +1079,14 @@ jobs:
                 github.rest.users.getAuthenticated(),
               );
             const login = (me.login || '').toLowerCase();
-            if (login !== 'stranske-automation-bot') {
+            if (login !== 'kayleb-automation-bot') {
               core.setFailed(
-                'SERVICE_BOT_PAT must belong to stranske-automation-bot; ' +
+                'SERVICE_BOT_PAT must belong to kayleb-automation-bot; ' +
                   `received ${login || 'unknown'}.`,
               );
               return;
             }
-            core.info('Verified keepalive identity: stranske-automation-bot.');
+            core.info('Verified keepalive identity: kayleb-automation-bot.');
       - name: Ensure dispatch token present
         if: >-
           ${{
