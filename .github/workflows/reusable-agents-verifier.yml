@@ -140,6 +140,7 @@ jobs:
             .github/agents/registry.yml
             .github/scripts
             .github/codex/prompts
+            config
             scripts
             tools
           sparse-checkout-cone-mode: false
@@ -500,11 +501,15 @@ jobs:
           set -euo pipefail
           PROMPT_FILE="${{ steps.prepare.outputs.prompt_file }}"
 
+          # Build codex exec args
+          codex_args=(exec --sandbox read-only --skip-git-repo-check --output-last-message codex-output.md)
+          model="${{ inputs.model }}"
+          if [ -n "$model" ]; then
+            codex_args+=(--model "$model")
+          fi
+
           set +e
-          codex exec \
-            --sandbox read-only \
-            --skip-git-repo-check \
-            --output-last-message codex-output.md \
+          codex "${codex_args[@]}" \
             "$(cat "$PROMPT_FILE")"
           codex_exit_code=$?
           set -euo pipefail
