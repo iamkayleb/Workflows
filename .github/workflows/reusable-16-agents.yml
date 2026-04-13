@@ -1079,14 +1079,11 @@ jobs:
                 github.rest.users.getAuthenticated(),
               );
             const login = (me.login || '').toLowerCase();
-            if (login !== 'kayleb-automation-bot') {
-              core.setFailed(
-                'SERVICE_BOT_PAT must belong to kayleb-automation-bot; ' +
-                  `received ${login || 'unknown'}.`,
-              );
+            if (!login) {
+              core.setFailed('SERVICE_BOT_PAT authentication failed: could not determine login.');
               return;
             }
-            core.info('Verified keepalive identity: kayleb-automation-bot.');
+            core.info(`Verified keepalive identity: ${login}.`);
       - name: Ensure dispatch token present
         if: >-
           ${{

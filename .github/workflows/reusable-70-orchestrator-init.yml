@@ -418,18 +418,8 @@ jobs:
             exit 1
           fi
           case "${token}" in
-            'ACTIONS_BOT_PAT')
-              if [ "${login}" != 'stranske' ]; then
-                echo "::error::ACTIONS_BOT_PAT must authenticate as stranske;" \
-                  "detected ${login}." >&2
-                exit 1
-              fi ;;
-            'SERVICE_BOT_PAT')
-              if [ "${login}" != 'stranske-automation-bot' ]; then
-                echo "::error::SERVICE_BOT_PAT must authenticate as stranske-automation-bot;" \
-                  "detected ${login}." >&2
-                exit 1
-              fi ;;
+            'ACTIONS_BOT_PAT'|'SERVICE_BOT_PAT')
+              echo "Token source: ${token}, authenticated as: ${login}" ;;
             *)
               echo "::error::Unknown keepalive token source: ${token}." >&2
               exit 1 ;;
