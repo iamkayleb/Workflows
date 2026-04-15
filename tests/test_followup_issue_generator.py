@@ -4,6 +4,7 @@
 import json
 import logging
 import sys
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from scripts.langchain import followup_issue_generator
@@ -330,6 +331,32 @@ def test_extract_structural_issues():
 
     assert len(data.structural_issues) >= 1
     assert any("code snippets" in issue.lower() for issue in data.structural_issues)
+
+
+def test_get_llm_client_defaults_to_expected_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Standard and reasoning follow-up paths should use the documented defaults."""
+
+    calls: list[tuple[str | None, str | None]] = []
+
+    def fake_build_chat_client(*, model: str | None = None, provider: str | None = None):
+        calls.append((model, provider))
+        return SimpleNamespace(client=object(), model=model or "fallback", provider=provider or "auto")
+
+    fake_module = ModuleType("tools.langchain_client")
+    fake_module.build_chat_client = fake_build_chat_client
+
+    monkeypatch.setitem(sys.modules, "tools.langchain_client", fake_module)
+    monkeypatch.delenv("FOLLOWUP_MODEL", raising=False)
+    monkeypatch.delenv("FOLLOWUP_REASONING_MODEL", raising=False)
+
+    standard_client = followup_issue_generator._get_llm_client(reasoning=False)
+    reasoning_client = followup_issue_generator._get_llm_client(reasoning=True)
+
+    assert standard_client is not None
+    assert reasoning_client is not None
+    assert standard_client[1] == "gpt-5.4"
+    assert reasoning_client[1] == "o3-mini"
+    assert calls == [("gpt-5.4", None), ("o3-mini", "openai")]
 
 
 class TestExtractOriginalIssueData:
