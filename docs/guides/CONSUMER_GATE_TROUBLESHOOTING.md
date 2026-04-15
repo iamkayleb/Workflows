@@ -1666,3 +1666,175 @@ If the API call fails with a non-auth error (e.g., "Unknown model"):
 | 37 | verify:checkbox "Unknown model" | Codex CLI defaults to codex-mini-latest | Pass `--model` input to override |
 | 38 | verify:evaluate "LLM evaluation could not run" | DEFAULT_MODEL was codex-mini-latest (not on GitHub Models) | Changed to gpt-4.1 across slot config, provider defaults, and templates |
 | 39 | verify:evaluate GitHub Models 401 | GITHUB_TOKEN missing models:read permission | Ensure workflow permission + repo settings allow models scope |
+
+### Verifier Testing Timeline
+
+1. **Merged Codex PR #46** on WIT-Standalone — needed a merged PR to test verifier on
+2. **Added `verify:checkbox` label** to merged PR #46 — verifier triggered but produced CONCERNS verdict: "Unknown model: codex-mini-latest". The Codex CLI defaulted to a model not available on the user's subscription
+3. **Added `verify:evaluate` label** — also produced CONCERNS verdict with "LLM evaluation could not run". The LangChain provider chain fell through to GitHub Models slot 3 but used `codex-mini-latest` (not a valid GitHub Models model)
+4. **Root cause investigation** — traced the issue through `pr_verifier.py` → `langchain_client.py` → `build_chat_client()` → `_resolve_slots()` → `_default_slots()`. The GitHub Models slot used `DEFAULT_MODEL` from `llm_provider.py` which was `codex-mini-latest`
+5. **Applied fix** — changed `DEFAULT_MODEL` to `gpt-4.1`, updated `llm_slots.json`, updated `_default_slots()`, added `config/` to verifier sparse-checkout, added `--model` support to checkbox mode
+6. **Merged fix to main** and re-tested `verify:evaluate` on PR #46
+7. **PASS** — LLM Evaluation Report posted successfully: Correctness 10/10, Completeness 10/10, Quality 9/10, Testing 9/10, Risks 10/10
+
+**Verification PR:** `iamkayleb/WIT-Standalone#46` (verify:evaluate — PASS verdict)
+
+---
+
+## Part 11: Orchestrator System (Agent Keepalive and Coordination)
+
+> The orchestrator is a scheduled automation that sweeps stalled agent PRs,
+> runs watchdog health checks, and optionally bootstraps new issues into PRs.
+> Consumer repos use a thin caller that delegates to `reusable-16-agents.yml`.
+
+### How the Consumer Orchestrator Works
+
+```
+agents-orchestrator.yml (consumer — thin caller)
+  │
+  │  Triggers: cron every 30 min, or manual workflow_dispatch
+  │
+  └─ reusable-16-agents.yml (from iamkayleb/Workflows@main)
+      │
+      ├─ readiness     — probe which agents can be assigned (opt-in, default off)
+      ├─ bootstrap     — create PRs from labeled issues (opt-in, default off)
+      ├─ watchdog      — basic repo sanity check (pyproject.toml exists)
+      ├─ keepalive     — sweep stalled PRs, resume agent work (default on)
+      └─ run-summary   — post results to workflow step summary
+```
+
+The consumer orchestrator (`agents-orchestrator.yml`) is a thin wrapper that calls `reusable-16-agents.yml` with feature toggles. By default on schedule:
+- **Keepalive**: enabled — sweeps for stalled PRs and dispatches agent runners
+- **Watchdog**: enabled — checks repo health
+- **Readiness**: disabled — opt-in probe for agent assignability
+- **Bootstrap**: disabled — opt-in PR creation from labeled issues
+
+### Orchestrator vs Full Two-Phase Orchestrator
+
+The Workflows repo itself has a heavier orchestrator (`agents-70-orchestrator.yml`) that uses a two-phase init+main architecture (`reusable-70-orchestrator-init.yml` → `reusable-70-orchestrator-main.yml`). Consumer repos do NOT use this. They call `reusable-16-agents.yml` directly, which is simpler and self-contained.
+
+### Error 40: Hardcoded `stranske-automation-bot` Identity Check
+
+**Job:** `keepalive` (in `reusable-16-agents.yml`)
+**Step:** "Verify keepalive identity" (line 1062)
+
+#### Symptom
+
+The keepalive sweep requires `SERVICE_BOT_PAT` to authenticate. Before running the sweep, it validates the token's identity by calling `github.rest.users.getAuthenticated()` and comparing the login against a hardcoded account name.
+
+In the upstream repo, this was hardcoded to `stranske-automation-bot`. In a fork where the PAT belongs to a different account (e.g., `iamkayleb`), the check fails:
+
+```
+SERVICE_BOT_PAT must belong to stranske-automation-bot; received iamkayleb.
+```
+
+#### Root Cause
+
+Three locations had hardcoded bot identity:
+
+1. **`reusable-16-agents.yml` line 1082** — JavaScript identity check enforcing `stranske-automation-bot`
+2. **`reusable-16-agents.yml` line 76** — Default `verify_issue_valid_assignees` input including `stranske-automation-bot`
+3. **`reusable-70-orchestrator-init.yml` lines 422-431** — Shell case statement enforcing `stranske` for `ACTIONS_BOT_PAT` and `stranske-automation-bot` for `SERVICE_BOT_PAT`
+
+#### Fix
+
+1. **`reusable-16-agents.yml`** — Removed the hardcoded identity check. The step now accepts any authenticated account and logs the identity:
+   ```javascript
+   if (!login) {
+     core.setFailed('SERVICE_BOT_PAT authentication failed: could not determine login.');
+     return;
+   }
+   core.info(`Verified keepalive identity: ${login}.`);
+   ```
+
+2. **`reusable-16-agents.yml` line 76** — Updated default assignees to `kayleb-automation-bot`
+
+3. **`reusable-70-orchestrator-init.yml`** — Replaced the per-account case checks with a generic accept-and-log:
+   ```bash
+   case "${token}" in
+     'ACTIONS_BOT_PAT'|'SERVICE_BOT_PAT')
+       echo "Token source: ${token}, authenticated as: ${login}" ;;
+     *)
+       echo "::error::Unknown keepalive token source: ${token}." >&2
+       exit 1 ;;
+   esac
+   ```
+
+**Lesson 40:** When forking a Workflows repo, identity checks hardcoded to specific bot accounts will block any PAT that doesn't authenticate as the expected user. These checks should either be parameterized (reading allowed logins from the agent registry) or relaxed to accept any valid authenticated identity.
+
+### Error 41: Missing `SERVICE_BOT_PAT` or `ACTIONS_BOT_PAT`
+
+**Job:** `keepalive` (in `reusable-16-agents.yml`)
+**Steps:** "Ensure keepalive token present" (line 1052) and "Ensure dispatch token present" (line 1090)
+
+#### Symptom
+
+If neither `SERVICE_BOT_PAT` nor a GitHub App token is configured, the keepalive job fails immediately:
+
+```
+::error::SERVICE_BOT_PAT or WORKFLOWS_APP token is required for keepalive comments.
+```
+
+Similarly, the dispatch step requires `ACTIONS_BOT_PAT` or a GitHub App token:
+
+```
+::error::ACTIONS_BOT_PAT or WORKFLOWS_APP token is required so keepalive dispatches can trigger the connector.
+```
+
+#### Root Cause
+
+The keepalive sweep needs elevated tokens for two purposes:
+1. **`SERVICE_BOT_PAT`** — used to post keepalive instruction comments on PRs (the `github-token` for the `actions/github-script` step)
+2. **`ACTIONS_BOT_PAT`** — used to dispatch agent connector workflows (workflow_dispatch events require a PAT, not `GITHUB_TOKEN`)
+
+The consumer orchestrator passes `secrets: inherit`, so these must exist as repository or organization secrets on the consumer repo.
+
+#### Fix
+
+Add the required secrets to the consumer repo:
+1. `SERVICE_BOT_PAT` — a PAT with `repo` scope (can be from any account with repo access)
+2. `ACTIONS_BOT_PAT` — a PAT with `repo` + `actions:write` scope (can be the same PAT)
+
+Alternatively, configure the GitHub App:
+- `WORKFLOWS_APP_ID` + `WORKFLOWS_APP_PRIVATE_KEY` — replaces both PATs
+
+**Lesson 41:** The orchestrator's keepalive job needs two tokens: one for comments (SERVICE_BOT_PAT) and one for dispatch (ACTIONS_BOT_PAT). Both can be the same PAT if it has sufficient scopes. The GitHub App alternative replaces both.
+
+### Orchestrator Prerequisites for Consumer Repos
+
+| Requirement | Status | Notes |
+|-------------|--------|-------|
+| `agents-orchestrator.yml` | Synced from template | Thin caller referencing `iamkayleb/Workflows@main` |
+| `SERVICE_BOT_PAT` secret | Required | PAT with `repo` scope — any account with repo access |
+| `ACTIONS_BOT_PAT` secret | Required | PAT with `repo` + `actions:write` — can be same PAT |
+| OR `WORKFLOWS_APP_ID` + `WORKFLOWS_APP_PRIVATE_KEY` | Alternative | GitHub App replaces both PATs |
+| `reusable-16-agents.yml` on `main` | Must be current | Identity check must be the relaxed version |
+| Open agent PRs | For keepalive | Keepalive sweeps stalled PRs with `agent:*` labels |
+| `pyproject.toml` | For watchdog | Watchdog checks this file exists |
+
+### How to Test the Orchestrator
+
+1. Ensure secrets are configured (`SERVICE_BOT_PAT`, `ACTIONS_BOT_PAT`)
+2. Go to WIT-Standalone → Actions → "Agents Orchestrator" → Run workflow
+3. Recommended first run: set `dry_run: true` to preview without writing
+4. Expected behavior:
+   - **Watchdog** checks `pyproject.toml` exists
+   - **Keepalive** sweeps for stalled agent PRs — if none found, completes cleanly
+   - **Run summary** posts results to the workflow step summary
+
+### Orchestrator Summary Table
+
+| # | Error | Root Cause | Resolution |
+|---|-------|-----------|------------|
+| 40 | Keepalive identity check fails | Hardcoded `stranske-automation-bot` in identity verification | Removed hardcoded check; accept any authenticated identity |
+| 41 | Missing keepalive tokens | `SERVICE_BOT_PAT` / `ACTIONS_BOT_PAT` not configured | Add PATs to consumer repo secrets |
+
+### Orchestrator-Specific Lessons
+
+41. **Consumer orchestrators use the simple path.** Consumer repos call `reusable-16-agents.yml` directly, not the full two-phase init+main system. Only the Workflows repo itself uses the heavyweight `agents-70-orchestrator.yml`.
+
+42. **Identity checks are a fork hazard.** Hardcoded bot account names in identity verification steps will silently pass in the upstream repo but block forks. Parameterize or relax these checks.
+
+43. **Two tokens, two purposes.** `SERVICE_BOT_PAT` posts comments, `ACTIONS_BOT_PAT` dispatches workflows. They can be the same PAT if scopes are sufficient. The GitHub App alternative covers both.
+
+44. **`secrets: inherit` passes everything.** The consumer template uses `secrets: inherit` to forward all secrets to the reusable workflow. Any secret added to the consumer repo is automatically available to the orchestrator.
