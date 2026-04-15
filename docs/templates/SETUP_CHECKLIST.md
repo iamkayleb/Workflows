@@ -186,7 +186,7 @@ Create each label:
 
 **Quick creation script:**
 ```bash
-REPO="stranske/<your-repo>"
+REPO="iamkayleb/WIT-Standalone"
 
 # Create required labels
 gh label create "agent:codex" --color "0052CC" --description "Assigns Codex agent" --repo "$REPO" 2>/dev/null || echo "agent:codex exists"
