@@ -48,6 +48,7 @@ def test_build_chat_client_prefers_openai_slot(monkeypatch: pytest.MonkeyPatch) 
     assert isinstance(resolved.client, FakeChatOpenAI)
     assert resolved.client.kwargs["api_key"] == "oa-token"
     assert "base_url" not in resolved.client.kwargs
+    assert resolved.model == "gpt-5.4"
 
 
 def test_build_chat_client_github_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,6 +83,7 @@ def test_build_chat_client_anthropic_fallback(monkeypatch: pytest.MonkeyPatch) -
     assert resolved.provider == langchain_client.PROVIDER_ANTHROPIC
     assert isinstance(resolved.client, FakeChatAnthropic)
     assert resolved.client.kwargs["anthropic_api_key"] == "claude-token"
+    assert resolved.model == "claude-sonnet-4-6"
 
 
 def test_build_chat_client_env_provider_override(monkeypatch: pytest.MonkeyPatch) -> None:

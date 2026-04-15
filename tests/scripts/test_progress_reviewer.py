@@ -7,6 +7,11 @@ import sys
 from scripts.langchain import progress_reviewer
 
 
+def test_progress_reviewer_default_model_is_high_quality_mini():
+    assert progress_reviewer.review_progress_with_llm.__defaults__ == ("gpt-5.4-mini",)
+    assert progress_reviewer.review_progress.__defaults__ == (True, "gpt-5.4-mini")
+
+
 def test_build_review_payload_includes_review_fields():
     result = progress_reviewer.review_progress(
         acceptance_criteria=["Add guard to progress review comments"],
