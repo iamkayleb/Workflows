@@ -28,25 +28,28 @@ curl https://api.openai.com/v1/models \
 ## Model Selection Guidelines
 
 ### GitHub Models (no extra API key required)
-- **gpt-4o**: Default for verify:evaluate - best available on GitHub Models
-- **Mistral-large-2407**: Mistral flagship, used for cross-family comparison
-- **Meta-Llama-3.1-405B-Instruct**: Meta's largest model
+- **codex-mini-latest**: Useful fallback slot for code-centric extraction tasks
+- **gpt-4o**: Older general GitHub Models option, no longer a verifier default
+- **Meta-Llama-3.1-405B-Instruct**: Large open-weight option when GitHub Models access is needed
 
 ### OpenAI Models (requires OPENAI_API_KEY)
 - **o1 / o1-preview**: Reasoning models - best for critical evaluation
-- **gpt-5.2**: High-quality strict evaluation
+- **gpt-5.4**: High-quality strict evaluation
+- **gpt-5.4-mini**: High-quality mini used where faster review loops matter
 
 ### Efficient Models (for rapid iteration)
 - **gpt-4o-mini**: Fast, cost-effective (but too lenient for verification)
 - **Mistral-Nemo**: Smaller Mistral model
 
 ### Verification Mode Defaults
-- **verify:evaluate**: gpt-4o (best GitHub Models option, no extra key needed)
-- **verify:compare**: gpt-5.2 (OpenAI) + Mistral-large-2407 (GitHub Models)
+- **verify:evaluate**: gpt-5.4
+- **verify:compare**: gpt-5.4 (OpenAI) + claude-sonnet-4-6 (Anthropic)
+- **verify follow-up generation**: o3-mini (reasoning) + gpt-5.4 (standard rounds)
+- **progress review**: gpt-5.4-mini
 
 Note: gpt-4o-mini was found to be too lenient, passing obvious deficiencies.
-verify:compare requires OPENAI_API_KEY for gpt-5.2 but provides stricter
-cross-provider evaluation with diverse perspectives.
+verify:compare now requires both OPENAI_API_KEY and ANTHROPIC_API_KEY for the
+highest-quality cross-provider evaluation path.
 
 ### GitHub Models vs OpenAI
 
