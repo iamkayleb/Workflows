@@ -5,7 +5,10 @@
   description: Assign to Codex agent
 - name: agent:claude
   color: d4a017
-  description: Assign to Claude agent (via Amazon Bedrock)
+  description: Assign to Claude agent
+- name: agent:gemini
+  color: 4285f4
+  description: Assign to Gemini agent
 
 
 # Agent workflow labels

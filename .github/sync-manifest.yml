@@ -189,6 +189,11 @@ codex_config:
   - source: .github/codex/AGENT_INSTRUCTIONS.md
     description: "Agent instructions - base instructions for all Codex runs"
 
+# Gemini configuration
+gemini_config:
+  - source: .github/gemini/AGENT_INSTRUCTIONS.md
+    description: "Agent instructions - base instructions for all Gemini runs"
+
 # Scripts required by consumer workflows
 # Note: These scripts are synced because they're referenced by reusable workflows
 # that run in the consumer repo context
