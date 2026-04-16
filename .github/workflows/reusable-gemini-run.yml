@@ -1039,7 +1039,7 @@ jobs:
             node_modules \
             coverage.xml \
             pr_body.md \
-            Gemini (keepalive|autofix|verifier)_report_enriched.json \
+            autofix_report_enriched.json \
             poetry.lock \
             2>/dev/null || true
 
