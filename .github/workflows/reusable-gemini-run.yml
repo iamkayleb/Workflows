@@ -743,6 +743,38 @@ jobs:
           echo "Installed Gemini CLI: $(command -v gemini)"
           gemini --version || true
 
+      - name: Configure Gemini CLI for CI
+        if: steps.preflight.outputs.missing != 'true'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY || '' }}
+        run: |
+          set -euo pipefail
+
+          # Pre-configure auth for headless/CI mode so the CLI
+          # does not attempt interactive auth selection.
+          mkdir -p ~/.gemini
+
+          # Write settings.json with selectedAuthType so the CLI
+          # skips the interactive auth picker in non-TTY environments.
+          cat > ~/.gemini/settings.json <<'SETTINGS'
+          {
+            "selectedAuthType": "api-key",
+            "theme": "None"
+          }
+          SETTINGS
+
+          # Also write a .env so the CLI finds the key via its
+          # dotenv loader (belt-and-suspenders with the env var).
+          if [ -n "${GEMINI_API_KEY:-}" ]; then
+            printf 'GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > ~/.gemini/.env
+            echo "Wrote ~/.gemini/.env with GEMINI_API_KEY"
+          fi
+
+          echo "Gemini CLI config directory:"
+          ls -la ~/.gemini/ || true
+          echo "settings.json contents:"
+          cat ~/.gemini/settings.json || true
+
       - name: Run Gemini
         id: run_gemini
         if: always()
@@ -843,18 +875,39 @@ jobs:
           echo "Output file: $output_file"
           echo "Session log: $SESSION_LOG"
 
+          # Pre-run diagnostics
+          echo "::group::Pre-Gemini diagnostics"
+          echo "Gemini CLI path: $(command -v gemini || echo 'NOT FOUND')"
+          gemini --version 2>&1 || echo "gemini --version failed"
+          echo "GEMINI_API_KEY set: $([ -n "${GEMINI_API_KEY:-}" ] && echo 'yes' || echo 'no')"
+          echo "HOME: $HOME"
+          echo "~/.gemini contents:"
+          ls -la ~/.gemini/ 2>/dev/null || echo "(no ~/.gemini dir)"
+          echo "Prompt length: $(wc -c < "$PROMPT_FILE") bytes"
+          echo "TTY: $([ -t 0 ] && echo 'yes' || echo 'no')"
+          echo "::endgroup::"
+
           # gemini -p (--prompt) runs in non-interactive agentic mode:
           # all tools execute, and the final text response goes to stdout.
-          # Note: --output-file does NOT exist in Gemini CLI; use shell
-          # redirection.  Tee to $SESSION_LOG so we have a debug artifact
-          # even if the run fails.
+          # Capture stderr separately so silent failures become visible.
+          STDERR_LOG="${SESSION_LOG%.log}-stderr.log"
           set +e
           gemini -p "$prompt_content" \
             "${perm_flag[@]}" \
             "${extra_args[@]}" \
-            2>&1 | tee "$SESSION_LOG" > "$output_file"
+            2> >(tee "$STDERR_LOG" >&2) | tee "$SESSION_LOG" > "$output_file"
           status=${PIPESTATUS[0]}
           set -e
+
+          # Show stderr if the CLI failed
+          if [ "$status" -ne 0 ]; then
+            echo "::group::Gemini CLI stderr output"
+            cat "$STDERR_LOG" 2>/dev/null || echo "(no stderr captured)"
+            echo "::endgroup::"
+            echo "::group::Gemini CLI session log"
+            cat "$SESSION_LOG" 2>/dev/null || echo "(empty session log)"
+            echo "::endgroup::"
+          fi
 
           # Diagnostic: show what Gemini did to the workspace
           echo "::group::Post-Gemini workspace diagnostics"
