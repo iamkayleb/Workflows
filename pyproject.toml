@@ -120,12 +120,6 @@ ignore = [
     "E501",  # Line too long (handled by black)
 ]
 
-[tool.ruff.lint.per-file-ignores]
-# These files are synced into consumer repos that still execute them on
-# Python 3.10/3.11, so they intentionally avoid Python 3.12-only syntax.
-"scripts/langchain/injection_guard.py" = ["UP040"]
-"scripts/langchain/structured_output.py" = ["UP046", "UP047"]
-
 [tool.ruff.lint.isort]
 # Treat scripts.* and tools.* as third-party so import ordering matches consumer
 # repos. Consumer repos have src = ["src", "tests"] which excludes scripts/ and
