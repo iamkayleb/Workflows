@@ -126,7 +126,28 @@ def test_material_status_lines_filters_generated_cache_noise() -> None:
     lines = [
         " M .venv/lib/python3.12/site-packages/example.pyc",
         " M src/pension_data/db/strategy.py",
+        " M docs/reports/issue_completion_queue.tsv",
         "?? tests/__pycache__/test_example.cpython-312.pyc",
     ]
 
     assert evaluator.material_status_lines(lines) == [" M src/pension_data/db/strategy.py"]
+
+
+def test_run_git_preserves_status_leading_columns(tmp_path: Path) -> None:
+    subprocess = evaluator.subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "-C", str(repo), "init"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test User"], check=True)
+    tracked = repo / "docs" / "reports" / "issue_completion_queue.tsv"
+    tracked.parent.mkdir(parents=True)
+    tracked.write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", str(tracked)], check=True)
+    subprocess.run(["git", "-C", str(repo), "commit", "-m", "initial"], check=True, capture_output=True)
+
+    tracked.write_text("two\n", encoding="utf-8")
+
+    assert evaluator.run_git(repo, ["status", "--short"]).splitlines() == [
+        " M docs/reports/issue_completion_queue.tsv"
+    ]

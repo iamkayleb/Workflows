@@ -66,7 +66,7 @@ def run_git(repo_path: Path, args: list[str]) -> str:
     )
     if result.returncode != 0:
         return ""
-    return result.stdout.strip()
+    return result.stdout.rstrip()
 
 
 def status_path(status_line: str) -> str:
