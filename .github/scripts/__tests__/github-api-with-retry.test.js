@@ -173,7 +173,7 @@ test('createTokenAwareRetry falls back when registry initialization fails', asyn
   const client = await createTokenAwareRetry({
     github,
     core,
-    env: {},
+    env: { GITHUB_TOKEN: 'github-token' },
     tokenRegistry,
   });
 
@@ -185,6 +185,38 @@ test('createTokenAwareRetry falls back when registry initialization fails', asyn
 
   const result = await client.withRetry(async () => ({ headers: {}, data: { ok: true } }));
   assert.equal(result.data.ok, true);
+});
+
+test('createTokenAwareRetry skips registry initialization when no token inputs exist', async () => {
+  const calls = [];
+  const tokenRegistry = {
+    async initializeTokenRegistry() {
+      calls.push('initialize');
+      throw new Error('should not initialize without tokens');
+    },
+    async getOptimalToken() {
+      calls.push('select');
+      throw new Error('should not select without tokens');
+    },
+    isInitialized() {
+      return false;
+    },
+  };
+
+  const github = { token: 'github-script-client' };
+  const warnings = [];
+  const client = await createTokenAwareRetry({
+    github,
+    core: { warning: (message) => warnings.push(String(message)) },
+    env: {},
+    tokenRegistry,
+  });
+
+  assert.equal(client.github, github);
+  assert.equal(client.tokenRegistry, null);
+  assert.equal(client.getTokenSource(), null);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(warnings, []);
 });
 
 test('createTokenAwareRetry falls back when token selection fails', async () => {
