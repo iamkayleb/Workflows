@@ -459,8 +459,14 @@ function summarizeBotCommentAuthCoverage(records = [], options = {}) {
     coverageStatus = 'warning';
   }
 
+  const hardBlockEligible = authRecords.length > 0 &&
+    parseErrors === 0 &&
+    readErrors === 0 &&
+    nonAuthRecordCount === 0 &&
+    !artifactSelectionWarning &&
+    !authArtifactInputMismatch;
   const hardBlockActive = policy.effective_mode === HARD_BLOCK_MODE;
-  const shouldFail = hardBlockActive && coverageStatus === 'warning';
+  const shouldFail = hardBlockActive && hardBlockEligible && coverageStatus === 'warning';
   return {
     schema: COVERAGE_SCHEMA,
     status: shouldFail ? 'fail' : coverageStatus,
@@ -472,6 +478,7 @@ function summarizeBotCommentAuthCoverage(records = [], options = {}) {
       mode: policy.effective_mode,
       requested_mode: policy.requested_mode,
       hard_block_approved: policy.hard_block_approved,
+      hard_block_eligible: hardBlockEligible,
       hard_block_active: hardBlockActive,
       should_fail: shouldFail,
       blockers,
@@ -499,6 +506,7 @@ function formatBotCommentAuthCoverageMarkdown(report) {
     `- Status: ${report.status}`,
     `- Coverage status: ${report.coverage_status}`,
     `- Mode: ${report.mode}`,
+    `- Hard block eligible: ${report.enforcement.hard_block_eligible}`,
     `- Hard block active: ${report.enforcement.hard_block_active}`,
     `- Input files: ${report.input_file_count}`,
     `- Scanned JSON records: ${report.scanned_record_count}`,

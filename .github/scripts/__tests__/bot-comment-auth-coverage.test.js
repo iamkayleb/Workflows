@@ -215,6 +215,7 @@ test('fails only when hard blocking is approved', () => {
   );
 
   assert.equal(report.status, 'fail');
+  assert.equal(report.enforcement.hard_block_eligible, true);
   assert.equal(report.enforcement.hard_block_active, true);
   assert.equal(report.enforcement.should_fail, true);
 });
@@ -229,8 +230,27 @@ test('does not hard-block pure no-data telemetry', () => {
   assert.equal(report.coverage_status, 'no-data');
   assert.equal(report.status, 'no-data');
   assert.equal(report.mode, 'hard-block');
+  assert.equal(report.enforcement.hard_block_eligible, false);
   assert.equal(report.enforcement.hard_block_active, true);
   assert.equal(report.enforcement.should_fail, false);
+});
+
+test('does not hard-block incomplete auth coverage inputs', () => {
+  const report = summarizeBotCommentAuthCoverage(
+    [record('agents-bot-comment-handler-wrapper', 'legacy-app-id', 105)],
+    {
+      mode: 'hard-block',
+      hard_block_approved: true,
+      parse_errors: 1,
+    }
+  );
+
+  assert.equal(report.coverage_status, 'warning');
+  assert.equal(report.status, 'warning');
+  assert.equal(report.enforcement.hard_block_eligible, false);
+  assert.equal(report.enforcement.hard_block_active, true);
+  assert.equal(report.enforcement.should_fail, false);
+  assert.ok(report.enforcement.blockers.includes('parse-errors'));
 });
 
 test('summarizes selected auth artifacts from weekly artifact selection', () => {
@@ -725,6 +745,7 @@ test('CLI writes report files and prints markdown summary', () => {
   const report = JSON.parse(fs.readFileSync(outputJson, 'utf8'));
   assert.equal(report.requested_mode, 'hard-block');
   assert.equal(report.coverage_status, 'no-data');
+  assert.equal(report.enforcement.hard_block_eligible, false);
   assert.equal(report.enforcement.should_fail, false);
   assert.equal(fs.readFileSync(outputMd, 'utf8'), result.stdout);
 });

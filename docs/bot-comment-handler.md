@@ -182,6 +182,11 @@ code:
 | `BOT_COMMENT_AUTH_COVERAGE_MODE` | `warning-only` | Use `hard-block` only after explicit approval |
 | `BOT_COMMENT_AUTH_HARD_BLOCK_APPROVED` | `false` | Required confirmation before hard blocking can fail weekly metrics |
 
+Approved hard-block mode is eligible to fail only after the scan has at least
+one bot-comment auth record and the coverage inputs are clean. Empty/no-data
+runs, parse/read errors, non-auth inputs, and artifact-selection issues remain
+diagnostic so new or quiet repositories are not blocked before evidence exists.
+
 The weekly summary also includes `organic_evidence` with schema
 `workflows-bot-comment-auth-organic-evidence/v1`. This warning-only contract
 counts bot-comment auth records by `event_name` and can require real
