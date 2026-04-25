@@ -108,6 +108,58 @@ def test_join_remote_path_normalizes_manifest_directory_targets() -> None:
     )
 
 
+def test_local_path_for_uses_root_for_script_sources(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    root_script = tmp_path / "scripts" / "langchain" / "issue_optimizer.py"
+    template_script = (
+        tmp_path / "templates" / "consumer-repo" / "scripts" / "langchain" / "issue_optimizer.py"
+    )
+    root_script.parent.mkdir(parents=True)
+    template_script.parent.mkdir(parents=True)
+    root_script.write_text("root source\n", encoding="utf-8")
+    template_script.write_text("stale template source\n", encoding="utf-8")
+
+    resolved = check_consumer_sync_drift.local_path_for(
+        "scripts/langchain/issue_optimizer.py", "scripts"
+    )
+    assert resolved is not None
+    assert resolved.resolve() == root_script
+
+
+def test_local_path_for_uses_templates_for_workflow_sources(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    root_workflow = tmp_path / ".github" / "workflows" / "agents-issue-optimizer.yml"
+    template_workflow = (
+        tmp_path
+        / "templates"
+        / "consumer-repo"
+        / ".github"
+        / "workflows"
+        / "agents-issue-optimizer.yml"
+    )
+    root_workflow.parent.mkdir(parents=True)
+    template_workflow.parent.mkdir(parents=True)
+    root_workflow.write_text("orchestrator source\n", encoding="utf-8")
+    template_workflow.write_text("consumer template source\n", encoding="utf-8")
+
+    resolved = check_consumer_sync_drift.local_path_for(
+        ".github/workflows/agents-issue-optimizer.yml", "workflows"
+    )
+    assert resolved is not None
+    assert resolved.resolve() == template_workflow
+
+
+def test_local_path_for_falls_back_to_root_for_template_sections(tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    root_doc = tmp_path / "docs" / "AGENT_ISSUE_FORMAT.md"
+    root_doc.parent.mkdir(parents=True)
+    root_doc.write_text("root-only doc\n", encoding="utf-8")
+
+    resolved = check_consumer_sync_drift.local_path_for("docs/AGENT_ISSUE_FORMAT.md", "docs")
+    assert resolved is not None
+    assert resolved.resolve() == root_doc
+
+
 def test_record_content_error_skips_after_threshold() -> None:
     errors: set[str] = set()
     counts: dict[str, int] = {}
