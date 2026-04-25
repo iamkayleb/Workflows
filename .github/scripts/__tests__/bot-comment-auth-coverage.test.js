@@ -411,6 +411,24 @@ test('reads only valid auth coverage JSON records from downloaded artifacts', ()
   assert.ok(files[0].endsWith('wrapper.json'));
 });
 
+test('reads auth coverage records nested under downloaded artifact directories', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bot-auth-coverage-'));
+  const nestedDir = path.join(dir, 'bot-comment-auth-coverage-wrapper-1', 'agent-metrics');
+  fs.mkdirSync(nestedDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(nestedDir, 'wrapper.json'),
+    JSON.stringify(record('agents-bot-comment-handler-wrapper', 'client-id', 1)),
+    'utf8'
+  );
+
+  const files = collectJsonFiles(dir);
+  const result = readJsonRecords(files);
+
+  assert.equal(files.length, 1);
+  assert.equal(result.records.length, 1);
+  assert.ok(files[0].endsWith(path.join('agent-metrics', 'wrapper.json')));
+});
+
 test('counts valid JSON with unexpected schema as non-auth records', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bot-auth-coverage-'));
   const artifactDir = path.join(dir, 'bot-comment-auth-coverage-wrapper-2');
@@ -576,13 +594,13 @@ test('identifies only bot-comment auth coverage candidate files', () => {
   );
   assert.equal(
     isPotentialAuthCoverageFile('/tmp/artifacts/bot-comment-auth-coverage-wrapper-1/nested/wrapper.json'),
-    false
+    true
   );
   assert.equal(
     isPotentialAuthCoverageFile(
       '/tmp/artifacts/bot-comment-auth-coverage-reusable-1/nested/reusable.json'
     ),
-    false
+    true
   );
   assert.equal(
     isPotentialAuthCoverageFile(

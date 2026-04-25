@@ -598,12 +598,20 @@ function collectJsonFiles(rootDir) {
 
 function isPotentialAuthCoverageFile(file) {
   const normalized = cleanString(file).split(path.sep).join('/');
-  const basename = path.basename(normalized);
+  const basename = path.posix.basename(normalized);
   if (!normalized.endsWith('.json')) return false;
   const contract = AUTH_ARTIFACT_FILE_CONTRACTS[basename];
   if (!contract) return false;
-  const artifactDir = path.basename(path.dirname(normalized));
-  return artifactFamilyFromName(artifactDir) === contract.family;
+  let currentDir = path.posix.dirname(normalized);
+  while (currentDir && currentDir !== '.' && currentDir !== '/') {
+    if (artifactFamilyFromName(path.posix.basename(currentDir)) === contract.family) {
+      return true;
+    }
+    const parentDir = path.posix.dirname(currentDir);
+    if (parentDir === currentDir) break;
+    currentDir = parentDir;
+  }
+  return false;
 }
 
 function readJsonRecords(files = []) {
