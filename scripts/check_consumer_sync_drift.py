@@ -59,13 +59,34 @@ def resolve_repos(raw: str | None) -> list[str]:
     return repos
 
 
-def local_path_for(source: str) -> Path | None:
-    template_candidate = Path("templates/consumer-repo") / source
-    if template_candidate.exists():
-        return template_candidate
+ROOT_SOURCE_SECTIONS = {"scripts", "templates"}
+TEMPLATE_SOURCE_SECTIONS = {
+    "workflows",
+    "prompts",
+    "codex_config",
+    "copilot_config",
+    "docs",
+    "actions",
+    "llm_config",
+    "git_config",
+    "issue_templates",
+    "user_docs",
+}
+
+
+def local_path_for(source: str, section: str | None = None) -> Path | None:
     root_candidate = Path(source)
-    if root_candidate.exists():
-        return root_candidate
+    template_candidate = Path("templates/consumer-repo") / source
+    if section in ROOT_SOURCE_SECTIONS:
+        candidates = [root_candidate, template_candidate]
+    elif section in TEMPLATE_SOURCE_SECTIONS:
+        candidates = [template_candidate, root_candidate]
+    else:
+        candidates = [template_candidate, root_candidate]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
     return None
 
 
@@ -463,7 +484,7 @@ def main() -> int:
                 continue
             target = entry.get("target", source)
             is_directory = entry.get("is_directory", False)
-            local_path = local_path_for(source)
+            local_path = local_path_for(source, section)
             if not local_path:
                 errors.add(f"{section}: missing local file for {source}")
                 continue
