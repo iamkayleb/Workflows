@@ -161,6 +161,27 @@ def test_consumer_sync_drift_uploads_machine_readable_report():
     ), "Health 68 must upload the drift report as a GitHub-visible artifact"
 
 
+def test_merge_sync_prs_uploads_machine_readable_report_and_hash_input():
+    text = (WORKFLOWS_DIR / "maint-71-merge-sync-prs.yml").read_text(encoding="utf-8")
+    assert "sync_hash:" in text, "Maint 71 must expose a target sync hash input"
+    assert (
+        "sync_pr_merge_contract.js" in text
+    ), "Maint 71 must use the structured sync PR merge contract helper"
+    assert (
+        "selectActiveSyncPr" in text
+    ), "Maint 71 must select the active PR with the hash-aware contract"
+    assert (
+        "parseBooleanInput" in text and "AUTO_MERGE_INPUT" in text
+    ), "Maint 71 must preserve explicit false boolean inputs"
+    assert "SYNC_PR_MERGE_REPORT_JSON" in text, "Maint 71 must configure a JSON merge report path"
+    assert (
+        "report-only mode remains successful" in text
+    ), "Maint 71 dry-run mode must report blocking statuses without failing the workflow"
+    assert (
+        "sync-pr-merge-report" in text
+    ), "Maint 71 must upload the merge report as a GitHub-visible artifact"
+
+
 def test_health_40_branch_protection_sweep_skips_push_runs():
     text = (WORKFLOWS_DIR / "health-40-sweep.yml").read_text(encoding="utf-8")
     assert (
