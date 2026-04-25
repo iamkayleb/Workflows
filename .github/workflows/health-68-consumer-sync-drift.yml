@@ -58,13 +58,26 @@ jobs:
         env:
           DRIFT_TOKEN: >-
             ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || secrets.GITHUB_TOKEN }}
+          CONSUMER_SYNC_DRIFT_REPORT_JSON: artifacts/consumer-sync-drift-report.json
           INPUT_REPOS: ${{ inputs.repos }}
         run: |
+          mkdir -p artifacts
           repos_input="${INPUT_REPOS:-}"
           if [ -z "$repos_input" ]; then
           repos_input=$(python3 scripts/list_registered_consumer_repos.py --separator=,)
           fi
-          python3 scripts/check_consumer_sync_drift.py --repos "$repos_input"
+          python3 scripts/check_consumer_sync_drift.py \
+            --repos "$repos_input" \
+            --report-json "$CONSUMER_SYNC_DRIFT_REPORT_JSON"
+
+      - name: Upload drift report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: consumer-sync-drift-report
+          path: artifacts/consumer-sync-drift-report.json
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Create drift issue
         if: ${{ failure() }}

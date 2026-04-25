@@ -142,6 +142,36 @@ def test_agent_watchdog_workflow_absent():
     assert not legacy_watchdog.exists(), "Standalone agent-watchdog workflow must remain deleted"
 
 
+def test_consumer_sync_drift_uploads_machine_readable_report():
+    text = (WORKFLOWS_DIR / "health-68-consumer-sync-drift.yml").read_text(encoding="utf-8")
+    assert (
+        "CONSUMER_SYNC_DRIFT_REPORT_JSON" in text
+    ), "Health 68 must configure a JSON drift report path"
+    assert (
+        '--report-json "$CONSUMER_SYNC_DRIFT_REPORT_JSON"' in text
+    ), "Health 68 must pass the drift report path into the checker"
+    assert (
+        "consumer-sync-drift-report" in text
+    ), "Health 68 must upload the drift report as a GitHub-visible artifact"
+
+
+def test_weekly_metrics_uploads_selector_report_on_failure():
+    workflow_text = (WORKFLOWS_DIR / "agents-weekly-metrics.yml").read_text(encoding="utf-8")
+    template_text = Path(
+        "templates/consumer-repo/.github/workflows/agents-weekly-metrics.yml"
+    ).read_text(encoding="utf-8")
+    for text in (workflow_text, template_text):
+        assert (
+            "artifacts/metric-artifacts-selection.json" in text
+        ), "Weekly metrics must include selector JSON in uploaded artifacts"
+        assert (
+            "if: ${{ always() }}" in text
+        ), "Weekly metrics artifact upload must run after selector failures"
+        assert (
+            "if-no-files-found: warn" in text
+        ), "Weekly metrics upload must not mask the original failure when files are absent"
+
+
 def test_issue_intake_handles_codex_events():
     intake = WORKFLOWS_DIR / "agents-63-issue-intake.yml"
     assert intake.exists(), "agents-63-issue-intake.yml must exist"

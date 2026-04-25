@@ -64,6 +64,12 @@ function summarizeTerminalDispositionCoverage(records = [], options = {}) {
   const terminalRecords = records
     .filter(isTerminalDispositionRecord)
     .map((record) => normalizeTerminalDisposition(record));
+  const scannedRecordCount = records.length;
+  const nonTerminalRecordCount = scannedRecordCount - terminalRecords.length;
+  const inputFiles = Array.isArray(options.input_files) ? options.input_files.map(cleanString).filter(Boolean) : [];
+  const inputFileCount = Number.isFinite(options.input_file_count)
+    ? options.input_file_count
+    : inputFiles.length;
   const observed = new Map();
 
   for (const record of terminalRecords) {
@@ -101,7 +107,7 @@ function summarizeTerminalDispositionCoverage(records = [], options = {}) {
 
   let status = 'pass';
   if (terminalRecords.length === 0) {
-    status = 'no-data';
+    status = parseErrors > 0 || nonTerminalRecordCount > 0 ? 'warning' : 'no-data';
   } else if (missing.length > 0 || parseErrors > 0) {
     status = 'warning';
   }
@@ -110,7 +116,11 @@ function summarizeTerminalDispositionCoverage(records = [], options = {}) {
     schema: COVERAGE_SCHEMA,
     status,
     mode: 'warning-only',
+    input_file_count: inputFileCount,
+    input_files: inputFiles,
+    scanned_record_count: scannedRecordCount,
     terminal_record_count: terminalRecords.length,
+    non_terminal_record_count: nonTerminalRecordCount,
     observed_source_count: observedSources.length,
     expected_source_count: expected.length,
     covered_source_count: covered.length,
@@ -135,7 +145,10 @@ function formatTerminalDispositionCoverageMarkdown(report) {
     '',
     '- Mode: warning-only (does not block merges or automation)',
     `- Status: ${report.status}`,
+    `- Input files: ${report.input_file_count || 0}`,
+    `- Scanned records: ${report.scanned_record_count || 0}`,
     `- Terminal disposition records: ${report.terminal_record_count}`,
+    `- Non-terminal records: ${report.non_terminal_record_count || 0}`,
     `- Observed sources: ${report.observed_source_count}`,
     `- Expected review-thread sources: ${report.expected_source_count}`,
     `- Missing review-thread sources: ${report.missing_source_count}`,
@@ -161,6 +174,8 @@ function formatTerminalDispositionCoverageMarkdown(report) {
 
   if (report.status === 'no-data') {
     lines.push('', '_No terminal disposition records were found in the metrics input._');
+  } else if (report.terminal_record_count === 0 && (report.non_terminal_record_count || 0) > 0) {
+    lines.push('', '_Terminal disposition files were found, but they did not contain valid terminal disposition records._');
   }
 
   return `${lines.join('\n')}\n`;
@@ -194,12 +209,14 @@ function collectNdjsonFiles(root) {
 function readNdjsonFiles(files = []) {
   const records = [];
   let parseErrors = 0;
+  let readErrors = 0;
   for (const file of files) {
     let text = '';
     try {
       text = fs.readFileSync(file, 'utf8');
     } catch (_error) {
       parseErrors += 1;
+      readErrors += 1;
       continue;
     }
     for (const line of text.split(/\r?\n/)) {
@@ -217,7 +234,12 @@ function readNdjsonFiles(files = []) {
       }
     }
   }
-  return { records, parse_errors: parseErrors };
+  return {
+    records,
+    parse_errors: parseErrors,
+    read_errors: readErrors,
+    file_count: files.length,
+  };
 }
 
 function parseArgs(argv = process.argv.slice(2)) {
@@ -267,11 +289,17 @@ function main() {
   const inputFiles = options.inputs.length > 0
     ? options.inputs
     : collectNdjsonFiles(options.metrics_dir);
-  const { records, parse_errors: parseErrors } = readNdjsonFiles(inputFiles);
+  const {
+    records,
+    parse_errors: parseErrors,
+    file_count: inputFileCount,
+  } = readNdjsonFiles(inputFiles);
   const expectedSources = parseExpectedSources(options);
   const report = summarizeTerminalDispositionCoverage(records, {
     parse_errors: parseErrors,
     expected_sources: expectedSources,
+    input_file_count: inputFileCount,
+    input_files: inputFiles,
   });
   const markdown = formatTerminalDispositionCoverageMarkdown(report);
   fs.writeFileSync(options.output_json, `${JSON.stringify(report, null, 2)}\n`);

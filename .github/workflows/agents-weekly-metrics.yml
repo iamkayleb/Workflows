@@ -153,6 +153,7 @@ jobs:
           fi
 
       - name: Upload weekly summary
+        if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
           name: agent-weekly-metrics
@@ -162,6 +163,7 @@ jobs:
             artifacts/metric-artifacts-selection.md
             terminal-disposition-coverage.json
             terminal-disposition-coverage.md
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Post summary to tracking issue
