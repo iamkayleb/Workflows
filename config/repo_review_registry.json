@@ -4,6 +4,11 @@
     "stranske",
     "collab-deliverables"
   ],
+  "archive_review": {
+    "paths": [
+      "~/.codex/archived_sessions"
+    ]
+  },
   "repos": [
     {
       "repo": "stranske/Workflows",
