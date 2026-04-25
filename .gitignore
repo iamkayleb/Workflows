@@ -99,6 +99,9 @@ autofix_report_enriched.json
 # These accumulate data; prefer workflow artifacts over git commits
 keepalive-metrics.ndjson
 
+# --- Local repo-review output (ephemeral human decision packets) ---
+docs/reports/repo-review/
+
 # OS
 .DS_Store
 Thumbs.db

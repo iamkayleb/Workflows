@@ -1,0 +1,100 @@
+{
+  "workspace_root": "..",
+  "excluded_repo_names": [
+    "stranske",
+    "collab-deliverables"
+  ],
+  "repos": [
+    {
+      "repo": "stranske/Workflows",
+      "local_path": "Workflows-steward",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Quality-first workflow system review; terminal disposition, verifier handling, canonical lane ownership, and parseable PR/source evidence."
+    },
+    {
+      "repo": "stranske/Travel-Plan-Permission",
+      "local_path": "Travel-Plan-Permission",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Trip planning and permission workflow implementation against orchestration, portal, and approval integrity design."
+    },
+    {
+      "repo": "stranske/Trend_Model_Project",
+      "local_path": "Trend_Model_Project",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Trend modeling application state, Monte Carlo scenarios, Streamlit/LLM features, and workflow integration."
+    },
+    {
+      "repo": "stranske/Portable-Alpha-Extension-Model",
+      "local_path": "Portable-Alpha-Extension-Model",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Portable Alpha feature parity and LLM/reference-pack work against the app's design goals."
+    },
+    {
+      "repo": "stranske/Counter_Risk",
+      "local_path": "Counter_Risk",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Counterparty risk reporting pipeline reliability, reconciliation, date semantics, and output integrity."
+    },
+    {
+      "repo": "stranske/Manager-Database",
+      "local_path": "Manager-Database",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Manager database, alerts, RAG/query chains, and review-follow-up completion."
+    },
+    {
+      "repo": "stranske/Inv-Man-Intake",
+      "local_path": "Inv-Man-Intake",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Investment manager intake project structure, contracts, and workflow readiness."
+    },
+    {
+      "repo": "stranske/Pension-Data",
+      "local_path": "Pension-Data",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Pension data ingestion/API/database work and workflow readiness."
+    },
+    {
+      "repo": "stranske/Collab-Admin",
+      "local_path": "Collab-Admin",
+      "status": "paused",
+      "cadence": "manual",
+      "decision_anchor": "Admin dashboard and review automation; reactivate when a design review is requested."
+    },
+    {
+      "repo": "stranske/Workflows-Integration-Tests",
+      "local_path": "Workflows-Integration-Tests",
+      "status": "paused",
+      "cadence": "manual",
+      "decision_anchor": "Integration-test companion repo; usually follows Workflows sync/evaluation rather than independent issue generation."
+    },
+    {
+      "repo": "stranske/trip-planner",
+      "local_path": "trip-planner",
+      "status": "active",
+      "cadence": "weekly",
+      "decision_anchor": "Trip planner app and related planning workflow; include in weekly repo review and issue-draft generation."
+    },
+    {
+      "repo": "stranske/tim-bot",
+      "local_path": "tim-bot",
+      "status": "ignored",
+      "cadence": "manual",
+      "decision_anchor": "Not part of the current weekly repo-development review lane."
+    },
+    {
+      "repo": "stranske/Template",
+      "local_path": "Template",
+      "status": "ignored",
+      "cadence": "manual",
+      "decision_anchor": "Template repo; include only when template-specific design work is requested."
+    }
+  ]
+}
