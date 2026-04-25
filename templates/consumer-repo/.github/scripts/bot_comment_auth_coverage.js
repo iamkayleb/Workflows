@@ -5,6 +5,10 @@ const COVERAGE_SCHEMA = 'workflows-bot-comment-auth-coverage-summary/v1';
 const AUTH_SCHEMA = 'workflows-bot-comment-auth-coverage/v1';
 const DEFAULT_MODE = 'warning-only';
 const HARD_BLOCK_MODE = 'hard-block';
+const AUTH_ARTIFACT_FAMILIES = new Set([
+  'bot-comment-auth-coverage-wrapper',
+  'bot-comment-auth-coverage-reusable',
+]);
 
 const COMPONENT_POLICIES = {
   'agents-bot-comment-handler-wrapper': {
@@ -48,7 +52,10 @@ function normalizeMode(value) {
 
 function normalizePolicy(options = {}) {
   const requestedMode = normalizeMode(
-    options.mode ?? options.enforcement_mode ?? process.env.BOT_COMMENT_AUTH_COVERAGE_MODE
+    options.mode ??
+      options.enforcement_mode ??
+      options.enforcementMode ??
+      process.env.BOT_COMMENT_AUTH_COVERAGE_MODE
   );
   const hardBlockApproved = normalizeBoolean(
     options.hard_block_approved ??
@@ -272,25 +279,35 @@ function normalizeArtifactSelectionSummary(report) {
     };
   }
   const selected = Array.isArray(report.selected_artifacts) ? report.selected_artifacts : [];
-  const selectedAuthArtifacts = selected.filter((artifact) => {
-    const family = cleanString(artifact.family);
-    const name = cleanString(artifact.name);
-    return family.startsWith('bot-comment-auth-coverage-') ||
-      name.startsWith('bot-comment-auth-coverage-');
-  });
+  const selectedAuthArtifacts = selected
+    .map((artifact) => ({
+      id: artifact.id ?? artifact.artifact_id ?? artifact.artifactId ?? null,
+      name: cleanString(artifact.name),
+      family: artifactFamilyFromSelection(artifact),
+      created_at: cleanString(artifact.created_at ?? artifact.createdAt),
+      updated_at: cleanString(artifact.updated_at ?? artifact.updatedAt),
+    }))
+    .filter((artifact) => AUTH_ARTIFACT_FAMILIES.has(artifact.family));
   return {
-    schema: cleanString(report.schema),
+    schema: cleanString(report.schema) || 'workflows-weekly-metrics-artifact-selection/v1',
     status: cleanString(report.status) || 'pass',
     error_message: cleanString(report.error_message),
     selected_auth_artifact_count: selectedAuthArtifacts.length,
-    selected_auth_artifacts: selectedAuthArtifacts.map((artifact) => ({
-      id: artifact.id,
-      name: cleanString(artifact.name),
-      family: cleanString(artifact.family),
-      created_at: cleanString(artifact.created_at ?? artifact.createdAt),
-      updated_at: cleanString(artifact.updated_at ?? artifact.updatedAt),
-    })),
+    selected_auth_artifacts: selectedAuthArtifacts,
   };
+}
+
+function artifactFamilyFromSelection(artifact = {}) {
+  const family = cleanString(artifact.family);
+  if (AUTH_ARTIFACT_FAMILIES.has(family)) return family;
+  const name = cleanString(artifact.name);
+  if (name.startsWith('bot-comment-auth-coverage-wrapper-')) {
+    return 'bot-comment-auth-coverage-wrapper';
+  }
+  if (name.startsWith('bot-comment-auth-coverage-reusable-')) {
+    return 'bot-comment-auth-coverage-reusable';
+  }
+  return '';
 }
 
 function summarizeBotCommentAuthCoverage(records = [], options = {}) {
@@ -340,6 +357,12 @@ function summarizeBotCommentAuthCoverage(records = [], options = {}) {
         blockers.push(`expected-${componentPolicyConfig.expected_mode}-${component}`);
       }
     }
+    let status = 'pass';
+    if (blockers.length > 0) {
+      status = componentPolicyConfig.missing_record_severity === 'no-data' && !latest
+        ? 'no-data'
+        : 'warning';
+    }
     return {
       component,
       record_count: componentRecords.length,
@@ -347,7 +370,7 @@ function summarizeBotCommentAuthCoverage(records = [], options = {}) {
       expected_mode: componentPolicyConfig.expected_mode,
       invalid_expected_mode: componentPolicyConfig.invalid_expected_mode,
       allowed_modes: componentPolicyConfig.allowed_modes,
-      status: blockers.length > 0 ? componentPolicyConfig.missing_record_severity === 'no-data' && !latest ? 'no-data' : 'warning' : 'pass',
+      status,
       blockers,
     };
   });
@@ -538,6 +561,12 @@ function parseArgs(argv = process.argv.slice(2)) {
     } else if (arg === '--artifact-selection-report') {
       options.artifact_selection_report = next;
       index += 1;
+    } else if (arg === '--mode') {
+      options.enforcement_mode = next;
+      index += 1;
+    } else if (arg === '--hard-block-approved') {
+      options.hard_block_approved = next;
+      index += 1;
     }
   }
   return options;
@@ -552,10 +581,13 @@ function main() {
     input_files: files,
     input_file_count: readResult.file_count,
     artifact_selection_report: readArtifactSelectionReport(options.artifact_selection_report),
+    enforcement_mode: options.enforcement_mode,
+    hard_block_approved: options.hard_block_approved,
   });
+  const markdownSummary = formatBotCommentAuthCoverageMarkdown(report);
   fs.writeFileSync(options.output, `${JSON.stringify(report, null, 2)}\n`);
-  fs.writeFileSync(options.markdown, formatBotCommentAuthCoverageMarkdown(report));
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  fs.writeFileSync(options.markdown, markdownSummary);
+  process.stdout.write(markdownSummary);
   return report.status === 'fail' ? 1 : 0;
 }
 
@@ -573,8 +605,9 @@ module.exports = {
   isPotentialAuthCoverageFile,
   normalizeArtifactSelectionSummary,
   normalizePolicy,
-  summarizeOrganicEvidence,
+  parseArgs,
   readArtifactSelectionReport,
   readJsonRecords,
+  summarizeOrganicEvidence,
   summarizeBotCommentAuthCoverage,
 };

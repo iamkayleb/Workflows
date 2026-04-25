@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -11,6 +12,7 @@ const {
   isPotentialAuthCoverageFile,
   normalizeArtifactSelectionSummary,
   normalizePolicy,
+  parseArgs,
   readArtifactSelectionReport,
   readJsonRecords,
   summarizeBotCommentAuthCoverage,
@@ -174,6 +176,24 @@ test('summarizes selected auth artifacts from weekly artifact selection', () => 
   assert.equal(summary.selected_auth_artifacts[0].name, 'bot-comment-auth-coverage-wrapper-42');
 });
 
+test('defaults artifact selection schema when a valid selector report omits it', () => {
+  const summary = normalizeArtifactSelectionSummary({
+    status: 'pass',
+    selected_artifacts: [
+      {
+        artifact_id: 2,
+        name: 'bot-comment-auth-coverage-wrapper-42',
+      },
+    ],
+  });
+
+  assert.equal(summary.schema, 'workflows-weekly-metrics-artifact-selection/v1');
+  assert.equal(summary.status, 'pass');
+  assert.equal(summary.selected_auth_artifact_count, 1);
+  assert.equal(summary.selected_auth_artifacts[0].id, 2);
+  assert.equal(summary.selected_auth_artifacts[0].family, 'bot-comment-auth-coverage-wrapper');
+});
+
 test('warns when configured artifact selection report is missing', () => {
   const missing = readArtifactSelectionReport('/tmp/does-not-exist-bot-auth-selection.json');
   const report = summarizeBotCommentAuthCoverage([], {
@@ -295,6 +315,10 @@ test('normalizes bot auth coverage enforcement policy', () => {
     hard_block_approved: true,
     policy_blockers: [],
   });
+  assert.equal(
+    normalizePolicy({ enforcementMode: 'hard-block', hard_block_approved: true }).requested_mode,
+    'hard-block'
+  );
 });
 
 test('warns when required organic bot auth evidence is missing', () => {
@@ -345,4 +369,62 @@ test('passes required organic bot auth evidence when real triggers use client-id
   assert.equal(organic.event_counts['agents-bot-comment-handler-wrapper'].pull_request, 1);
   assert.equal(report.status, 'pass');
   assert.deepEqual(report.enforcement.blockers, []);
+});
+
+test('parses CLI enforcement flags', () => {
+  const options = parseArgs([
+    '--dir',
+    'coverage-artifacts',
+    '--output',
+    'summary.json',
+    '--markdown',
+    'summary.md',
+    '--artifact-selection-report',
+    'selection.json',
+    '--mode',
+    'hard-block',
+    '--hard-block-approved',
+    'true',
+  ]);
+
+  assert.equal(options.dir, 'coverage-artifacts');
+  assert.equal(options.output, 'summary.json');
+  assert.equal(options.markdown, 'summary.md');
+  assert.equal(options.artifact_selection_report, 'selection.json');
+  assert.equal(options.enforcement_mode, 'hard-block');
+  assert.equal(options.hard_block_approved, 'true');
+});
+
+test('CLI writes report files and prints markdown summary', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bot-auth-cli-'));
+  const artifactsDir = path.join(dir, 'artifacts');
+  const outputJson = path.join(dir, 'summary.json');
+  const outputMd = path.join(dir, 'summary.md');
+  fs.mkdirSync(artifactsDir);
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      path.join(__dirname, '..', 'bot_comment_auth_coverage.js'),
+      '--dir',
+      artifactsDir,
+      '--output',
+      outputJson,
+      '--markdown',
+      outputMd,
+      '--mode',
+      'hard-block',
+      '--hard-block-approved',
+      'true',
+    ],
+    { encoding: 'utf8' }
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /^## Bot Comment App Auth Coverage/);
+  assert.doesNotMatch(result.stdout, /^\{/);
+  const report = JSON.parse(fs.readFileSync(outputJson, 'utf8'));
+  assert.equal(report.requested_mode, 'hard-block');
+  assert.equal(report.enforcement.should_fail, true);
+  assert.equal(fs.readFileSync(outputMd, 'utf8'), result.stdout);
 });

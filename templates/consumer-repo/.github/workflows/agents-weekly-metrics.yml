@@ -154,8 +154,10 @@ jobs:
           TERMINAL_DISPOSITION_ARTIFACT_SELECTION_JSON: artifacts/metric-artifacts-selection.json
           TERMINAL_DISPOSITION_COVERAGE_JSON: terminal-disposition-coverage.json
           TERMINAL_DISPOSITION_COVERAGE_MD: terminal-disposition-coverage.md
-          TERMINAL_DISPOSITION_COVERAGE_MODE: ${{ vars.TERMINAL_DISPOSITION_COVERAGE_MODE || 'warning-only' }}
-          TERMINAL_DISPOSITION_HARD_BLOCK_APPROVED: ${{ vars.TERMINAL_DISPOSITION_HARD_BLOCK_APPROVED || 'false' }}
+          TERMINAL_DISPOSITION_COVERAGE_MODE: >-
+            ${{ vars.TERMINAL_DISPOSITION_COVERAGE_MODE || 'warning-only' }}
+          TERMINAL_DISPOSITION_HARD_BLOCK_APPROVED: >-
+            ${{ vars.TERMINAL_DISPOSITION_HARD_BLOCK_APPROVED || 'false' }}
         run: |
           set +e
           node .github/scripts/terminal_disposition_coverage.js
@@ -170,7 +172,9 @@ jobs:
               } >> agent-weekly-metrics.md
             fi
           fi
-          echo "TERMINAL_DISPOSITION_COVERAGE_EXIT_STATUS=${terminal_coverage_status}" >> "$GITHUB_ENV"
+          echo \
+            "TERMINAL_DISPOSITION_COVERAGE_EXIT_STATUS=${terminal_coverage_status}" \
+            >> "$GITHUB_ENV"
 
       - name: Bot-comment auth coverage preflight
         env:
@@ -178,15 +182,25 @@ jobs:
           BOT_COMMENT_AUTH_ARTIFACT_SELECTION_JSON: artifacts/metric-artifacts-selection.json
           BOT_COMMENT_AUTH_COVERAGE_JSON: bot-comment-auth-coverage-summary.json
           BOT_COMMENT_AUTH_COVERAGE_MD: bot-comment-auth-coverage-summary.md
-          BOT_COMMENT_AUTH_COVERAGE_MODE: ${{ vars.BOT_COMMENT_AUTH_COVERAGE_MODE || 'warning-only' }}
-          BOT_COMMENT_AUTH_HARD_BLOCK_APPROVED: ${{ vars.BOT_COMMENT_AUTH_HARD_BLOCK_APPROVED || 'false' }}
-          BOT_COMMENT_WRAPPER_EXPECTED_AUTH_MODE: ${{ vars.BOT_COMMENT_WRAPPER_EXPECTED_AUTH_MODE || 'client-id' }}
+          BOT_COMMENT_AUTH_COVERAGE_MODE: >-
+            ${{ vars.BOT_COMMENT_AUTH_COVERAGE_MODE || 'warning-only' }}
+          BOT_COMMENT_AUTH_HARD_BLOCK_APPROVED: >-
+            ${{ vars.BOT_COMMENT_AUTH_HARD_BLOCK_APPROVED || 'false' }}
+          BOT_COMMENT_WRAPPER_EXPECTED_AUTH_MODE: >-
+            ${{ vars.BOT_COMMENT_WRAPPER_EXPECTED_AUTH_MODE || 'client-id' }}
           BOT_COMMENT_REUSABLE_EXPECTED_AUTH_MODE: >-
             ${{ vars.BOT_COMMENT_REUSABLE_EXPECTED_AUTH_MODE }}
-          BOT_COMMENT_REUSABLE_ALLOWED_AUTH_MODES: ${{ vars.BOT_COMMENT_REUSABLE_ALLOWED_AUTH_MODES || 'client-id,none' }}
-          BOT_COMMENT_AUTH_REQUIRED_ORGANIC_EVENTS: ${{ vars.BOT_COMMENT_AUTH_REQUIRED_ORGANIC_EVENTS || 'pull_request,workflow_run' }}
-          BOT_COMMENT_AUTH_ORGANIC_COMPONENTS: ${{ vars.BOT_COMMENT_AUTH_ORGANIC_COMPONENTS || 'agents-bot-comment-handler-wrapper,reusable-bot-comment-handler' }}
-          BOT_COMMENT_AUTH_ORGANIC_EXPECTED_MODE: ${{ vars.BOT_COMMENT_AUTH_ORGANIC_EXPECTED_MODE || 'client-id' }}
+          BOT_COMMENT_REUSABLE_ALLOWED_AUTH_MODES: >-
+            ${{ vars.BOT_COMMENT_REUSABLE_ALLOWED_AUTH_MODES || 'client-id,none' }}
+          BOT_COMMENT_AUTH_REQUIRED_ORGANIC_EVENTS: >-
+            ${{ vars.BOT_COMMENT_AUTH_REQUIRED_ORGANIC_EVENTS || 'pull_request,workflow_run' }}
+          BOT_COMMENT_AUTH_ORGANIC_COMPONENTS: >-
+            ${{
+              vars.BOT_COMMENT_AUTH_ORGANIC_COMPONENTS ||
+              'agents-bot-comment-handler-wrapper,reusable-bot-comment-handler'
+            }}
+          BOT_COMMENT_AUTH_ORGANIC_EXPECTED_MODE: >-
+            ${{ vars.BOT_COMMENT_AUTH_ORGANIC_EXPECTED_MODE || 'client-id' }}
         run: |
           set +e
           node .github/scripts/bot_comment_auth_coverage.js
@@ -274,5 +288,14 @@ jobs:
           terminal_status="${TERMINAL_DISPOSITION_COVERAGE_EXIT_STATUS:-0}"
           bot_comment_auth_status="${BOT_COMMENT_AUTH_COVERAGE_EXIT_STATUS:-0}"
           if [ "${terminal_status}" != "0" ] || [ "${bot_comment_auth_status}" != "0" ]; then
+            echo "::error::Coverage hard-block triggered: " \
+              "terminal-disposition=${terminal_status}, " \
+              "bot-comment-auth=${bot_comment_auth_status}"
+            if [ "${terminal_status}" != "0" ]; then
+              echo "Failed check: Review-thread terminal coverage preflight"
+            fi
+            if [ "${bot_comment_auth_status}" != "0" ]; then
+              echo "Failed check: Bot-comment auth coverage preflight"
+            fi
             exit 1
           fi
