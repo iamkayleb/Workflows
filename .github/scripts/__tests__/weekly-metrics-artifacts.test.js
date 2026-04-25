@@ -112,6 +112,36 @@ test('bounds selected artifacts by total and per-family limits', () => {
   assert.equal(report.ignored_total_limit_count, 1);
 });
 
+test('reserves scarce terminal artifacts before filling the total cap', () => {
+  const report = selectMetricsArtifacts(
+    [
+      artifact(1, 'keepalive-metrics', '2026-04-25T11:59:00Z'),
+      artifact(2, 'agents-autofix-metrics', '2026-04-25T11:58:00Z'),
+      artifact(3, 'verifier-terminal-disposition-77', '2026-04-25T09:00:00Z'),
+      artifact(4, 'review-thread-terminal-disposition-77', '2026-04-25T08:00:00Z'),
+    ],
+    {
+      now_ms: NOW,
+      max_total: 3,
+    }
+  );
+
+  assert.deepEqual(
+    report.selected_artifacts.map((selected) => selected.name),
+    [
+      'verifier-terminal-disposition-77',
+      'review-thread-terminal-disposition-77',
+      'keepalive-metrics',
+    ]
+  );
+  assert.equal(report.ignored_total_limit_count, 1);
+  assert.deepEqual(report.selected_family_counts, {
+    'keepalive-metrics': 1,
+    'review-thread-terminal-disposition': 1,
+    'verifier-terminal-disposition': 1,
+  });
+});
+
 test('formats selected artifacts for the workflow download loop', () => {
   const tsv = formatArtifactTsv([
     { id: 42, name: 'keepalive-metrics' },
