@@ -182,6 +182,25 @@ def test_merge_sync_prs_uploads_machine_readable_report_and_hash_input():
     ), "Maint 71 must upload the merge report as a GitHub-visible artifact"
 
 
+def test_consumer_sync_run_uploads_machine_readable_report():
+    text = (WORKFLOWS_DIR / "maint-68-sync-consumer-repos.yml").read_text(encoding="utf-8")
+    assert (
+        "sync_run_contract.js" in text
+    ), "Maint 68 summary must use the structured sync run contract helper"
+    assert (
+        "CONSUMER_SYNC_RUN_REPORT_JSON" in text
+    ), "Maint 68 must configure a JSON sync run report path"
+    assert (
+        "consumer-sync-result-" in text
+    ), "Maint 68 matrix jobs must upload per-repo result artifacts"
+    assert (
+        "consumer-sync-run-report" in text
+    ), "Maint 68 must upload the aggregate sync run report as a GitHub-visible artifact"
+    assert (
+        "sync_failed" in text and "create_pr_failed" in text
+    ), "Maint 68 report must distinguish sync failures from PR creation failures"
+
+
 def test_health_40_branch_protection_sweep_skips_push_runs():
     text = (WORKFLOWS_DIR / "health-40-sweep.yml").read_text(encoding="utf-8")
     assert (
