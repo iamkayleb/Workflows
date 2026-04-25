@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const {
   SELECTION_SCHEMA,
   artifactFamily,
+  buildSelectionErrorReport,
   collectRepoArtifacts,
   formatArtifactTsv,
   formatSelectionMarkdown,
@@ -48,16 +49,43 @@ test('selects only recent matching artifacts with a machine-readable report', ()
   );
 
   assert.equal(report.schema, SELECTION_SCHEMA);
+  assert.equal(report.status, 'pass');
   assert.equal(report.scanned_count, 6);
   assert.equal(report.candidate_count, 3);
   assert.equal(report.selected_count, 3);
   assert.equal(report.ignored_name_count, 1);
   assert.equal(report.ignored_old_count, 1);
   assert.equal(report.ignored_expired_count, 1);
+  assert.deepEqual(report.candidate_family_counts, {
+    'autopilot-metrics': 1,
+    'keepalive-metrics': 1,
+    'review-thread-terminal-disposition': 1,
+  });
+  assert.deepEqual(report.selected_family_counts, {
+    'autopilot-metrics': 1,
+    'keepalive-metrics': 1,
+    'review-thread-terminal-disposition': 1,
+  });
   assert.deepEqual(
     report.selected_artifacts.map((selected) => selected.id),
     [5, 4, 1]
   );
+});
+
+test('builds an error report when artifact selection cannot query GitHub', () => {
+  const report = buildSelectionErrorReport(
+    { now_ms: NOW, max_total: 3 },
+    new Error('API rate limit exceeded')
+  );
+  const markdown = formatSelectionMarkdown(report);
+
+  assert.equal(report.schema, SELECTION_SCHEMA);
+  assert.equal(report.status, 'error');
+  assert.equal(report.error_message, 'API rate limit exceeded');
+  assert.equal(report.selected_count, 0);
+  assert.deepEqual(report.selected_artifacts, []);
+  assert.match(markdown, /Status: error/);
+  assert.match(markdown, /API rate limit exceeded/);
 });
 
 test('bounds selected artifacts by total and per-family limits', () => {
@@ -107,6 +135,7 @@ test('formats a human-visible selector summary for weekly metrics', () => {
   assert.match(markdown, /Weekly Metrics Artifact Selection/);
   assert.match(markdown, /Scan cap: 5 pages x 100 artifacts/);
   assert.match(markdown, /Selected artifacts: 2/);
+  assert.match(markdown, /Artifact family \| Candidates \| Selected/);
   assert.match(markdown, /autopilot-metrics/);
   assert.match(markdown, /keepalive-metrics/);
 });

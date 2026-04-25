@@ -100,6 +100,12 @@ function normalizeArtifact(raw = {}) {
   };
 }
 
+function sortedCountObject(counts) {
+  return Object.fromEntries(
+    [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  );
+}
+
 function selectMetricsArtifacts(artifacts = [], options = {}) {
   const config = normalizeSelectionOptions(options);
   const stats = {
@@ -114,6 +120,7 @@ function selectMetricsArtifacts(artifacts = [], options = {}) {
   };
 
   const candidates = [];
+  const candidateFamilyCounts = new Map();
   for (const raw of artifacts) {
     const artifact = normalizeArtifact(raw);
     if (!artifact.id || !artifact.name) {
@@ -133,6 +140,7 @@ function selectMetricsArtifacts(artifacts = [], options = {}) {
       continue;
     }
     stats.candidate_count += 1;
+    candidateFamilyCounts.set(artifact.family, (candidateFamilyCounts.get(artifact.family) || 0) + 1);
     candidates.push(artifact);
   }
 
@@ -160,6 +168,7 @@ function selectMetricsArtifacts(artifacts = [], options = {}) {
   stats.selected_count = selected.length;
   return {
     schema: SELECTION_SCHEMA,
+    status: 'pass',
     config: {
       lookback_days: config.lookback_days,
       max_total: config.max_total,
@@ -169,6 +178,8 @@ function selectMetricsArtifacts(artifacts = [], options = {}) {
       cutoff_iso: new Date(config.cutoff_ms).toISOString(),
     },
     ...stats,
+    candidate_family_counts: sortedCountObject(candidateFamilyCounts),
+    selected_family_counts: sortedCountObject(familyCounts),
     selected_artifacts: selected.map((artifact) => ({
       id: artifact.id,
       name: artifact.name,
@@ -179,19 +190,50 @@ function selectMetricsArtifacts(artifacts = [], options = {}) {
   };
 }
 
+function buildSelectionErrorReport(options = {}, error = {}) {
+  const config = normalizeSelectionOptions(options);
+  return {
+    schema: SELECTION_SCHEMA,
+    status: 'error',
+    error_message: cleanString(error?.message || error) || 'Unknown artifact selection error',
+    config: {
+      lookback_days: config.lookback_days,
+      max_total: config.max_total,
+      max_per_family: config.max_per_family,
+      max_scan_pages: config.max_scan_pages,
+      per_page: config.per_page,
+      cutoff_iso: new Date(config.cutoff_ms).toISOString(),
+    },
+    scanned_count: 0,
+    candidate_count: 0,
+    selected_count: 0,
+    ignored_expired_count: 0,
+    ignored_name_count: 0,
+    ignored_old_count: 0,
+    ignored_family_limit_count: 0,
+    ignored_total_limit_count: 0,
+    candidate_family_counts: {},
+    selected_family_counts: {},
+    selected_artifacts: [],
+  };
+}
+
 function formatArtifactTsv(artifacts = []) {
   return artifacts.map((artifact) => `${artifact.id}\t${artifact.name}`).join('\n');
 }
 
 function formatSelectionMarkdown(report) {
-  const familyCounts = new Map();
-  for (const artifact of report.selected_artifacts || []) {
-    familyCounts.set(artifact.family, (familyCounts.get(artifact.family) || 0) + 1);
-  }
+  const candidateFamilyCounts = report.candidate_family_counts || {};
+  const selectedFamilyCounts = report.selected_family_counts || {};
+  const familyNames = [...new Set([
+    ...Object.keys(candidateFamilyCounts),
+    ...Object.keys(selectedFamilyCounts),
+  ])].sort((a, b) => a.localeCompare(b));
   const lines = [
     '## Weekly Metrics Artifact Selection',
     '',
     `- Schema: ${report.schema}`,
+    `- Status: ${report.status || 'pass'}`,
     `- Lookback days: ${report.config.lookback_days}`,
     `- Scan cap: ${report.config.max_scan_pages} pages x ${report.config.per_page} artifacts`,
     `- Download cap: ${report.config.max_total} total, ${report.config.max_per_family} per family`,
@@ -203,10 +245,14 @@ function formatSelectionMarkdown(report) {
       `${report.ignored_total_limit_count} over total cap`,
   ];
 
-  if (familyCounts.size > 0) {
-    lines.push('', '| Artifact family | Selected |', '|-----------------|----------|');
-    for (const [family, count] of [...familyCounts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
-      lines.push(`| ${family} | ${count} |`);
+  if (report.status === 'error') {
+    lines.push(`- Error: ${report.error_message || 'Unknown artifact selection error'}`);
+  }
+
+  if (familyNames.length > 0) {
+    lines.push('', '| Artifact family | Candidates | Selected |', '|-----------------|------------|----------|');
+    for (const family of familyNames) {
+      lines.push(`| ${family} | ${candidateFamilyCounts[family] || 0} | ${selectedFamilyCounts[family] || 0} |`);
     }
   }
 
@@ -305,6 +351,23 @@ async function main() {
 
 if (require.main === module) {
   main().catch((error) => {
+    const options = parseArgs();
+    const selection = buildSelectionErrorReport(options, error);
+    try {
+      const path = require('path');
+      fs.mkdirSync(path.dirname(options.output), { recursive: true });
+      fs.mkdirSync(path.dirname(options.report), { recursive: true });
+      if (options.markdown) {
+        fs.mkdirSync(path.dirname(options.markdown), { recursive: true });
+      }
+      fs.writeFileSync(options.output, '');
+      fs.writeFileSync(options.report, `${JSON.stringify(selection, null, 2)}\n`);
+      if (options.markdown) {
+        fs.writeFileSync(options.markdown, formatSelectionMarkdown(selection));
+      }
+    } catch (writeError) {
+      console.error(writeError);
+    }
     console.error(error);
     process.exit(1);
   });
@@ -317,6 +380,7 @@ module.exports = {
   DEFAULT_MAX_TOTAL,
   SELECTION_SCHEMA,
   artifactFamily,
+  buildSelectionErrorReport,
   collectRepoArtifacts,
   formatArtifactTsv,
   formatSelectionMarkdown,

@@ -84,7 +84,9 @@ test('reports missing review-thread coverage without failing the contract', () =
   assert.equal(report.schema, 'workflows-terminal-disposition-coverage/v1');
   assert.equal(report.mode, 'warning-only');
   assert.equal(report.status, 'warning');
+  assert.equal(report.scanned_record_count, 3);
   assert.equal(report.terminal_record_count, 3);
+  assert.equal(report.non_terminal_record_count, 0);
   assert.equal(report.expected_source_count, 2);
   assert.equal(report.covered_source_count, 1);
   assert.equal(report.missing_source_count, 1);
@@ -135,6 +137,31 @@ test('reads ndjson files and counts parse errors', () => {
 
   assert.equal(result.records.length, 1);
   assert.equal(result.parse_errors, 2);
+  assert.equal(result.file_count, 1);
+});
+
+test('warns when terminal files contain no terminal disposition records', () => {
+  const report = summarizeTerminalDispositionCoverage(
+    [
+      {
+        schema: 'workflows-keepalive-metrics/v1',
+        source_type: 'review-thread',
+        source_id: '1',
+      },
+    ],
+    {
+      input_file_count: 1,
+      input_files: ['artifacts/review-thread-terminal-disposition-1/review-thread-terminal-disposition.ndjson'],
+    }
+  );
+  const markdown = formatTerminalDispositionCoverageMarkdown(report);
+
+  assert.equal(report.status, 'warning');
+  assert.equal(report.input_file_count, 1);
+  assert.equal(report.terminal_record_count, 0);
+  assert.equal(report.non_terminal_record_count, 1);
+  assert.match(markdown, /Input files: 1/);
+  assert.match(markdown, /did not contain valid terminal disposition records/);
 });
 
 test('collects only terminal disposition ndjson files from metrics artifacts', () => {

@@ -6,11 +6,14 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import json
 import os
 from pathlib import Path
 
 import requests
 import yaml
+
+REPORT_SCHEMA = "workflows-consumer-sync-drift/v1"
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,6 +33,11 @@ def parse_args() -> argparse.Namespace:
         "--summary",
         default=os.environ.get("GITHUB_STEP_SUMMARY", ""),
         help="Optional path to write a summary markdown.",
+    )
+    parser.add_argument(
+        "--report-json",
+        default=os.environ.get("CONSUMER_SYNC_DRIFT_REPORT_JSON", ""),
+        help="Optional path to write a machine-readable drift report.",
     )
     return parser.parse_args()
 
@@ -56,21 +64,91 @@ def file_hash(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
+def sorted_items(values: set[str]) -> list[str]:
+    return sorted(values)
+
+
+def build_report(
+    *,
+    repos: list[str],
+    drift: set[str],
+    missing: set[str],
+    errors: set[str],
+    obsolete: set[str],
+) -> dict[str, object]:
+    counts = {
+        "drift": len(drift),
+        "missing": len(missing),
+        "errors": len(errors),
+        "obsolete": len(obsolete),
+    }
+    status = "pass" if all(value == 0 for value in counts.values()) else "drift"
+    return {
+        "schema": REPORT_SCHEMA,
+        "status": status,
+        "repo_count": len(repos),
+        "repos": repos,
+        "counts": counts,
+        "drift": sorted_items(drift),
+        "missing": sorted_items(missing),
+        "errors": sorted_items(errors),
+        "obsolete": sorted_items(obsolete),
+    }
+
+
+def write_report_json(path: str, report: dict[str, object]) -> None:
+    if not path:
+        return
+    report_path = Path(path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     args = parse_args()
     repos = resolve_repos(args.repos)
     if not repos:
         print("::error::No repos provided or found in REGISTERED_CONSUMER_REPOS")
+        write_report_json(
+            args.report_json,
+            build_report(
+                repos=[],
+                drift=set(),
+                missing=set(),
+                errors={"No repos provided or found in REGISTERED_CONSUMER_REPOS"},
+                obsolete=set(),
+            ),
+        )
         return 1
 
     manifest_path = Path(args.manifest)
     if not manifest_path.exists():
         print("::error::sync-manifest.yml not found")
+        write_report_json(
+            args.report_json,
+            build_report(
+                repos=repos,
+                drift=set(),
+                missing=set(),
+                errors={"sync-manifest.yml not found"},
+                obsolete=set(),
+            ),
+        )
         return 1
 
     token = os.environ.get("DRIFT_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
     if not token:
         print("::error::No GitHub token available for cross-repo reads")
+        write_report_json(
+            args.report_json,
+            build_report(
+                repos=repos,
+                drift=set(),
+                missing=set(),
+                errors={"No GitHub token available for cross-repo reads"},
+                obsolete=set(),
+            ),
+        )
         return 1
 
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
@@ -160,6 +238,15 @@ def main() -> int:
                 continue
             obsolete.add(f"{repo}: {target}")
 
+    report = build_report(
+        repos=repos,
+        drift=drift,
+        missing=missing,
+        errors=errors,
+        obsolete=obsolete,
+    )
+    write_report_json(args.report_json, report)
+
     if args.summary:
         summary_path = Path(args.summary)
         summary_path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,7 +272,7 @@ def main() -> int:
                 handle.write("\n".join(f"- {item}" for item in sorted(obsolete)))
                 handle.write("\n\n")
 
-    if drift or missing or errors or obsolete:
+    if report["status"] != "pass":
         print("::warning::Consumer repo drift detected")
         return 1
 
