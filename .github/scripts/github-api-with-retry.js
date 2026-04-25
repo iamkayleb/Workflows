@@ -445,7 +445,6 @@ function collectTokenSecrets(env = {}) {
   const keys = [
     'SERVICE_BOT_PAT',
     'ACTIONS_BOT_PAT',
-    'CODESPACES_WORKFLOWS',
     'OWNER_PR_PAT',
     'AGENTS_AUTOMATION_PAT',
     'TOKEN_ROTATION_JSON',

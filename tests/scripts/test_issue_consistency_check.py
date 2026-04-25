@@ -151,6 +151,10 @@ def test_should_scan_header_file_excludes_known_dirs() -> None:
         check_issue_consistency.should_scan_header_file(Path("templates/consumer-repo/README.md"))
         is False
     )
+    assert (
+        check_issue_consistency.should_scan_header_file(Path("docs/plans/SHORT_TERM_PLAN.md"))
+        is False
+    )
 
 
 def test_run_git_with_fallback_handles_invalid_object(monkeypatch) -> None:

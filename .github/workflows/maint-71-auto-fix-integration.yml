@@ -121,12 +121,12 @@ jobs:
         if: steps.check_status.outputs.should_fix == 'true'
         id: integration_token
         env:
-          CODESPACES_PAT: ${{ secrets.CODESPACES_WORKFLOWS }}
+          OWNER_PAT: ${{ secrets.OWNER_PR_PAT }}
           SERVICE_PAT: ${{ secrets.SERVICE_BOT_PAT }}
         run: |
-          if [ -n "${CODESPACES_PAT}" ]; then
+          if [ -n "${OWNER_PAT}" ]; then
             echo "token_available=true" >> "$GITHUB_OUTPUT"
-            echo "SYNC_TOKEN=${CODESPACES_PAT}" >> "$GITHUB_ENV"
+            echo "SYNC_TOKEN=${OWNER_PAT}" >> "$GITHUB_ENV"
           elif [ -n "${SERVICE_PAT}" ]; then
             echo "token_available=true" >> "$GITHUB_OUTPUT"
             echo "SYNC_TOKEN=${SERVICE_PAT}" >> "$GITHUB_ENV"

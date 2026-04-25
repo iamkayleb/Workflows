@@ -79,7 +79,7 @@ The goal of this pass was to catalogue every workflow under `.github/workflows` 
 - **Optimizations applied (2026-02-22)**:
   - Dialed the cron back to hourly and made consumer repo scans/manual-only (`include_consumer_repos=true` on dispatch) so the workflow stops hammering every registered repo by default.
   - Added two new dispatch inputs (`run_load_sharing_checks`, `verify_actions_access`) so the expensive token-rotation simulation and per-token workflow-run probes only fire when explicitly requested.
-  - Patched the `alert-on-high-usage` job to inspect the real summary keys (`codespaces_workflows_pat`, `workflows_app`, etc.) so high-utilization alerts finally trigger when those pools exceed 85%.
+  - Patched the `alert-on-high-usage` job to inspect the real summary keys (`owner_pr_pat`, `workflows_app`, etc.) so high-utilization alerts finally trigger when those pools exceed 85%.
 - **Next steps**: Keep building historical storage for the summary JSON and consider pushing consumer-repo metrics into a reusable helper so health-67/68 can share it.
 
 ### `health-claude-cli-auth-debug.yml`

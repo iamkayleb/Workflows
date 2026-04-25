@@ -445,7 +445,7 @@ python scripts/issue_dedup_smoke.py --repo stranske/Manager-Database --check-iss
    - `good first task` - Duplicate of "good first issue" (GitHub standard)
 
 **Execution Method:**
-Used `CODESPACES_WORKFLOWS` PAT with proper permissions via GitHub CLI
+Used an owner PAT with proper permissions via GitHub CLI
 
 **Script Updated:** 
 `scripts/cleanup_labels.py` BLOAT_LABELS expanded to include size/stage labels and duplicate variants

@@ -108,7 +108,7 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 
 ### `maint-71-merge-sync-prs.yml`
 - **Purpose**: Closes stale sync PRs and merges the latest passing sync PR in each consumer repo.
-- **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint, switched to the shared API client, and now rely on `scripts/list_registered_consumer_repos.py` so repo discovery stays centralized. Merge operations run via PAT (`SERVICE_BOT_PAT`/`CODESPACES_WORKFLOWS`) with a fallback to the default token for read-only runs.
+- **Optimizations applied (2026-02-22)**: Removed the GitHub App token mint, switched to the shared API client, and now rely on `scripts/list_registered_consumer_repos.py` so repo discovery stays centralized. Merge operations run via PAT (`OWNER_PR_PAT`/`SERVICE_BOT_PAT`) with a fallback to the default token for read-only runs.
 - **Next steps**: Surface per-repo merge outcomes in the run summary for quicker triage.
 
 ### `maint-72-fix-pr-body-conflicts.yml`

@@ -78,7 +78,6 @@ const TOKEN_CAPABILITIES = {
  * | Token               | Account/App               | Primary Use Cases                                    | Exclusive? |
  * |---------------------|---------------------------|------------------------------------------------------|------------|
  * | GITHUB_TOKEN        | Installation              | Basic repo ops within same repo                      | No         |
- * | CODESPACES_WORKFLOWS| stranske (owner)          | Cross-repo sync, dependabot automerge, label sync    | No         |
  * | SERVICE_BOT_PAT     | stranske-automation-bot   | Bot comments, labels, autofix commits                | Primary    |
  * | ACTIONS_BOT_PAT     | stranske-automation-bot   | Workflow dispatch, belt conveyor                     | Primary    |
  * | OWNER_PR_PAT        | stranske (owner)          | PR creation on owner's behalf                        | Exclusive  |
@@ -105,15 +104,10 @@ const TOKEN_SPECIALIZATIONS = {
     exclusive: false,
     description: 'Workflow dispatch triggers and belt conveyor operations',
   },
-  CODESPACES_WORKFLOWS: {
-    primaryTasks: ['cross-repo-sync', 'dependabot-automerge', 'label-sync'],
-    exclusive: false,
-    description: 'Owner PAT for cross-repo operations',
-  },
   OWNER_PR_PAT: {
-    primaryTasks: ['pr-creation-as-owner'],
+    primaryTasks: ['pr-creation-as-owner', 'cross-repo-sync', 'dependabot-automerge', 'label-sync'],
     exclusive: true,
-    description: 'Creates PRs attributed to repository owner',
+    description: 'Owner PAT for PR creation and owner-scoped cross-repo operations',
   },
   // App specializations
   WORKFLOWS_APP: {
@@ -237,7 +231,6 @@ async function initializeTokenRegistry({ secrets, github, core, githubToken }) {
   const patSources = [
     { id: 'SERVICE_BOT_PAT', env: secrets.SERVICE_BOT_PAT, account: 'stranske-automation-bot' },
     { id: 'ACTIONS_BOT_PAT', env: secrets.ACTIONS_BOT_PAT, account: 'stranske-automation-bot' },
-    { id: 'CODESPACES_WORKFLOWS', env: secrets.CODESPACES_WORKFLOWS, account: 'stranske' },
     { id: 'OWNER_PR_PAT', env: secrets.OWNER_PR_PAT, account: 'stranske' },
     { id: 'AGENTS_AUTOMATION_PAT', env: secrets.AGENTS_AUTOMATION_PAT, account: 'unknown' },
     // Numbered PATs for future expansion
