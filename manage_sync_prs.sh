@@ -1,19 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-# Manage sync PRs in consumer repos using CODESPACES secret
+# Manage sync PRs in consumer repos using an owner or service bot PAT
 # This script:
 # 1. Closes stale sync PRs (keeps only the latest)
 # 2. Checks status of remaining PRs
 # 3. Reports which PRs are ready to merge
 
-if [ -z "${CODESPACES:-}" ]; then
-  echo "Error: CODESPACES secret not found" >&2
+SYNC_MANAGEMENT_TOKEN="${OWNER_PR_PAT:-${SERVICE_BOT_PAT:-}}"
+
+if [ -z "${SYNC_MANAGEMENT_TOKEN}" ]; then
+  echo "Error: OWNER_PR_PAT or SERVICE_BOT_PAT is required" >&2
   exit 1
 fi
 
-# Use CODESPACES token for gh CLI (overrides GITHUB_TOKEN)
-export GH_TOKEN="$CODESPACES"
+# Use the selected management token for gh CLI (overrides GITHUB_TOKEN)
+export GH_TOKEN="$SYNC_MANAGEMENT_TOKEN"
 
 REPOS=(
   "Travel-Plan-Permission"

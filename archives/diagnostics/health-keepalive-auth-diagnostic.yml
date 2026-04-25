@@ -449,7 +449,7 @@ jobs:
         env:
           HAS_SERVICE_BOT: ${{ secrets.SERVICE_BOT_PAT != '' }}
           HAS_ACTIONS_BOT: ${{ secrets.ACTIONS_BOT_PAT != '' }}
-          HAS_CODESPACES: ${{ secrets.CODESPACES_WORKFLOWS != '' }}
+          HAS_OWNER_PR_PAT: ${{ secrets.OWNER_PR_PAT != '' }}
           HAS_OWNER_PR: ${{ secrets.OWNER_PR_PAT != '' }}
           HAS_AGENTS_AUTO: ${{ secrets.AGENTS_AUTOMATION_PAT != '' }}
           HAS_CODEX_AUTH: ${{ secrets.CODEX_AUTH_JSON != '' }}
@@ -461,7 +461,7 @@ jobs:
           echo ""
           echo "SERVICE_BOT_PAT:       $HAS_SERVICE_BOT"
           echo "ACTIONS_BOT_PAT:       $HAS_ACTIONS_BOT"
-          echo "CODESPACES_WORKFLOWS:  $HAS_CODESPACES"
+          echo "OWNER_PR_PAT:          $HAS_OWNER_PR_PAT"
           echo "OWNER_PR_PAT:          $HAS_OWNER_PR"
           echo "AGENTS_AUTOMATION_PAT: $HAS_AGENTS_AUTO"
           echo "CODEX_AUTH_JSON:       $HAS_CODEX_AUTH"

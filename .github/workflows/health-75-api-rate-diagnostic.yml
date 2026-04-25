@@ -72,7 +72,7 @@ jobs:
       gh_app_rate: ${{ steps.gh_app.outputs.rate_json }}
       summary_json: ${{ steps.aggregate.outputs.summary }}
     env:
-      CODESPACES_WORKFLOWS: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+      OWNER_PR_PAT: ${{ secrets.OWNER_PR_PAT || '' }}
       SERVICE_BOT_PAT: ${{ secrets.SERVICE_BOT_PAT || '' }}
       WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID || '' }}
       WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || '' }}
@@ -213,11 +213,11 @@ jobs:
           fi
           echo "::endgroup::"
 
-      - name: Check PAT (CODESPACES_WORKFLOWS) rate limits
+      - name: Check PAT (OWNER_PR_PAT) rate limits
         id: pat
-        if: ${{ env.CODESPACES_WORKFLOWS != '' }}
+        if: ${{ env.OWNER_PR_PAT != '' }}
         env:
-          GH_TOKEN: ${{ env.CODESPACES_WORKFLOWS }}
+          GH_TOKEN: ${{ env.OWNER_PR_PAT }}
         run: |
           set -euo pipefail
           # shellcheck disable=SC1009,SC1073,SC1039,SC1072
@@ -282,14 +282,14 @@ jobs:
               date -d "@$core_reset" -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "unknown"
             )
 
-            echo "CODESPACES_WORKFLOWS PAT"
+            echo "OWNER_PR_PAT"
             echo "  Core API: ${core_used}/${core_limit} (${core_pct}% used)"
             echo "  GraphQL:  ${graphql_used}/${graphql_limit} (${graphql_pct}% used)"
             echo "  Search:   ${search_used}/${search_limit} (${search_pct}% used)"
             echo "  Reset at: ${reset_time}"
 
             rate_json=$(jq -cn \
-              --arg source "CODESPACES_WORKFLOWS_PAT" \
+              --arg source "OWNER_PR_PAT" \
               --argjson core_limit "$core_limit" \
               --argjson core_remaining "$core_remaining" \
               --argjson core_used "$core_used" \
@@ -850,7 +850,7 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.verify_actions_access != false }}
         env:
           GITHUB_TOKEN_VALUE: ${{ github.token }}
-          CODESPACES_WORKFLOWS_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+          OWNER_PR_PAT_TOKEN: ${{ secrets.OWNER_PR_PAT || '' }}
           SERVICE_BOT_TOKEN: ${{ secrets.SERVICE_BOT_PAT || '' }}
           WORKFLOWS_APP_TOKEN: ${{ steps.app_token.outputs.token || '' }}
           KEEPALIVE_APP_TOKEN: ${{ steps.keepalive_app_token.outputs.token || '' }}
@@ -866,7 +866,7 @@ jobs:
 
           const tokens = [
             ['GITHUB_TOKEN', process.env.GITHUB_TOKEN_VALUE],
-            ['CODESPACES_WORKFLOWS', process.env.CODESPACES_WORKFLOWS_TOKEN],
+            ['OWNER_PR_PAT', process.env.OWNER_PR_PAT_TOKEN],
             ['SERVICE_BOT_PAT', process.env.SERVICE_BOT_TOKEN],
             ['WORKFLOWS_APP', process.env.WORKFLOWS_APP_TOKEN],
             ['KEEPALIVE_APP', process.env.KEEPALIVE_APP_TOKEN],
@@ -1017,7 +1017,7 @@ jobs:
               timestamp: $timestamp,
               tokens: {
                 github_token: $gt[0],
-                codespaces_workflows_pat: $pat[0],
+                owner_pr_pat: $pat[0],
                 service_bot_pat: $svc[0],
                 workflows_app: $app[0],
                 keepalive_app: $ka[0],
@@ -1061,10 +1061,9 @@ jobs:
     if: ${{ inputs.report_mode != 'historical' && github.event_name == 'workflow_dispatch' && inputs.run_load_sharing_checks != false }}
     needs: collect-rate-limits
     env:
-      CODESPACES_WORKFLOWS: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+      OWNER_PR_PAT: ${{ secrets.OWNER_PR_PAT || '' }}
       SERVICE_BOT_PAT: ${{ secrets.SERVICE_BOT_PAT || '' }}
       ACTIONS_BOT_PAT: ${{ secrets.ACTIONS_BOT_PAT || '' }}
-      OWNER_PR_PAT: ${{ secrets.OWNER_PR_PAT || '' }}
       AGENTS_AUTOMATION_PAT: ${{ secrets.AGENTS_AUTOMATION_PAT || '' }}
       WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID || '' }}
       WORKFLOWS_APP_PRIVATE_KEY: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || '' }}
@@ -1124,7 +1123,6 @@ jobs:
             const secretKeys = [
               'SERVICE_BOT_PAT',
               'ACTIONS_BOT_PAT',
-              'CODESPACES_WORKFLOWS',
               'OWNER_PR_PAT',
               'AGENTS_AUTOMATION_PAT',
               'WORKFLOWS_APP_ID',
@@ -1262,7 +1260,7 @@ jobs:
     outputs:
       consumer_activity: ${{ steps.activity.outputs.activity_json }}
     env:
-      CODESPACES_WORKFLOWS: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+      OWNER_PR_PAT: ${{ secrets.OWNER_PR_PAT || '' }}
       RUN_CONSUMER_CHECKS: ${{ github.event_name == 'workflow_dispatch' && inputs.include_consumer_repos != false }}
 
     steps:
@@ -1270,7 +1268,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup API client
-        if: ${{ env.RUN_CONSUMER_CHECKS == 'true' && env.CODESPACES_WORKFLOWS != '' }}
+        if: ${{ env.RUN_CONSUMER_CHECKS == 'true' && env.OWNER_PR_PAT != '' }}
         uses: ./.github/actions/setup-api-client
         with:
           secrets: ${{ toJSON(secrets) }}
@@ -1278,7 +1276,7 @@ jobs:
 
       - name: Load registered consumer repos
         id: consumer-repos
-        if: ${{ env.RUN_CONSUMER_CHECKS == 'true' && env.CODESPACES_WORKFLOWS != '' }}
+        if: ${{ env.RUN_CONSUMER_CHECKS == 'true' && env.OWNER_PR_PAT != '' }}
         run: |
           repos=$(
             awk '
@@ -1301,7 +1299,7 @@ jobs:
       - name: Check recent workflow runs across consumer repos
         id: activity
         env:
-          GH_TOKEN: ${{ env.CODESPACES_WORKFLOWS }}
+          GH_TOKEN: ${{ env.OWNER_PR_PAT }}
           REGISTERED_CONSUMER_REPOS: ${{ steps.consumer-repos.outputs.list }}
           RUN_CONSUMER_CHECKS: ${{ env.RUN_CONSUMER_CHECKS }}
         run: |
@@ -1473,7 +1471,7 @@ jobs:
           fi
 
           # PAT
-          pat=$(echo "$summary" | jq '.tokens.codespaces_workflows_pat // {}')
+          pat=$(echo "$summary" | jq '.tokens.owner_pr_pat // {}')
           if [ "$pat" != "{}" ] && [ "$pat" != "null" ]; then
             pat_core=$(echo "$pat" | jq -r '"\(.core.used)/\(.core.limit) (\(.core.pct)%)"')
               pat_graphql=$(echo "$pat" | jq -r \
@@ -1481,7 +1479,7 @@ jobs:
               pat_search=$(echo "$pat" | jq -r \
                 '"\(.search.used)/\(.search.limit) (\(.search.pct)%)"')
             pat_reset=$(echo "$pat" | jq -r '.reset // "N/A"')
-              printf '| CODESPACES_WORKFLOWS | %s | %s | %s | %s |\n' \
+              printf '| OWNER_PR_PAT | %s | %s | %s | %s |\n' \
                 "$pat_core" \
                 "$pat_graphql" \
                 "$pat_search" \
@@ -1517,7 +1515,7 @@ jobs:
           # Check for high utilization
           for token_path in \
               ".tokens.github_token" \
-              ".tokens.codespaces_workflows_pat" \
+              ".tokens.owner_pr_pat" \
               ".tokens.workflows_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
@@ -1660,7 +1658,7 @@ jobs:
             echo "⚠️ Only $available_tokens auth method(s) configured." >> "$GITHUB_STEP_SUMMARY"
             echo "Consider adding:" >> "$GITHUB_STEP_SUMMARY"
             if [ "$pat" = "{}" ] || [ "$pat" = "null" ]; then
-              echo "- CODESPACES_WORKFLOWS PAT for cross-repo operations" >> "$GITHUB_STEP_SUMMARY"
+              echo "- OWNER_PR_PAT PAT for cross-repo operations" >> "$GITHUB_STEP_SUMMARY"
             fi
             if [ "$app" = "{}" ] || [ "$app" = "null" ]; then
               echo "- WORKFLOWS_APP GitHub App for higher rate limits" >> "$GITHUB_STEP_SUMMARY"
@@ -1688,7 +1686,7 @@ jobs:
 
           for token_path in \
             ".tokens.github_token" \
-            ".tokens.codespaces_workflows_pat" \
+            ".tokens.owner_pr_pat" \
             ".tokens.workflows_app"; do
             token_data=$(echo "$summary" | jq "$token_path // {}")
             if [ "$token_data" != "{}" ] && [ "$token_data" != "null" ]; then
@@ -1727,7 +1725,7 @@ jobs:
 
             for token_path in \
               ".tokens.github_token" \
-              ".tokens.codespaces_workflows_pat" \
+              ".tokens.owner_pr_pat" \
               ".tokens.service_bot_pat" \
               ".tokens.workflows_app" \
               ".tokens.keepalive_app" \
@@ -2093,7 +2091,7 @@ jobs:
         id: history
         env:
           APP_GH_TOKEN: ${{ steps.workflows_app_token.outputs.token || '' }}
-          PRIMARY_GH_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || '' }}
+          PRIMARY_GH_TOKEN: ${{ secrets.OWNER_PR_PAT || '' }}
           FALLBACK_GH_TOKEN: ${{ github.token }}
           START_DATE: ${{ steps.dates.outputs.start_date }}
           END_DATE: ${{ steps.dates.outputs.end_date }}

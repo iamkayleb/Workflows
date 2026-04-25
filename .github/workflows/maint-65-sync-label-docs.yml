@@ -48,12 +48,12 @@ jobs:
       - name: Prepare sync token
         id: token
         env:
-          CODESPACES_PAT: ${{ secrets.CODESPACES_WORKFLOWS }}
+          OWNER_PAT: ${{ secrets.OWNER_PR_PAT }}
           SERVICE_PAT: ${{ secrets.SERVICE_BOT_PAT }}
         run: |
-          if [ -n "${CODESPACES_PAT}" ]; then
+          if [ -n "${OWNER_PAT}" ]; then
             echo "token_available=true" >> "$GITHUB_OUTPUT"
-            echo "Using CODESPACES_WORKFLOWS token"
+            echo "Using OWNER_PR_PAT token"
           elif [ -n "${SERVICE_PAT}" ]; then
             echo "token_available=true" >> "$GITHUB_OUTPUT"
             echo "Using SERVICE_BOT_PAT token"
@@ -72,7 +72,7 @@ jobs:
       - name: Sync to consumer repos
         if: steps.token.outputs.token_available == 'true'
         env:
-          SYNC_TOKEN: ${{ secrets.CODESPACES_WORKFLOWS || secrets.SERVICE_BOT_PAT }}
+          SYNC_TOKEN: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
           CUSTOM_REPOS: ${{ inputs.repos }}
           DEFAULT_REPOS: ${{ steps.repos.outputs.default_repos }}

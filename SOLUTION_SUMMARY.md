@@ -22,7 +22,7 @@ This PR adds comprehensive tools to fix the issue:
    - Commit and push fixes
    - Integration CI will automatically run and pass
 
-**Requirements**: Needs `SERVICE_BOT_PAT` or `CODESPACES_WORKFLOWS` secret
+**Requirements**: Needs `OWNER_PR_PAT` or `SERVICE_BOT_PAT` secret
 
 ### 2. Local Fix Script
 **File**: `scripts/fix-integration-tests-formatting.sh`

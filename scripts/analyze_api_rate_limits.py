@@ -513,8 +513,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--pat-env",
-        default="CODESPACES_WORKFLOWS",
-        help="Environment variable name for PAT token (default: CODESPACES_WORKFLOWS)",
+        default="SERVICE_BOT_PAT",
+        help="Environment variable name for PAT token (default: SERVICE_BOT_PAT)",
     )
     args = parser.parse_args()
 

@@ -103,7 +103,7 @@ jobs:
           SYNC_HASH_INPUT: ${{ inputs.sync_hash || '' }}
           SYNC_PR_MERGE_REPORT_JSON: artifacts/sync-pr-merge-report.json
         with:
-          github-token: ${{ secrets.SERVICE_BOT_PAT || secrets.CODESPACES_WORKFLOWS || github.token }}
+          github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
           script: |
             const defaultOwner = context.repo.owner;
             const fs = require('fs');
