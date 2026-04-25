@@ -299,6 +299,12 @@ jobs:
       # Job-level alias for repo token (uses OWNER_PR_PAT or SERVICE_BOT_PAT)
       REPO_TOKEN: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT }}
     steps:
+      - name: Compute result artifact name
+        id: repo_meta
+        run: |
+          safe_name=$(printf '%s' '${{ matrix.repo }}' | sed -E 's/[^A-Za-z0-9_.-]+/-/g; s/^-+|-+$//g')
+          echo "artifact_name=${safe_name:-unknown-repo}" >> "$GITHUB_OUTPUT"
+
       - name: Checkout Workflows
         uses: actions/checkout@v6
         with:
@@ -707,6 +713,7 @@ jobs:
           SYNC_SCRIPT
 
       - name: Check for required labels
+        id: labels
         if: steps.sync.outputs.has_changes == 'true'
         env:
           GH_TOKEN: ${{ env.REPO_TOKEN }}
@@ -746,6 +753,7 @@ jobs:
             --color "0E8A16" --force || true
 
       - name: Create sync PR
+        id: create_pr
         if: steps.sync.outputs.has_changes == 'true' && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ env.REPO_TOKEN }}
@@ -759,6 +767,11 @@ jobs:
           if [ -n "$existing_pr" ]; then
             echo "PR #$existing_pr already exists for this sync"
             echo "::notice::Existing PR: #$existing_pr"
+            {
+              echo "status=existing_pr"
+              echo "pr_number=$existing_pr"
+              echo "pr_url=https://github.com/${{ matrix.repo }}/pull/$existing_pr"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -816,6 +829,7 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "No changes to commit after sync; skipping PR creation."
+            echo "status=no_committed_changes" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -841,11 +855,17 @@ jobs:
           **Source:** stranske/Workflows
           **Manifest:** \`.github/sync-manifest.yml\`"
 
-          gh pr create \
+          pr_url=$(gh pr create \
             --head "$branch_name" \
             --title "chore: sync workflow templates" \
             --body "$pr_body" \
-            --label "sync,automated"
+            --label "sync,automated")
+          pr_number=$(gh pr list --head "$branch_name" --json number -q '.[0].number' || echo "")
+          {
+            echo "status=created_pr"
+            echo "pr_number=$pr_number"
+            echo "pr_url=$pr_url"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Dry run summary
         if: inputs.dry_run == true
@@ -859,6 +879,92 @@ jobs:
             cat sync_summary.md
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Write sync result artifact
+        if: always()
+        env:
+          REPO: ${{ matrix.repo }}
+          TEMPLATE_HASH: ${{ needs.prepare.outputs.template_hash }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          FORCE: ${{ inputs.force || 'false' }}
+          SYNC_OUTCOME: ${{ steps.sync.outcome || 'skipped' }}
+          LABELS_OUTCOME: ${{ steps.labels.outcome || 'skipped' }}
+          CREATE_PR_OUTCOME: ${{ steps.create_pr.outcome || 'skipped' }}
+          CREATE_PR_STATUS: ${{ steps.create_pr.outputs.status || '' }}
+          PR_NUMBER: ${{ steps.create_pr.outputs.pr_number || '' }}
+          PR_URL: ${{ steps.create_pr.outputs.pr_url || '' }}
+          HAS_CHANGES: ${{ steps.sync.outputs.has_changes || 'false' }}
+          CHANGES_COUNT: ${{ steps.sync.outputs.changes_count || '0' }}
+        run: |
+          mkdir -p artifacts/consumer-sync-results
+          python3 << 'RESULT_SCRIPT'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          repo = os.environ["REPO"]
+          safe_repo = re.sub(r"[^A-Za-z0-9_.-]+", "-", repo).strip("-") or "unknown-repo"
+          dry_run = os.environ.get("DRY_RUN", "false") == "true"
+          has_changes = os.environ.get("HAS_CHANGES", "false") == "true"
+          changes_count = int(os.environ.get("CHANGES_COUNT") or "0")
+          sync_outcome = os.environ.get("SYNC_OUTCOME", "skipped")
+          labels_outcome = os.environ.get("LABELS_OUTCOME", "skipped")
+          create_outcome = os.environ.get("CREATE_PR_OUTCOME", "skipped")
+          create_status = os.environ.get("CREATE_PR_STATUS", "")
+
+          if sync_outcome == "failure":
+              status = "sync_failed"
+          elif labels_outcome == "failure":
+              status = "label_failed"
+          elif not has_changes:
+              status = "no_changes"
+          elif dry_run:
+              status = "dry_run_changes"
+          elif create_outcome == "failure":
+              status = "create_pr_failed"
+          else:
+              status = create_status or "error"
+
+          result = {
+              "repo": repo,
+              "status": status,
+              "template_hash": os.environ.get("TEMPLATE_HASH", ""),
+              "expected_branch": (
+                  f"sync/workflows-{os.environ.get('TEMPLATE_HASH', '')}"
+                  if os.environ.get("TEMPLATE_HASH", "")
+                  else ""
+              ),
+              "dry_run": dry_run,
+              "force": os.environ.get("FORCE", "false") == "true",
+              "has_changes": has_changes,
+              "changes_count": changes_count,
+              "outcomes": {
+                  "sync": sync_outcome,
+                  "labels": labels_outcome,
+                  "create_pr": create_outcome,
+              },
+          }
+          pr_number = os.environ.get("PR_NUMBER", "")
+          if pr_number:
+              result["pr"] = int(pr_number)
+          pr_url = os.environ.get("PR_URL", "")
+          if pr_url:
+              result["pr_url"] = pr_url
+
+          Path(f"artifacts/consumer-sync-results/{safe_repo}.json").write_text(
+              json.dumps(result, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          RESULT_SCRIPT
+
+      - name: Upload sync result artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: consumer-sync-result-${{ steps.repo_meta.outputs.artifact_name || 'unknown-repo' }}
+          path: artifacts/consumer-sync-results/*.json
+          retention-days: 14
+
   # ============================================================================
   # SUMMARY: Generate overall sync report
   # ============================================================================
@@ -867,11 +973,90 @@ jobs:
     needs: [prepare, validate, sync]
     runs-on: ubuntu-latest
     if: always()
+    env:
+      CONSUMER_SYNC_RUN_REPORT_JSON: artifacts/consumer-sync-run-report.json
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            .github/scripts/sync_run_contract.js
+          sparse-checkout-cone-mode: false
+
+      - name: Download sync result artifacts
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          pattern: consumer-sync-result-*
+          path: artifacts/consumer-sync-results
+          merge-multiple: true
+
+      - name: Build sync run report
+        run: |
+          mkdir -p artifacts
+          node << 'REPORT_SCRIPT'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const {
+            buildMarkdownSummary,
+            buildSyncRunReport,
+          } = require('./.github/scripts/sync_run_contract');
+
+          function parseRepos(value) {
+            if (!value) return [];
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed.repo) ? parsed.repo : [];
+          }
+
+          const resultsDir = 'artifacts/consumer-sync-results';
+          const results = fs.existsSync(resultsDir)
+            ? fs.readdirSync(resultsDir)
+                .filter((name) => name.endsWith('.json'))
+                .sort()
+                .map((name) => JSON.parse(
+                  fs.readFileSync(path.join(resultsDir, name), 'utf8'),
+                ))
+            : [];
+
+          const registeredRepos = (process.env.REGISTERED_CONSUMER_REPOS || '')
+            .split(/\r?\n/)
+            .map((repo) => repo.trim())
+            .filter(Boolean);
+
+          const report = buildSyncRunReport({
+            results,
+            targetRepos: parseRepos(process.env.TARGET_REPOS_JSON || ''),
+            registeredRepos,
+            templateHash: process.env.TEMPLATE_HASH || '',
+            dryRun: process.env.DRY_RUN === 'true',
+            force: process.env.FORCE === 'true',
+            run: {
+              repository: process.env.GITHUB_REPOSITORY,
+              run_id: Number(process.env.GITHUB_RUN_ID || 0),
+              run_number: Number(process.env.GITHUB_RUN_NUMBER || 0),
+              workflow: process.env.GITHUB_WORKFLOW,
+              ref: process.env.GITHUB_REF,
+              sha: process.env.GITHUB_SHA,
+            },
+          });
+
+          fs.writeFileSync(
+            process.env.CONSUMER_SYNC_RUN_REPORT_JSON,
+            `${JSON.stringify(report, null, 2)}\n`,
+            'utf8',
+          );
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, buildMarkdownSummary(report), 'utf8');
+          REPORT_SCRIPT
+        env:
+          TARGET_REPOS_JSON: ${{ needs.prepare.outputs.repos || '{"repo":[]}' }}
+          TEMPLATE_HASH: ${{ needs.prepare.outputs.template_hash || '' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          FORCE: ${{ inputs.force || 'false' }}
+
       - name: Generate summary
         run: |
           {
-            echo "## Consumer Repo Sync Summary"
+            echo "## Consumer Repo Sync Details"
             echo ""
             echo "**Template Hash:** ${{ needs.prepare.outputs.template_hash }}"
             echo "**Dry Run:** ${{ inputs.dry_run || 'false' }}"
@@ -886,6 +1071,15 @@ jobs:
             echo "---"
             echo "*Sync driven by .github/sync-manifest.yml*"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sync run report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: consumer-sync-run-report
+          path: ${{ env.CONSUMER_SYNC_RUN_REPORT_JSON }}
+          retention-days: 14
+          if-no-files-found: warn
 
   # ============================================================================
   # FAILURE NOTIFICATION: Create issue when sync fails
