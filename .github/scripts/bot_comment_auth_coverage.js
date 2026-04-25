@@ -163,6 +163,18 @@ function summarizeOrganicEvidence(records = [], options = {}) {
   const eventCounts = Object.create(null);
   const latestByComponentEvent = Object.create(null);
 
+  if (records.length === 0) {
+    return {
+      schema: 'workflows-bot-comment-auth-organic-evidence/v1',
+      required_events: requiredEvents,
+      required_components: components,
+      expected_mode: expectedMode === 'unknown' ? '' : expectedMode,
+      event_counts: eventCounts,
+      blockers: [],
+      status: 'no-data',
+    };
+  }
+
   for (const record of records) {
     if (!record.component || !record.event_name) continue;
     eventCounts[record.component] ||= {};

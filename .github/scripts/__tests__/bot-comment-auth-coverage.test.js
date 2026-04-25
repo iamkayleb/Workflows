@@ -353,7 +353,12 @@ test('warns when required organic bot auth evidence is missing', () => {
   );
 });
 
-test('keeps explicit zero parse errors and warns on missing organic evidence without auth records', () => {
+test('keeps explicit zero parse errors and reports missing organic evidence as no-data without auth records', () => {
+  const organic = summarizeOrganicEvidence([], {
+    required_organic_events: 'pull_request',
+    organic_components: 'agents-bot-comment-handler-wrapper',
+    organic_expected_mode: 'client-id',
+  });
   const report = summarizeBotCommentAuthCoverage([], {
     parse_errors: 0,
     parseErrors: 2,
@@ -362,12 +367,14 @@ test('keeps explicit zero parse errors and warns on missing organic evidence wit
     organic_expected_mode: 'client-id',
   });
 
+  assert.equal(organic.status, 'no-data');
+  assert.deepEqual(organic.blockers, []);
   assert.equal(report.parse_errors, 0);
-  assert.equal(report.coverage_status, 'warning');
-  assert.ok(
-    report.enforcement.blockers.includes(
-      'missing-organic-agents-bot-comment-handler-wrapper-pull_request'
-    )
+  assert.equal(report.coverage_status, 'no-data');
+  assert.equal(report.organic_evidence.status, 'no-data');
+  assert.equal(
+    report.enforcement.blockers.some((blocker) => blocker.startsWith('missing-organic-')),
+    false
   );
 });
 
