@@ -304,6 +304,11 @@ test('identifies only bot-comment auth coverage candidate files', () => {
   );
   assert.equal(isPotentialAuthCoverageFile('/tmp/artifacts/metric-artifacts-selection.json'), false);
   assert.equal(isPotentialAuthCoverageFile('/tmp/artifacts/run-view.json'), false);
+  assert.equal(isPotentialAuthCoverageFile('/tmp/artifacts/wrapper.json'), false);
+  assert.equal(
+    isPotentialAuthCoverageFile('/tmp/artifacts/bot-comment-auth-coverage-wrapper-1/reusable.json'),
+    false
+  );
 });
 
 test('normalizes bot auth coverage enforcement policy', () => {
@@ -346,6 +351,34 @@ test('warns when required organic bot auth evidence is missing', () => {
       'missing-organic-reusable-bot-comment-handler-workflow_run'
     )
   );
+});
+
+test('keeps explicit zero parse errors and warns on missing organic evidence without auth records', () => {
+  const report = summarizeBotCommentAuthCoverage([], {
+    parse_errors: 0,
+    parseErrors: 2,
+    required_organic_events: 'pull_request',
+    organic_components: 'agents-bot-comment-handler-wrapper',
+    organic_expected_mode: 'client-id',
+  });
+
+  assert.equal(report.parse_errors, 0);
+  assert.equal(report.coverage_status, 'warning');
+  assert.ok(
+    report.enforcement.blockers.includes(
+      'missing-organic-agents-bot-comment-handler-wrapper-pull_request'
+    )
+  );
+});
+
+test('reports pure missing component coverage as no-data', () => {
+  const report = summarizeBotCommentAuthCoverage([], {
+    parse_errors: 0,
+    parseErrors: 2,
+  });
+
+  assert.equal(report.parse_errors, 0);
+  assert.equal(report.coverage_status, 'no-data');
 });
 
 test('passes required organic bot auth evidence when real triggers use client-id', () => {
@@ -401,6 +434,14 @@ test('CLI writes report files and prints markdown summary', () => {
   const outputJson = path.join(dir, 'summary.json');
   const outputMd = path.join(dir, 'summary.md');
   fs.mkdirSync(artifactsDir);
+  const cliEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) =>
+        !key.startsWith('BOT_COMMENT_AUTH_') &&
+        !key.startsWith('BOT_COMMENT_WRAPPER_') &&
+        !key.startsWith('BOT_COMMENT_REUSABLE_')
+    )
+  );
 
   const result = spawnSync(
     process.execPath,
@@ -417,7 +458,7 @@ test('CLI writes report files and prints markdown summary', () => {
       '--hard-block-approved',
       'true',
     ],
-    { encoding: 'utf8' }
+    { encoding: 'utf8', env: cliEnv }
   );
 
   assert.equal(result.status, 1);
