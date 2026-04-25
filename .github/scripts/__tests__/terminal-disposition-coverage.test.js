@@ -86,6 +86,11 @@ test('reports missing review-thread coverage without failing the contract', () =
   assert.equal(report.schema, 'workflows-terminal-disposition-coverage/v1');
   assert.equal(report.mode, 'warning-only');
   assert.equal(report.status, 'warning');
+  assert.deepEqual(report.enforcement, {
+    mode: 'warning-only',
+    hard_block_eligible: false,
+    blockers: ['missing-review-thread-sources'],
+  });
   assert.equal(report.scanned_record_count, 3);
   assert.equal(report.terminal_record_count, 3);
   assert.equal(report.non_terminal_record_count, 0);
@@ -188,7 +193,7 @@ test('summarizes terminal artifact selector inputs in coverage report', () => {
   });
   const markdown = formatTerminalDispositionCoverageMarkdown(report);
 
-  assert.equal(report.status, 'no-data');
+  assert.equal(report.status, 'warning');
   assert.deepEqual(report.artifact_selection, {
     schema: 'workflows-weekly-metrics-artifact-selection/v1',
     status: 'pass',
@@ -202,6 +207,34 @@ test('summarizes terminal artifact selector inputs in coverage report', () => {
   assert.match(markdown, /Artifact selector status: pass/);
   assert.match(markdown, /Terminal artifacts selected: 2/);
   assert.match(markdown, /Terminal artifacts candidates: 4/);
+});
+
+test('warns when selected terminal artifacts do not produce input files', () => {
+  const report = summarizeTerminalDispositionCoverage([], {
+    artifact_selection_report: {
+      schema: 'workflows-weekly-metrics-artifact-selection/v1',
+      status: 'pass',
+      candidate_family_counts: {
+        'verifier-terminal-disposition': 1,
+      },
+      selected_family_counts: {
+        'verifier-terminal-disposition': 1,
+      },
+      selected_artifacts: [
+        { id: 10, name: 'verifier-terminal-disposition-123', family: 'verifier-terminal-disposition' },
+      ],
+    },
+    input_file_count: 0,
+  });
+  const markdown = formatTerminalDispositionCoverageMarkdown(report);
+
+  assert.equal(report.status, 'warning');
+  assert.equal(report.terminal_artifact_input_mismatch, true);
+  assert.deepEqual(report.enforcement.blockers, [
+    'no-terminal-disposition-records',
+    'selected-terminal-artifacts-without-input-files',
+  ]);
+  assert.match(markdown, /Terminal artifact input mismatch/);
 });
 
 test('warns when configured artifact selection report is missing', () => {
