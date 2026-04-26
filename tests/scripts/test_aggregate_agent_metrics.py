@@ -102,6 +102,7 @@ def test_main_writes_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     keepalive_path = tmp_path / "keepalive.ndjson"
     autofix_path = tmp_path / "autofix.ndjson"
     output_path = tmp_path / "summary.md"
+    output_json_path = tmp_path / "summary.json"
 
     _write_ndjson(
         keepalive_path,
@@ -129,6 +130,7 @@ def test_main_writes_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 
     monkeypatch.setenv("METRICS_PATHS", f"{keepalive_path},{autofix_path}")
     monkeypatch.setenv("OUTPUT_PATH", str(output_path))
+    monkeypatch.setenv("OUTPUT_JSON_PATH", str(output_json_path))
 
     exit_code = aggregate_agent_metrics.main()
 
@@ -137,9 +139,13 @@ def test_main_writes_summary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     summary = output_path.read_text(encoding="utf-8")
     assert "Keepalive" in summary
     assert "Autofix" in summary
+    summary_json = json.loads(output_json_path.read_text(encoding="utf-8"))
+    assert summary_json["schema"] == "workflows-agent-metrics-summary/v1"
+    assert summary_json["parse_errors"]["count"] == 0
 
     monkeypatch.delenv("METRICS_PATHS", raising=False)
     monkeypatch.delenv("OUTPUT_PATH", raising=False)
+    monkeypatch.delenv("OUTPUT_JSON_PATH", raising=False)
 
 
 def test_parse_timestamp_variants() -> None:
@@ -206,7 +212,9 @@ def test_read_ndjson_counts_parse_errors(tmp_path: Path) -> None:
     entries, errors = aggregate_agent_metrics._read_ndjson([path])
 
     assert entries == [{"key": "value"}]
-    assert errors == 2
+    assert len(errors) == 2
+    assert [error.reason for error in errors] == ["invalid-json", "non-object-json"]
+    assert errors[0].line == 2
 
 
 def test_read_ndjson_streams_file_lines(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -221,14 +229,73 @@ def test_read_ndjson_streams_file_lines(monkeypatch: pytest.MonkeyPatch, tmp_pat
     entries, errors = aggregate_agent_metrics._read_ndjson([path])
 
     assert entries == [{"key": "value"}]
-    assert errors == 0
+    assert errors == []
 
 
 def test_read_ndjson_counts_unreadable_file(tmp_path: Path) -> None:
     missing = tmp_path / "missing.ndjson"
     entries, errors = aggregate_agent_metrics._read_ndjson([missing])
     assert entries == []
-    assert errors == 1
+    assert len(errors) == 1
+    assert errors[0].reason == "unreadable-file"
+
+
+def test_read_ndjson_attributes_parse_errors_to_artifact_family(tmp_path: Path) -> None:
+    metrics_dir = (
+        tmp_path / "artifacts" / "review-thread-terminal-disposition-123" / "agent-metrics"
+    )
+    metrics_dir.mkdir(parents=True)
+    path = metrics_dir / "terminal.ndjson"
+    path.write_text('{"ok": true}\n{"broken": true\n', encoding="utf-8")
+
+    entries, errors = aggregate_agent_metrics._read_ndjson([path])
+
+    assert entries == [{"ok": True}]
+    assert len(errors) == 1
+    assert errors[0].artifact == "review-thread-terminal-disposition-123"
+    assert errors[0].artifact_family == "review-thread-terminal-disposition"
+    assert errors[0].line == 2
+
+    summary = aggregate_agent_metrics.build_summary(entries, len(errors), errors)
+    assert "## Parse Error Details" in summary
+    assert "By artifact family: review-thread-terminal-disposition (1)" in summary
+    assert "review-thread-terminal-disposition-123" in summary
+
+    contract = aggregate_agent_metrics.build_summary_contract(entries, errors)
+    assert contract["parse_errors"]["count"] == 1
+    assert contract["parse_errors"]["by_artifact_family"] == {
+        "review-thread-terminal-disposition": 1
+    }
+    assert contract["parse_errors"]["details"][0]["reason"] == "invalid-json"
+
+
+def test_read_ndjson_accepts_legacy_pretty_json_object(tmp_path: Path) -> None:
+    metrics_dir = tmp_path / "artifacts" / "keepalive-metrics"
+    metrics_dir.mkdir(parents=True)
+    path = metrics_dir / "keepalive-metrics.ndjson"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "workflows-keepalive-metrics/v1",
+                "pr_number": 1872,
+                "iteration_count": 0,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    entries, errors = aggregate_agent_metrics._read_ndjson([path])
+
+    assert errors == []
+    assert entries == [
+        {
+            "schema": "workflows-keepalive-metrics/v1",
+            "pr_number": 1872,
+            "iteration_count": 0,
+        }
+    ]
 
 
 def test_classify_entry_prefers_explicit_type() -> None:
@@ -490,12 +557,16 @@ def test_main_writes_placeholder_when_no_files(
     monkeypatch.setenv("METRICS_PATHS", "")
     monkeypatch.setenv("METRICS_DIR", str(tmp_path / "missing"))
     output_path = tmp_path / "summary.md"
+    output_json_path = tmp_path / "summary.json"
     monkeypatch.setenv("OUTPUT_PATH", str(output_path))
+    monkeypatch.setenv("OUTPUT_JSON_PATH", str(output_json_path))
 
     exit_code = aggregate_agent_metrics.main()
 
     assert exit_code == 0
     assert output_path.read_text(encoding="utf-8") == "No metrics files found to aggregate.\n"
+    summary_json = json.loads(output_json_path.read_text(encoding="utf-8"))
+    assert summary_json["parse_errors"]["count"] == 0
 
 
 def test_autopilot_metrics_summarised() -> None:

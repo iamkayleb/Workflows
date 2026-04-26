@@ -276,6 +276,10 @@ def test_weekly_metrics_uploads_selector_report_on_failure():
             "artifacts/metric-artifacts-selection.json" in text
         ), "Weekly metrics must include selector JSON in uploaded artifacts"
         assert (
+            "OUTPUT_JSON_PATH: agent-weekly-metrics.json" in text
+            and "agent-weekly-metrics.json" in text
+        ), "Weekly metrics must upload a machine-readable aggregate summary"
+        assert (
             "uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6" in text
         ), "Weekly metrics must pin the Node runtime setup action to the v6 commit SHA"
         assert (
@@ -376,6 +380,16 @@ def test_weekly_metrics_aggregate_script_is_synced_to_consumers():
     assert "scripts/aggregate_agent_metrics.py" in manifest_sources
     assert Path("scripts/aggregate_agent_metrics.py").is_file()
     assert Path("templates/consumer-repo/scripts/aggregate_agent_metrics.py").is_file()
+
+
+def test_keepalive_metrics_emit_compact_ndjson():
+    workflow_paths = [
+        WORKFLOWS_DIR / "agents-keepalive-loop.yml",
+        Path("templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"),
+    ]
+    for path in workflow_paths:
+        text = path.read_text(encoding="utf-8")
+        assert "metrics_json=$(jq -cn \\" in text, f"{path} must emit one JSON object per line"
 
 
 def test_terminal_disposition_records_include_artifact_identity():
