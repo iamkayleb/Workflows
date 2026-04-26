@@ -63,6 +63,7 @@ DESIGN_DOC_EXCLUDED_PREFIXES = (
     ".github/",
     ".venv/",
     "archive/",
+    "archives/",
     "agents/",
     "docs/archive/",
     "docs/reports/",
@@ -111,12 +112,29 @@ SOURCE_FILE_SUFFIXES = (
     ".yml",
 )
 IMPLEMENTATION_SCAN_EXCLUDED_PREFIXES = (
+    ".agents/",
     ".github/",
+    ".mypy_cache/",
+    ".pytest_cache/",
+    ".ruff_cache/",
     ".venv/",
+    ".worktrees/",
+    "archive/",
+    "archives/",
+    "docs/",
     "docs/reports/",
     "node_modules/",
 )
 IMPLEMENTATION_SCAN_EXCLUDED_PARTS = ("/__pycache__/", "/node_modules/")
+EVIDENCE_SCAN_EXCLUDED_PREFIXES = (
+    ".mypy_cache/",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    ".venv/",
+    ".worktrees/",
+    "node_modules/",
+)
+EVIDENCE_SCAN_EXCLUDED_PARTS = ("/__pycache__/", "/node_modules/")
 TEST_FILE_RE = re.compile(r"(^|/)(tests?|__tests__)/|(^|/)test[_-].+|[_-]test\.", re.I)
 SMOKE_TEST_RE = re.compile(r"\b(smoke|e2e|end[- ]to[- ]end|integration|live)\b", re.I)
 STATE_INTEGRATION_RE = re.compile(
@@ -356,9 +374,16 @@ def is_test_file(path: str) -> bool:
     return TEST_FILE_RE.search(path) is not None
 
 
+def is_evidence_noise_file(path: str) -> bool:
+    return path.startswith(EVIDENCE_SCAN_EXCLUDED_PREFIXES) or any(
+        part in path for part in EVIDENCE_SCAN_EXCLUDED_PARTS
+    )
+
+
 def is_implementation_file(path: str) -> bool:
     return (
         is_source_like_file(path)
+        and not is_evidence_noise_file(path)
         and not is_design_doc_path(path)
         and not is_test_file(path)
         and not path.startswith(IMPLEMENTATION_SCAN_EXCLUDED_PREFIXES)
@@ -444,8 +469,13 @@ def gap_label(severity: str) -> str:
 def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
     repo_path = Path(state["local_path"])
     tracked_files = tracked_repo_files(repo_path)
-    implementation_files = [path for path in tracked_files if is_implementation_file(path)]
-    test_files = [path for path in tracked_files if is_test_file(path)]
+    evidence_files = [path for path in tracked_files if not is_evidence_noise_file(path)]
+    implementation_files = [
+        path
+        for path in evidence_files
+        if is_implementation_file(path)
+    ]
+    test_files = [path for path in evidence_files if is_test_file(path)]
     implementation_scan_files = implementation_files[:REVIEW_SCAN_FILE_LIMIT]
     test_scan_files = test_files[:REVIEW_SCAN_FILE_LIMIT]
     smoke_name_files = [path for path in test_files if SMOKE_TEST_RE.search(path)]
@@ -1141,6 +1171,7 @@ def collect_repo_state(
     if state["review_execution"]["status"] == "executed":
         state["review_status"] = EXECUTED_REVIEW_STATUS
         state["decision"] = EXECUTED_REVIEW_STATUS
+    state["decision_brief"] = build_decision_brief(state)
     return state
 
 
@@ -1148,6 +1179,195 @@ def markdown_list(items: list[str], empty: str = "None found.") -> str:
     if not items:
         return empty
     return "\n".join(f"- `{item}`" for item in items)
+
+
+def execution_dimension(state: dict[str, Any], dimension_id: str) -> dict[str, Any]:
+    for dimension in state["review_execution"]["dimensions"]:
+        if dimension["id"] == dimension_id:
+            return dimension
+    return {
+        "id": dimension_id,
+        "label": dimension_id,
+        "evidence": [],
+        "finding": "No automated evidence was recorded for this dimension.",
+        "gap_severity": "needs human decision",
+        "issue_draft_needed": "needs human decision",
+    }
+
+
+def task_preview(body: str, limit: int = 3) -> list[str]:
+    tasks: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if re.search(r"\[\s\]", stripped):
+            tasks.append(re.sub(r"^[-*]\s*\[\s\]\s*", "", stripped).strip())
+        if len(tasks) >= limit:
+            break
+    return tasks
+
+
+def issue_candidate_summaries(state: dict[str, Any], max_items: int = 8) -> list[dict[str, Any]]:
+    candidates: list[dict[str, Any]] = []
+    for draft in state["drafts"][:max_items]:
+        candidates.append(
+            {
+                "type": "local draft",
+                "title": draft["title"],
+                "source": f"Issues.txt draft {draft['number']}",
+                "task_count": draft["open_tasks"],
+                "task_preview": task_preview(draft["body"]),
+            }
+        )
+    remaining_slots = max_items - len(candidates)
+    if remaining_slots <= 0:
+        return candidates
+    for candidate in state["archive_candidates"][:remaining_slots]:
+        candidates.append(
+            {
+                "type": "archive candidate",
+                "title": candidate["title"],
+                "source": candidate["thread_name"] or "untitled archive thread",
+                "task_count": None,
+                "task_preview": [candidate["excerpt"]],
+            }
+        )
+    return candidates
+
+
+def readiness_summary(state: dict[str, Any]) -> str:
+    execution = state["review_execution"]
+    if execution["status"] != "executed":
+        return "Review execution is blocked; testing or implementation readiness cannot be decided."
+    test_dimension = execution_dimension(state, "test_and_live_readiness")
+    integration_dimension = execution_dimension(state, "integration_and_state")
+    if test_dimension["gap_severity"] in {"material", "blocks testing", "blocks live use"}:
+        return (
+            "Not ready to approve testing/live implementation without issue work; "
+            f"{test_dimension['finding']}"
+        )
+    return (
+        "Testing/live-readiness evidence exists, but approval still requires confirming "
+        "that the tests, smoke paths, integrations, and state behavior prove the documented user journey. "
+        f"{test_dimension['finding']} {integration_dimension['finding']}"
+    )
+
+
+def issue_set_recommendation(state: dict[str, Any]) -> str:
+    execution = state["review_execution"]
+    if execution["gap_count"] > 0:
+        return (
+            "Create or approve issue drafts for the automated material/blocking gaps before "
+            "treating the repo as ready."
+        )
+    if state["issue_draft_count"] or state["archive_candidate_count"]:
+        return (
+            "Review the candidate issue set below, then approve, revise, merge, defer, or drop "
+            "items repo-by-repo."
+        )
+    if state["remote_open_issue_count"]:
+        return (
+            "No new local/archive candidates were found; reconcile the open remote issues before "
+            "drafting additional work."
+        )
+    return (
+        "No candidate issue set was generated from current inputs. The human decision should either "
+        "approve no-new-issues for this cycle or request a deeper semantic design review."
+    )
+
+
+def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
+    implementation = execution_dimension(state, "implementation_coverage")
+    testing = execution_dimension(state, "test_and_live_readiness")
+    integration = execution_dimension(state, "integration_and_state")
+    issue_generation = execution_dimension(state, "issue_generation")
+    return {
+        "design_target": state["decision_anchor"] or "No decision anchor recorded.",
+        "progress_summary": implementation["finding"],
+        "readiness_summary": readiness_summary(state),
+        "issue_set_recommendation": issue_set_recommendation(state),
+        "design_evidence": execution_dimension(state, "design_contract")["evidence"],
+        "implementation_evidence": implementation["evidence"],
+        "testing_evidence": testing["evidence"],
+        "integration_evidence": integration["evidence"],
+        "issue_generation_evidence": issue_generation["evidence"],
+        "issue_candidates": issue_candidate_summaries(state),
+        "feedback_template": [
+            "decision: approve | revise | defer | drop | deeper-review",
+            "priority: high | normal | low",
+            "notes: what to change before issue creation",
+        ],
+    }
+
+
+def markdown_candidate_list(candidates: list[dict[str, Any]], empty: str) -> str:
+    if not candidates:
+        return empty
+    lines: list[str] = []
+    for index, candidate in enumerate(candidates, start=1):
+        task_count = candidate.get("task_count")
+        task_note = f"; {task_count} open tasks" if task_count is not None else ""
+        lines.append(
+            f"{index}. **{candidate['title']}** ({candidate['type']}; {candidate['source']}{task_note})"
+        )
+        for task in candidate.get("task_preview", [])[:3]:
+            lines.append(f"   - {task}")
+    return "\n".join(lines)
+
+
+def write_decision_brief(repo_dir: Path, state: dict[str, Any]) -> None:
+    brief = state["decision_brief"]
+    lines = [
+        f"# Human Decision Brief: {state['repo']}",
+        "",
+        "Use this brief to decide whether the current issue set should be approved, revised, deferred, dropped, or sent back for deeper review.",
+        "",
+        "## Current Progress Compared With Design",
+        "",
+        f"- Design target: {brief['design_target']}",
+        f"- Progress summary: {brief['progress_summary']}",
+        "",
+        "Design evidence:",
+        "",
+        markdown_list(brief["design_evidence"]),
+        "",
+        "Implementation evidence:",
+        "",
+        markdown_list(brief["implementation_evidence"]),
+        "",
+        "## Readiness For Testing Or Live Implementation",
+        "",
+        brief["readiness_summary"],
+        "",
+        "Testing evidence:",
+        "",
+        markdown_list(brief["testing_evidence"]),
+        "",
+        "Integration/state evidence:",
+        "",
+        markdown_list(brief["integration_evidence"]),
+        "",
+        "## Candidate Issue Set",
+        "",
+        brief["issue_set_recommendation"],
+        "",
+        markdown_candidate_list(
+            brief["issue_candidates"],
+            "No local/archive issue candidates were generated for this cycle.",
+        ),
+        "",
+        "Issue generation evidence:",
+        "",
+        markdown_list(brief["issue_generation_evidence"]),
+        "",
+        "## Feedback Slot",
+        "",
+        "```text",
+        f"repo: {state['repo']}",
+        *brief["feedback_template"],
+        "```",
+        "",
+    ]
+    (repo_dir / "decision-brief.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: int) -> None:
@@ -1159,6 +1379,7 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         + "\n",
         encoding="utf-8",
     )
+    write_decision_brief(repo_dir, state)
 
     state_md = [
         f"# Repo Review State: {state['repo']}",
@@ -1453,9 +1674,12 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
         "",
         "## Human Review Queue",
         "",
+        "Use each repo section to make one weekly decision: approve the issue set, revise it, defer it, drop it, or request deeper review.",
+        "",
     ]
     for state in active:
         safe_name = state["repo"].replace("/", "__")
+        brief = state["decision_brief"]
         if state["review_execution"]["status"] == "executed":
             human_action = (
                 "review execution complete; make the semantic human decision, then "
@@ -1484,8 +1708,41 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
                 f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
                 f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
-                f"- Review artifacts: `repos/{safe_name}/review-execution.md`, `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
+                f"- Review artifacts: `repos/{safe_name}/decision-brief.md`, `repos/{safe_name}/review-execution.md`, `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
                 f"- Human action: {human_action}",
+                "",
+                "#### Current Progress Compared With Design",
+                "",
+                f"- Design target: {brief['design_target']}",
+                f"- Progress summary: {brief['progress_summary']}",
+                "",
+                "Key implementation evidence:",
+                "",
+                markdown_list(brief["implementation_evidence"]),
+                "",
+                "#### Readiness For Testing Or Live Implementation",
+                "",
+                brief["readiness_summary"],
+                "",
+                "Key testing/integration evidence:",
+                "",
+                markdown_list([*brief["testing_evidence"], *brief["integration_evidence"][:2]]),
+                "",
+                "#### Candidate Issue Set",
+                "",
+                brief["issue_set_recommendation"],
+                "",
+                markdown_candidate_list(
+                    brief["issue_candidates"],
+                    "No local/archive issue candidates were generated for this cycle.",
+                ),
+                "",
+                "#### Feedback Slot",
+                "",
+                "```text",
+                f"repo: {state['repo']}",
+                *brief["feedback_template"],
+                "```",
                 "",
             ]
         )

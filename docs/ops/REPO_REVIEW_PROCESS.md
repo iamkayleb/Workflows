@@ -51,6 +51,7 @@ Outputs are written to `docs/reports/repo-review/`:
 
 - `human-decision-packet.md`: one review queue across active repos.
 - `repo-review-summary.json`: machine-readable summary.
+- `repos/<owner>__<repo>/decision-brief.md`: human-facing progress, readiness, issue-set, and feedback brief.
 - `repos/<owner>__<repo>/review-execution.md`: automated evidence gathering and preliminary gap classification.
 - `repos/<owner>__<repo>/design-review.md`: standardized review worksheet for that repo.
 - `repos/<owner>__<repo>/state.md`: repo state, sources, implementation areas, and local signals.
@@ -69,6 +70,8 @@ Local changes are split by how they affect the review:
 `pending standardized review` means the worksheet has been queued and evidence still needs to be gathered. It does not mean the design-vs-implementation review has already been completed.
 
 `standard review executed; human decision queued` means the automated evidence pass has run and the repo is ready for the single human decision point.
+
+`decision-brief.md` is the human review surface. It summarizes current progress against the design anchor, readiness for testing/live implementation, candidate issue set, and a compact feedback slot for approve/revise/defer/drop/deeper-review decisions.
 
 `review-execution.md` is the automated execution phase. It gathers evidence for each standard dimension and classifies obvious automated gaps such as missing design sources, missing implementation surfaces, missing tests/workflows, or absent smoke/live-readiness markers. Dimensions marked `needs human decision` still require semantic review before issue approval.
 

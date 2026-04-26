@@ -306,8 +306,10 @@ def test_write_repo_artifacts_emits_standard_design_review(tmp_path: Path) -> No
 
     review = output_dir / "repos" / "owner__demo" / "design-review.md"
     execution = output_dir / "repos" / "owner__demo" / "review-execution.md"
+    brief = output_dir / "repos" / "owner__demo" / "decision-brief.md"
     assert review.is_file()
     assert execution.is_file()
+    assert brief.is_file()
     text = review.read_text(encoding="utf-8")
     assert "Standard Design Review" in text
     assert "Design Contract" in text
@@ -315,6 +317,37 @@ def test_write_repo_artifacts_emits_standard_design_review(tmp_path: Path) -> No
     execution_text = execution.read_text(encoding="utf-8")
     assert "Review Execution" in execution_text
     assert "Dimension Findings" in execution_text
+    brief_text = brief.read_text(encoding="utf-8")
+    assert "Current Progress Compared With Design" in brief_text
+    assert "Readiness For Testing Or Live Implementation" in brief_text
+    assert "Candidate Issue Set" in brief_text
+
+
+def test_write_packet_embeds_substantive_decision_brief(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "demo"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Demo\n", encoding="utf-8")
+    (repo_dir / "Issues.txt").write_text(
+        "1. Add smoke coverage\n- [ ] cover the happy path\n", encoding="utf-8"
+    )
+    config = evaluator.RepoConfig(
+        repo="owner/demo",
+        local_path="demo",
+        status="active",
+        cadence="weekly",
+        decision_anchor="demo anchor",
+    )
+    state = evaluator.collect_repo_state(tmp_path, config)
+    output_dir = tmp_path / "out"
+
+    evaluator.write_packet(output_dir, [state], generated_on="2026-04-26")
+
+    packet = (output_dir / "human-decision-packet.md").read_text(encoding="utf-8")
+    assert "Current Progress Compared With Design" in packet
+    assert "Readiness For Testing Or Live Implementation" in packet
+    assert "Candidate Issue Set" in packet
+    assert "Add smoke coverage" in packet
+    assert "decision: approve | revise | defer | drop | deeper-review" in packet
 
 
 def test_collect_archive_candidates_reads_review_sessions(tmp_path: Path) -> None:
