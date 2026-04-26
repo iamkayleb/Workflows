@@ -8,6 +8,7 @@ const {
   collectRepoArtifacts,
   formatArtifactTsv,
   formatSelectionMarkdown,
+  latestCandidateByFamily,
   missingPriorityFamilies,
   normalizeSelectionOptions,
   priorityFamilyStatuses,
@@ -102,6 +103,23 @@ test('selects only recent matching artifacts with a machine-readable report', ()
     'verifier-terminal-disposition',
     'bot-comment-auth-coverage-reusable',
   ]);
+  assert.deepEqual(
+    report.latest_candidate_by_family,
+    {
+      'bot-comment-auth-coverage-wrapper': {
+        id: 8,
+        name: 'bot-comment-auth-coverage-wrapper-77-2',
+        created_at: '2026-04-25T08:30:00Z',
+        updated_at: '2026-04-25T08:30:00Z',
+      },
+      'review-thread-terminal-disposition': {
+        id: 5,
+        name: 'review-thread-terminal-disposition-77',
+        created_at: '2026-04-25T11:00:00Z',
+        updated_at: '2026-04-25T11:00:00Z',
+      },
+    }
+  );
   assert.deepEqual(
     report.priority_family_statuses.map((family) => ({
       family: family.family,
@@ -248,6 +266,29 @@ test('reports priority telemetry families that are absent from the scan', () => 
     'review-thread-terminal-disposition',
     'bot-comment-auth-coverage-reusable',
   ]);
+});
+
+test('maps latest candidate artifacts by priority family', () => {
+  const candidates = [
+    artifact(1, 'review-thread-terminal-disposition-older', '2026-04-25T10:00:00Z'),
+    artifact(2, 'review-thread-terminal-disposition-newer', '2026-04-25T11:00:00Z'),
+    artifact(3, 'keepalive-metrics', '2026-04-25T12:00:00Z'),
+  ].map((raw) => ({
+    id: raw.id,
+    name: raw.name,
+    family: artifactFamily(raw.name),
+    created_at: raw.created_at,
+    updated_at: raw.updated_at,
+  }));
+
+  assert.deepEqual(latestCandidateByFamily(candidates), {
+    'review-thread-terminal-disposition': {
+      id: 2,
+      name: 'review-thread-terminal-disposition-newer',
+      created_at: '2026-04-25T11:00:00Z',
+      updated_at: '2026-04-25T11:00:00Z',
+    },
+  });
 });
 
 test('builds priority family statuses for available but unselected artifacts', () => {

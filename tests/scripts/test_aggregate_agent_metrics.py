@@ -432,6 +432,21 @@ def test_read_ndjson_accepts_legacy_pretty_json_object(tmp_path: Path) -> None:
     assert entries[0]["artifact_name"] == "keepalive-metrics"
 
 
+def test_read_ndjson_bounds_legacy_json_fallback_buffer(tmp_path: Path) -> None:
+    path = tmp_path / "large-invalid.ndjson"
+    path.write_text(
+        "\n".join(["{"] * (aggregate_agent_metrics._MAX_LEGACY_JSON_FALLBACK_LINES + 1)) + "\n",
+        encoding="utf-8",
+    )
+
+    entries, errors = aggregate_agent_metrics._read_ndjson([path])
+
+    assert entries == []
+    assert len(errors) == aggregate_agent_metrics._MAX_LEGACY_JSON_FALLBACK_LINES + 2
+    assert errors[-1].line is None
+    assert errors[-1].reason == "legacy-json-fallback-buffer-limit"
+
+
 def test_classify_entry_prefers_explicit_type() -> None:
     assert aggregate_agent_metrics._classify_entry({"metric_type": "Keepalive"}) == "keepalive"
     assert aggregate_agent_metrics._classify_entry({"workflow": "autofix"}) == "autofix"
