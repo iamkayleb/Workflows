@@ -8,6 +8,7 @@ const {
   collectRepoArtifacts,
   formatArtifactTsv,
   formatSelectionMarkdown,
+  missingPriorityFamilies,
   normalizeSelectionOptions,
   selectMetricsArtifacts,
 } = require('../weekly_metrics_artifacts.js');
@@ -96,6 +97,10 @@ test('selects only recent matching artifacts with a machine-readable report', ()
     'keepalive-metrics': 1,
     'review-thread-terminal-disposition': 1,
   });
+  assert.deepEqual(report.missing_priority_families, [
+    'verifier-terminal-disposition',
+    'bot-comment-auth-coverage-reusable',
+  ]);
   assert.deepEqual(report.selected_family_counts, {
     'autopilot-metrics': 1,
     'bot-comment-auth-coverage-wrapper': 2,
@@ -119,6 +124,12 @@ test('builds an error report when artifact selection cannot query GitHub', () =>
   assert.equal(report.status, 'error');
   assert.equal(report.error_message, 'API rate limit exceeded');
   assert.equal(report.selected_count, 0);
+  assert.deepEqual(report.missing_priority_families, [
+    'verifier-terminal-disposition',
+    'review-thread-terminal-disposition',
+    'bot-comment-auth-coverage-wrapper',
+    'bot-comment-auth-coverage-reusable',
+  ]);
   assert.deepEqual(report.selected_artifacts, []);
   assert.match(markdown, /Status: error/);
   assert.match(markdown, /API rate limit exceeded/);
@@ -182,6 +193,20 @@ test('reserves priority telemetry artifacts before filling the total cap', () =>
     'review-thread-terminal-disposition': 1,
     'verifier-terminal-disposition': 1,
   });
+  assert.deepEqual(report.missing_priority_families, []);
+});
+
+test('reports priority telemetry families that are absent from the scan', () => {
+  const counts = new Map([
+    ['bot-comment-auth-coverage-wrapper', 2],
+    ['keepalive-metrics', 5],
+  ]);
+
+  assert.deepEqual(missingPriorityFamilies(counts), [
+    'verifier-terminal-disposition',
+    'review-thread-terminal-disposition',
+    'bot-comment-auth-coverage-reusable',
+  ]);
 });
 
 test('formats selected artifacts for the workflow download loop', () => {
@@ -207,6 +232,10 @@ test('formats a human-visible selector summary for weekly metrics', () => {
   assert.match(markdown, /Weekly Metrics Artifact Selection/);
   assert.match(markdown, /Scan cap: 5 pages x 100 artifacts/);
   assert.match(markdown, /Selected artifacts: 2/);
+  assert.match(
+    markdown,
+    /Missing priority families: verifier-terminal-disposition, review-thread-terminal-disposition, bot-comment-auth-coverage-wrapper, bot-comment-auth-coverage-reusable/
+  );
   assert.match(markdown, /Artifact family \| Candidates \| Selected/);
   assert.match(markdown, /autopilot-metrics/);
   assert.match(markdown, /keepalive-metrics/);
