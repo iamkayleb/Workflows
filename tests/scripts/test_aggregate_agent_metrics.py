@@ -47,6 +47,9 @@ def test_build_summary_formats_sections() -> None:
             "pr_number": 101,
             "run_id": "verify-101",
             "disposition": "follow-up-created",
+            "llm_model": "gpt-5.3-codex",
+            "model_selection_reason": "default",
+            "verifier_mode": "checkbox",
         },
     ]
 
@@ -67,6 +70,9 @@ def test_build_summary_formats_sections() -> None:
     assert "Terminal disposition records: 1" in summary
     assert "Terminal dispositions: follow-up-created (1)" in summary
     assert "Terminal disposition sources: source-issue:99 (1)" in summary
+    assert "Verifier models: gpt-5.3-codex (1)" in summary
+    assert "Model selection reasons: default (1)" in summary
+    assert "Verifier modes: checkbox (1)" in summary
 
 
 def test_autopilot_needs_human_rate_uses_escalations_not_issue_ids() -> None:
@@ -307,11 +313,22 @@ def test_summary_helpers_cover_branches() -> None:
                 "run_id": "123",
                 "pr_number": 303,
                 "disposition": "follow-up-created",
+                "llm_model": "gpt-5.3-codex",
+                "model_selection_reason": "fallback-unsupported-chatgpt-codex-model",
+                "verifier_mode": "checkbox",
             },
         ]
     )
     assert verifier_with_terminal["runs"] == 1
     assert verifier_with_terminal["terminal_records"] == 1
+    assert verifier_with_terminal["verifier_models"]["gpt-5.3-codex"] == 1
+    assert (
+        verifier_with_terminal["model_selection_reasons"][
+            "fallback-unsupported-chatgpt-codex-model"
+        ]
+        == 1
+    )
+    assert verifier_with_terminal["verifier_modes"]["checkbox"] == 1
 
 
 def test_format_helpers_and_summary_range() -> None:

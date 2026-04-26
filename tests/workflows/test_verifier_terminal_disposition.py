@@ -13,6 +13,10 @@ def test_reusable_verifier_uploads_terminal_disposition_artifact() -> None:
     workflow = _load_yaml(ROOT / ".github/workflows/reusable-agents-verifier.yml")
     steps = workflow["jobs"]["verifier"]["steps"]
 
+    resolve_step = next(
+        step for step in steps if step.get("name") == "Resolve Codex verifier model"
+    )
+    run_step = next(step for step in steps if step.get("name") == "Run verifier (checkbox mode)")
     collect_step = next(step for step in steps if step.get("name") == "Collect verifier metrics")
     write_step = next(
         step for step in steps if step.get("name") == "Write verifier terminal disposition"
@@ -21,12 +25,33 @@ def test_reusable_verifier_uploads_terminal_disposition_artifact() -> None:
         step for step in steps if step.get("name") == "Upload verifier terminal disposition"
     )
 
+    assert resolve_step.get("id") == "codex_model"
+    assert (
+        resolve_step.get("if")
+        == "steps.context.outputs.should_run == 'true' && inputs.mode != 'evaluate'"
+    )
+    assert resolve_step["env"]["DEFAULT_CODEX_MODEL"] == "gpt-5.3-codex"
+    assert resolve_step["env"]["VERIFIER_MODE"] == "${{ inputs.mode }}"
+    assert "fallback-unsupported-chatgpt-codex-model" in resolve_step["run"]
+    assert "gpt-5.2-codex" in resolve_step["run"]
+    assert '[ "${VERIFIER_MODE:-}" = "checkbox" ]' in resolve_step["run"]
+    assert '--model "${{ steps.codex_model.outputs.model }}"' in run_step["run"]
     assert "steps.unified_verdict.outputs.verdict" in collect_step["env"]["VERDICT"]
+    assert collect_step["env"]["CODEX_MODEL"] == "${{ steps.codex_model.outputs.model }}"
+    assert collect_step["env"]["CODEX_MODEL_SELECTION_REASON"] == (
+        "${{ steps.codex_model.outputs.selection_reason }}"
+    )
     assert write_step.get("if") == "always()"
+    assert write_step["env"]["CODEX_MODEL"] == "${{ steps.codex_model.outputs.model }}"
+    assert write_step["env"]["CODEX_MODEL_SELECTION_REASON"] == (
+        "${{ steps.codex_model.outputs.selection_reason }}"
+    )
     assert write_step["env"]["SOURCE_ISSUE_NUMBERS_JSON"] == (
         "${{ steps.context.outputs.issue_numbers || '[]' }}"
     )
     assert "verifier-terminal-disposition" in write_step["run"]
+    assert "llm_model" in write_step["run"]
+    assert "model_selection_reason" in write_step["run"]
     assert "source-issue" in write_step["run"]
     assert "pull-request" in write_step["run"]
     assert "verified-pass" in write_step["run"]

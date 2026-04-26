@@ -490,6 +490,51 @@ jobs:
           npm install -g "@openai/codex@0.101.0"
           echo "Installed Codex CLI version: $(codex --version)" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Resolve Codex verifier model
+        id: codex_model
+        if: steps.context.outputs.should_run == 'true' && inputs.mode != 'evaluate'
+        env:
+          DEFAULT_CODEX_MODEL: gpt-5.3-codex
+          REQUESTED_MODEL: ${{ inputs.model }}
+          VERIFIER_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          if [ "${VERIFIER_MODE:-}" = "checkbox" ]; then
+            requested="$(
+              printf '%s' "${REQUESTED_MODEL:-}" |
+                sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+            )"
+          else
+            requested=""
+          fi
+          model="$requested"
+          reason="input"
+
+          if [ -z "$model" ] || [ "$model" = "undefined" ] || [ "$model" = "null" ]; then
+            model="$DEFAULT_CODEX_MODEL"
+            reason="default"
+          fi
+
+          case "$model" in
+            gpt-5.2-codex)
+              echo "::warning::Codex model '$model' is not compatible with the configured ChatGPT auth; using '$DEFAULT_CODEX_MODEL'."
+              model="$DEFAULT_CODEX_MODEL"
+              reason="fallback-unsupported-chatgpt-codex-model"
+              ;;
+          esac
+
+          {
+            echo "model=$model"
+            echo "selection_reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Codex verifier model"
+            echo ""
+            echo "- Model: \`$model\`"
+            echo "- Selection reason: \`$reason\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Run verifier (checkbox mode)
         id: codex
         if: steps.context.outputs.should_run == 'true' && inputs.mode != 'evaluate'
@@ -504,6 +549,7 @@ jobs:
           codex exec \
             --sandbox read-only \
             --skip-git-repo-check \
+            --model "${{ steps.codex_model.outputs.model }}" \
             --output-last-message codex-output.md \
             "$(cat "$PROMPT_FILE")"
           codex_exit_code=$?
@@ -1210,6 +1256,9 @@ jobs:
           CONTEXT_PATH: ${{ steps.context.outputs.context_path }}
           ISSUE_NUMBER: ${{ steps.failure_issue.outputs.issue_number }}
           SKIP_REASON: ${{ steps.context.outputs.skip_reason }}
+          CODEX_MODEL: ${{ steps.codex_model.outputs.model }}
+          CODEX_MODEL_SELECTION_REASON: ${{ steps.codex_model.outputs.selection_reason }}
+          VERIFIER_MODE: ${{ inputs.mode }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -1226,6 +1275,9 @@ jobs:
           context_path = Path(os.environ.get("CONTEXT_PATH") or "")
           skip_reason = os.environ.get("SKIP_REASON") or ""
           issue_number = os.environ.get("ISSUE_NUMBER") or ""
+          codex_model = os.environ.get("CODEX_MODEL") or ""
+          codex_model_selection_reason = os.environ.get("CODEX_MODEL_SELECTION_REASON") or ""
+          verifier_mode = os.environ.get("VERIFIER_MODE") or ""
 
           if not should_run:
               verdict = "skipped"
@@ -1254,6 +1306,9 @@ jobs:
               "acceptance_criteria_count": acceptance_criteria_count,
               "checks_run": checks_run,
               "skip_reason": skip_reason,
+              "codex_model": codex_model,
+              "codex_model_selection_reason": codex_model_selection_reason,
+              "verifier_mode": verifier_mode,
               "recorded_at": datetime.now(timezone.utc).isoformat(),
           }
 
@@ -1272,6 +1327,9 @@ jobs:
           PR_NUMBER: ${{ steps.context.outputs.pr_number }}
           PR_URL: ${{ steps.context.outputs.pr_html_url }}
           SKIP_REASON: ${{ steps.context.outputs.skip_reason }}
+          CODEX_MODEL: ${{ steps.codex_model.outputs.model }}
+          CODEX_MODEL_SELECTION_REASON: ${{ steps.codex_model.outputs.selection_reason }}
+          VERIFIER_MODE: ${{ inputs.mode }}
           FINAL_VERDICT: >-
             ${{
               steps.unified_verdict.outputs.verdict ||
@@ -1318,6 +1376,10 @@ jobs:
           const followupIssueNumber =
             Number.parseInt(process.env.FOLLOWUP_ISSUE_NUMBER || '', 10) || null;
           const skipReason = process.env.SKIP_REASON || metrics.skip_reason || '';
+          const codexModel = process.env.CODEX_MODEL || metrics.codex_model || '';
+          const codexModelSelectionReason =
+            process.env.CODEX_MODEL_SELECTION_REASON || metrics.codex_model_selection_reason || '';
+          const verifierMode = process.env.VERIFIER_MODE || metrics.verifier_mode || '';
 
           let disposition = 'unknown';
           let reason = 'Verifier terminal state captured for coverage monitoring.';
@@ -1362,6 +1424,9 @@ jobs:
             followup_issue_number: followupIssueNumber || undefined,
             needs_human: disposition === 'needs-human' || disposition === 'verifier-error',
             dispatch_outcome: shouldRun ? 'verifier-ran' : 'verifier-skipped',
+            llm_model: codexModel || undefined,
+            model_selection_reason: codexModelSelectionReason || undefined,
+            verifier_mode: verifierMode || undefined,
           }));
 
           fs.writeFileSync(
@@ -1416,6 +1481,9 @@ jobs:
             "acceptance_criteria_count",
             "checks_run",
             "skip_reason",
+            "codex_model",
+            "codex_model_selection_reason",
+            "verifier_mode",
           ]
           for key in keys:
             lines.append(f"| {key} | `{metrics.get(key, '')}` |")
