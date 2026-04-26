@@ -1,0 +1,61 @@
+{
+  "generated_on": "2026-04-26",
+  "defaults": {
+    "omitted_repo_decision": "defer",
+    "approved_candidates": "all"
+  },
+  "routing_rules": [
+    "Consumer repo workflow-sync or Workflows-maintenance tasks belong in stranske/Workflows unless the issue directly implements behavior required by the consumer repo design.",
+    "Repos marked deeper-review must receive a real design-vs-implementation review before the automation accepts no-new-issues as a valid outcome.",
+    "Approved issue bodies must follow docs/AGENT_ISSUE_FORMAT.md or the Workflows template equivalent before entering opener-lane automation."
+  ],
+  "decisions": {
+    "stranske/Workflows": {
+      "decision": "approve",
+      "priority": "normal",
+      "approved_candidates": "all"
+    },
+    "stranske/Travel-Plan-Permission": {
+      "decision": "approve",
+      "priority": "high",
+      "approved_candidates": [1, 3, 4, 5, 6],
+      "dropped_candidates": [2],
+      "notes": "Candidate 2 is not appropriate for a Travel-Plan-Permission repo issue. Workflows-originated maintenance tasks for individual repos should be routed to Workflows."
+    },
+    "stranske/Trend_Model_Project": {
+      "decision": "approve",
+      "priority": "normal",
+      "approved_candidates": "all"
+    },
+    "stranske/Portable-Alpha-Extension-Model": {
+      "decision": "approve",
+      "priority": "normal",
+      "approved_candidates": "all"
+    },
+    "stranske/Counter_Risk": {
+      "decision": "approve",
+      "priority": "normal",
+      "approved_candidates": "all"
+    },
+    "stranske/Manager-Database": {
+      "decision": "deeper-review",
+      "priority": "low",
+      "notes": "Do a thorough design-vs-implementation review. Do not accept no candidates as evidence that the repo has no remaining design-goal work."
+    },
+    "stranske/Inv-Man-Intake": {
+      "decision": "revise|deeper-review",
+      "priority": "normal",
+      "notes": "Evaluate whether the current remote issue set achieves repo goals, then identify any additional issues needed to realize those goals."
+    },
+    "stranske/Pension-Data": {
+      "decision": "approve",
+      "priority": "low",
+      "approved_candidates": "all"
+    },
+    "stranske/trip-planner": {
+      "decision": "approve",
+      "priority": "high",
+      "approved_candidates": "all"
+    }
+  }
+}

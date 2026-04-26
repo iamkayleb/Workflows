@@ -47,6 +47,7 @@ ISSUE_HEADING_RE = re.compile(
 ARCHIVE_RECOMMENDATION_RE = re.compile(r"^(?P<num>\d+)[\).]\s+(?P<title>.+)$")
 GENERATED_DIRTY_PATH_PREFIXES = (
     ".mypy_cache/",
+    ".gitnexus/",
     ".pytest_cache/",
     ".ruff_cache/",
     ".venv/",
@@ -182,6 +183,15 @@ REVIEW_DIMENSIONS = (
             "acceptance criteria, and tests that would fail before the fix."
         ),
     },
+)
+PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
+ISSUE_BODY_REQUIRED_SECTIONS = (
+    "## Why",
+    "## Scope",
+    "## Non-Goals",
+    "## Tasks",
+    "## Acceptance Criteria",
+    "## Implementation Notes",
 )
 
 
@@ -766,6 +776,74 @@ def load_registry(path: Path) -> tuple[Path, list[str], list[RepoConfig], list[P
     return workspace_root, excluded, repos, archive_paths
 
 
+def load_json_config(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Expected object in {path}")
+    return data
+
+
+def gitnexus_meta_candidates(workspace_root: Path, repo_path: Path, repo: RepoConfig) -> list[Path]:
+    repo_name = repo.repo.rsplit("/", 1)[-1]
+    candidates = [
+        repo_path / ".gitnexus" / "meta.json",
+        workspace_root / repo_name / ".gitnexus" / "meta.json",
+    ]
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(candidate)
+    return unique
+
+
+def collect_gitnexus_map(workspace_root: Path, repo_path: Path, repo: RepoConfig) -> dict[str, Any]:
+    head_commit = run_git(repo_path, ["rev-parse", "HEAD"])
+    for meta_path in gitnexus_meta_candidates(workspace_root, repo_path, repo):
+        if not meta_path.is_file():
+            continue
+        meta = load_json_config(meta_path)
+        indexed_commit = str(meta.get("lastCommit", ""))
+        if head_commit and indexed_commit:
+            status = "current" if head_commit == indexed_commit else "stale"
+        else:
+            status = "available"
+        stats = meta.get("stats") if isinstance(meta.get("stats"), dict) else {}
+        return {
+            "status": status,
+            "meta_path": str(meta_path),
+            "repo_path": str(meta.get("repoPath", "")),
+            "indexed_at": str(meta.get("indexedAt", "")),
+            "indexed_commit": indexed_commit,
+            "head_commit": head_commit,
+            "remote_url": str(meta.get("remoteUrl", "")),
+            "stats": stats,
+            "usage": (
+                "Use GitNexus MCP query/context for deeper semantic review; the evaluator "
+                "reads only meta.json and never parses the binary local map."
+            ),
+        }
+    return {
+        "status": "missing",
+        "meta_path": "",
+        "repo_path": str(repo_path),
+        "indexed_at": "",
+        "indexed_commit": "",
+        "head_commit": head_commit,
+        "remote_url": "",
+        "stats": {},
+        "usage": "No local GitNexus meta.json was found for this repo.",
+    }
+
+
 def repo_aliases(repo: RepoConfig) -> set[str]:
     name = repo.repo.rsplit("/", 1)[-1]
     aliases = {
@@ -1088,6 +1166,8 @@ def collect_repo_state(
     workspace_root: Path,
     repo: RepoConfig,
     archive_candidates: list[ArchiveCandidate] | None = None,
+    review_profile: dict[str, Any] | None = None,
+    feedback_decision: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     repo_path = workspace_root / repo.local_path
     status_lines = run_git(repo_path, ["status", "--short"]).splitlines()
@@ -1107,6 +1187,8 @@ def collect_repo_state(
     )
 
     archive_candidates = archive_candidates or []
+    review_profile = review_profile or {}
+    feedback_decision = feedback_decision or {}
     current_review_status = review_status(repo, repo_path, blocking_lines)
     current_issue_queue_status = issue_queue_status(drafts, archive_candidates)
 
@@ -1116,6 +1198,9 @@ def collect_repo_state(
         "status": repo.status,
         "cadence": repo.cadence,
         "decision_anchor": repo.decision_anchor,
+        "review_profile": review_profile,
+        "feedback_decision": feedback_decision,
+        "gitnexus_map": collect_gitnexus_map(workspace_root, repo_path, repo),
         "exists": repo_path.exists(),
         "origin": origin,
         "branch": branch,
@@ -1177,6 +1262,12 @@ def markdown_list(items: list[str], empty: str = "None found.") -> str:
     return "\n".join(f"- `{item}`" for item in items)
 
 
+def markdown_bullets(items: list[str], empty: str = "None recorded.") -> str:
+    if not items:
+        return empty
+    return "\n".join(f"- {item}" for item in items)
+
+
 def execution_dimension(state: dict[str, Any], dimension_id: str) -> dict[str, Any]:
     for dimension in state["review_execution"]["dimensions"]:
         if dimension["id"] == dimension_id:
@@ -1202,32 +1293,50 @@ def task_preview(body: str, limit: int = 3) -> list[str]:
     return tasks
 
 
-def issue_candidate_summaries(state: dict[str, Any], max_items: int = 8) -> list[dict[str, Any]]:
+def issue_candidate_records(
+    state: dict[str, Any], max_items: int | None = 8
+) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
-    for draft in state["drafts"][:max_items]:
+    for draft in state["drafts"]:
         candidates.append(
             {
+                "candidate_index": len(candidates) + 1,
                 "type": "local draft",
                 "title": draft["title"],
                 "source": f"Issues.txt draft {draft['number']}",
+                "source_detail": f"Issues.txt draft {draft['number']}",
                 "task_count": draft["open_tasks"],
                 "task_preview": task_preview(draft["body"]),
+                "body": draft["body"],
             }
         )
-    remaining_slots = max_items - len(candidates)
-    if remaining_slots <= 0:
-        return candidates
-    for candidate in state["archive_candidates"][:remaining_slots]:
+        if max_items is not None and len(candidates) >= max_items:
+            return candidates
+    for candidate in state["archive_candidates"]:
         candidates.append(
             {
+                "candidate_index": len(candidates) + 1,
                 "type": "archive candidate",
                 "title": candidate["title"],
                 "source": candidate["thread_name"] or "untitled archive thread",
+                "source_detail": candidate["source_file"],
                 "task_count": None,
                 "task_preview": [candidate["excerpt"]],
+                "body": candidate["excerpt"],
             }
         )
+        if max_items is not None and len(candidates) >= max_items:
+            return candidates
     return candidates
+
+
+def issue_candidate_summaries(
+    state: dict[str, Any], max_items: int | None = 8
+) -> list[dict[str, Any]]:
+    return [
+        {key: value for key, value in candidate.items() if key != "body"}
+        for candidate in issue_candidate_records(state, max_items=max_items)
+    ]
 
 
 def readiness_summary(state: dict[str, Any]) -> str:
@@ -1276,11 +1385,26 @@ def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
     testing = execution_dimension(state, "test_and_live_readiness")
     integration = execution_dimension(state, "integration_and_state")
     issue_generation = execution_dimension(state, "issue_generation")
+    profile = state.get("review_profile") or {}
+    feedback = state.get("feedback_decision") or {}
+    gitnexus_map = state.get("gitnexus_map") or {}
+    gitnexus_stats = gitnexus_map.get("stats") or {}
+    gitnexus_summary = (
+        f"{gitnexus_map.get('status', 'missing')} map; "
+        f"indexed `{str(gitnexus_map.get('indexed_commit') or 'unknown')[:12]}`; "
+        f"head `{str(gitnexus_map.get('head_commit') or 'unknown')[:12]}`; "
+        f"files `{gitnexus_stats.get('files', 'unknown')}`, nodes `{gitnexus_stats.get('nodes', 'unknown')}`, "
+        f"processes `{gitnexus_stats.get('processes', 'unknown')}`."
+    )
     return {
         "design_target": state["decision_anchor"] or "No decision anchor recorded.",
-        "progress_summary": implementation["finding"],
-        "readiness_summary": readiness_summary(state),
+        "progress_summary": profile.get("progress_summary") or implementation["finding"],
+        "readiness_summary": profile.get("readiness_summary") or readiness_summary(state),
         "issue_set_recommendation": issue_set_recommendation(state),
+        "review_focus": profile.get("review_focus", []),
+        "concerns": profile.get("concerns", []),
+        "recorded_feedback": feedback,
+        "gitnexus_summary": gitnexus_summary,
         "design_evidence": execution_dimension(state, "design_contract")["evidence"],
         "implementation_evidence": implementation["evidence"],
         "testing_evidence": testing["evidence"],
@@ -1310,6 +1434,329 @@ def markdown_candidate_list(candidates: list[dict[str, Any]], empty: str) -> str
     return "\n".join(lines)
 
 
+def normalize_priority(value: Any) -> str:
+    priority = str(value or "normal").lower().strip()
+    return priority if priority in PRIORITY_ORDER else "normal"
+
+
+def decision_parts(decision: Any) -> set[str]:
+    return {
+        part.strip().lower()
+        for part in re.split(r"\s*\|\s*", str(decision or ""))
+        if part.strip()
+    }
+
+
+def approved_candidate_indexes(
+    decision: dict[str, Any], total_candidates: int, defaults: dict[str, Any]
+) -> set[int]:
+    approved = decision.get("approved_candidates", defaults.get("approved_candidates", []))
+    if approved == "all":
+        return set(range(1, total_candidates + 1))
+    if not isinstance(approved, list):
+        return set()
+    indexes: set[int] = set()
+    for item in approved:
+        try:
+            indexes.add(int(item))
+        except (TypeError, ValueError):
+            continue
+    return indexes
+
+
+def dropped_candidate_indexes(decision: dict[str, Any]) -> set[int]:
+    dropped = decision.get("dropped_candidates", [])
+    if not isinstance(dropped, list):
+        return set()
+    indexes: set[int] = set()
+    for item in dropped:
+        try:
+            indexes.add(int(item))
+        except (TypeError, ValueError):
+            continue
+    return indexes
+
+
+def open_task_lines(body: str, limit: int = 8) -> list[str]:
+    tasks: list[str] = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not re.search(r"\[\s\]", stripped):
+            continue
+        tasks.append(re.sub(r"^[-*]\s*\[\s\]\s*", "", stripped).strip())
+        if len(tasks) >= limit:
+            break
+    return tasks
+
+
+def candidate_goal_text(candidate: dict[str, Any]) -> str:
+    body = str(candidate.get("body") or "").strip()
+    if body:
+        body = re.sub(r"^\d+[\).]\s*", "", body).strip()
+        return body
+    return str(candidate["title"]).strip()
+
+
+def issue_task_lines(candidate: dict[str, Any]) -> list[str]:
+    if candidate["type"] == "local draft":
+        tasks = open_task_lines(candidate.get("body", ""))
+        if tasks:
+            return tasks
+    return [f"Implement the approved review gap: {candidate_goal_text(candidate)}"]
+
+
+def build_agent_issue_body(
+    state: dict[str, Any], candidate: dict[str, Any], priority: str
+) -> str:
+    brief = state["decision_brief"]
+    design_sources = state["design_files"][:5]
+    implementation_evidence = brief["implementation_evidence"][:4]
+    testing_evidence = [*brief["testing_evidence"], *brief["integration_evidence"][:2]][:5]
+    gitnexus = state["gitnexus_map"]
+    candidate_goal = candidate_goal_text(candidate)
+    tasks = issue_task_lines(candidate)
+    design_source_lines = [f"  - `{path}`" for path in design_sources] or [
+        "  - None found by the evaluator."
+    ]
+    implementation_evidence_lines = [f"  - {item}" for item in implementation_evidence] or [
+        "  - None found by the evaluator."
+    ]
+    testing_evidence_lines = [f"  - {item}" for item in testing_evidence] or [
+        "  - None found by the evaluator."
+    ]
+    task_lines = [f"- [ ] {task}" for task in tasks]
+    task_lines.extend(
+        [
+            "- [ ] Add or update repo-local tests, smoke checks, or verifier documentation that prove the changed behavior.",
+            "- [ ] Update user-facing docs or runbooks when the implemented behavior changes an expected workflow.",
+        ]
+    )
+    body_lines = [
+        "## Why",
+        "",
+        brief["progress_summary"],
+        "",
+        f"Design target: {brief['design_target']}",
+        "",
+        f"Readiness context: {brief['readiness_summary']}",
+        "",
+        "## Scope",
+        "",
+        f"- Approved weekly-review candidate: {candidate_goal}",
+        f"- Candidate source: {candidate['source']} ({candidate['type']})",
+        f"- Weekly priority: {priority}",
+        "- Use the current repo design sources and implementation evidence before changing code.",
+        "",
+        "## Non-Goals",
+        "",
+        "- Do not do unrelated refactors or broad cleanup outside the reviewed gap.",
+        "- Do not satisfy this issue with fixture-only, scaffold-only, or documentation-only behavior unless the scope is explicitly documentation.",
+        "- Do not place Workflows maintenance, template sync, or cross-repo lane-management tasks in this consumer repo unless the work directly implements repo-local behavior required by the design.",
+        "",
+        "## Tasks",
+        "",
+        *task_lines,
+        "",
+        "## Acceptance Criteria",
+        "",
+        "- [ ] The reviewed design/readiness gap is implemented in repo-local code, docs, tests, or workflows as appropriate for the issue.",
+        "- [ ] At least one targeted automated test, smoke check, verifier run, or documented live-verification gate proves the behavior and would have failed or been absent before the change.",
+        "- [ ] The PR notes the design source or review evidence used to define completion.",
+        "- [ ] No unrelated Workflows/template-sync maintenance is bundled into this repo issue.",
+        "",
+        "## Implementation Notes",
+        "",
+        f"- GitNexus map: {gitnexus['status']} ({gitnexus['meta_path'] or 'no meta.json'}).",
+        f"- GitNexus indexed commit: {gitnexus['indexed_commit'] or 'unknown'}; repo head: {gitnexus['head_commit'] or 'unknown'}.",
+        "- Design sources to inspect:",
+        *design_source_lines,
+        "- Key implementation evidence from the weekly review:",
+        *implementation_evidence_lines,
+        "- Key testing/integration evidence from the weekly review:",
+        *testing_evidence_lines,
+    ]
+    return "\n".join(body_lines).strip() + "\n"
+
+
+def issue_body_has_required_sections(body: str) -> bool:
+    return all(section in body for section in ISSUE_BODY_REQUIRED_SECTIONS)
+
+
+def build_approved_issue_queue(
+    states: list[dict[str, Any]], feedback_config: dict[str, Any], generated_on: str
+) -> dict[str, Any]:
+    defaults = feedback_config.get("defaults", {}) if isinstance(feedback_config, dict) else {}
+    decisions = feedback_config.get("decisions", {}) if isinstance(feedback_config, dict) else {}
+    routing_rules = (
+        feedback_config.get("routing_rules", []) if isinstance(feedback_config, dict) else []
+    )
+    issues: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    deeper_review: list[dict[str, Any]] = []
+    warnings: list[str] = []
+
+    for state in states:
+        if state["status"] != "active":
+            continue
+        decision = decisions.get(state["repo"], {})
+        if not isinstance(decision, dict):
+            decision = {}
+        repo_decision = str(
+            decision.get("decision", defaults.get("omitted_repo_decision", "defer"))
+        )
+        parts = decision_parts(repo_decision)
+        priority = normalize_priority(decision.get("priority", "normal"))
+        candidates = issue_candidate_records(state, max_items=None)
+        dropped_indexes = dropped_candidate_indexes(decision)
+
+        if "deeper-review" in parts:
+            deeper_review.append(
+                {
+                    "repo": state["repo"],
+                    "priority": priority,
+                    "decision": repo_decision,
+                    "notes": decision.get("notes", ""),
+                    "design_target": state["decision_brief"]["design_target"],
+                    "review_focus": state["decision_brief"]["review_focus"],
+                    "concerns": state["decision_brief"]["concerns"],
+                    "gitnexus_map": state["gitnexus_map"],
+                }
+            )
+
+        for candidate in candidates:
+            if candidate["candidate_index"] in dropped_indexes:
+                dropped.append(
+                    {
+                        "repo": state["repo"],
+                        "candidate_index": candidate["candidate_index"],
+                        "title": candidate["title"],
+                        "reason": decision.get("notes", "Dropped by feedback."),
+                    }
+                )
+
+        if "approve" not in parts:
+            continue
+
+        selected_indexes = approved_candidate_indexes(decision, len(candidates), defaults)
+        missing_indexes = sorted(index for index in selected_indexes if index > len(candidates))
+        if missing_indexes:
+            warnings.append(
+                f"{state['repo']} approved missing candidate indexes: {', '.join(map(str, missing_indexes))}"
+            )
+        for candidate in candidates:
+            if candidate["candidate_index"] not in selected_indexes:
+                continue
+            if candidate["candidate_index"] in dropped_indexes:
+                continue
+            body = build_agent_issue_body(state, candidate, priority)
+            issues.append(
+                {
+                    "repo": state["repo"],
+                    "local_path": state["local_path"],
+                    "priority": priority,
+                    "priority_rank": PRIORITY_ORDER[priority],
+                    "candidate_index": candidate["candidate_index"],
+                    "source_type": candidate["type"],
+                    "source": candidate["source"],
+                    "title": candidate["title"],
+                    "labels": ["repo-review-approved", f"priority:{priority}"],
+                    "body_format": list(ISSUE_BODY_REQUIRED_SECTIONS),
+                    "body_valid": issue_body_has_required_sections(body),
+                    "body": body,
+                    "feedback_notes": decision.get("notes", ""),
+                    "gitnexus_status": state["gitnexus_map"]["status"],
+                }
+            )
+
+    issues.sort(key=lambda item: (item["priority_rank"], item["repo"].lower(), item["candidate_index"]))
+    deeper_review.sort(
+        key=lambda item: (PRIORITY_ORDER[normalize_priority(item["priority"])], item["repo"].lower())
+    )
+    return {
+        "generated_on": generated_on,
+        "source_feedback_generated_on": feedback_config.get("generated_on", ""),
+        "routing_rules": routing_rules,
+        "issues": issues,
+        "deeper_review": deeper_review,
+        "dropped_candidates": dropped,
+        "warnings": warnings,
+    }
+
+
+def write_approved_issue_queue(
+    output_dir: Path, states: list[dict[str, Any]], feedback_config: dict[str, Any], generated_on: str
+) -> dict[str, Any]:
+    queue = build_approved_issue_queue(states, feedback_config, generated_on)
+    (output_dir / "approved-issue-queue.json").write_text(
+        json.dumps(queue, indent=2) + "\n", encoding="utf-8"
+    )
+    lines = [
+        f"# Approved Issue Queue - {generated_on}",
+        "",
+        "This queue is generated from the human feedback config. It is the handoff surface for coding-agent opener lanes; it does not create remote issues by itself.",
+        "",
+        "## Routing Rules",
+        "",
+        markdown_bullets(queue["routing_rules"], "No routing rules recorded."),
+        "",
+        "## Approved Issues",
+        "",
+    ]
+    if not queue["issues"]:
+        lines.extend(["No approved issue candidates are queued.", ""])
+    for item in queue["issues"]:
+        lines.extend(
+            [
+                f"### [{item['priority']}] {item['repo']} candidate {item['candidate_index']}: {item['title']}",
+                "",
+                f"- Source: `{item['source']}`",
+                f"- Labels: `{', '.join(item['labels'])}`",
+                f"- Body follows required issue sections: `{item['body_valid']}`",
+                "",
+                "```markdown",
+                item["body"].strip(),
+                "```",
+                "",
+            ]
+        )
+    lines.extend(["## Deeper Review Or Revision Required", ""])
+    if not queue["deeper_review"]:
+        lines.extend(["None.", ""])
+    for item in queue["deeper_review"]:
+        lines.extend(
+            [
+                f"### [{item['priority']}] {item['repo']}",
+                "",
+                f"- Decision: `{item['decision']}`",
+                f"- Notes: {item['notes'] or 'None recorded.'}",
+                f"- GitNexus map: `{item['gitnexus_map']['status']}` at `{item['gitnexus_map']['meta_path'] or 'not found'}`",
+                "",
+                "Review focus:",
+                "",
+                markdown_bullets(item["review_focus"]),
+                "",
+                "Concerns:",
+                "",
+                markdown_bullets(item["concerns"]),
+                "",
+            ]
+        )
+    lines.extend(["## Dropped Candidates", ""])
+    if not queue["dropped_candidates"]:
+        lines.extend(["None.", ""])
+    for item in queue["dropped_candidates"]:
+        lines.extend(
+            [
+                f"- `{item['repo']}` candidate `{item['candidate_index']}`: {item['title']}",
+                f"  Reason: {item['reason']}",
+            ]
+        )
+    if queue["warnings"]:
+        lines.extend(["", "## Warnings", "", markdown_bullets(queue["warnings"]), ""])
+    (output_dir / "approved-issue-queue.md").write_text("\n".join(lines), encoding="utf-8")
+    return queue
+
+
 def write_decision_brief(repo_dir: Path, state: dict[str, Any]) -> None:
     brief = state["decision_brief"]
     lines = [
@@ -1321,6 +1768,15 @@ def write_decision_brief(repo_dir: Path, state: dict[str, Any]) -> None:
         "",
         f"- Design target: {brief['design_target']}",
         f"- Progress summary: {brief['progress_summary']}",
+        f"- GitNexus map: {brief['gitnexus_summary']}",
+        "",
+        "Review focus:",
+        "",
+        markdown_bullets(brief["review_focus"]),
+        "",
+        "Concerns to resolve:",
+        "",
+        markdown_bullets(brief["concerns"]),
         "",
         "Design evidence:",
         "",
@@ -1357,6 +1813,9 @@ def write_decision_brief(repo_dir: Path, state: dict[str, Any]) -> None:
         "",
         "## Feedback Slot",
         "",
+        f"Recorded feedback: `{brief['recorded_feedback'].get('decision', 'none')}`"
+        f" / priority `{brief['recorded_feedback'].get('priority', 'unset')}`",
+        "",
         "```text",
         f"repo: {state['repo']}",
         *brief["feedback_template"],
@@ -1390,6 +1849,9 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"- Origin: `{state['origin'] or 'unknown'}`",
         f"- Branch: `{state['branch'] or 'unknown'}`",
         f"- Last commit: `{state['last_commit'] or 'unknown'}`",
+        f"- GitNexus map status: `{state['gitnexus_map']['status']}`",
+        f"- GitNexus indexed at: `{state['gitnexus_map']['indexed_at'] or 'unknown'}`",
+        f"- GitNexus meta path: `{state['gitnexus_map']['meta_path'] or 'not found'}`",
         f"- Dirty local changes: `{state['dirty_count']}`",
         f"- Non-generated local changes: `{state['material_dirty_count']}`",
         f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
@@ -1461,6 +1923,7 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"- Non-generated local changes: `{state['material_dirty_count']}`",
         f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
         f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
+        f"- GitNexus map status: `{state['gitnexus_map']['status']}`",
         "",
         "## Design Sources To Read",
         "",
@@ -1667,6 +2130,8 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
         "3. Check tests, smoke paths, persistence, integrations, and workflow handoffs.",
         "4. Use archive-derived candidates as precedent, not as automatically approved issues.",
         "5. Generate or approve issue drafts only for verified design/readiness gaps.",
+        "6. Route Workflows/template-sync maintenance into Workflows unless the work directly implements repo-local behavior.",
+        "7. Feed approved, formatted issues into `approved-issue-queue.json` for opener-lane automation.",
         "",
         "## Human Review Queue",
         "",
@@ -1704,6 +2169,7 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
                 f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
                 f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
+                f"- GitNexus map: `{state['gitnexus_map']['status']}`",
                 f"- Review artifacts: `repos/{safe_name}/decision-brief.md`, `repos/{safe_name}/review-execution.md`, `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
                 f"- Human action: {human_action}",
                 "",
@@ -1711,6 +2177,15 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 "",
                 f"- Design target: {brief['design_target']}",
                 f"- Progress summary: {brief['progress_summary']}",
+                f"- GitNexus map: {brief['gitnexus_summary']}",
+                "",
+                "Review focus:",
+                "",
+                markdown_bullets(brief["review_focus"]),
+                "",
+                "Concerns to resolve:",
+                "",
+                markdown_bullets(brief["concerns"]),
                 "",
                 "Key implementation evidence:",
                 "",
@@ -1734,6 +2209,9 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 ),
                 "",
                 "#### Feedback Slot",
+                "",
+                f"Recorded feedback: `{brief['recorded_feedback'].get('decision', 'none')}`"
+                f" / priority `{brief['recorded_feedback'].get('priority', 'unset')}`",
                 "",
                 "```text",
                 f"repo: {state['repo']}",
@@ -1776,6 +2254,8 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--registry", default="config/repo_review_registry.json")
+    parser.add_argument("--profiles", default="config/repo_review_profiles.json")
+    parser.add_argument("--feedback", default="config/repo_review_feedback.json")
     parser.add_argument("--output-dir", default="docs/reports/repo-review")
     parser.add_argument(
         "--status",
@@ -1791,20 +2271,38 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     registry_path = Path(args.registry)
+    profiles_path = Path(args.profiles)
+    feedback_path = Path(args.feedback)
     output_dir = Path(args.output_dir)
     statuses = set(args.status or ["active", "paused", "ignored"])
     generated_on = args.date or date.today().isoformat()
 
     workspace_root, _excluded, repos, archive_paths = load_registry(registry_path)
+    profiles = load_json_config(profiles_path)
+    feedback_config = load_json_config(feedback_path)
+    feedback_decisions = feedback_config.get("decisions", {})
+    if not isinstance(feedback_decisions, dict):
+        feedback_decisions = {}
     archive_candidates = collect_archive_candidates(archive_paths, repos)
     states = [
-        collect_repo_state(workspace_root, repo, archive_candidates.get(repo.repo, []))
+        collect_repo_state(
+            workspace_root,
+            repo,
+            archive_candidates.get(repo.repo, []),
+            profiles.get(repo.repo, {}) if isinstance(profiles.get(repo.repo, {}), dict) else {},
+            feedback_decisions.get(repo.repo, {})
+            if isinstance(feedback_decisions.get(repo.repo, {}), dict)
+            else {},
+        )
         for repo in repos
         if repo.status in statuses
     ]
     for state in states:
         write_repo_artifacts(output_dir, state, max_drafts=args.max_drafts_per_repo)
     write_packet(output_dir, states, generated_on)
+    approved_queue = write_approved_issue_queue(
+        output_dir, states, feedback_config, generated_on
+    )
 
     print(
         json.dumps(
@@ -1837,6 +2335,8 @@ def main() -> None:
                     for state in states
                     if state["status"] == "active" and state["review_execution"]["gap_count"] > 0
                 ),
+                "approved_issue_count": len(approved_queue["issues"]),
+                "deeper_review_count": len(approved_queue["deeper_review"]),
             },
             indent=2,
         )

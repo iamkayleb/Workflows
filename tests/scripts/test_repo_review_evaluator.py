@@ -127,6 +127,7 @@ def test_collect_repo_state_marks_issue_queue_as_review_input(tmp_path: Path) ->
 
 def test_material_status_lines_filters_generated_cache_noise() -> None:
     lines = [
+        "?? .gitnexus/",
         " M .venv/lib/python3.12/site-packages/example.pyc",
         " M src/pension_data/db/strategy.py",
         " M docs/reports/issue_completion_queue.tsv",
@@ -135,6 +136,57 @@ def test_material_status_lines_filters_generated_cache_noise() -> None:
     ]
 
     assert evaluator.material_status_lines(lines) == [" M src/pension_data/db/strategy.py"]
+
+
+def test_collect_repo_state_uses_profile_and_gitnexus_meta(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "demo"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Demo\n", encoding="utf-8")
+    subprocess = evaluator.subprocess
+    subprocess.run(["git", "-C", str(repo_dir), "init"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "Test User"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "add", "README.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "commit", "-m", "initial"],
+        check=True,
+        capture_output=True,
+    )
+    head = evaluator.run_git(repo_dir, ["rev-parse", "HEAD"])
+    gitnexus_dir = repo_dir / ".gitnexus"
+    gitnexus_dir.mkdir()
+    (gitnexus_dir / "meta.json").write_text(
+        json.dumps(
+            {
+                "lastCommit": head,
+                "indexedAt": "2026-04-26T00:00:00Z",
+                "stats": {"files": 3, "nodes": 12, "processes": 2},
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = evaluator.RepoConfig(
+        repo="owner/demo",
+        local_path="demo",
+        status="active",
+        cadence="weekly",
+        decision_anchor="demo anchor",
+    )
+
+    state = evaluator.collect_repo_state(
+        tmp_path,
+        config,
+        review_profile={
+            "progress_summary": "Demo-specific progress.",
+            "readiness_summary": "Demo-specific readiness.",
+            "review_focus": ["Check the demo workflow."],
+            "concerns": ["Avoid generic summaries."],
+        },
+    )
+
+    assert state["gitnexus_map"]["status"] == "current"
+    assert state["decision_brief"]["progress_summary"] == "Demo-specific progress."
+    assert state["decision_brief"]["review_focus"] == ["Check the demo workflow."]
 
 
 def test_run_git_preserves_status_leading_columns(tmp_path: Path) -> None:
@@ -348,6 +400,60 @@ def test_write_packet_embeds_substantive_decision_brief(tmp_path: Path) -> None:
     assert "Candidate Issue Set" in packet
     assert "Add smoke coverage" in packet
     assert "decision: approve | revise | defer | drop | deeper-review" in packet
+
+
+def test_approved_issue_queue_formats_agent_ready_issues_and_drops_feedback_items(
+    tmp_path: Path,
+) -> None:
+    repo_dir = tmp_path / "Travel-Plan-Permission"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# TPP\n", encoding="utf-8")
+    (repo_dir / "Issues.txt").write_text(
+        """1. Keep approved repo-local work
+- [ ] implement approved behavior
+
+2. Route workflow sync elsewhere
+- [ ] update workflow sync policy
+""",
+        encoding="utf-8",
+    )
+    config = evaluator.RepoConfig(
+        repo="stranske/Travel-Plan-Permission",
+        local_path="Travel-Plan-Permission",
+        status="active",
+        cadence="weekly",
+        decision_anchor="approval workflow",
+    )
+    state = evaluator.collect_repo_state(
+        tmp_path,
+        config,
+        review_profile={
+            "progress_summary": "TPP has implementation surfaces and needs operational proof.",
+            "readiness_summary": "TPP needs LangGraph and transport smoke coverage before live confidence.",
+        },
+    )
+    feedback = {
+        "generated_on": "2026-04-26",
+        "defaults": {"approved_candidates": "all"},
+        "routing_rules": ["Route workflow maintenance to Workflows."],
+        "decisions": {
+            "stranske/Travel-Plan-Permission": {
+                "decision": "approve",
+                "priority": "high",
+                "approved_candidates": [1],
+                "dropped_candidates": [2],
+                "notes": "Candidate 2 belongs in Workflows.",
+            }
+        },
+    }
+
+    queue = evaluator.build_approved_issue_queue([state], feedback, "2026-04-26")
+
+    assert [item["candidate_index"] for item in queue["issues"]] == [1]
+    assert queue["issues"][0]["priority"] == "high"
+    assert queue["issues"][0]["body_valid"] is True
+    assert "## Acceptance Criteria" in queue["issues"][0]["body"]
+    assert queue["dropped_candidates"][0]["candidate_index"] == 2
 
 
 def test_collect_archive_candidates_reads_review_sessions(tmp_path: Path) -> None:

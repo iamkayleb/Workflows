@@ -1,0 +1,119 @@
+{
+  "stranske/Workflows": {
+    "progress_summary": "Workflows is a mature automation platform with substantial workflow, script, template, and test coverage. The current review is not about discovering whether code exists; it is about tightening source-of-truth documentation, consumer template guidance, reference-pack support, and terminal/verifier evidence so coding-agent lanes remain reliable.",
+    "readiness_summary": "Ready for targeted maintenance and workflow feature work. Do not treat it as ready for unattended broad changes unless each issue includes verifier/terminal evidence requirements and template-sync impact is explicit.",
+    "review_focus": [
+      "Confirm workflow source-of-truth docs match the scripts, templates, and automation prompts actually used by opener and closer lanes.",
+      "Keep consumer-repo maintenance tasks in Workflows unless they directly implement repo-local behavior.",
+      "Require parseable terminal, verifier, and PR/source evidence for automation changes."
+    ],
+    "concerns": [
+      "Remote-lane prompts can drift from the standard review output unless the approved issue queue is the explicit intake surface.",
+      "Template or AGENTS sync work can be misfiled as consumer repo issues if the routing rule is not enforced."
+    ]
+  },
+  "stranske/Travel-Plan-Permission": {
+    "progress_summary": "Travel-Plan-Permission has service, config, validation, orchestration, and planner-integration test surfaces. The remaining design gap is operational proof: CI must actually exercise the LangGraph path, a concrete TPP transport client must exist, and cross-repo planner smoke coverage must prove approval state persists.",
+    "readiness_summary": "High-priority testing readiness work remains before calling the approval workflow operational. The repo is ready for implementation issues, but not ready for live-style confidence until LangGraph CI, transport polling, and trip-planner integration smoke all pass.",
+    "review_focus": [
+      "Verify LangGraph execution is covered by CI rather than only local or optional paths.",
+      "Verify transport/polling behavior is implemented as a concrete repo-local client contract.",
+      "Verify trip-planner integration smoke proves approval state persists across the cross-repo boundary."
+    ],
+    "concerns": [
+      "Workflow-sync or template maintenance belongs in Workflows, not this repo's product backlog.",
+      "Passing unit tests are not enough if approval state cannot be exercised through the planner-facing integration."
+    ]
+  },
+  "stranske/Trend_Model_Project": {
+    "progress_summary": "Trend_Model_Project is implementation-heavy and test-heavy. The approved issue set is concentrated around Monte Carlo scenario semantics, cost/slippage schema, seeding contracts, and loader edge cases rather than missing application scaffolding.",
+    "readiness_summary": "Ready for normal coding-agent implementation. Testing should focus on schema compatibility, small deterministic Monte Carlo runs, scenario registry loading, and documentation examples that match executable behavior.",
+    "review_focus": [
+      "Check Monte Carlo scenario behavior against the documented modeling contract.",
+      "Verify cost/slippage schemas and seeded runs are deterministic and documented.",
+      "Keep issues narrow enough that scenario loader, schema, and doc examples can be validated independently."
+    ],
+    "concerns": [
+      "Large modeling changes can look complete while leaving schema compatibility or deterministic seeding unproved.",
+      "Docs/examples must be executable enough to prevent drift from the Streamlit/model behavior."
+    ]
+  },
+  "stranske/Portable-Alpha-Extension-Model": {
+    "progress_summary": "Portable Alpha has an existing dashboard/modeling surface, and the current design gap is the LLM/reference-pack user workflow. The issue set should build the Streamlit LLM foundations, settings UI, explain/comparison panels, config chat, and tests/docs as one coherent feature lane.",
+    "readiness_summary": "Ready for feature implementation, but not ready to claim LLM workflow completion until optional dependencies, provider configuration, UI controls, tests, and documentation all line up with the Trend reference-pack pattern.",
+    "review_focus": [
+      "Verify the LLM/reference-pack workflow is integrated into the app instead of documented as future intent.",
+      "Check provider configuration, optional dependencies, and UI controls together.",
+      "Use the Trend reference-pack pattern as an implementation and testing benchmark."
+    ],
+    "concerns": [
+      "An LLM feature can appear present while missing provider settings, UI state, or tests.",
+      "Reference-pack behavior should not fork away from the established Trend pattern without an explicit design reason."
+    ]
+  },
+  "stranske/Counter_Risk": {
+    "progress_summary": "Counter_Risk has an implementation surface for reporting and transformations, but the active issue set points at correctness and deliverable integrity: date semantics, reconciliation, header normalization, static distribution output, dual deliverables, VBA parity, and cash ingestion controls.",
+    "readiness_summary": "Ready for normal coding-agent implementation. Testing/readiness should prioritize data-loss prevention, deterministic date semantics, macro-parity evidence, and verifiable output artifacts over broad refactors.",
+    "review_focus": [
+      "Verify date semantics and reconciliation prevent silent data corruption.",
+      "Check output deliverables against expected distribution artifacts and VBA parity.",
+      "Prioritize tests that compare transformed inputs to deterministic report outputs."
+    ],
+    "concerns": [
+      "Broad cleanup is less valuable than focused data-integrity proof.",
+      "Deliverable generation can pass superficial checks while missing header, date, or reconciliation requirements."
+    ]
+  },
+  "stranske/Manager-Database": {
+    "progress_summary": "Manager-Database cannot be treated as complete just because no issue candidates were found. The review must inspect manager database goals, alert flows, RAG/query-chain behavior, persistence, and review-follow-up completion before deciding whether new work is needed.",
+    "readiness_summary": "Not ready for a no-new-issues decision. Run a deeper GitNexus-assisted design-vs-implementation review and generate concrete issue candidates if alerts, query chains, persistence, or follow-up workflows are incomplete.",
+    "review_focus": [
+      "Use GitNexus to inspect RAG/query-chain, alert, persistence, and follow-up flows against the design target.",
+      "Reconcile remote issues, local docs, and implementation paths before deciding whether the repo has no additional work.",
+      "Generate concrete issue candidates for any missing alert, query, persistence, or follow-up workflow behavior."
+    ],
+    "concerns": [
+      "No local draft candidates is not evidence that the repo satisfies its long-term goals.",
+      "This repo needs substantive semantic review rather than a generic automated pass."
+    ]
+  },
+  "stranske/Inv-Man-Intake": {
+    "progress_summary": "Inv-Man-Intake has open remote issues, but this weekly review has not yet proven that the current issue set is sufficient to realize the repo goals. The next review must reconcile the remote issue backlog with intake contracts, workflow readiness, and desired project structure.",
+    "readiness_summary": "Not ready for blind issue generation or no-new-issues approval. First evaluate the open issue set against repo goals, then add only the missing issues needed to close design gaps.",
+    "review_focus": [
+      "Compare each open remote issue to the intake design contract and project-structure goal.",
+      "Identify missing issues needed for workflow readiness, intake contracts, and agent handoff quality.",
+      "Revise or consolidate issues that do not move the repo toward the intended intake product."
+    ],
+    "concerns": [
+      "Existing open issues may be necessary but insufficient.",
+      "The review should not defer simply because a backlog already exists."
+    ]
+  },
+  "stranske/Pension-Data": {
+    "progress_summary": "Pension-Data has substantial ingestion, API, database, test, and workflow surfaces. The remaining approved work is focused and low priority: source-authority readiness gates and the first reviewable UI/LangChain artifact path.",
+    "readiness_summary": "Ready for controlled implementation of the approved issues. Testing should prove source-authority blockers are visible and that the first UI/LangChain artifact can be reviewed without implying the entire product is live-ready.",
+    "review_focus": [
+      "Verify source-authority blockers are explicit before downstream use.",
+      "Verify the first UI/LangChain artifact is reviewable and does not overclaim live readiness.",
+      "Keep ingestion/API/database stability separate from exploratory UI work."
+    ],
+    "concerns": [
+      "A reviewable UI artifact should not be treated as production readiness.",
+      "Source-authority failures need visible gates rather than implicit assumptions."
+    ]
+  },
+  "stranske/trip-planner": {
+    "progress_summary": "trip-planner has broad frontend, backend, persistence, policy, TPP integration, and test surfaces. The current gap is not scaffolding; it is proof that real user journeys work without fixture substitution: inventory/comparison output, planner turns, cross-repo TPP approval, map behavior, and unified orchestration state.",
+    "readiness_summary": "High-priority acceptance and smoke testing are required before live-style confidence. The repo is ready for coding-agent work on the approved issue set, but not ready to declare the design fulfilled until end-to-end planner, inventory, TPP, map, and orchestration checks pass.",
+    "review_focus": [
+      "Verify inventory/comparison output, planner turns, map behavior, and orchestration state through real user-journey tests.",
+      "Verify cross-repo TPP approval behavior without fixture substitution.",
+      "Use acceptance tests and smoke checks as the main readiness signal."
+    ],
+    "concerns": [
+      "Existing code breadth can hide missing end-to-end proof.",
+      "Fixture-only planner or approval checks should not count as readiness."
+    ]
+  }
+}
