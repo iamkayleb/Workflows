@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Any
 
 VALID_STATUSES = {"active", "paused", "ignored", "needs-human"}
+PENDING_REVIEW_STATUS = "pending standardized review"
+EXECUTED_REVIEW_STATUS = "standard review executed; human decision queued"
 REVIEW_PROMPT_RE = re.compile(
     r"summary of the current state|state of the codebase|what work remains|original design|"
     r"long[- ]term repo goals|current state.*repo|remaining gaps?|production ready|"
@@ -55,7 +57,7 @@ GENERATED_DIRTY_PATH_PREFIXES = (
 )
 GENERATED_DIRTY_PATH_PARTS = ("/__pycache__/",)
 GENERATED_DIRTY_SUFFIXES = (".pyc", ".pyo", ".DS_Store")
-GENERATED_DIRTY_FILENAMES = {"workloop-state.md"}
+GENERATED_DIRTY_FILENAMES = {".gitnexus", "workloop-state.md"}
 HELPER_DIRTY_FILENAMES = {"Issues.txt"}
 DESIGN_DOC_EXCLUDED_PREFIXES = (
     ".github/",
@@ -75,8 +77,11 @@ DESIGN_DOC_EXCLUDED_NAMES = {
     "LABELS.md",
 }
 IMPLEMENTATION_AREA_PATHS = (
+    "api",
     "src",
     "app",
+    "apps",
+    "backend",
     "lib",
     "packages",
     "dashboard",
@@ -85,6 +90,38 @@ IMPLEMENTATION_AREA_PATHS = (
     "scripts",
     "tests",
     ".github/workflows",
+)
+REVIEW_SCAN_FILE_LIMIT = 300
+SOURCE_FILE_SUFFIXES = (
+    ".css",
+    ".go",
+    ".html",
+    ".js",
+    ".json",
+    ".jsx",
+    ".mjs",
+    ".py",
+    ".rs",
+    ".sh",
+    ".swift",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".yaml",
+    ".yml",
+)
+IMPLEMENTATION_SCAN_EXCLUDED_PREFIXES = (
+    ".github/",
+    ".venv/",
+    "docs/reports/",
+    "node_modules/",
+)
+IMPLEMENTATION_SCAN_EXCLUDED_PARTS = ("/__pycache__/", "/node_modules/")
+TEST_FILE_RE = re.compile(r"(^|/)(tests?|__tests__)/|(^|/)test[_-].+|[_-]test\.", re.I)
+SMOKE_TEST_RE = re.compile(r"\b(smoke|e2e|end[- ]to[- ]end|integration|live)\b", re.I)
+STATE_INTEGRATION_RE = re.compile(
+    r"\b(api|client|database|db|github|integration|persist|provider|source|state|store|token|workflow)\b",
+    re.I,
 )
 REVIEW_DIMENSIONS = (
     {
@@ -157,15 +194,19 @@ class ArchiveCandidate:
     excerpt: str
 
 
-def run_git(repo_path: Path, args: list[str]) -> str:
+def run_git(repo_path: Path, args: list[str], timeout: int = 30) -> str:
     if not (repo_path / ".git").exists() and not (repo_path / ".git").is_file():
         return ""
-    result = subprocess.run(
-        ["git", "-C", str(repo_path), *args],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     if result.returncode != 0:
         return ""
     return result.stdout.rstrip()
@@ -189,23 +230,44 @@ def material_status_lines(status_lines: list[str]) -> list[str]:
     return [line for line in status_lines if not is_generated_dirty_path(line)]
 
 
-def is_helper_dirty_path(status_line: str) -> bool:
-    return status_path(status_line) in HELPER_DIRTY_FILENAMES
+def is_gitnexus_ignore_helper(repo_path: Path | None, status_line: str) -> bool:
+    if repo_path is None or status_path(status_line) != ".gitignore":
+        return False
+    diff = "\n".join(
+        [
+            run_git(repo_path, ["diff", "--", ".gitignore"], timeout=5),
+            run_git(repo_path, ["diff", "--cached", "--", ".gitignore"], timeout=5),
+        ]
+    )
+    changed_lines = [
+        line
+        for line in diff.splitlines()
+        if line.startswith(("+", "-")) and not line.startswith(("+++", "---"))
+    ]
+    return changed_lines == ["+.gitnexus"]
 
 
-def helper_status_lines(status_lines: list[str]) -> list[str]:
+def is_helper_dirty_path(status_line: str, repo_path: Path | None = None) -> bool:
+    return status_path(status_line) in HELPER_DIRTY_FILENAMES or is_gitnexus_ignore_helper(
+        repo_path, status_line
+    )
+
+
+def helper_status_lines(status_lines: list[str], repo_path: Path | None = None) -> list[str]:
     return [
         line
         for line in status_lines
-        if not is_generated_dirty_path(line) and is_helper_dirty_path(line)
+        if not is_generated_dirty_path(line) and is_helper_dirty_path(line, repo_path)
     ]
 
 
-def review_blocking_status_lines(status_lines: list[str]) -> list[str]:
+def review_blocking_status_lines(
+    status_lines: list[str], repo_path: Path | None = None
+) -> list[str]:
     return [
         line
         for line in status_lines
-        if not is_generated_dirty_path(line) and not is_helper_dirty_path(line)
+        if not is_generated_dirty_path(line) and not is_helper_dirty_path(line, repo_path)
     ]
 
 
@@ -222,7 +284,7 @@ def review_status(repo: RepoConfig, repo_path: Path, blocking_lines: list[str]) 
         return "missing local clone"
     if blocking_lines:
         return "blocked by non-helper local changes"
-    return "pending standardized review"
+    return PENDING_REVIEW_STATUS
 
 
 def is_design_doc_path(rel_path: str) -> bool:
@@ -280,27 +342,370 @@ def format_implementation_areas(areas: list[dict[str, int | str]]) -> list[str]:
     return [f"{area['path']} ({area['tracked_files']} tracked files)" for area in areas]
 
 
+def tracked_repo_files(repo_path: Path) -> list[str]:
+    if not repo_path.exists():
+        return []
+    return run_git(repo_path, ["ls-files"]).splitlines()
+
+
+def is_source_like_file(path: str) -> bool:
+    return path.endswith(SOURCE_FILE_SUFFIXES)
+
+
+def is_test_file(path: str) -> bool:
+    return TEST_FILE_RE.search(path) is not None
+
+
+def is_implementation_file(path: str) -> bool:
+    return (
+        is_source_like_file(path)
+        and not is_design_doc_path(path)
+        and not is_test_file(path)
+        and not path.startswith(IMPLEMENTATION_SCAN_EXCLUDED_PREFIXES)
+        and not any(part in path for part in IMPLEMENTATION_SCAN_EXCLUDED_PARTS)
+    )
+
+
+def markdown_headings(repo_path: Path, rel_path: str, limit: int = 6) -> list[str]:
+    text = run_git(repo_path, ["grep", "-h", "-e", "^#", "--", rel_path], timeout=5)
+    headings: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("#"):
+            heading = line.strip().lstrip("#").strip()
+            if heading:
+                headings.append(heading)
+        if len(headings) >= limit:
+            break
+    return headings
+
+
+def keyword_file_hits(
+    repo_path: Path,
+    files: list[str],
+    keywords: set[str],
+    limit: int = 8,
+    pathspecs: list[str] | None = None,
+) -> list[str]:
+    normalized_keywords = [
+        keyword.lower()
+        for keyword in sorted(keywords)
+        if len(keyword) >= 3 and not keyword.endswith(".md")
+    ]
+    if not normalized_keywords:
+        return []
+    candidate_set = set(files)
+    hits = git_grep_files(
+        repo_path,
+        normalized_keywords,
+        pathspecs=pathspecs or files[:REVIEW_SCAN_FILE_LIMIT],
+        limit=limit * 4,
+    )
+    return [path for path in hits if path in candidate_set and is_source_like_file(path)][:limit]
+
+
+def git_grep_files(
+    repo_path: Path,
+    patterns: list[str],
+    pathspecs: list[str],
+    limit: int = 12,
+    timeout: int = 10,
+) -> list[str]:
+    bounded_pathspecs = list(dict.fromkeys(pathspecs))[:REVIEW_SCAN_FILE_LIMIT]
+    if not patterns or not bounded_pathspecs or not repo_path.exists():
+        return []
+    args = ["grep", "-Il", "-i"]
+    for pattern in patterns[:30]:
+        args.extend(["-e", pattern])
+    args.extend(["--", *bounded_pathspecs])
+    output = run_git(repo_path, args, timeout=timeout)
+    if not output:
+        return []
+    return output.splitlines()[:limit]
+
+
+def review_execution_status(state: dict[str, Any]) -> str:
+    if state["status"] != "active":
+        return "not scheduled"
+    if not state["exists"]:
+        return "blocked: missing local clone"
+    if state["review_blocking_dirty_count"]:
+        return "blocked: non-helper local changes"
+    return "executed"
+
+
+def gap_label(severity: str) -> str:
+    if severity in {"material", "blocks testing", "blocks live use"}:
+        return "yes"
+    if severity == "needs human decision":
+        return "needs human decision"
+    return "no"
+
+
+def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
+    repo_path = Path(state["local_path"])
+    tracked_files = tracked_repo_files(repo_path)
+    implementation_files = [
+        path
+        for path in tracked_files
+        if is_implementation_file(path)
+    ]
+    test_files = [path for path in tracked_files if is_test_file(path)]
+    implementation_scan_files = implementation_files[:REVIEW_SCAN_FILE_LIMIT]
+    test_scan_files = test_files[:REVIEW_SCAN_FILE_LIMIT]
+    smoke_name_files = [path for path in test_files if SMOKE_TEST_RE.search(path)]
+    smoke_content_files = [
+        path
+        for path in git_grep_files(
+            repo_path,
+            ["smoke", "e2e", "end-to-end", "integration", "live"],
+            pathspecs=test_scan_files,
+            limit=20,
+        )
+        if path in set(test_files)
+    ]
+    smoke_test_files = list(dict.fromkeys([*smoke_name_files, *smoke_content_files]))[:10]
+    workflow_files = [
+        path
+        for path in tracked_files
+        if path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml"))
+    ]
+    integration_name_files = [
+        path for path in implementation_files if STATE_INTEGRATION_RE.search(path)
+    ][:12]
+    integration_content_files = [
+        path
+        for path in git_grep_files(
+            repo_path,
+            [
+                "api",
+                "client",
+                "database",
+                "github",
+                "integration",
+                "persist",
+                "provider",
+                "source",
+                "state",
+                "store",
+                "token",
+                "workflow",
+            ],
+            pathspecs=implementation_scan_files,
+            limit=40,
+        )
+        if path in set(implementation_files)
+    ]
+    integration_files = list(dict.fromkeys([*integration_name_files, *integration_content_files]))[
+        :12
+    ]
+    design_headings = {
+        rel_path: markdown_headings(repo_path, rel_path)
+        for rel_path in state["design_files"][:6]
+    }
+    domain_hits = keyword_file_hits(
+        repo_path,
+        implementation_files,
+        repo_domain_keywords(
+            RepoConfig(
+                repo=state["repo"],
+                local_path=Path(state["local_path"]).name,
+                status=state["status"],
+                cadence=state["cadence"],
+                decision_anchor=state["decision_anchor"],
+            )
+        ),
+        pathspecs=implementation_scan_files,
+    )
+    status = review_execution_status(state)
+    dimensions: list[dict[str, Any]] = []
+
+    if not state["design_files"]:
+        design_severity = "blocks testing"
+        design_finding = "No tracked design sources were found; the design contract is not reviewable."
+    else:
+        design_severity = "none"
+        design_finding = (
+            f"Collected {state['design_source_count']} design sources and registry anchor for comparison."
+        )
+    dimensions.append(
+        {
+            "id": "design_contract",
+            "label": "Design Contract",
+            "evidence": [
+                f"Decision anchor: {state['decision_anchor'] or 'none recorded'}",
+                f"Design sources: {state['design_source_count']}",
+                *[
+                    f"{rel_path}: {', '.join(headings[:4]) if headings else 'no headings found'}"
+                    for rel_path, headings in design_headings.items()
+                ],
+            ],
+            "finding": design_finding,
+            "gap_severity": design_severity,
+            "issue_draft_needed": gap_label(design_severity),
+        }
+    )
+
+    if not implementation_files:
+        implementation_severity = "blocks testing"
+        implementation_finding = "No source-like implementation files were detected."
+    elif not domain_hits:
+        implementation_severity = "needs human decision"
+        implementation_finding = (
+            "Implementation files exist, but the automated keyword pass did not map repo-domain terms "
+            "to code paths; a semantic review should confirm coverage."
+        )
+    else:
+        implementation_severity = "needs human decision"
+        implementation_finding = (
+            "Implementation files and repo-domain code hits were found; semantic review must verify "
+            "whether these paths satisfy the design contract."
+        )
+    dimensions.append(
+        {
+            "id": "implementation_coverage",
+            "label": "Implementation Coverage",
+            "evidence": [
+                f"Source-like implementation files: {len(implementation_files)}",
+                f"Implementation areas: {', '.join(format_implementation_areas(state['implementation_areas'])) or 'none'}",
+                f"Domain keyword hits: {', '.join(domain_hits) if domain_hits else 'none'}",
+            ],
+            "finding": implementation_finding,
+            "gap_severity": implementation_severity,
+            "issue_draft_needed": gap_label(implementation_severity),
+        }
+    )
+
+    if not test_files and not workflow_files:
+        test_severity = "blocks testing"
+        test_finding = "No tests or CI workflow files were detected."
+    elif not smoke_test_files:
+        test_severity = "material"
+        test_finding = (
+            "Tests or workflows exist, but the automated pass did not find smoke/e2e/live readiness markers."
+        )
+    else:
+        test_severity = "needs human decision"
+        test_finding = (
+            "Test and smoke/integration markers exist; review must verify they prove the intended user journey."
+        )
+    dimensions.append(
+        {
+            "id": "test_and_live_readiness",
+            "label": "Test And Live Readiness",
+            "evidence": [
+                f"Test files: {len(test_files)}",
+                f"Workflow files: {len(workflow_files)}",
+                f"Smoke/e2e/live markers: {', '.join(smoke_test_files) if smoke_test_files else 'none'}",
+            ],
+            "finding": test_finding,
+            "gap_severity": test_severity,
+            "issue_draft_needed": gap_label(test_severity),
+        }
+    )
+
+    if not integration_files and not workflow_files:
+        integration_severity = "material"
+        integration_finding = "No integration/state/workflow evidence was detected."
+    else:
+        integration_severity = "needs human decision"
+        integration_finding = (
+            "Integration/state/workflow evidence was found; review must confirm persistence, provider, "
+            "and cross-repo behavior against the design contract."
+        )
+    dimensions.append(
+        {
+            "id": "integration_and_state",
+            "label": "Integration And State",
+            "evidence": [
+                f"Integration/state files: {', '.join(integration_files) if integration_files else 'none'}",
+                f"Workflow files: {', '.join(workflow_files[:10]) if workflow_files else 'none'}",
+            ],
+            "finding": integration_finding,
+            "gap_severity": integration_severity,
+            "issue_draft_needed": gap_label(integration_severity),
+        }
+    )
+
+    if state["issue_draft_count"] or state["archive_candidate_count"]:
+        issue_severity = "needs human decision"
+        issue_finding = (
+            "Draft inputs exist; approve only after checking them against the executed review evidence."
+        )
+    elif state["remote_open_issue_count"]:
+        issue_severity = "needs human decision"
+        issue_finding = (
+            "No local/archive candidates are queued, but remote open issues need reconciliation before drafting more."
+        )
+    else:
+        issue_severity = "needs human decision"
+        issue_finding = (
+            "No current issue candidates were found. This is not a no-gap finding; it means this execution "
+            "needs semantic review before deciding whether new issues would move the repo toward its design."
+        )
+    dimensions.append(
+        {
+            "id": "issue_generation",
+            "label": "Issue Generation",
+            "evidence": [
+                f"Local issue drafts: {state['issue_draft_count']}",
+                f"Archive-derived candidates: {state['archive_candidate_count']}",
+                f"Remote open issues: {state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}",
+            ],
+            "finding": issue_finding,
+            "gap_severity": issue_severity,
+            "issue_draft_needed": gap_label(issue_severity),
+        }
+    )
+
+    gap_count = sum(
+        1
+        for dimension in dimensions
+        if dimension["gap_severity"] in {"material", "blocks testing", "blocks live use"}
+    )
+    decision_count = sum(
+        1 for dimension in dimensions if dimension["gap_severity"] == "needs human decision"
+    )
+    return {
+        "status": status,
+        "dimensions": dimensions,
+        "gap_count": gap_count,
+        "needs_decision_count": decision_count,
+        "tracked_file_count": len(tracked_files),
+        "implementation_file_count": len(implementation_files),
+        "test_file_count": len(test_files),
+        "workflow_file_count": len(workflow_files),
+        "summary": (
+            f"Execution status: {status}; material/blocking automated gaps: {gap_count}; "
+            f"dimensions needing semantic decision: {decision_count}."
+        ),
+    }
+
+
 def remote_open_issue_count(repo: str) -> int | None:
     if shutil.which("gh") is None:
         return None
-    result = subprocess.run(
-        [
-            "gh",
-            "issue",
-            "list",
-            "--repo",
-            repo,
-            "--state",
-            "open",
-            "--limit",
-            "200",
-            "--json",
-            "number",
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                repo,
+                "--state",
+                "open",
+                "--limit",
+                "200",
+                "--json",
+                "number",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except subprocess.TimeoutExpired:
+        return None
     if result.returncode != 0:
         return None
     try:
@@ -674,8 +1079,8 @@ def collect_repo_state(
     repo_path = workspace_root / repo.local_path
     status_lines = run_git(repo_path, ["status", "--short"]).splitlines()
     material_lines = material_status_lines(status_lines)
-    helper_lines = helper_status_lines(status_lines)
-    blocking_lines = review_blocking_status_lines(status_lines)
+    helper_lines = helper_status_lines(status_lines, repo_path)
+    blocking_lines = review_blocking_status_lines(status_lines, repo_path)
     branch = run_git(repo_path, ["branch", "--show-current"])
     origin = run_git(repo_path, ["remote", "get-url", "origin"])
     last_commit = run_git(repo_path, ["log", "-1", "--format=%cs %h %s"])
@@ -692,7 +1097,7 @@ def collect_repo_state(
     current_review_status = review_status(repo, repo_path, blocking_lines)
     current_issue_queue_status = issue_queue_status(drafts, archive_candidates)
 
-    return {
+    state = {
         "repo": repo.repo,
         "local_path": str(repo_path),
         "status": repo.status,
@@ -745,6 +1150,11 @@ def collect_repo_state(
             for candidate in archive_candidates
         ],
     }
+    state["review_execution"] = build_review_execution(state)
+    if state["review_execution"]["status"] == "executed":
+        state["review_status"] = EXECUTED_REVIEW_STATUS
+        state["decision"] = EXECUTED_REVIEW_STATUS
+    return state
 
 
 def markdown_list(items: list[str], empty: str = "None found.") -> str:
@@ -769,6 +1179,9 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"- Status: `{state['status']}`",
         f"- Review status: `{state['review_status']}`",
         f"- Issue queue status: `{state['issue_queue_status']}`",
+        f"- Review execution status: `{state['review_execution']['status']}`",
+        f"- Automated material/blocking gaps: `{state['review_execution']['gap_count']}`",
+        f"- Dimensions needing semantic decision: `{state['review_execution']['needs_decision_count']}`",
         f"- Local path: `{state['local_path']}`",
         f"- Origin: `{state['origin'] or 'unknown'}`",
         f"- Branch: `{state['branch'] or 'unknown'}`",
@@ -910,6 +1323,54 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
     )
     (repo_dir / "design-review.md").write_text("\n".join(review_lines), encoding="utf-8")
 
+    execution = state["review_execution"]
+    execution_lines = [
+        f"# Review Execution: {state['repo']}",
+        "",
+        "This file is the automated execution phase of the standardized review. It gathers evidence and classifies preliminary gaps; it does not approve remote issue creation by itself.",
+        "",
+        "## Execution Summary",
+        "",
+        f"- Status: `{execution['status']}`",
+        f"- Tracked files inspected: `{execution['tracked_file_count']}`",
+        f"- Source-like implementation files: `{execution['implementation_file_count']}`",
+        f"- Test files: `{execution['test_file_count']}`",
+        f"- Workflow files: `{execution['workflow_file_count']}`",
+        f"- Automated material/blocking gaps: `{execution['gap_count']}`",
+        f"- Dimensions needing semantic decision: `{execution['needs_decision_count']}`",
+        "",
+        execution["summary"],
+        "",
+        "## Dimension Findings",
+        "",
+    ]
+    for dimension in execution["dimensions"]:
+        execution_lines.extend(
+            [
+                f"### {dimension['label']}",
+                "",
+                f"- Gap severity: `{dimension['gap_severity']}`",
+                f"- Issue draft needed: `{dimension['issue_draft_needed']}`",
+                f"- Finding: {dimension['finding']}",
+                "",
+                "Evidence:",
+                "",
+                markdown_list(dimension["evidence"]),
+                "",
+            ]
+        )
+    execution_lines.extend(
+        [
+            "## Review Rule",
+            "",
+            "A `needs human decision` dimension is not a finding that no work remains. It means the automated execution gathered evidence but still requires semantic comparison between the design and implementation before issue approval.",
+            "",
+        ]
+    )
+    (repo_dir / "review-execution.md").write_text(
+        "\n".join(execution_lines), encoding="utf-8"
+    )
+
     draft_lines = [
         f"# Issue Drafts: {state['repo']}",
         "",
@@ -969,12 +1430,20 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
     active = [state for state in states if state["status"] == "active"]
     paused = [state for state in states if state["status"] == "paused"]
     ignored = [state for state in states if state["status"] == "ignored"]
-    review_pending = [
-        state for state in active if state["review_status"] == "pending standardized review"
+    review_pending = [state for state in active if state["review_status"] == PENDING_REVIEW_STATUS]
+    blocked = [
+        state
+        for state in active
+        if str(state["review_execution"]["status"]).startswith("blocked")
     ]
-    blocked = [state for state in active if state["review_status"] != "pending standardized review"]
     issue_candidate_repos = [
         state for state in active if state["issue_queue_status"] == "draft candidates present"
+    ]
+    executed_reviews = [
+        state for state in active if state["review_execution"]["status"] == "executed"
+    ]
+    automated_gap_repos = [
+        state for state in active if state["review_execution"]["gap_count"] > 0
     ]
 
     lines = [
@@ -985,9 +1454,11 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
         "## Summary",
         "",
         f"- Active repos scheduled for review: `{len(active)}`",
-        f"- Active repos pending standardized review: `{len(review_pending)}`",
+        f"- Active repos pending automated review execution: `{len(review_pending)}`",
+        f"- Active repos with automated review execution: `{len(executed_reviews)}`",
         f"- Active repos blocked before review: `{len(blocked)}`",
         f"- Active repos with issue-draft inputs: `{len(issue_candidate_repos)}`",
+        f"- Active repos with automated material/blocking gaps: `{len(automated_gap_repos)}`",
         f"- Paused repos tracked: `{len(paused)}`",
         f"- Ignored repos tracked: `{len(ignored)}`",
         "",
@@ -1004,11 +1475,23 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
     ]
     for state in active:
         safe_name = state["repo"].replace("/", "__")
+        if state["review_execution"]["status"] == "executed":
+            human_action = (
+                "review execution complete; make the semantic human decision, then "
+                "approve/edit/defer issue drafts."
+            )
+        elif str(state["review_execution"]["status"]).startswith("blocked"):
+            human_action = "resolve the blocker, rerun review execution, then queue the human decision."
+        else:
+            human_action = "conduct the standardized review, then approve/edit/defer issue drafts."
         lines.extend(
             [
                 f"### {state['repo']}",
                 "",
                 f"- Review status: `{state['review_status']}`",
+                f"- Review execution status: `{state['review_execution']['status']}`",
+                f"- Automated material/blocking gaps: `{state['review_execution']['gap_count']}`",
+                f"- Dimensions needing semantic decision: `{state['review_execution']['needs_decision_count']}`",
                 f"- Issue queue status: `{state['issue_queue_status']}`",
                 f"- Design source files: `{state['design_source_count']}`",
                 f"- Existing local issue drafts: `{state['issue_draft_count']}`",
@@ -1018,8 +1501,8 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
                 f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
                 f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
-                f"- Review artifacts: `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
-                "- Human action: conduct the standardized review, then approve/edit/defer issue drafts.",
+                f"- Review artifacts: `repos/{safe_name}/review-execution.md`, `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
+                f"- Human action: {human_action}",
                 "",
             ]
         )
@@ -1034,8 +1517,10 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 "generated_on": generated_on,
                 "active_count": len(active),
                 "review_pending_count": len(review_pending),
+                "review_execution_count": len(executed_reviews),
                 "blocked_review_count": len(blocked),
                 "issue_candidate_repo_count": len(issue_candidate_repos),
+                "automated_gap_repo_count": len(automated_gap_repos),
                 "repos": [
                     {
                         key: value
@@ -1097,13 +1582,24 @@ def main() -> None:
                     1
                     for state in states
                     if state["status"] == "active"
-                    and state["review_status"] == "pending standardized review"
+                    and state["review_status"] == PENDING_REVIEW_STATUS
+                ),
+                "review_execution_count": sum(
+                    1
+                    for state in states
+                    if state["status"] == "active"
+                    and state["review_execution"]["status"] == "executed"
                 ),
                 "issue_candidate_repo_count": sum(
                     1
                     for state in states
                     if state["status"] == "active"
                     and state["issue_queue_status"] == "draft candidates present"
+                ),
+                "automated_gap_repo_count": sum(
+                    1
+                    for state in states
+                    if state["status"] == "active" and state["review_execution"]["gap_count"] > 0
                 ),
             },
             indent=2,

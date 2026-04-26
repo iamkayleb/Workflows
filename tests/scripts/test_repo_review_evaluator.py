@@ -118,7 +118,7 @@ def test_collect_repo_state_marks_issue_queue_as_review_input(tmp_path: Path) ->
 
     state = evaluator.collect_repo_state(tmp_path, config)
 
-    assert state["review_status"] == "pending standardized review"
+    assert state["review_status"] == evaluator.EXECUTED_REVIEW_STATUS
     assert state["issue_queue_status"] == "draft candidates present"
     assert state["issue_draft_count"] == 1
     assert state["issue_open_task_count"] == 1
@@ -181,7 +181,7 @@ def test_archive_candidates_make_clean_repo_review_pending(tmp_path: Path) -> No
 
     state = evaluator.collect_repo_state(tmp_path, config, [candidate])
 
-    assert state["review_status"] == "pending standardized review"
+    assert state["review_status"] == evaluator.EXECUTED_REVIEW_STATUS
     assert state["issue_queue_status"] == "draft candidates present"
     assert state["issue_draft_count"] == 0
     assert state["archive_candidate_count"] == 1
@@ -213,9 +213,11 @@ def test_collect_repo_state_marks_clean_active_repo_review_pending(tmp_path: Pat
 
     state = evaluator.collect_repo_state(tmp_path, config)
 
-    assert state["review_status"] == "pending standardized review"
+    assert state["review_status"] == evaluator.EXECUTED_REVIEW_STATUS
     assert state["issue_queue_status"] == "no current draft candidates"
-    assert state["decision"] == "pending standardized review"
+    assert state["decision"] == evaluator.EXECUTED_REVIEW_STATUS
+    assert state["review_execution"]["status"] == "executed"
+    assert state["review_execution"]["gap_count"] >= 1
 
 
 def test_issues_txt_changes_are_helper_inputs_not_review_blockers(tmp_path: Path) -> None:
@@ -246,10 +248,42 @@ def test_issues_txt_changes_are_helper_inputs_not_review_blockers(tmp_path: Path
 
     state = evaluator.collect_repo_state(tmp_path, config)
 
-    assert state["review_status"] == "pending standardized review"
+    assert state["review_status"] == evaluator.EXECUTED_REVIEW_STATUS
     assert state["helper_dirty_count"] == 1
     assert state["review_blocking_dirty_count"] == 0
     assert state["helper_dirty_preview"] == [" M Issues.txt"]
+
+
+def test_gitnexus_ignore_change_is_helper_input_not_review_blocker(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "planner"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Planner\n", encoding="utf-8")
+    (repo_dir / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+    subprocess = evaluator.subprocess
+    subprocess.run(["git", "-C", str(repo_dir), "init"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "Test User"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "add", "README.md", ".gitignore"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "commit", "-m", "initial"],
+        check=True,
+        capture_output=True,
+    )
+    (repo_dir / ".gitignore").write_text("node_modules/\n.gitnexus\n", encoding="utf-8")
+    config = evaluator.RepoConfig(
+        repo="owner/planner",
+        local_path="planner",
+        status="active",
+        cadence="weekly",
+        decision_anchor="demo anchor",
+    )
+
+    state = evaluator.collect_repo_state(tmp_path, config)
+
+    assert state["review_status"] == evaluator.EXECUTED_REVIEW_STATUS
+    assert state["helper_dirty_count"] == 1
+    assert state["review_blocking_dirty_count"] == 0
+    assert state["helper_dirty_preview"] == [" M .gitignore"]
 
 
 def test_write_repo_artifacts_emits_standard_design_review(tmp_path: Path) -> None:
@@ -269,11 +303,16 @@ def test_write_repo_artifacts_emits_standard_design_review(tmp_path: Path) -> No
     evaluator.write_repo_artifacts(output_dir, state, max_drafts=8)
 
     review = output_dir / "repos" / "owner__demo" / "design-review.md"
+    execution = output_dir / "repos" / "owner__demo" / "review-execution.md"
     assert review.is_file()
+    assert execution.is_file()
     text = review.read_text(encoding="utf-8")
     assert "Standard Design Review" in text
     assert "Design Contract" in text
     assert "Issue Generation Gate" in text
+    execution_text = execution.read_text(encoding="utf-8")
+    assert "Review Execution" in execution_text
+    assert "Dimension Findings" in execution_text
 
 
 def test_collect_archive_candidates_reads_review_sessions(tmp_path: Path) -> None:
