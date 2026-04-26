@@ -573,7 +573,7 @@ jobs:
           path: |
             agent-metrics/review-thread-terminal-disposition.ndjson
             terminal-disposition-summary.md
-          if-no-files-found: ignore
+          if-no-files-found: error
           retention-days: 14
 
   # Generate prompt file with bot comments
