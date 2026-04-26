@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Generate local weekly repo review packets and issue drafts.
+"""Generate local weekly design-vs-implementation repo review packets.
 
-This script is intentionally local-first. It reads a registry of repos, inspects
-local clones, extracts unresolved draft issues from Issues.txt, and writes a
+This script is intentionally local-first. It reads a registry of repos,
+standardizes the review worksheet for each active local clone, gathers issue
+draft inputs from Issues.txt and prior design-review archives, and writes a
 single human decision packet. It does not create GitHub issues.
 """
 
@@ -55,6 +56,77 @@ GENERATED_DIRTY_PATH_PREFIXES = (
 GENERATED_DIRTY_PATH_PARTS = ("/__pycache__/",)
 GENERATED_DIRTY_SUFFIXES = (".pyc", ".pyo", ".DS_Store")
 GENERATED_DIRTY_FILENAMES = {"workloop-state.md"}
+DESIGN_DOC_EXCLUDED_PREFIXES = (
+    ".github/",
+    ".venv/",
+    "archive/",
+    "agents/",
+    "docs/archive/",
+    "docs/reports/",
+    "node_modules/",
+    "scripts/",
+)
+DESIGN_DOC_EXCLUDED_NAMES = {
+    "AGENT_ISSUE_FORMAT.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CODEX_TOKEN_REFRESH.md",
+    "LABELS.md",
+}
+IMPLEMENTATION_AREA_PATHS = (
+    "src",
+    "app",
+    "lib",
+    "packages",
+    "dashboard",
+    "frontend",
+    "trip_planner",
+    "scripts",
+    "tests",
+    ".github/workflows",
+)
+REVIEW_DIMENSIONS = (
+    {
+        "id": "design_contract",
+        "label": "Design Contract",
+        "prompt": (
+            "Identify the intended product or workflow from README/docs and the registry "
+            "decision anchor. Note stale, conflicting, or missing design commitments."
+        ),
+    },
+    {
+        "id": "implementation_coverage",
+        "label": "Implementation Coverage",
+        "prompt": (
+            "Compare the documented capabilities to current code paths. Distinguish real "
+            "working behavior from scaffolds, seams, fixtures, or advisory-only outputs."
+        ),
+    },
+    {
+        "id": "test_and_live_readiness",
+        "label": "Test And Live Readiness",
+        "prompt": (
+            "Determine whether tests or smoke paths prove the user journey that the design "
+            "requires. Identify blockers before live testing or production-like use."
+        ),
+    },
+    {
+        "id": "integration_and_state",
+        "label": "Integration And State",
+        "prompt": (
+            "Check cross-repo contracts, external providers, persistence, reload behavior, "
+            "source authority, generated artifacts, and workflow automation handoffs."
+        ),
+    },
+    {
+        "id": "issue_generation",
+        "label": "Issue Generation",
+        "prompt": (
+            "Convert only verified gaps into issue drafts with evidence, non-goals, tasks, "
+            "acceptance criteria, and tests that would fail before the fix."
+        ),
+    },
+)
 
 
 @dataclass(frozen=True)
@@ -114,6 +186,77 @@ def is_generated_dirty_path(status_line: str) -> bool:
 
 def material_status_lines(status_lines: list[str]) -> list[str]:
     return [line for line in status_lines if not is_generated_dirty_path(line)]
+
+
+def issue_queue_status(drafts: list[IssueDraft], archive_candidates: list[ArchiveCandidate]) -> str:
+    if drafts or archive_candidates:
+        return "draft candidates present"
+    return "no current draft candidates"
+
+
+def review_status(repo: RepoConfig, repo_path: Path, material_lines: list[str]) -> str:
+    if repo.status != "active":
+        return "not scheduled"
+    if not repo_path.exists():
+        return "missing local clone"
+    if material_lines:
+        return "blocked by material local changes"
+    return "ready for standardized review"
+
+
+def is_design_doc_path(rel_path: str) -> bool:
+    lowered = rel_path.lower()
+    return (
+        lowered.endswith(".md")
+        and not lowered.startswith(DESIGN_DOC_EXCLUDED_PREFIXES)
+        and not Path(rel_path).name.startswith("codex-prompt-")
+        and Path(rel_path).name not in DESIGN_DOC_EXCLUDED_NAMES
+        and "/docs/reports/" not in lowered
+        and "/__pycache__/" not in lowered
+    )
+
+
+def collect_design_files(repo_path: Path, limit: int = 20) -> list[str]:
+    if not repo_path.exists():
+        return []
+    tracked = run_git(repo_path, ["ls-files", "*.md"]).splitlines()
+    if tracked:
+        candidates = [path for path in tracked if is_design_doc_path(path)]
+    else:
+        candidates = [
+            str(path.relative_to(repo_path).as_posix())
+            for path in repo_path.rglob("*.md")
+            if is_design_doc_path(str(path.relative_to(repo_path).as_posix()))
+        ]
+
+    def sort_key(path: str) -> tuple[int, str]:
+        priority = 3
+        if path == "README.md":
+            priority = 0
+        elif path.startswith("docs/"):
+            priority = 1
+        elif "/" not in path:
+            priority = 2
+        return priority, path.lower()
+
+    return sorted(dict.fromkeys(candidates), key=sort_key)[:limit]
+
+
+def collect_implementation_areas(repo_path: Path) -> list[dict[str, int | str]]:
+    areas: list[dict[str, int | str]] = []
+    if not repo_path.exists():
+        return areas
+    for rel_path in IMPLEMENTATION_AREA_PATHS:
+        path = repo_path / rel_path
+        if not path.exists():
+            continue
+        tracked_files = len(run_git(repo_path, ["ls-files", rel_path]).splitlines())
+        areas.append({"path": rel_path, "tracked_files": tracked_files})
+    return areas
+
+
+def format_implementation_areas(areas: list[dict[str, int | str]]) -> list[str]:
+    return [f"{area['path']} ({area['tracked_files']} tracked files)" for area in areas]
 
 
 def remote_open_issue_count(repo: str) -> int | None:
@@ -514,11 +657,8 @@ def collect_repo_state(
     origin = run_git(repo_path, ["remote", "get-url", "origin"])
     last_commit = run_git(repo_path, ["log", "-1", "--format=%cs %h %s"])
     drafts = extract_issue_drafts(repo_path / "Issues.txt")
-    design_files = [
-        rel
-        for rel in ["README.md", "docs/DEVELOPMENT_PLAN.md", "docs/plans/LONG_TERM_PLAN.md"]
-        if (repo_path / rel).is_file()
-    ]
+    design_files = collect_design_files(repo_path)
+    implementation_areas = collect_implementation_areas(repo_path)
     report_files = (
         sorted((repo_path / "docs" / "reports").glob("*.md"))
         if (repo_path / "docs" / "reports").is_dir()
@@ -526,18 +666,8 @@ def collect_repo_state(
     )
 
     archive_candidates = archive_candidates or []
-
-    decision = "not scheduled"
-    if repo.status != "active":
-        decision = "not scheduled"
-    elif not repo_path.exists():
-        decision = "needs human"
-    elif drafts or archive_candidates:
-        decision = "productive"
-    elif material_lines:
-        decision = "needs human"
-    else:
-        decision = "not productive"
+    current_review_status = review_status(repo, repo_path, material_lines)
+    current_issue_queue_status = issue_queue_status(drafts, archive_candidates)
 
     return {
         "repo": repo.repo,
@@ -555,13 +685,18 @@ def collect_repo_state(
         "dirty_preview": status_lines[:15],
         "material_dirty_preview": material_lines[:15],
         "remote_open_issue_count": remote_open_issue_count(repo.repo),
+        "review_status": current_review_status,
+        "issue_queue_status": current_issue_queue_status,
         "issue_draft_count": len(drafts),
         "archive_candidate_count": len(archive_candidates),
         "issue_open_task_count": sum(draft.open_tasks for draft in drafts),
         "issue_done_task_count": sum(draft.done_tasks for draft in drafts),
         "design_files": design_files,
+        "design_source_count": len(design_files),
+        "implementation_areas": implementation_areas,
         "report_files": [str(path.relative_to(repo_path)) for path in report_files[:10]],
-        "decision": decision,
+        "decision": current_review_status,
+        "review_dimensions": list(REVIEW_DIMENSIONS),
         "drafts": [
             {
                 "number": draft.number,
@@ -605,7 +740,8 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"# Repo Review State: {state['repo']}",
         "",
         f"- Status: `{state['status']}`",
-        f"- Decision: `{state['decision']}`",
+        f"- Review status: `{state['review_status']}`",
+        f"- Issue queue status: `{state['issue_queue_status']}`",
         f"- Local path: `{state['local_path']}`",
         f"- Origin: `{state['origin'] or 'unknown'}`",
         f"- Branch: `{state['branch'] or 'unknown'}`",
@@ -616,6 +752,7 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
         f"- Issue drafts found: `{state['issue_draft_count']}`",
         f"- Archive-derived candidates found: `{state['archive_candidate_count']}`",
+        f"- Design source files found: `{state['design_source_count']}`",
         f"- Unchecked checklist boxes in local `Issues.txt` drafts: `{state['issue_open_task_count']}`",
         "",
         "## Decision Anchor",
@@ -625,6 +762,17 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         "## Design Sources",
         "",
         markdown_list(state["design_files"]),
+        "",
+        "## Implementation Areas",
+        "",
+        markdown_list(format_implementation_areas(state["implementation_areas"])),
+        "",
+        "## Standard Review Dimensions",
+        "",
+        "\n".join(
+            f"- `{dimension['id']}`: {dimension['label']}"
+            for dimension in state["review_dimensions"]
+        ),
         "",
         "## Existing Reports",
         "",
@@ -637,10 +785,95 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
     ]
     (repo_dir / "state.md").write_text("\n".join(state_md), encoding="utf-8")
 
+    review_lines = [
+        f"# Standard Design Review: {state['repo']}",
+        "",
+        "This worksheet is the standardized weekly design-vs-implementation review. Complete it before creating or approving new remote issues.",
+        "",
+        "## Review Contract",
+        "",
+        "- Primary goal: compare intended design to current implementation and testing readiness.",
+        "- Secondary goal: turn verified gaps into issue drafts for human approval.",
+        "- Completion standard: no issue should be considered ready unless the review identifies the design commitment, current evidence, missing behavior, and a test or live-smoke acceptance gate.",
+        "",
+        "## Current Signals",
+        "",
+        f"- Review status: `{state['review_status']}`",
+        f"- Issue queue status: `{state['issue_queue_status']}`",
+        f"- Existing local issue drafts: `{state['issue_draft_count']}`",
+        f"- Archive-derived candidates: `{state['archive_candidate_count']}`",
+        f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
+        f"- Material dirty local changes: `{state['material_dirty_count']}`",
+        "",
+        "## Design Sources To Read",
+        "",
+        markdown_list(state["design_files"]),
+        "",
+        "## Implementation Areas To Inspect",
+        "",
+        markdown_list(format_implementation_areas(state["implementation_areas"])),
+        "",
+        "## Review Dimensions",
+        "",
+    ]
+    for dimension in state["review_dimensions"]:
+        review_lines.extend(
+            [
+                f"### {dimension['label']}",
+                "",
+                dimension["prompt"],
+                "",
+                "- Evidence reviewed:",
+                "- Finding:",
+                "- Gap severity: `none | mop-up | material | blocks testing | blocks live use`",
+                "- Issue draft needed: `yes | no | needs human decision`",
+                "",
+            ]
+        )
+    if state["archive_candidates"]:
+        review_lines.extend(
+            [
+                "## Archive Review Precedent",
+                "",
+                "Use these prior design-review outputs as precedent, not as automatically approved issues.",
+                "",
+            ]
+        )
+        for index, candidate in enumerate(state["archive_candidates"][:max_drafts], start=1):
+            review_lines.extend(
+                [
+                    f"### Precedent {index}: {candidate['title']}",
+                    "",
+                    f"- Thread: `{candidate['thread_name']}`",
+                    f"- Timestamp: `{candidate['timestamp'] or 'unknown'}`",
+                    f"- Source: `{candidate['source_file']}`",
+                    "",
+                    "```text",
+                    candidate["excerpt"],
+                    "```",
+                    "",
+                ]
+            )
+    review_lines.extend(
+        [
+            "## Issue Generation Gate",
+            "",
+            "Before approving issue creation, confirm each issue has:",
+            "",
+            "- a specific design commitment or readiness gap;",
+            "- current implementation evidence;",
+            "- non-goals that prevent scaffold-only completion claims;",
+            "- tasks that a coding agent can complete;",
+            "- acceptance criteria with a failing test, smoke test, or documented live-verification gate.",
+            "",
+        ]
+    )
+    (repo_dir / "design-review.md").write_text("\n".join(review_lines), encoding="utf-8")
+
     draft_lines = [
         f"# Issue Drafts: {state['repo']}",
         "",
-        "These are local drafts for human approval. No remote issues were created.",
+        "These are inputs to the standardized design review. No remote issues were created.",
         "",
     ]
     for draft in state["drafts"][:max_drafts]:
@@ -696,23 +929,41 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
     active = [state for state in states if state["status"] == "active"]
     paused = [state for state in states if state["status"] == "paused"]
     ignored = [state for state in states if state["status"] == "ignored"]
-    productive = [state for state in active if state["decision"] == "productive"]
-    needs_human = [state for state in active if state["decision"] == "needs human"]
+    review_ready = [
+        state for state in active if state["review_status"] == "ready for standardized review"
+    ]
+    blocked = [
+        state
+        for state in active
+        if state["review_status"] != "ready for standardized review"
+    ]
+    issue_candidate_repos = [
+        state for state in active if state["issue_queue_status"] == "draft candidates present"
+    ]
 
     lines = [
-        f"# Weekly Repo Review Decision Packet - {generated_on}",
+        f"# Weekly Design Review Decision Packet - {generated_on}",
         "",
-        "This packet queues human decisions before any remote issue creation.",
+        "This packet standardizes design-vs-implementation review before any remote issue creation.",
         "",
         "## Summary",
         "",
-        f"- Active repos evaluated: `{len(active)}`",
-        f"- Productive issue-draft repos: `{len(productive)}`",
-        f"- Active repos needing human clarification: `{len(needs_human)}`",
+        f"- Active repos scheduled for review: `{len(active)}`",
+        f"- Active repos ready for standardized review: `{len(review_ready)}`",
+        f"- Active repos blocked before review: `{len(blocked)}`",
+        f"- Active repos with issue-draft inputs: `{len(issue_candidate_repos)}`",
         f"- Paused repos tracked: `{len(paused)}`",
         f"- Ignored repos tracked: `{len(ignored)}`",
         "",
-        "## Human Approval Queue",
+        "## Standard Review Process",
+        "",
+        "1. Read the design sources and registry decision anchor.",
+        "2. Inspect implementation areas and distinguish real behavior from scaffolds or fixtures.",
+        "3. Check tests, smoke paths, persistence, integrations, and workflow handoffs.",
+        "4. Use archive-derived candidates as precedent, not as automatically approved issues.",
+        "5. Generate or approve issue drafts only for verified design/readiness gaps.",
+        "",
+        "## Human Review Queue",
         "",
     ]
     for state in active:
@@ -721,15 +972,16 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
             [
                 f"### {state['repo']}",
                 "",
-                f"- Decision: `{state['decision']}`",
-                f"- Drafts: `{state['issue_draft_count']}`",
+                f"- Review status: `{state['review_status']}`",
+                f"- Issue queue status: `{state['issue_queue_status']}`",
+                f"- Design source files: `{state['design_source_count']}`",
+                f"- Existing local issue drafts: `{state['issue_draft_count']}`",
                 f"- Archive-derived candidates: `{state['archive_candidate_count']}`",
                 f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
-                f"- Unchecked checklist boxes in local `Issues.txt` drafts: `{state['issue_open_task_count']}`",
                 f"- Material dirty local changes: `{state['material_dirty_count']}`",
                 f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
-                f"- Review artifacts: `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
-                "- Human action: approve drafts, edit drafts, pause repo, or mark needs-human.",
+                f"- Review artifacts: `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
+                "- Human action: complete the standardized review, then approve/edit/defer issue drafts.",
                 "",
             ]
         )
@@ -743,8 +995,9 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
             {
                 "generated_on": generated_on,
                 "active_count": len(active),
-                "productive_count": len(productive),
-                "needs_human_count": len(needs_human),
+                "review_ready_count": len(review_ready),
+                "blocked_review_count": len(blocked),
+                "issue_candidate_repo_count": len(issue_candidate_repos),
                 "repos": [
                     {
                         key: value
@@ -802,10 +1055,17 @@ def main() -> None:
                 "output_dir": str(output_dir),
                 "repo_count": len(states),
                 "active_count": sum(1 for state in states if state["status"] == "active"),
-                "productive_count": sum(
+                "review_ready_count": sum(
                     1
                     for state in states
-                    if state["status"] == "active" and state["decision"] == "productive"
+                    if state["status"] == "active"
+                    and state["review_status"] == "ready for standardized review"
+                ),
+                "issue_candidate_repo_count": sum(
+                    1
+                    for state in states
+                    if state["status"] == "active"
+                    and state["issue_queue_status"] == "draft candidates present"
                 ),
             },
             indent=2,

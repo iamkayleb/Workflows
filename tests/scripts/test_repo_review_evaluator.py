@@ -103,10 +103,11 @@ def test_load_registry_filters_excluded_repo_names_and_duplicates(tmp_path: Path
     assert repos[0].status == "active"
 
 
-def test_collect_repo_state_marks_issue_queue_productive(tmp_path: Path) -> None:
+def test_collect_repo_state_marks_issue_queue_as_review_input(tmp_path: Path) -> None:
     repo_dir = tmp_path / "demo"
     repo_dir.mkdir()
     (repo_dir / "Issues.txt").write_text("1. Draft\n- [ ] task\n", encoding="utf-8")
+    (repo_dir / "README.md").write_text("# Demo\n", encoding="utf-8")
     config = evaluator.RepoConfig(
         repo="owner/demo",
         local_path="demo",
@@ -117,9 +118,11 @@ def test_collect_repo_state_marks_issue_queue_productive(tmp_path: Path) -> None
 
     state = evaluator.collect_repo_state(tmp_path, config)
 
-    assert state["decision"] == "productive"
+    assert state["review_status"] == "ready for standardized review"
+    assert state["issue_queue_status"] == "draft candidates present"
     assert state["issue_draft_count"] == 1
     assert state["issue_open_task_count"] == 1
+    assert state["design_files"] == ["README.md"]
 
 
 def test_material_status_lines_filters_generated_cache_noise() -> None:
@@ -156,7 +159,7 @@ def test_run_git_preserves_status_leading_columns(tmp_path: Path) -> None:
     ]
 
 
-def test_archive_candidates_make_clean_repo_productive(tmp_path: Path) -> None:
+def test_archive_candidates_make_clean_repo_review_ready(tmp_path: Path) -> None:
     repo_dir = tmp_path / "trip-planner"
     repo_dir.mkdir()
     subprocess = evaluator.subprocess
@@ -178,9 +181,63 @@ def test_archive_candidates_make_clean_repo_productive(tmp_path: Path) -> None:
 
     state = evaluator.collect_repo_state(tmp_path, config, [candidate])
 
-    assert state["decision"] == "productive"
+    assert state["review_status"] == "ready for standardized review"
+    assert state["issue_queue_status"] == "draft candidates present"
     assert state["issue_draft_count"] == 0
     assert state["archive_candidate_count"] == 1
+
+
+def test_collect_repo_state_marks_clean_active_repo_review_ready(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "manager"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Manager\n", encoding="utf-8")
+    subprocess = evaluator.subprocess
+    subprocess.run(["git", "-C", str(repo_dir), "init"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "Test User"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "add", "README.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "commit", "-m", "initial"],
+        check=True,
+        capture_output=True,
+    )
+    config = evaluator.RepoConfig(
+        repo="owner/manager",
+        local_path="manager",
+        status="active",
+        cadence="weekly",
+        decision_anchor="demo anchor",
+    )
+
+    state = evaluator.collect_repo_state(tmp_path, config)
+
+    assert state["review_status"] == "ready for standardized review"
+    assert state["issue_queue_status"] == "no current draft candidates"
+    assert state["decision"] == "ready for standardized review"
+
+
+def test_write_repo_artifacts_emits_standard_design_review(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "demo"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Demo\n", encoding="utf-8")
+    config = evaluator.RepoConfig(
+        repo="owner/demo",
+        local_path="demo",
+        status="active",
+        cadence="weekly",
+        decision_anchor="demo anchor",
+    )
+    state = evaluator.collect_repo_state(tmp_path, config)
+    output_dir = tmp_path / "out"
+
+    evaluator.write_repo_artifacts(output_dir, state, max_drafts=8)
+
+    review = output_dir / "repos" / "owner__demo" / "design-review.md"
+    assert review.is_file()
+    text = review.read_text(encoding="utf-8")
+    assert "Standard Design Review" in text
+    assert "Design Contract" in text
+    assert "Issue Generation Gate" in text
 
 
 def test_collect_archive_candidates_reads_review_sessions(tmp_path: Path) -> None:
