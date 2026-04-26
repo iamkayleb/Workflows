@@ -254,6 +254,7 @@ jobs:
                 const errorMessage = error.message || error;
                 console.log(`Failed to fetch PR #${prNumber} details; skipping.`);
                 console.log(`Error: ${errorMessage}`);
+                core.setOutput('pr_number', prNumber || '');
                 core.setOutput('skip_reason', 'pr-fetch-failed');
                 core.setOutput('should_run', 'false');
                 return;
@@ -262,6 +263,7 @@ jobs:
               const hasAgentLabel = pr.labels.some(l => /^agent:/.test(l.name));
               if (!hasAgentLabel) {
                 console.log(`PR #${prNumber} has no agent label, skipping`);
+                core.setOutput('pr_number', prNumber || '');
                 core.setOutput('skip_reason', 'missing-agent-label');
                 core.setOutput('should_run', 'false');
                 return;
@@ -271,6 +273,7 @@ jobs:
               const hasAutoPilot = pr.labels.some(l => l.name === 'agents:auto-pilot');
               if (hasAutoPilot) {
                 console.log(`PR #${prNumber} is auto-pilot managed, skipping bot-comment handler`);
+                core.setOutput('pr_number', prNumber || '');
                 core.setOutput('skip_reason', 'auto-pilot-managed');
                 core.setOutput('should_run', 'false');
                 return;

@@ -112,6 +112,19 @@ test('finalizes pass when every selected artifact downloads and extracts', () =>
   assert.equal(manifest.stats.unzip_pass_count, 2);
 });
 
+test('does not fall back to name when artifact id mismatches', () => {
+  const manifest = buildInitialManifest(selection);
+
+  assert.throws(
+    () => updateArtifactResult(manifest, {
+      id: 'missing-id',
+      name: 'keepalive-metrics',
+      download_status: 'pass',
+    }),
+    /Artifact is not present in manifest: missing-id/
+  );
+});
+
 test('formats human-visible markdown without replacing the JSON contract', () => {
   const manifest = buildInitialManifest(selection);
   updateArtifactResult(manifest, {

@@ -119,7 +119,7 @@ function summarizeReport(readResult) {
 
 function overallStatus(monitors) {
   if (monitors.some((monitor) => monitor.should_fail || monitor.status === 'fail')) return 'fail';
-  if (monitors.some((monitor) => ['missing', 'parse-error', 'warning'].includes(monitor.status))) {
+  if (monitors.some((monitor) => ['missing', 'parse-error', 'warning', 'unknown'].includes(monitor.status))) {
     return 'warning';
   }
   if (monitors.length > 0 && monitors.every((monitor) => monitor.status === 'no-data')) return 'no-data';
