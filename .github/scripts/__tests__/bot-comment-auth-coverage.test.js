@@ -654,6 +654,45 @@ test('warns when required organic bot auth evidence is missing', () => {
       'missing-organic-reusable-bot-comment-handler-workflow_run'
     )
   );
+  assert.deepEqual(
+    report.organic_evidence.missing_requirements.map((item) => ({
+      component: item.component,
+      event_name: item.event_name,
+      blocker: item.blocker,
+      latest_wrapper_run_id: item.latest_wrapper_run_id,
+      latest_wrapper_has_reusable_decision: item.latest_wrapper_has_reusable_decision,
+    })),
+    [
+      {
+        component: 'agents-bot-comment-handler-wrapper',
+        event_name: 'pull_request',
+        blocker: 'missing-organic-agents-bot-comment-handler-wrapper-pull_request',
+        latest_wrapper_run_id: '',
+        latest_wrapper_has_reusable_decision: false,
+      },
+      {
+        component: 'agents-bot-comment-handler-wrapper',
+        event_name: 'workflow_run',
+        blocker: 'missing-organic-agents-bot-comment-handler-wrapper-workflow_run',
+        latest_wrapper_run_id: '',
+        latest_wrapper_has_reusable_decision: false,
+      },
+      {
+        component: 'reusable-bot-comment-handler',
+        event_name: 'pull_request',
+        blocker: 'missing-organic-reusable-bot-comment-handler-pull_request',
+        latest_wrapper_run_id: '',
+        latest_wrapper_has_reusable_decision: false,
+      },
+      {
+        component: 'reusable-bot-comment-handler',
+        event_name: 'workflow_run',
+        blocker: 'missing-organic-reusable-bot-comment-handler-workflow_run',
+        latest_wrapper_run_id: '',
+        latest_wrapper_has_reusable_decision: false,
+      },
+    ]
+  );
 });
 
 test('skips reusable organic requirement when the wrapper intentionally skipped it', () => {
@@ -686,6 +725,7 @@ test('skips reusable organic requirement when the wrapper intentionally skipped 
       'reusable-bot-comment-handler:workflow_run',
     ]
   );
+  assert.deepEqual(report.organic_evidence.missing_requirements, []);
   assert.equal(
     report.enforcement.blockers.some((blocker) =>
       blocker.startsWith('missing-organic-reusable-bot-comment-handler')
@@ -695,6 +735,38 @@ test('skips reusable organic requirement when the wrapper intentionally skipped 
   assert.match(
     markdown,
     /Skipped organic requirements: reusable-bot-comment-handler\/pull_request, reusable-bot-comment-handler\/workflow_run/
+  );
+});
+
+test('reports missing organic reusable requirements with latest wrapper decision metadata', () => {
+  const report = summarizeBotCommentAuthCoverage(
+    [
+      record('agents-bot-comment-handler-wrapper', 'client-id', 601, {
+        event_name: 'workflow_run',
+        reusable_invocation_expected: '',
+        reusable_invocation_reason: '',
+      }),
+    ],
+    {
+      required_organic_events: 'workflow_run',
+      organic_components: 'agents-bot-comment-handler-wrapper,reusable-bot-comment-handler',
+      organic_expected_mode: 'client-id',
+    }
+  );
+  const markdown = formatBotCommentAuthCoverageMarkdown(report);
+  const missing = report.organic_evidence.missing_requirements.find(
+    (item) => item.component === 'reusable-bot-comment-handler'
+  );
+
+  assert.equal(report.organic_evidence.status, 'warning');
+  assert.equal(missing.event_name, 'workflow_run');
+  assert.equal(missing.latest_wrapper_run_id, '601');
+  assert.equal(missing.latest_wrapper_reusable_invocation_expected, null);
+  assert.equal(missing.latest_wrapper_reusable_invocation_reason, '');
+  assert.equal(missing.latest_wrapper_has_reusable_decision, false);
+  assert.match(
+    markdown,
+    /Missing organic requirements: reusable-bot-comment-handler\/workflow_run/
   );
 });
 
