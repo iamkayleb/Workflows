@@ -20,6 +20,9 @@ test('normalizes terminal disposition records with stable source keys', () => {
     dispatchOutcome: ' success ',
     artifactName: 'verifier-terminal-disposition-123',
     artifactFamily: 'verifier-terminal-disposition',
+    llmModel: 'gpt-5.3-codex',
+    modelSelectionReason: 'default',
+    verifierMode: 'checkbox',
     needsHuman: false,
     timestamp: '2026-04-25T00:00:00Z',
   });
@@ -36,6 +39,9 @@ test('normalizes terminal disposition records with stable source keys', () => {
   assert.equal(record.dispatch_outcome, 'success');
   assert.equal(record.artifact_name, 'verifier-terminal-disposition-123');
   assert.equal(record.artifact_family, 'verifier-terminal-disposition');
+  assert.equal(record.llm_model, 'gpt-5.3-codex');
+  assert.equal(record.model_selection_reason, 'default');
+  assert.equal(record.verifier_mode, 'checkbox');
   assert.equal(record.needs_human, false);
 });
 
