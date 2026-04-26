@@ -211,7 +211,9 @@ def test_read_ndjson_counts_parse_errors(tmp_path: Path) -> None:
 
     entries, errors = aggregate_agent_metrics._read_ndjson([path])
 
-    assert entries == [{"key": "value"}]
+    assert len(entries) == 1
+    assert entries[0]["key"] == "value"
+    assert entries[0]["metric_path"] == path.as_posix()
     assert len(errors) == 2
     assert [error.reason for error in errors] == ["invalid-json", "non-object-json"]
     assert errors[0].line == 2
@@ -228,7 +230,8 @@ def test_read_ndjson_streams_file_lines(monkeypatch: pytest.MonkeyPatch, tmp_pat
 
     entries, errors = aggregate_agent_metrics._read_ndjson([path])
 
-    assert entries == [{"key": "value"}]
+    assert len(entries) == 1
+    assert entries[0]["key"] == "value"
     assert errors == []
 
 
@@ -250,7 +253,12 @@ def test_read_ndjson_attributes_parse_errors_to_artifact_family(tmp_path: Path) 
 
     entries, errors = aggregate_agent_metrics._read_ndjson([path])
 
-    assert entries == [{"ok": True}]
+    assert len(entries) == 1
+    assert entries[0]["ok"] is True
+    assert entries[0]["artifact_name"] == "review-thread-terminal-disposition-123"
+    assert entries[0]["artifact_family"] == "review-thread-terminal-disposition"
+    assert entries[0]["metric_artifact"] == "review-thread-terminal-disposition-123"
+    assert entries[0]["metric_artifact_family"] == "review-thread-terminal-disposition"
     assert len(errors) == 1
     assert errors[0].artifact == "review-thread-terminal-disposition-123"
     assert errors[0].artifact_family == "review-thread-terminal-disposition"
@@ -266,7 +274,32 @@ def test_read_ndjson_attributes_parse_errors_to_artifact_family(tmp_path: Path) 
     assert contract["parse_errors"]["by_artifact_family"] == {
         "review-thread-terminal-disposition": 1
     }
+    assert contract["metric_sources"]["by_artifact_family"] == {
+        "review-thread-terminal-disposition": 1
+    }
     assert contract["parse_errors"]["details"][0]["reason"] == "invalid-json"
+
+
+def test_read_ndjson_preserves_artifact_name_with_id_extraction_dir(tmp_path: Path) -> None:
+    metrics_dir = (
+        tmp_path
+        / "artifacts"
+        / "review-thread-terminal-disposition-123"
+        / "987654321"
+        / "agent-metrics"
+    )
+    metrics_dir.mkdir(parents=True)
+    path = metrics_dir / "terminal.ndjson"
+    path.write_text('{"schema":"workflows-terminal-disposition/v1"}\n', encoding="utf-8")
+
+    entries, errors = aggregate_agent_metrics._read_ndjson([path])
+
+    assert errors == []
+    assert len(entries) == 1
+    assert entries[0]["artifact_name"] == "review-thread-terminal-disposition-123"
+    assert entries[0]["artifact_family"] == "review-thread-terminal-disposition"
+    assert entries[0]["metric_artifact"] == "review-thread-terminal-disposition-123"
+    assert entries[0]["metric_artifact_family"] == "review-thread-terminal-disposition"
 
 
 def test_read_ndjson_accepts_legacy_pretty_json_object(tmp_path: Path) -> None:
@@ -289,13 +322,11 @@ def test_read_ndjson_accepts_legacy_pretty_json_object(tmp_path: Path) -> None:
     entries, errors = aggregate_agent_metrics._read_ndjson([path])
 
     assert errors == []
-    assert entries == [
-        {
-            "schema": "workflows-keepalive-metrics/v1",
-            "pr_number": 1872,
-            "iteration_count": 0,
-        }
-    ]
+    assert len(entries) == 1
+    assert entries[0]["schema"] == "workflows-keepalive-metrics/v1"
+    assert entries[0]["pr_number"] == 1872
+    assert entries[0]["iteration_count"] == 0
+    assert entries[0]["artifact_name"] == "keepalive-metrics"
 
 
 def test_classify_entry_prefers_explicit_type() -> None:
