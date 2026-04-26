@@ -656,6 +656,73 @@ test('warns when required organic bot auth evidence is missing', () => {
   );
 });
 
+test('skips reusable organic requirement when the wrapper intentionally skipped it', () => {
+  const records = [
+    record('agents-bot-comment-handler-wrapper', 'client-id', 501, {
+      event_name: 'pull_request',
+      reusable_invocation_expected: false,
+      reusable_invocation_reason: 'wrapper-skipped',
+    }),
+    record('agents-bot-comment-handler-wrapper', 'client-id', 502, {
+      event_name: 'workflow_run',
+      reusable_invocation_expected: 'false',
+      reusable_invocation_reason: 'wrapper-skipped',
+    }),
+  ];
+  const report = summarizeBotCommentAuthCoverage(records, {
+    required_organic_events: 'pull_request,workflow_run',
+    organic_components: 'agents-bot-comment-handler-wrapper,reusable-bot-comment-handler',
+    organic_expected_mode: 'client-id',
+    reusable_expected_mode: '',
+  });
+  const markdown = formatBotCommentAuthCoverageMarkdown(report);
+
+  assert.equal(report.organic_evidence.status, 'pass');
+  assert.deepEqual(report.organic_evidence.blockers, []);
+  assert.deepEqual(
+    report.organic_evidence.skipped_requirements.map((item) => `${item.component}:${item.event_name}`),
+    [
+      'reusable-bot-comment-handler:pull_request',
+      'reusable-bot-comment-handler:workflow_run',
+    ]
+  );
+  assert.equal(
+    report.enforcement.blockers.some((blocker) =>
+      blocker.startsWith('missing-organic-reusable-bot-comment-handler')
+    ),
+    false
+  );
+  assert.match(
+    markdown,
+    /Skipped organic requirements: reusable-bot-comment-handler\/pull_request, reusable-bot-comment-handler\/workflow_run/
+  );
+});
+
+test('requires reusable organic evidence when the wrapper expected to call it', () => {
+  const report = summarizeBotCommentAuthCoverage(
+    [
+      record('agents-bot-comment-handler-wrapper', 'client-id', 503, {
+        event_name: 'pull_request',
+        reusable_invocation_expected: true,
+      }),
+    ],
+    {
+      required_organic_events: 'pull_request',
+      organic_components: 'agents-bot-comment-handler-wrapper,reusable-bot-comment-handler',
+      organic_expected_mode: 'client-id',
+      reusable_expected_mode: '',
+    }
+  );
+
+  assert.equal(report.organic_evidence.status, 'warning');
+  assert.ok(
+    report.enforcement.blockers.includes(
+      'missing-organic-reusable-bot-comment-handler-pull_request'
+    )
+  );
+  assert.deepEqual(report.organic_evidence.skipped_requirements, []);
+});
+
 test('keeps explicit zero parse errors and reports missing organic evidence as no-data without auth records', () => {
   const organic = summarizeOrganicEvidence([], {
     required_organic_events: 'pull_request',
