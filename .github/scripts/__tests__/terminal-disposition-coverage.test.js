@@ -264,6 +264,35 @@ test('summarizes terminal artifact selector inputs in coverage report', () => {
         'keepalive-metrics': 1,
         'verifier-terminal-disposition': 2,
       },
+      priority_family_statuses: [
+        {
+          family: 'verifier-terminal-disposition',
+          status: 'selected',
+          candidate_count: 3,
+          selected_count: 2,
+          latest_candidate: {
+            id: 12,
+            name: 'verifier-terminal-disposition-124',
+            created_at: '2026-04-25T12:00:00Z',
+          },
+          selected_artifact: {
+            id: 10,
+            name: 'verifier-terminal-disposition-123',
+            created_at: '2026-04-25T11:00:00Z',
+          },
+        },
+        {
+          family: 'review-thread-terminal-disposition',
+          status: 'available',
+          candidate_count: 1,
+          selected_count: 0,
+          latest_candidate: {
+            id: 13,
+            name: 'review-thread-terminal-disposition-123',
+          },
+          selected_artifact: null,
+        },
+      ],
       selected_artifacts: [
         { id: 10, name: 'verifier-terminal-disposition-123', family: 'verifier-terminal-disposition' },
         { id: 11, name: 'keepalive-metrics', family: 'keepalive-metrics' },
@@ -282,10 +311,41 @@ test('summarizes terminal artifact selector inputs in coverage report', () => {
     selected_terminal_artifacts: [
       { id: 10, name: 'verifier-terminal-disposition-123', family: 'verifier-terminal-disposition' },
     ],
+    terminal_priority_family_statuses: [
+      {
+        family: 'review-thread-terminal-disposition',
+        status: 'available',
+        candidate_count: 1,
+        selected_count: 0,
+        latest_candidate: {
+          id: 13,
+          name: 'review-thread-terminal-disposition-123',
+        },
+        selected_artifact: null,
+      },
+      {
+        family: 'verifier-terminal-disposition',
+        status: 'selected',
+        candidate_count: 3,
+        selected_count: 2,
+        latest_candidate: {
+          id: 12,
+          name: 'verifier-terminal-disposition-124',
+          created_at: '2026-04-25T12:00:00Z',
+        },
+        selected_artifact: {
+          id: 10,
+          name: 'verifier-terminal-disposition-123',
+          created_at: '2026-04-25T11:00:00Z',
+        },
+      },
+    ],
+    missing_terminal_priority_families: [],
   });
   assert.match(markdown, /Artifact selector status: pass/);
   assert.match(markdown, /Terminal artifacts selected: 2/);
   assert.match(markdown, /Terminal artifacts candidates: 4/);
+  assert.match(markdown, /review-thread-terminal-disposition \| available/);
 });
 
 test('warns when selected terminal artifacts do not produce input files', () => {
@@ -347,6 +407,31 @@ test('normalizes artifact selection reports without selected family counts', () 
       selected_terminal_artifacts: [
         { id: 42, name: 'review-thread-terminal-disposition-77', family: 'review-thread-terminal-disposition' },
       ],
+      terminal_priority_family_statuses: [
+        {
+          family: 'review-thread-terminal-disposition',
+          status: 'selected',
+          candidate_count: 1,
+          selected_count: 1,
+          latest_candidate: {
+            id: 42,
+            name: 'review-thread-terminal-disposition-77',
+          },
+          selected_artifact: {
+            id: 42,
+            name: 'review-thread-terminal-disposition-77',
+          },
+        },
+        {
+          family: 'verifier-terminal-disposition',
+          status: 'missing',
+          candidate_count: 0,
+          selected_count: 0,
+          latest_candidate: null,
+          selected_artifact: null,
+        },
+      ],
+      missing_terminal_priority_families: ['verifier-terminal-disposition'],
     }
   );
 });

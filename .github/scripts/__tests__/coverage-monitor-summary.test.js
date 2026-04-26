@@ -8,6 +8,7 @@ const path = require('path');
 const {
   buildCoverageMonitorSummary,
   formatMonitorMarkdown,
+  normalizeMonitorArtifactSelection,
   parseArgs,
   readJsonReport,
   SUMMARY_SCHEMA,
@@ -80,6 +81,25 @@ test('surfaces warning blockers without activating hard-block policy', () => {
         blockers: ['missing-review-thread-sources'],
         policy_blockers: ['hard-block-approval-required'],
       },
+      artifact_selection: {
+        status: 'pass',
+        candidate_terminal_artifact_count: 0,
+        selected_terminal_artifact_count: 0,
+        missing_terminal_priority_families: [
+          'verifier-terminal-disposition',
+          'review-thread-terminal-disposition',
+        ],
+        terminal_priority_family_statuses: [
+          {
+            family: 'verifier-terminal-disposition',
+            status: 'missing',
+            candidate_count: 0,
+            selected_count: 0,
+            latest_candidate: null,
+            selected_artifact: null,
+          },
+        ],
+      },
     })
   );
   const botAuth = writeJson(dir, 'bot-auth.json', report('pass'));
@@ -95,6 +115,53 @@ test('surfaces warning blockers without activating hard-block policy', () => {
   assert.equal(summary.next_action, 'keep-warning-only-until-approved');
   assert.deepEqual(summary.monitors[0].blockers, ['missing-review-thread-sources']);
   assert.deepEqual(summary.monitors[0].policy_blockers, ['hard-block-approval-required']);
+  assert.deepEqual(summary.monitors[0].artifact_selection.missing_terminal_priority_families, [
+    'verifier-terminal-disposition',
+    'review-thread-terminal-disposition',
+  ]);
+  assert.deepEqual(summary.monitors[0].artifact_selection.terminal_priority_family_statuses, [
+    {
+      family: 'verifier-terminal-disposition',
+      status: 'missing',
+      candidate_count: 0,
+      selected_count: 0,
+    },
+  ]);
+  assert.match(formatMonitorMarkdown(summary), /terminal-disposition missing artifact families/);
+});
+
+test('normalizes monitor artifact selection detail for summaries', () => {
+  assert.deepEqual(
+    normalizeMonitorArtifactSelection({
+      status: 'pass',
+      candidate_terminal_artifact_count: 4,
+      selected_terminal_artifact_count: 2,
+      missing_terminal_priority_families: ['review-thread-terminal-disposition'],
+      terminal_priority_family_statuses: [
+        {
+          family: 'review-thread-terminal-disposition',
+          status: 'missing',
+          candidate_count: 0,
+          selected_count: 0,
+          latest_candidate: { name: 'ignored' },
+        },
+      ],
+    }),
+    {
+      status: 'pass',
+      candidate_terminal_artifact_count: 4,
+      selected_terminal_artifact_count: 2,
+      missing_terminal_priority_families: ['review-thread-terminal-disposition'],
+      terminal_priority_family_statuses: [
+        {
+          family: 'review-thread-terminal-disposition',
+          status: 'missing',
+          candidate_count: 0,
+          selected_count: 0,
+        },
+      ],
+    }
+  );
 });
 
 test('marks approved hard-block failures as fail but leaves failure enforcement to callers', () => {
