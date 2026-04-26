@@ -66,6 +66,31 @@ function policyBlockers(report = {}) {
     : [];
 }
 
+function normalizeMonitorArtifactSelection(selection = null) {
+  if (!selection || typeof selection !== 'object' || Array.isArray(selection)) return null;
+  const familyStatuses = Array.isArray(selection.terminal_priority_family_statuses)
+    ? selection.terminal_priority_family_statuses
+      .filter((status) => status && typeof status === 'object' && !Array.isArray(status))
+      .map((status) => ({
+        family: cleanString(status.family),
+        status: cleanString(status.status),
+        candidate_count: Number(status.candidate_count) || 0,
+        selected_count: Number(status.selected_count) || 0,
+      }))
+      .filter((status) => status.family)
+    : [];
+  const missingFamilies = Array.isArray(selection.missing_terminal_priority_families)
+    ? selection.missing_terminal_priority_families.map(cleanString).filter(Boolean)
+    : [];
+  return {
+    status: cleanString(selection.status),
+    candidate_terminal_artifact_count: Number(selection.candidate_terminal_artifact_count) || 0,
+    selected_terminal_artifact_count: Number(selection.selected_terminal_artifact_count) || 0,
+    missing_terminal_priority_families: missingFamilies,
+    terminal_priority_family_statuses: familyStatuses,
+  };
+}
+
 function summarizeReport(readResult) {
   const report = readResult.report || {};
   const enforcement = report.enforcement || {};
@@ -86,6 +111,7 @@ function summarizeReport(readResult) {
     should_fail: Boolean(enforcement.should_fail || status === 'fail'),
     blockers: reportBlockers(report),
     policy_blockers: policyBlockers(report),
+    artifact_selection: normalizeMonitorArtifactSelection(report.artifact_selection),
     read_status: readResult.status,
     error_message: cleanString(readResult.error_message),
   };
@@ -169,6 +195,13 @@ function formatMonitorMarkdown(summary) {
     );
   }
 
+  for (const monitor of summary.monitors) {
+    const missingFamilies = monitor.artifact_selection?.missing_terminal_priority_families || [];
+    if (missingFamilies.length > 0) {
+      lines.push(`- ${monitor.label} missing artifact families: ${missingFamilies.join(', ')}`);
+    }
+  }
+
   return `${lines.join('\n')}\n`;
 }
 
@@ -222,6 +255,7 @@ module.exports = {
   SUMMARY_SCHEMA,
   buildCoverageMonitorSummary,
   formatMonitorMarkdown,
+  normalizeMonitorArtifactSelection,
   parseArgs,
   readJsonReport,
 };
