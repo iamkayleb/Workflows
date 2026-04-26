@@ -193,6 +193,7 @@ ISSUE_BODY_REQUIRED_SECTIONS = (
     "## Acceptance Criteria",
     "## Implementation Notes",
 )
+GITNEXUS_REFRESH_STATUSES = {"missing", "stale"}
 
 
 @dataclass(frozen=True)
@@ -844,6 +845,92 @@ def collect_gitnexus_map(workspace_root: Path, repo_path: Path, repo: RepoConfig
     }
 
 
+def run_gitnexus_analyze(repo_path: Path, gitnexus_bin: str, timeout: int = 180) -> tuple[bool, str]:
+    try:
+        result = subprocess.run(
+            [gitnexus_bin, "analyze", str(repo_path), "--skip-agents-md"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        return False, str(exc)
+    output = "\n".join(part for part in [result.stdout, result.stderr] if part).strip()
+    return result.returncode == 0, output
+
+
+def gitnexus_preflight(
+    workspace_root: Path,
+    repos: list[RepoConfig],
+    statuses: set[str],
+    *,
+    refresh_stale: bool,
+    gitnexus_bin: str,
+) -> dict[str, Any]:
+    records: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
+    refreshed: list[str] = []
+    attempted_refresh: list[str] = []
+    gitnexus_available = shutil.which(gitnexus_bin) is not None
+    for repo in repos:
+        if repo.status not in statuses or repo.status != "active":
+            continue
+        repo_path = workspace_root / repo.local_path
+        before = collect_gitnexus_map(workspace_root, repo_path, repo)
+        after = before
+        refresh_status = "not-needed"
+        refresh_error = ""
+        if before["status"] in GITNEXUS_REFRESH_STATUSES:
+            if not refresh_stale:
+                refresh_status = "needed-not-requested"
+                warnings.append(
+                    f"{repo.repo} GitNexus map is {before['status']}; run with stale-map refresh before relying on graph context."
+                )
+            elif not gitnexus_available:
+                refresh_status = "skipped-missing-cli"
+                warnings.append(
+                    f"{repo.repo} GitNexus map is {before['status']}, but `{gitnexus_bin}` is not available."
+                )
+            else:
+                attempted_refresh.append(repo.repo)
+                ok, refresh_output = run_gitnexus_analyze(repo_path, gitnexus_bin)
+                if ok:
+                    after = collect_gitnexus_map(workspace_root, repo_path, repo)
+                    refresh_status = "refreshed"
+                    refreshed.append(repo.repo)
+                    if after["status"] != "current":
+                        warnings.append(
+                            f"{repo.repo} GitNexus refresh completed but map status is {after['status']}."
+                        )
+                else:
+                    refresh_status = "failed"
+                    refresh_error = refresh_output.splitlines()[-1] if refresh_output else "unknown error"
+                    warnings.append(
+                        f"{repo.repo} GitNexus refresh failed: {refresh_error}"
+                    )
+        records[repo.repo] = {
+            "before": before,
+            "after": after,
+            "refresh_status": refresh_status,
+            "refresh_error": refresh_error,
+        }
+    stale_after = [
+        repo for repo, record in records.items() if record["after"]["status"] in GITNEXUS_REFRESH_STATUSES
+    ]
+    return {
+        "enabled": True,
+        "refresh_stale": refresh_stale,
+        "gitnexus_bin": gitnexus_bin,
+        "gitnexus_available": gitnexus_available,
+        "records": records,
+        "warnings": warnings,
+        "refreshed": refreshed,
+        "attempted_refresh": attempted_refresh,
+        "stale_after": stale_after,
+    }
+
+
 def repo_aliases(repo: RepoConfig) -> set[str]:
     name = repo.repo.rsplit("/", 1)[-1]
     aliases = {
@@ -1010,12 +1097,32 @@ def archive_files(paths: list[Path]) -> list[Path]:
     return sorted(set(files))
 
 
-def title_from_recommendation(text: str) -> str:
+def normalize_issue_title(text: str, max_length: int = 200) -> str:
     title = text.strip().rstrip(".")
+    title = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", title)
+    title = re.sub(r"`([^`]+)`", r"\1", title)
     title = re.sub(r"\s+", " ", title)
-    if len(title) > 140:
-        title = title[:137].rstrip() + "..."
+    title = re.sub(r"^(?:then\s+)", "", title, flags=re.I)
+    title = title.strip(" -–—|:")
+    if len(title) <= max_length:
+        return title
+
+    sentence = re.split(r"(?<=[.!?])\s+", title, maxsplit=1)[0].rstrip(".")
+    if 12 <= len(sentence) <= max_length:
+        return sentence
+
+    shortened = title[:max_length].rsplit(" ", 1)[0].strip(" -–—|:")
+    if shortened:
+        return shortened
     return title
+
+
+def title_from_recommendation(text: str) -> str:
+    title = normalize_issue_title(text, max_length=400)
+    first_sentence = re.split(r"(?<=[.!?])\s+", title, maxsplit=1)[0].rstrip(".")
+    if 12 <= len(first_sentence) <= 200:
+        return normalize_issue_title(first_sentence)
+    return normalize_issue_title(title)
 
 
 def extract_archive_candidates(
@@ -1168,6 +1275,7 @@ def collect_repo_state(
     archive_candidates: list[ArchiveCandidate] | None = None,
     review_profile: dict[str, Any] | None = None,
     feedback_decision: dict[str, Any] | None = None,
+    gitnexus_preflight_record: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     repo_path = workspace_root / repo.local_path
     status_lines = run_git(repo_path, ["status", "--short"]).splitlines()
@@ -1189,6 +1297,7 @@ def collect_repo_state(
     archive_candidates = archive_candidates or []
     review_profile = review_profile or {}
     feedback_decision = feedback_decision or {}
+    gitnexus_preflight_record = gitnexus_preflight_record or {}
     current_review_status = review_status(repo, repo_path, blocking_lines)
     current_issue_queue_status = issue_queue_status(drafts, archive_candidates)
 
@@ -1200,6 +1309,7 @@ def collect_repo_state(
         "decision_anchor": repo.decision_anchor,
         "review_profile": review_profile,
         "feedback_decision": feedback_decision,
+        "gitnexus_preflight": gitnexus_preflight_record,
         "gitnexus_map": collect_gitnexus_map(workspace_root, repo_path, repo),
         "exists": repo_path.exists(),
         "origin": origin,
@@ -1302,7 +1412,7 @@ def issue_candidate_records(
             {
                 "candidate_index": len(candidates) + 1,
                 "type": "local draft",
-                "title": draft["title"],
+                "title": normalize_issue_title(draft["title"]),
                 "source": f"Issues.txt draft {draft['number']}",
                 "source_detail": f"Issues.txt draft {draft['number']}",
                 "task_count": draft["open_tasks"],
@@ -1317,7 +1427,7 @@ def issue_candidate_records(
             {
                 "candidate_index": len(candidates) + 1,
                 "type": "archive candidate",
-                "title": candidate["title"],
+                "title": normalize_issue_title(candidate["title"]),
                 "source": candidate["thread_name"] or "untitled archive thread",
                 "source_detail": candidate["source_file"],
                 "task_count": None,
@@ -1445,9 +1555,36 @@ def decision_parts(decision: Any) -> set[str]:
     }
 
 
-def approved_candidate_indexes(
-    decision: dict[str, Any], total_candidates: int, defaults: dict[str, Any]
+def candidate_title_pattern_indexes(
+    decision: dict[str, Any], key: str, candidates: list[dict[str, Any]]
 ) -> set[int]:
+    patterns = decision.get(key, [])
+    if not isinstance(patterns, list):
+        return set()
+    indexes: set[int] = set()
+    for candidate in candidates:
+        title = str(candidate.get("title", ""))
+        for pattern in patterns:
+            try:
+                if re.search(str(pattern), title, flags=re.I):
+                    indexes.add(int(candidate["candidate_index"]))
+                    break
+            except re.error:
+                continue
+    return indexes
+
+
+def approved_candidate_indexes(
+    decision: dict[str, Any],
+    total_candidates: int,
+    defaults: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> set[int]:
+    title_pattern_indexes = candidate_title_pattern_indexes(
+        decision, "approved_title_patterns", candidates
+    )
+    if title_pattern_indexes:
+        return title_pattern_indexes
     approved = decision.get("approved_candidates", defaults.get("approved_candidates", []))
     if approved == "all":
         return set(range(1, total_candidates + 1))
@@ -1462,16 +1599,20 @@ def approved_candidate_indexes(
     return indexes
 
 
-def dropped_candidate_indexes(decision: dict[str, Any]) -> set[int]:
+def dropped_candidate_indexes(
+    decision: dict[str, Any], candidates: list[dict[str, Any]] | None = None
+) -> set[int]:
     dropped = decision.get("dropped_candidates", [])
     if not isinstance(dropped, list):
-        return set()
+        dropped = []
     indexes: set[int] = set()
     for item in dropped:
         try:
             indexes.add(int(item))
         except (TypeError, ValueError):
             continue
+    if candidates is not None:
+        indexes.update(candidate_title_pattern_indexes(decision, "dropped_title_patterns", candidates))
     return indexes
 
 
@@ -1488,11 +1629,7 @@ def open_task_lines(body: str, limit: int = 8) -> list[str]:
 
 
 def candidate_goal_text(candidate: dict[str, Any]) -> str:
-    body = str(candidate.get("body") or "").strip()
-    if body:
-        body = re.sub(r"^\d+[\).]\s*", "", body).strip()
-        return body
-    return str(candidate["title"]).strip()
+    return normalize_issue_title(str(candidate["title"]).strip(), max_length=200)
 
 
 def issue_task_lines(candidate: dict[str, Any]) -> list[str]:
@@ -1603,7 +1740,7 @@ def build_approved_issue_queue(
         parts = decision_parts(repo_decision)
         priority = normalize_priority(decision.get("priority", "normal"))
         candidates = issue_candidate_records(state, max_items=None)
-        dropped_indexes = dropped_candidate_indexes(decision)
+        dropped_indexes = dropped_candidate_indexes(decision, candidates)
 
         if "deeper-review" in parts:
             deeper_review.append(
@@ -1633,7 +1770,7 @@ def build_approved_issue_queue(
         if "approve" not in parts:
             continue
 
-        selected_indexes = approved_candidate_indexes(decision, len(candidates), defaults)
+        selected_indexes = approved_candidate_indexes(decision, len(candidates), defaults, candidates)
         missing_indexes = sorted(index for index in selected_indexes if index > len(candidates))
         if missing_indexes:
             warnings.append(
@@ -1654,7 +1791,7 @@ def build_approved_issue_queue(
                     "candidate_index": candidate["candidate_index"],
                     "source_type": candidate["type"],
                     "source": candidate["source"],
-                    "title": candidate["title"],
+                    "title": normalize_issue_title(candidate["title"]),
                     "labels": ["repo-review-approved", f"priority:{priority}"],
                     "body_format": list(ISSUE_BODY_REQUIRED_SECTIONS),
                     "body_valid": issue_body_has_required_sections(body),
@@ -2095,7 +2232,13 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
     (repo_dir / "issue-drafts.md").write_text("\n".join(draft_lines), encoding="utf-8")
 
 
-def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: str) -> None:
+def write_packet(
+    output_dir: Path,
+    states: list[dict[str, Any]],
+    generated_on: str,
+    gitnexus_preflight_result: dict[str, Any] | None = None,
+) -> None:
+    gitnexus_preflight_result = gitnexus_preflight_result or {"warnings": [], "refreshed": []}
     active = [state for state in states if state["status"] == "active"]
     paused = [state for state in states if state["status"] == "paused"]
     ignored = [state for state in states if state["status"] == "ignored"]
@@ -2124,6 +2267,8 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
         f"- Active repos blocked before review: `{len(blocked)}`",
         f"- Active repos with issue-draft inputs: `{len(issue_candidate_repos)}`",
         f"- Active repos with automated material/blocking gaps: `{len(automated_gap_repos)}`",
+        f"- GitNexus maps refreshed before review: `{len(gitnexus_preflight_result.get('refreshed', []))}`",
+        f"- GitNexus preflight warnings: `{len(gitnexus_preflight_result.get('warnings', []))}`",
         f"- Paused repos tracked: `{len(paused)}`",
         f"- Ignored repos tracked: `{len(ignored)}`",
         "",
@@ -2142,6 +2287,15 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
         "Use each repo section to make one weekly decision: approve the issue set, revise it, defer it, drop it, or request deeper review.",
         "",
     ]
+    if gitnexus_preflight_result.get("warnings"):
+        lines.extend(
+            [
+                "## GitNexus Preflight Warnings",
+                "",
+                markdown_bullets(gitnexus_preflight_result["warnings"]),
+                "",
+            ]
+        )
     for state in active:
         safe_name = state["repo"].replace("/", "__")
         brief = state["decision_brief"]
@@ -2174,6 +2328,7 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
                 f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
                 f"- GitNexus map: `{state['gitnexus_map']['status']}`",
+                f"- GitNexus preflight: `{state.get('gitnexus_preflight', {}).get('refresh_status', 'not-run')}`",
                 f"- Review artifacts: `repos/{safe_name}/decision-brief.md`, `repos/{safe_name}/review-execution.md`, `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
                 f"- Human action: {human_action}",
                 "",
@@ -2239,6 +2394,7 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 "blocked_review_count": len(blocked),
                 "issue_candidate_repo_count": len(issue_candidate_repos),
                 "automated_gap_repo_count": len(automated_gap_repos),
+                "gitnexus_preflight": gitnexus_preflight_result,
                 "repos": [
                     {
                         key: value
@@ -2269,6 +2425,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-drafts-per-repo", type=int, default=8)
     parser.add_argument("--date", default=None, help="Override generated date, YYYY-MM-DD.")
+    parser.add_argument(
+        "--skip-gitnexus-preflight",
+        action="store_true",
+        help="Skip active-repo GitNexus freshness checks before generating the packet.",
+    )
+    parser.add_argument(
+        "--no-refresh-stale-gitnexus",
+        action="store_true",
+        help="Report stale/missing active GitNexus maps but do not refresh them.",
+    )
+    parser.add_argument("--gitnexus-bin", default="gitnexus")
     return parser.parse_args()
 
 
@@ -2287,6 +2454,21 @@ def main() -> None:
     feedback_decisions = feedback_config.get("decisions", {})
     if not isinstance(feedback_decisions, dict):
         feedback_decisions = {}
+    preflight_result: dict[str, Any] = {
+        "enabled": False,
+        "warnings": [],
+        "refreshed": [],
+        "records": {},
+        "stale_after": [],
+    }
+    if not args.skip_gitnexus_preflight:
+        preflight_result = gitnexus_preflight(
+            workspace_root,
+            repos,
+            statuses,
+            refresh_stale=not args.no_refresh_stale_gitnexus,
+            gitnexus_bin=args.gitnexus_bin,
+        )
     archive_candidates = collect_archive_candidates(archive_paths, repos)
     states = [
         collect_repo_state(
@@ -2299,13 +2481,14 @@ def main() -> None:
                 if isinstance(feedback_decisions.get(repo.repo, {}), dict)
                 else {}
             ),
+            preflight_result.get("records", {}).get(repo.repo, {}),
         )
         for repo in repos
         if repo.status in statuses
     ]
     for state in states:
         write_repo_artifacts(output_dir, state, max_drafts=args.max_drafts_per_repo)
-    write_packet(output_dir, states, generated_on)
+    write_packet(output_dir, states, generated_on, preflight_result)
     approved_queue = write_approved_issue_queue(output_dir, states, feedback_config, generated_on)
 
     print(
@@ -2341,6 +2524,8 @@ def main() -> None:
                 ),
                 "approved_issue_count": len(approved_queue["issues"]),
                 "deeper_review_count": len(approved_queue["deeper_review"]),
+                "gitnexus_preflight_warning_count": len(preflight_result.get("warnings", [])),
+                "gitnexus_refreshed_count": len(preflight_result.get("refreshed", [])),
             },
             indent=2,
         )

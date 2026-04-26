@@ -191,6 +191,87 @@ def test_collect_repo_state_uses_profile_and_gitnexus_meta(tmp_path: Path) -> No
     assert state["decision_brief"]["review_focus"] == ["Check the demo workflow."]
 
 
+def test_gitnexus_preflight_reports_stale_without_refresh(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "demo"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Demo\n", encoding="utf-8")
+    subprocess = evaluator.subprocess
+    subprocess.run(["git", "-C", str(repo_dir), "init"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "Test User"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "add", "README.md"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "commit", "-m", "initial"],
+        check=True,
+        capture_output=True,
+    )
+    gitnexus_dir = repo_dir / ".gitnexus"
+    gitnexus_dir.mkdir()
+    (gitnexus_dir / "meta.json").write_text(
+        json.dumps({"lastCommit": "older", "stats": {"files": 1}}),
+        encoding="utf-8",
+    )
+    config = evaluator.RepoConfig(
+        repo="owner/demo",
+        local_path="demo",
+        status="active",
+        cadence="weekly",
+        decision_anchor="demo anchor",
+    )
+
+    result = evaluator.gitnexus_preflight(
+        tmp_path,
+        [config],
+        {"active"},
+        refresh_stale=False,
+        gitnexus_bin="missing-gitnexus-bin",
+    )
+
+    assert result["records"]["owner/demo"]["before"]["status"] == "stale"
+    assert result["records"]["owner/demo"]["refresh_status"] == "needed-not-requested"
+    assert "owner/demo GitNexus map is stale" in result["warnings"][0]
+
+
+def test_title_from_recommendation_prefers_concise_first_sentence() -> None:
+    title = evaluator.title_from_recommendation(
+        "Add a cross-repo TPP smoke test. Start Travel-Plan-Permission, configure "
+        "trip-planner, submit a business proposal, poll status, and assert persisted state."
+    )
+
+    assert title == "Add a cross-repo TPP smoke test"
+    assert "..." not in title
+
+
+def test_candidate_goal_text_uses_title_not_full_local_draft_body() -> None:
+    candidate = {
+        "type": "local draft",
+        "title": "CI: actually execute the LangGraph path",
+        "body": """Issue 3 — CI: actually execute the LangGraph path
+Why
+
+The current smoke test forces prefer_langgraph=False.
+""",
+    }
+
+    assert evaluator.candidate_goal_text(candidate) == "CI: actually execute the LangGraph path"
+
+
+def test_feedback_title_patterns_are_stable_when_candidate_indexes_shift() -> None:
+    candidates = [
+        {"candidate_index": 1, "title": "CI: actually execute the LangGraph path"},
+        {"candidate_index": 2, "title": "Workflow alignment with Workflows repo snapshot"},
+        {"candidate_index": 5, "title": "Rebase or restart Travel-Plan-Permission from main"},
+    ]
+    decision = {
+        "approved_candidates": [1, 2, 5],
+        "approved_title_patterns": ["^CI:"],
+        "dropped_title_patterns": ["^Workflow alignment", "^Rebase or restart"],
+    }
+
+    assert evaluator.approved_candidate_indexes(decision, 5, {}, candidates) == {1}
+    assert evaluator.dropped_candidate_indexes(decision, candidates) == {2, 5}
+
+
 def test_run_git_preserves_status_leading_columns(tmp_path: Path) -> None:
     subprocess = evaluator.subprocess
     repo = tmp_path / "repo"

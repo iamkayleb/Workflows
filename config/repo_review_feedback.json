@@ -18,8 +18,18 @@
     "stranske/Travel-Plan-Permission": {
       "decision": "approve",
       "priority": "high",
-      "approved_candidates": [1, 3, 4, 5, 6],
+      "approved_title_patterns": [
+        "^CI: actually execute the LangGraph path",
+        "^Add a cross-repo TPP smoke test$",
+        "^Wire broader orchestration only after the planner/runtime seams are proven$",
+        "^Add a concrete Travel-Plan-Permission transport client",
+        "^Define how business-mode policy constraints modify the preference score$"
+      ],
       "dropped_candidates": [2],
+      "dropped_title_patterns": [
+        "^Workflow alignment with Workflows repo snapshot$",
+        "^Rebase or restart Travel-Plan-Permission"
+      ],
       "notes": "Candidate 2 is not appropriate for a Travel-Plan-Permission repo issue. Workflows-originated maintenance tasks for individual repos should be routed to Workflows."
     },
     "stranske/Trend_Model_Project": {
