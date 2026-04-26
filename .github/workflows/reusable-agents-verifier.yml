@@ -1200,7 +1200,13 @@ jobs:
         env:
           SHOULD_RUN: ${{ steps.context.outputs.should_run }}
           PR_NUMBER: ${{ steps.context.outputs.pr_number }}
-          VERDICT: ${{ steps.verdict.outputs.verdict }}
+          VERDICT: >-
+            ${{
+              steps.unified_verdict.outputs.verdict ||
+              steps.verdict.outputs.verdict ||
+              steps.llm_evaluate.outputs.verdict ||
+              steps.llm_compare.outputs.verdict
+            }}
           CONTEXT_PATH: ${{ steps.context.outputs.context_path }}
           ISSUE_NUMBER: ${{ steps.failure_issue.outputs.issue_number }}
           SKIP_REASON: ${{ steps.context.outputs.skip_reason }}
@@ -1255,6 +1261,139 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
               fp.write(f"metrics_json={json.dumps(metrics)}\n")
           PY
+
+      - name: Write verifier terminal disposition
+        if: always()
+        env:
+          METRICS_JSON: ${{ steps.collect_metrics.outputs.metrics_json }}
+          SOURCE_ISSUE_NUMBERS_JSON: ${{ steps.context.outputs.issue_numbers || '[]' }}
+          FOLLOWUP_ISSUE_NUMBER: ${{ steps.failure_issue.outputs.issue_number }}
+          SHOULD_RUN: ${{ steps.context.outputs.should_run }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          PR_URL: ${{ steps.context.outputs.pr_html_url }}
+          SKIP_REASON: ${{ steps.context.outputs.skip_reason }}
+          FINAL_VERDICT: >-
+            ${{
+              steps.unified_verdict.outputs.verdict ||
+              steps.verdict.outputs.verdict ||
+              steps.llm_evaluate.outputs.verdict ||
+              steps.llm_compare.outputs.verdict
+            }}
+        run: |
+          set -euo pipefail
+          mkdir -p agent-metrics
+          node <<'NODE'
+          const fs = require('fs');
+          const helperPath = './.workflows-lib/.github/scripts/terminal_disposition.js';
+          const fallback = {
+            normalizeTerminalDisposition: (value) => value,
+            formatTerminalDispositionMarkdown: (records) =>
+              records.map((record) => `- ${record.source_type}:${record.source_id} ${record.disposition}`).join('\n'),
+          };
+          const {
+            normalizeTerminalDisposition,
+            formatTerminalDispositionMarkdown,
+          } = fs.existsSync(helperPath) ? require(helperPath) : fallback;
+
+          function parseJson(value, fallbackValue) {
+            try {
+              return JSON.parse(value || '');
+            } catch (_) {
+              return fallbackValue;
+            }
+          }
+
+          function normalizeVerdict(value) {
+            return String(value || '').trim().toLowerCase();
+          }
+
+          const metrics = parseJson(process.env.METRICS_JSON, {});
+          const sourceIssueNumbers = parseJson(process.env.SOURCE_ISSUE_NUMBERS_JSON, [])
+            .map((value) => Number.parseInt(String(value), 10))
+            .filter((value) => Number.isFinite(value) && value > 0);
+          const shouldRun = String(process.env.SHOULD_RUN || '').toLowerCase() === 'true';
+          const prNumber =
+            Number.parseInt(process.env.PR_NUMBER || metrics.pr_number || '0', 10) || null;
+          const verdict = normalizeVerdict(process.env.FINAL_VERDICT || metrics.verdict);
+          const followupIssueNumber =
+            Number.parseInt(process.env.FOLLOWUP_ISSUE_NUMBER || '', 10) || null;
+          const skipReason = process.env.SKIP_REASON || metrics.skip_reason || '';
+
+          let disposition = 'unknown';
+          let reason = 'Verifier terminal state captured for coverage monitoring.';
+          if (!shouldRun) {
+            disposition = 'skipped';
+            reason = skipReason || 'Verifier did not have an eligible source to evaluate.';
+          } else if (['pass', 'passed'].includes(verdict)) {
+            disposition = 'verified-pass';
+            reason = 'Verifier completed and reported a passing verdict.';
+          } else if (followupIssueNumber || Number(metrics.issues_created || 0) > 0) {
+            disposition = 'follow-up-created';
+            reason = 'Verifier reported concerns and created a follow-up issue.';
+          } else if (['fail', 'failed', 'concerns', 'error'].includes(verdict)) {
+            disposition = verdict === 'error' ? 'verifier-error' : 'needs-human';
+            reason = 'Verifier reported a non-passing verdict without creating a follow-up issue.';
+          }
+
+          const sourceTargets = sourceIssueNumbers.length
+            ? sourceIssueNumbers.map((issueNumber) => ({
+                source_type: 'source-issue',
+                source_id: issueNumber,
+                issue_number: issueNumber,
+              }))
+            : [{
+                source_type: 'pull-request',
+                source_id: prNumber || process.env.GITHUB_RUN_ID || 'unknown',
+              }];
+
+          const records = sourceTargets.map((source) => normalizeTerminalDisposition({
+            ...source,
+            pr_number: prNumber,
+            disposition,
+            verdict: verdict || metrics.verdict || 'unknown',
+            reason,
+            workflow: process.env.GITHUB_WORKFLOW || '',
+            run_id: process.env.GITHUB_RUN_ID || '',
+            run_attempt: process.env.GITHUB_RUN_ATTEMPT || '',
+            artifact_name: `verifier-terminal-disposition-${process.env.GITHUB_RUN_ID || ''}`,
+            artifact_family: 'verifier-terminal-disposition',
+            actor: process.env.GITHUB_ACTOR || '',
+            comment_url: process.env.PR_URL || '',
+            followup_issue_number: followupIssueNumber || undefined,
+            needs_human: disposition === 'needs-human' || disposition === 'verifier-error',
+            dispatch_outcome: shouldRun ? 'verifier-ran' : 'verifier-skipped',
+          }));
+
+          fs.writeFileSync(
+            'agent-metrics/verifier-terminal-disposition.ndjson',
+            `${records.map((record) => JSON.stringify(record)).join('\n')}\n`
+          );
+          fs.writeFileSync(
+            'terminal-disposition-summary.md',
+            `${formatTerminalDispositionMarkdown(records)}\n`
+          );
+          NODE
+
+      - name: Post verifier terminal disposition summary
+        if: always()
+        run: |
+          if [ -f terminal-disposition-summary.md ]; then
+            {
+              echo "## Verifier Terminal Disposition"
+              cat terminal-disposition-summary.md
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload verifier terminal disposition
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: verifier-terminal-disposition-${{ github.run_id }}
+          path: |
+            agent-metrics/verifier-terminal-disposition.ndjson
+            terminal-disposition-summary.md
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Write verifier summary
         if: always()

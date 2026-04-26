@@ -59,7 +59,7 @@ def test_reusable_bot_comment_handler_uploads_terminal_disposition_artifact() ->
     assert upload_step.get("uses") == "actions/upload-artifact@v7"
     assert upload_with.get("name") == "review-thread-terminal-disposition-${{ github.run_id }}"
     assert "agent-metrics/review-thread-terminal-disposition.ndjson" in upload_with.get("path", "")
-    assert upload_with.get("if-no-files-found") == "ignore"
+    assert upload_with.get("if-no-files-found") == "error"
     assert upload_with.get("retention-days") == 14
 
 
@@ -246,6 +246,56 @@ def test_canonical_bot_comment_handler_uploads_wrapper_auth_coverage_artifact() 
     assert upload_step["with"]["name"] == "bot-comment-auth-coverage-wrapper-${{ github.run_id }}"
     assert upload_step["with"]["path"] == "bot-comment-auth-coverage/wrapper.json"
     assert upload_step["with"]["if-no-files-found"] == "error"
+
+
+def test_bot_comment_handler_wrappers_emit_terminal_disposition_artifact() -> None:
+    caller_paths = [
+        ROOT / ".github/workflows/agents-bot-comment-handler.yml",
+        ROOT / "templates/consumer-repo/.github/workflows/agents-bot-comment-handler.yml",
+    ]
+
+    for caller_path in caller_paths:
+        workflow = _load_yaml(caller_path)
+        resolve_job = workflow["jobs"]["resolve"]
+        resolve_steps = resolve_job["steps"]
+        checkout_step = next(
+            step for step in resolve_steps if step.get("uses", "").startswith("actions/checkout")
+        )
+        resolve_step = next(
+            step
+            for step in resolve_steps
+            if step.get("name") == "Resolve PR number and check conditions"
+        )
+        write_step = next(
+            step
+            for step in resolve_steps
+            if step.get("name") == "Write wrapper terminal disposition"
+        )
+        upload_step = next(
+            step
+            for step in resolve_steps
+            if step.get("name") == "Upload wrapper terminal disposition"
+        )
+
+        assert resolve_job["outputs"]["skip_reason"] == "${{ steps.resolve.outputs.skip_reason }}"
+        assert ".github/scripts/terminal_disposition.js" in checkout_step["with"]["sparse-checkout"]
+        assert "core.setOutput('skip_reason'" in resolve_step["with"]["script"]
+        assert write_step.get("if") == "always()"
+        assert write_step["env"]["REUSABLE_INVOCATION_EXPECTED"] == (
+            "${{ steps.resolve.outputs.should_run }}"
+        )
+        assert ".github/scripts/terminal_disposition.js" in write_step["run"]
+        assert "review-thread-terminal-disposition" in write_step["run"]
+        assert "wrapper-skipped" in write_step["run"]
+        assert upload_step.get("if") == "always()"
+        assert upload_step.get("uses") == "actions/upload-artifact@v7"
+        assert (
+            upload_step["with"]["name"] == "review-thread-terminal-disposition-${{ github.run_id }}"
+        )
+        assert (
+            "agent-metrics/review-thread-terminal-disposition.ndjson" in upload_step["with"]["path"]
+        )
+        assert upload_step["with"]["if-no-files-found"] == "error"
 
 
 def test_template_bot_comment_handler_passes_agents_ignore() -> None:
