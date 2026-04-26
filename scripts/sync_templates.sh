@@ -2,8 +2,7 @@
 # Sync source scripts to template directory
 set -e
 
-SOURCE_DIR=".github/scripts"
-TEMPLATE_DIR="templates/consumer-repo/.github/scripts"
+TEMPLATE_ROOT="templates/consumer-repo"
 
 echo "🔄 Syncing scripts to template directory..."
 
@@ -28,7 +27,10 @@ scripts = []
 for entry in manifest.get("scripts", []) or []:
     source = entry.get("source", "")
     if source.startswith(".github/scripts/"):
-        scripts.append(source.replace(".github/scripts/", "", 1))
+        scripts.append(source)
+        continue
+    if entry.get("template_sync") == "exact":
+        scripts.append(source)
 
 print("\n".join(sorted(set(scripts))))
 PY
@@ -36,8 +38,8 @@ PY
 
 synced=0
 for file in $FILES; do
-    source_file="$SOURCE_DIR/$file"
-    template_file="$TEMPLATE_DIR/$file"
+    source_file="$file"
+    template_file="$TEMPLATE_ROOT/$file"
 
     # Create parent directory if it doesn't exist
     mkdir -p "$(dirname "$template_file")"

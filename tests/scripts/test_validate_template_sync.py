@@ -33,6 +33,12 @@ def write_manifest(tmp_path: Path, script_names: list[str]) -> None:
     (manifest_dir / "sync-manifest.yml").write_text(manifest, encoding="utf-8")
 
 
+def write_raw_manifest(tmp_path: Path, manifest: str) -> None:
+    manifest_dir = tmp_path / ".github"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    (manifest_dir / "sync-manifest.yml").write_text(manifest, encoding="utf-8")
+
+
 def test_validator_passes_when_files_match(tmp_path):
     """Validator should exit 0 when source and template files match."""
     source, template = create_test_structure(tmp_path)
@@ -188,3 +194,38 @@ def test_validator_ignores_non_js_files(tmp_path):
     # Should pass because only .js files are checked
     assert result.returncode == 0
     assert "✅ All template files in sync" in result.stdout
+
+
+def test_validator_checks_exact_template_sync_script_entries(tmp_path):
+    """Validator should check non-.github scripts marked for exact template sync."""
+    create_test_structure(tmp_path)
+    source = tmp_path / "scripts"
+    template = tmp_path / "templates" / "consumer-repo" / "scripts"
+    source.mkdir(parents=True, exist_ok=True)
+    template.mkdir(parents=True, exist_ok=True)
+
+    (source / "aggregate_agent_metrics.py").write_text("SOURCE = True\n", encoding="utf-8")
+    (template / "aggregate_agent_metrics.py").write_text("SOURCE = False\n", encoding="utf-8")
+    write_raw_manifest(
+        tmp_path,
+        "\n".join(
+            [
+                "version: 1",
+                "scripts:",
+                "  - source: scripts/aggregate_agent_metrics.py",
+                "    description: test",
+                "    template_sync: exact",
+                "",
+            ]
+        ),
+    )
+
+    result = subprocess.run(
+        [sys.executable, "scripts/validate_template_sync.py"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "scripts/aggregate_agent_metrics.py" in result.stdout
