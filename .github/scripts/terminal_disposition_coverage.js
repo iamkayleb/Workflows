@@ -95,6 +95,7 @@ function expectedReviewThreadSources(records = []) {
   for (const raw of records) {
     if (!isTerminalDispositionRecord(raw)) continue;
     const record = normalizeTerminalDisposition(raw);
+    if (record.artifact_family === 'verifier-terminal-disposition') continue;
     const prNumber = cleanInt(record.pr_number);
     if (prNumber === null) continue;
     const source = normalizeExpectedSource({

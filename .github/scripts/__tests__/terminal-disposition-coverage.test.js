@@ -46,6 +46,14 @@ test('derives expected review-thread sources from terminal PR activity', () => {
     },
     {
       schema: 'workflows-terminal-disposition/v1',
+      artifact_family: 'verifier-terminal-disposition',
+      source_type: 'pull-request',
+      source_id: '103',
+      pr_number: 103,
+      disposition: 'needs-human',
+    },
+    {
+      schema: 'workflows-terminal-disposition/v1',
       source_type: 'merged-pr',
       source_id: '102',
       pr_number: 102,
