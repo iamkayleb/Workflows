@@ -444,11 +444,7 @@ def gap_label(severity: str) -> str:
 def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
     repo_path = Path(state["local_path"])
     tracked_files = tracked_repo_files(repo_path)
-    implementation_files = [
-        path
-        for path in tracked_files
-        if is_implementation_file(path)
-    ]
+    implementation_files = [path for path in tracked_files if is_implementation_file(path)]
     test_files = [path for path in tracked_files if is_test_file(path)]
     implementation_scan_files = implementation_files[:REVIEW_SCAN_FILE_LIMIT]
     test_scan_files = test_files[:REVIEW_SCAN_FILE_LIMIT]
@@ -499,8 +495,7 @@ def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
         :12
     ]
     design_headings = {
-        rel_path: markdown_headings(repo_path, rel_path)
-        for rel_path in state["design_files"][:6]
+        rel_path: markdown_headings(repo_path, rel_path) for rel_path in state["design_files"][:6]
     }
     domain_hits = keyword_file_hits(
         repo_path,
@@ -521,12 +516,12 @@ def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
 
     if not state["design_files"]:
         design_severity = "blocks testing"
-        design_finding = "No tracked design sources were found; the design contract is not reviewable."
+        design_finding = (
+            "No tracked design sources were found; the design contract is not reviewable."
+        )
     else:
         design_severity = "none"
-        design_finding = (
-            f"Collected {state['design_source_count']} design sources and registry anchor for comparison."
-        )
+        design_finding = f"Collected {state['design_source_count']} design sources and registry anchor for comparison."
     dimensions.append(
         {
             "id": "design_contract",
@@ -580,14 +575,10 @@ def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
         test_finding = "No tests or CI workflow files were detected."
     elif not smoke_test_files:
         test_severity = "material"
-        test_finding = (
-            "Tests or workflows exist, but the automated pass did not find smoke/e2e/live readiness markers."
-        )
+        test_finding = "Tests or workflows exist, but the automated pass did not find smoke/e2e/live readiness markers."
     else:
         test_severity = "needs human decision"
-        test_finding = (
-            "Test and smoke/integration markers exist; review must verify they prove the intended user journey."
-        )
+        test_finding = "Test and smoke/integration markers exist; review must verify they prove the intended user journey."
     dimensions.append(
         {
             "id": "test_and_live_readiness",
@@ -628,14 +619,10 @@ def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
 
     if state["issue_draft_count"] or state["archive_candidate_count"]:
         issue_severity = "needs human decision"
-        issue_finding = (
-            "Draft inputs exist; approve only after checking them against the executed review evidence."
-        )
+        issue_finding = "Draft inputs exist; approve only after checking them against the executed review evidence."
     elif state["remote_open_issue_count"]:
         issue_severity = "needs human decision"
-        issue_finding = (
-            "No local/archive candidates are queued, but remote open issues need reconciliation before drafting more."
-        )
+        issue_finding = "No local/archive candidates are queued, but remote open issues need reconciliation before drafting more."
     else:
         issue_severity = "needs human decision"
         issue_finding = (
@@ -1367,9 +1354,7 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
             "",
         ]
     )
-    (repo_dir / "review-execution.md").write_text(
-        "\n".join(execution_lines), encoding="utf-8"
-    )
+    (repo_dir / "review-execution.md").write_text("\n".join(execution_lines), encoding="utf-8")
 
     draft_lines = [
         f"# Issue Drafts: {state['repo']}",
@@ -1432,9 +1417,7 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
     ignored = [state for state in states if state["status"] == "ignored"]
     review_pending = [state for state in active if state["review_status"] == PENDING_REVIEW_STATUS]
     blocked = [
-        state
-        for state in active
-        if str(state["review_execution"]["status"]).startswith("blocked")
+        state for state in active if str(state["review_execution"]["status"]).startswith("blocked")
     ]
     issue_candidate_repos = [
         state for state in active if state["issue_queue_status"] == "draft candidates present"
@@ -1442,9 +1425,7 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
     executed_reviews = [
         state for state in active if state["review_execution"]["status"] == "executed"
     ]
-    automated_gap_repos = [
-        state for state in active if state["review_execution"]["gap_count"] > 0
-    ]
+    automated_gap_repos = [state for state in active if state["review_execution"]["gap_count"] > 0]
 
     lines = [
         f"# Weekly Design Review Decision Packet - {generated_on}",
@@ -1481,7 +1462,9 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 "approve/edit/defer issue drafts."
             )
         elif str(state["review_execution"]["status"]).startswith("blocked"):
-            human_action = "resolve the blocker, rerun review execution, then queue the human decision."
+            human_action = (
+                "resolve the blocker, rerun review execution, then queue the human decision."
+            )
         else:
             human_action = "conduct the standardized review, then approve/edit/defer issue drafts."
         lines.extend(

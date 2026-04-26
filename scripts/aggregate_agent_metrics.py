@@ -44,6 +44,8 @@ _PATTERNED_ARTIFACT_FAMILIES = (
     ),
 )
 _MAX_PARSE_ERROR_ROWS = 25
+_MAX_LEGACY_JSON_FALLBACK_LINES = 5000
+_MAX_LEGACY_JSON_FALLBACK_BYTES = 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -180,13 +182,25 @@ def _read_ndjson(files: Iterable[Path]) -> tuple[list[dict[str, Any]], list[Pars
         file_entries: list[dict[str, Any]] = []
         file_errors: list[ParseErrorDetail] = []
         raw_lines_for_fallback: list[str] = []
+        raw_fallback_bytes = 0
+        raw_fallback_truncated = False
         with handle:
             for line_number, line in enumerate(handle, start=1):
                 raw = line.strip()
                 if not raw:
                     continue
-                if not file_entries:
-                    raw_lines_for_fallback.append(raw)
+                if not file_entries and not raw_fallback_truncated:
+                    raw_bytes = len(raw.encode("utf-8")) + 1
+                    fallback_within_limit = (
+                        len(raw_lines_for_fallback) < _MAX_LEGACY_JSON_FALLBACK_LINES
+                        and raw_fallback_bytes + raw_bytes <= _MAX_LEGACY_JSON_FALLBACK_BYTES
+                    )
+                    if fallback_within_limit:
+                        raw_fallback_bytes += raw_bytes
+                        raw_lines_for_fallback.append(raw)
+                    else:
+                        raw_fallback_truncated = True
+                        raw_lines_for_fallback = []
                 try:
                     parsed = json.loads(raw)
                 except json.JSONDecodeError:
@@ -197,7 +211,14 @@ def _read_ndjson(files: Iterable[Path]) -> tuple[list[dict[str, Any]], list[Pars
                     raw_lines_for_fallback = []
                 else:
                     file_errors.append(_parse_error_detail(path, line_number, "non-object-json"))
-        if file_errors and not file_entries and raw_lines_for_fallback:
+        if file_errors and not file_entries and raw_fallback_truncated:
+            file_errors.append(_parse_error_detail(path, None, "legacy-json-fallback-buffer-limit"))
+        if (
+            file_errors
+            and not file_entries
+            and raw_lines_for_fallback
+            and not raw_fallback_truncated
+        ):
             try:
                 parsed_file = json.loads("\n".join(raw_lines_for_fallback))
             except json.JSONDecodeError:

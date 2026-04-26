@@ -440,6 +440,21 @@ function normalizeSelectionArtifact(artifact = {}) {
   return normalized;
 }
 
+function latestCandidateFromSelectionReport(report = {}, family = '') {
+  const candidateMaps = [
+    report.latest_candidate_by_family,
+    report.latest_candidates_by_family,
+  ];
+  for (const candidatesByFamily of candidateMaps) {
+    if (!candidatesByFamily || typeof candidatesByFamily !== 'object' || Array.isArray(candidatesByFamily)) {
+      continue;
+    }
+    const candidate = normalizeSelectionArtifact(candidatesByFamily[family]);
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
 function normalizeTerminalPriorityFamilyStatuses(report = {}, selectedArtifacts = []) {
   const rawStatuses = Array.isArray(report.priority_family_statuses)
     ? report.priority_family_statuses
@@ -466,12 +481,14 @@ function normalizeTerminalPriorityFamilyStatuses(report = {}, selectedArtifacts 
     const selectedCount = Number(report.selected_family_counts?.[family]) ||
       selectedArtifacts.filter((artifact) => artifact.family === family).length;
     const selectedArtifact = selectedArtifacts.find((artifact) => artifact.family === family) || null;
+    const latestCandidate = latestCandidateFromSelectionReport(report, family) ||
+      (selectedArtifact ? normalizeSelectionArtifact(selectedArtifact) : null);
     byFamily.set(family, {
       family,
       status: selectedCount > 0 ? 'selected' : (candidateCount > 0 ? 'available' : 'missing'),
       candidate_count: candidateCount,
       selected_count: selectedCount,
-      latest_candidate: selectedArtifact ? normalizeSelectionArtifact(selectedArtifact) : null,
+      latest_candidate: latestCandidate,
       selected_artifact: selectedArtifact ? normalizeSelectionArtifact(selectedArtifact) : null,
     });
   }

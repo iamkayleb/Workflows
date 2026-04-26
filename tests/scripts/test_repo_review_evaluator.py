@@ -261,7 +261,9 @@ def test_gitnexus_ignore_change_is_helper_input_not_review_blocker(tmp_path: Pat
     (repo_dir / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
     subprocess = evaluator.subprocess
     subprocess.run(["git", "-C", str(repo_dir), "init"], check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"], check=True
+    )
     subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "Test User"], check=True)
     subprocess.run(["git", "-C", str(repo_dir), "add", "README.md", ".gitignore"], check=True)
     subprocess.run(

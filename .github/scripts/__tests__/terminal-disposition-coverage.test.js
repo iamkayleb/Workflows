@@ -686,6 +686,35 @@ test('normalizes artifact selection reports without selected family counts', () 
   );
 });
 
+test('normalizes legacy artifact selection latest candidate maps', () => {
+  const summary = normalizeArtifactSelectionSummary({
+    status: 'pass',
+    candidate_family_counts: {
+      'review-thread-terminal-disposition': 2,
+    },
+    selected_family_counts: {},
+    latest_candidate_by_family: {
+      'review-thread-terminal-disposition': {
+        id: 44,
+        name: 'review-thread-terminal-disposition-latest',
+        created_at: '2026-04-25T12:00:00Z',
+      },
+    },
+    selected_artifacts: [],
+  });
+
+  const reviewThreadStatus = summary.terminal_priority_family_statuses.find(
+    (status) => status.family === 'review-thread-terminal-disposition'
+  );
+  assert.equal(reviewThreadStatus.status, 'available');
+  assert.equal(reviewThreadStatus.selected_artifact, null);
+  assert.deepEqual(reviewThreadStatus.latest_candidate, {
+    id: 44,
+    name: 'review-thread-terminal-disposition-latest',
+    created_at: '2026-04-25T12:00:00Z',
+  });
+});
+
 test('collects only terminal disposition ndjson files from metrics artifacts', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'terminal-coverage-'));
   const terminalDir = path.join(dir, 'review-thread-terminal-disposition-123', 'agent-metrics');

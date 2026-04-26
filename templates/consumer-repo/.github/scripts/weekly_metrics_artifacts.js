@@ -166,6 +166,41 @@ function priorityFamilyStatuses({
   });
 }
 
+function latestCandidateByFamily(candidates = []) {
+  const latestByFamily = new Map();
+  for (const candidate of candidates) {
+    const family = cleanString(candidate.family);
+    if (!PRIORITY_METRICS_FAMILIES.includes(family)) continue;
+    const existing = latestByFamily.get(family);
+    const candidateTimestamp = Number(candidate.timestamp_ms) || artifactTimestampMs(candidate);
+    const existingTimestamp = existing ? Number(existing.timestamp_ms) || artifactTimestampMs(existing) : -1;
+    const candidateId = Number(candidate.id) || 0;
+    const existingId = existing ? Number(existing.id) || 0 : -1;
+    if (
+      !existing ||
+      candidateTimestamp > existingTimestamp ||
+      (candidateTimestamp === existingTimestamp && candidateId > existingId)
+    ) {
+      latestByFamily.set(family, candidate);
+    }
+  }
+  const entries = [];
+  for (const family of PRIORITY_METRICS_FAMILIES) {
+    const latestCandidate = latestByFamily.get(family);
+    if (!latestCandidate) continue;
+    entries.push([
+      family,
+      {
+        id: latestCandidate.id,
+        name: latestCandidate.name,
+        created_at: latestCandidate.created_at,
+        updated_at: latestCandidate.updated_at,
+      },
+    ]);
+  }
+  return Object.fromEntries(entries);
+}
+
 function selectMetricsArtifacts(artifacts = [], options = {}) {
   const config = normalizeSelectionOptions(options);
   const stats = {
@@ -261,6 +296,7 @@ function selectMetricsArtifacts(artifacts = [], options = {}) {
     ...stats,
     candidate_family_counts: sortedCountObject(candidateFamilyCounts),
     selected_family_counts: sortedCountObject(familyCounts),
+    latest_candidate_by_family: latestCandidateByFamily(candidates),
     missing_priority_families: missingPriorityFamilies(candidateFamilyCounts),
     priority_family_statuses: priorityFamilyStatuses({
       candidates,
@@ -302,6 +338,7 @@ function buildSelectionErrorReport(options = {}, error = {}) {
     ignored_total_limit_count: 0,
     candidate_family_counts: {},
     selected_family_counts: {},
+    latest_candidate_by_family: {},
     missing_priority_families: [...PRIORITY_METRICS_FAMILIES],
     priority_family_statuses: priorityFamilyStatuses(),
     selected_artifacts: [],
@@ -489,6 +526,7 @@ module.exports = {
   collectRepoArtifacts,
   formatArtifactTsv,
   formatSelectionMarkdown,
+  latestCandidateByFamily,
   missingPriorityFamilies,
   normalizeSelectionOptions,
   priorityFamilyStatuses,
