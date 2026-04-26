@@ -22,6 +22,7 @@ jobs:
           sparse-checkout: |
             .github/actions/setup-api-client
             .github/scripts/bot_comment_auth_coverage.js
+            .github/scripts/coverage_monitor_summary.js
             .github/scripts/github-api-with-retry.js
             .github/scripts/terminal_disposition.js
             .github/scripts/terminal_disposition_coverage.js
@@ -209,6 +210,25 @@ jobs:
           fi
           echo "BOT_COMMENT_AUTH_COVERAGE_EXIT_STATUS=${bot_comment_auth_status}" >> "$GITHUB_ENV"
 
+      - name: Coverage monitor checkpoint
+        if: ${{ always() }}
+        env:
+          COVERAGE_MONITOR_TERMINAL_JSON: terminal-disposition-coverage.json
+          COVERAGE_MONITOR_BOT_AUTH_JSON: bot-comment-auth-coverage-summary.json
+          COVERAGE_MONITOR_SUMMARY_JSON: coverage-monitor-summary.json
+          COVERAGE_MONITOR_SUMMARY_MD: coverage-monitor-summary.md
+        run: |
+          node .github/scripts/coverage_monitor_summary.js
+          if [ -f coverage-monitor-summary.md ]; then
+            cat coverage-monitor-summary.md >> "$GITHUB_STEP_SUMMARY"
+            if [ -f agent-weekly-metrics.md ]; then
+              {
+                printf '\n'
+                cat coverage-monitor-summary.md
+              } >> agent-weekly-metrics.md
+            fi
+          fi
+
       - name: Upload weekly summary
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
@@ -222,6 +242,8 @@ jobs:
             terminal-disposition-coverage.md
             bot-comment-auth-coverage-summary.json
             bot-comment-auth-coverage-summary.md
+            coverage-monitor-summary.json
+            coverage-monitor-summary.md
           if-no-files-found: warn
           retention-days: 30
 

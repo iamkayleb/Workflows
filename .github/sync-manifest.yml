@@ -310,6 +310,9 @@ scripts:
   - source: .github/scripts/bot_comment_auth_coverage.js
     description: "Warning-only bot-comment App auth coverage preflight"
 
+  - source: .github/scripts/coverage_monitor_summary.js
+    description: "Machine-readable weekly coverage monitor checkpoint"
+
   - source: .github/scripts/weekly_metrics_artifacts.js
     description: "Bounded weekly metrics artifact selection contract"
 
