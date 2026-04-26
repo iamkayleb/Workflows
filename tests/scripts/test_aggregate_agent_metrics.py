@@ -563,7 +563,66 @@ def test_verifier_summary_counts_unsupported_models(
     assert "Unsupported model dispositions: verifier-error (1)" in summary
 
 
-def test_verifier_summary_counts_missing_model_metadata() -> None:
+def test_verifier_summary_accepts_terminal_disposition_unsupported_model_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("UNSUPPORTED_VERIFIER_MODELS", raising=False)
+    monkeypatch.setenv("TERMINAL_DISPOSITION_UNSUPPORTED_CODEX_MODELS", "alias-bad")
+
+    verifier = aggregate_agent_metrics._summarise_verifier(
+        [
+            {
+                "schema": "workflows-terminal-disposition/v1",
+                "artifact_family": "verifier-terminal-disposition",
+                "run_id": "24948023778",
+                "pr_number": 1872,
+                "disposition": "verifier-error",
+                "llm_model": "Alias-Bad",
+            },
+        ]
+    )
+
+    assert verifier["unsupported_verifier_models"]["alias-bad"] == 1
+
+
+def test_verifier_summary_prefers_specific_unsupported_model_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("UNSUPPORTED_VERIFIER_MODELS", "primary-bad")
+    monkeypatch.setenv("TERMINAL_DISPOSITION_UNSUPPORTED_CODEX_MODELS", "alias-bad")
+
+    verifier = aggregate_agent_metrics._summarise_verifier(
+        [
+            {
+                "schema": "workflows-terminal-disposition/v1",
+                "artifact_family": "verifier-terminal-disposition",
+                "run_id": "24948023778",
+                "pr_number": 1872,
+                "disposition": "verifier-error",
+                "llm_model": "primary-bad",
+            },
+            {
+                "schema": "workflows-terminal-disposition/v1",
+                "artifact_family": "verifier-terminal-disposition",
+                "run_id": "24948023779",
+                "pr_number": 1873,
+                "disposition": "verifier-error",
+                "llm_model": "alias-bad",
+            },
+        ]
+    )
+
+    assert verifier["unsupported_verifier_models"]["primary-bad"] == 1
+    assert verifier["unsupported_verifier_models"]["alias-bad"] == 0
+
+
+def test_verifier_summary_counts_missing_model_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "TERMINAL_DISPOSITION_VERIFIER_MODEL_METADATA_REQUIRED_AFTER",
+        "2026-04-26T04:25:00Z",
+    )
     summary = aggregate_agent_metrics.build_summary(
         [
             {
@@ -572,6 +631,7 @@ def test_verifier_summary_counts_missing_model_metadata() -> None:
                 "run_id": "24948023778",
                 "pr_number": 1872,
                 "disposition": "verifier-error",
+                "verifier_mode": "compare",
             },
             {
                 "schema": "workflows-terminal-disposition/v1",
@@ -587,7 +647,13 @@ def test_verifier_summary_counts_missing_model_metadata() -> None:
     assert "Missing verifier model metadata: verifier-error (1)" in summary
 
 
-def test_verifier_summary_suppresses_pre_contract_missing_model_metadata() -> None:
+def test_verifier_summary_suppresses_pre_contract_missing_model_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "TERMINAL_DISPOSITION_VERIFIER_MODEL_METADATA_REQUIRED_AFTER",
+        "2026-04-26T04:25:00Z",
+    )
     summary = aggregate_agent_metrics.build_summary(
         [
             {
@@ -597,6 +663,7 @@ def test_verifier_summary_suppresses_pre_contract_missing_model_metadata() -> No
                 "run_id": "24948023778",
                 "pr_number": 1872,
                 "disposition": "verifier-error",
+                "verifier_mode": "compare",
             },
             {
                 "schema": "workflows-terminal-disposition/v1",
@@ -605,6 +672,7 @@ def test_verifier_summary_suppresses_pre_contract_missing_model_metadata() -> No
                 "run_id": "24950000000",
                 "pr_number": 1877,
                 "disposition": "needs-human",
+                "verifier_mode": "compare",
             },
         ],
         errors=0,
@@ -614,7 +682,13 @@ def test_verifier_summary_suppresses_pre_contract_missing_model_metadata() -> No
     assert "Legacy missing verifier model metadata: verifier-error (1)" in summary
 
 
-def test_verifier_summary_ignores_review_thread_terminal_model_metadata() -> None:
+def test_verifier_summary_ignores_review_thread_terminal_model_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "TERMINAL_DISPOSITION_VERIFIER_MODEL_METADATA_REQUIRED_AFTER",
+        "2026-04-26T04:25:00Z",
+    )
     summary = aggregate_agent_metrics.build_summary(
         [
             {
@@ -632,6 +706,7 @@ def test_verifier_summary_ignores_review_thread_terminal_model_metadata() -> Non
                 "source_id": "1872",
                 "pr_number": 1872,
                 "disposition": "verifier-error",
+                "verifier_mode": "compare",
             },
         ],
         errors=0,
@@ -642,6 +717,24 @@ def test_verifier_summary_ignores_review_thread_terminal_model_metadata() -> Non
     assert "wrapper-skipped (1)" in summary
     assert "Missing verifier model metadata: verifier-error (1)" in summary
     assert "wrapper-skipped" not in summary.split("Missing verifier model metadata: ", 1)[1]
+
+
+def test_verifier_summary_does_not_require_model_metadata_by_default() -> None:
+    summary = aggregate_agent_metrics.build_summary(
+        [
+            {
+                "schema": "workflows-terminal-disposition/v1",
+                "artifact_family": "verifier-terminal-disposition",
+                "run_id": "24948023778",
+                "pr_number": 1872,
+                "disposition": "verifier-error",
+                "verifier_mode": "compare",
+            }
+        ],
+        errors=0,
+    )
+
+    assert "Missing verifier model metadata: n/a" in summary
 
 
 def test_format_helpers_and_summary_range() -> None:
