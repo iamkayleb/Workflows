@@ -169,6 +169,10 @@ function finalizeManifest(manifest = {}) {
   return manifest;
 }
 
+function markdownTableCell(value) {
+  return cleanString(value).replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+}
+
 function formatMarkdown(manifest = {}) {
   const stats = manifest.stats || {};
   const lines = [
@@ -196,8 +200,10 @@ function formatMarkdown(manifest = {}) {
         ? `${unzip.status || 'pending'} (${unzip.error})`
         : unzip.status || 'pending';
       lines.push(
-        `| ${artifact.name || 'unknown'} | ${artifact.id || ''} | ${downloadLabel} | ` +
-          `${unzipLabel} | ${artifact.artifact_dir || ''} |`
+        `| ${markdownTableCell(artifact.name || 'unknown')} | ${markdownTableCell(
+          artifact.id || ''
+        )} | ${markdownTableCell(downloadLabel)} | ` +
+          `${markdownTableCell(unzipLabel)} | ${markdownTableCell(artifact.artifact_dir || '')} |`
       );
     }
   }

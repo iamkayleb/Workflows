@@ -129,3 +129,32 @@ test('formats human-visible markdown without replacing the JSON contract', () =>
   assert.match(markdown, /unzip-command-failed/);
   assert.match(markdown, /keepalive-metrics/);
 });
+
+test('escapes markdown table cells in human-visible manifest', () => {
+  const manifest = buildInitialManifest({
+    ...selection,
+    selected_artifacts: [
+      {
+        id: '44|45',
+        name: 'keepalive|metrics\nlatest',
+        family: 'keepalive-metrics',
+      },
+    ],
+  });
+  updateArtifactResult(manifest, {
+    id: '44|45',
+    artifact_dir: 'artifacts/keepalive|metrics\nlatest/44|45',
+    download_status: 'failed',
+    download_error: 'bad|download\nreason',
+    unzip_status: 'skipped',
+    unzip_error: 'download|failed',
+  });
+  finalizeManifest(manifest);
+
+  const markdown = formatMarkdown(manifest);
+
+  assert.match(markdown, /keepalive\\\|metrics latest/);
+  assert.match(markdown, /44\\\|45/);
+  assert.match(markdown, /bad\\\|download reason/);
+  assert.match(markdown, /artifacts\/keepalive\\\|metrics latest\/44\\\|45/);
+});

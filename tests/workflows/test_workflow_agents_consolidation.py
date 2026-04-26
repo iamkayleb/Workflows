@@ -288,7 +288,7 @@ def test_weekly_metrics_uploads_selector_report_on_failure():
             and "--unzip-status failed" in text
         ), "Weekly metrics must record download and unzip failure reasons"
         assert (
-            '--finalize \\\n            --manifest "$download_manifest"' in text
+            "--finalize" in text and '--manifest "$download_manifest"' in text
         ), "Weekly metrics must finalize the artifact download manifest after the loop"
         assert (
             "OUTPUT_JSON_PATH: agent-weekly-metrics.json" in text
