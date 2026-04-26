@@ -316,6 +316,9 @@ scripts:
   - source: .github/scripts/weekly_metrics_artifacts.js
     description: "Bounded weekly metrics artifact selection contract"
 
+  - source: .github/scripts/weekly_metrics_download_manifest.js
+    description: "Weekly metrics artifact download and extraction manifest contract"
+
   - source: .github/scripts/issue_scope_parser.js
     description: "Parses issue scope and requirements"
 

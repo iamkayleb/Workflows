@@ -14,6 +14,7 @@ const {
   buildCompletionAuthorWarningBody,
   upsertCompletionAuthorWarning,
   buildStatusBlock,
+  buildPreamble,
   resolveAgentType,
   stripPrTemplateContent,
   augmentContextWithRelatedIssues,
@@ -369,6 +370,18 @@ test('stripPrTemplateContent handles empty and null input', () => {
   assert.strictEqual(stripPrTemplateContent(''), '');
   assert.strictEqual(stripPrTemplateContent(null), '');
   assert.strictEqual(stripPrTemplateContent(undefined), '');
+});
+
+test('buildPreamble preserves source issue metadata and closing reference', () => {
+  const result = buildPreamble({
+    issueNumber: 1881,
+    summary: 'Summary text',
+  });
+
+  assert.ok(result.includes('<!-- meta:issue:1881 -->'));
+  assert.ok(result.includes('> **Source:** Issue #1881'));
+  assert.ok(result.includes('Closes #1881'));
+  assert.ok(result.includes('## Summary\nSummary text'));
 });
 
 // ========== fetchConnectorCheckboxStates tests ==========
