@@ -13,6 +13,7 @@ const {
   normalizeArtifactSelectionSummary,
   normalizeExpectedSource,
   normalizeUnsupportedCodexModels,
+  normalizeVerifierModelMetadataContract,
   readArtifactSelectionReport,
   readNdjsonFiles,
   summarizeVerifierModelCompatibility,
@@ -250,6 +251,10 @@ test('summarizes verifier model compatibility with configurable unsupported mode
     'bad-model',
     'gpt-5.2-codex',
   ]);
+  assert.equal(
+    normalizeVerifierModelMetadataContract().required_after,
+    '2026-04-26T04:25:00Z'
+  );
 
   const summary = summarizeVerifierModelCompatibility(
     [
@@ -315,6 +320,83 @@ test('warns when Codex verifier terminal records omit model metadata', () => {
   assert.match(markdown, /Missing verifier model metadata records: 1/);
   assert.match(markdown, /pull-request:1872/);
   assert.doesNotMatch(markdown, /\| pull-request:1873 \| verified-pass \| evaluate/);
+});
+
+test('suppresses pre-contract verifier terminal records missing model metadata', () => {
+  const report = summarizeTerminalDispositionCoverage(
+    [
+      {
+        schema: 'workflows-terminal-disposition/v1',
+        artifact_family: 'verifier-terminal-disposition',
+        source_type: 'pull-request',
+        source_id: '1872',
+        pr_number: 1872,
+        run_id: '24948023778',
+        disposition: 'verifier-error',
+      },
+    ],
+    {
+      input_file_count: 1,
+      artifact_selection_report: {
+        schema: 'workflows-weekly-metrics-artifact-selection/v1',
+        status: 'pass',
+        selected_artifacts: [
+          {
+            id: 6644772052,
+            name: 'verifier-terminal-disposition-24948023778',
+            family: 'verifier-terminal-disposition',
+            created_at: '2026-04-26T04:18:01Z',
+          },
+        ],
+      },
+    }
+  );
+  const markdown = formatTerminalDispositionCoverageMarkdown(report);
+
+  assert.equal(report.status, 'pass');
+  assert.equal(report.verifier_model_compatibility.status, 'pass');
+  assert.equal(report.verifier_model_compatibility.missing_model_record_count, 0);
+  assert.equal(report.verifier_model_compatibility.legacy_missing_model_record_count, 1);
+  assert.deepEqual(report.enforcement.blockers, []);
+  assert.match(markdown, /Legacy missing verifier model metadata records: 1/);
+  assert.match(markdown, /2026-04-26T04:18:01Z/);
+});
+
+test('still warns for post-contract verifier terminal records missing model metadata', () => {
+  const report = summarizeTerminalDispositionCoverage(
+    [
+      {
+        schema: 'workflows-terminal-disposition/v1',
+        artifact_family: 'verifier-terminal-disposition',
+        source_type: 'pull-request',
+        source_id: '1877',
+        pr_number: 1877,
+        run_id: '24950000000',
+        disposition: 'verifier-error',
+      },
+    ],
+    {
+      input_file_count: 1,
+      artifact_selection_report: {
+        schema: 'workflows-weekly-metrics-artifact-selection/v1',
+        status: 'pass',
+        selected_artifacts: [
+          {
+            id: 6645000000,
+            name: 'verifier-terminal-disposition-24950000000',
+            family: 'verifier-terminal-disposition',
+            created_at: '2026-04-26T06:00:00Z',
+          },
+        ],
+      },
+    }
+  );
+
+  assert.equal(report.status, 'warning');
+  assert.equal(report.verifier_model_compatibility.status, 'warning');
+  assert.equal(report.verifier_model_compatibility.missing_model_record_count, 1);
+  assert.equal(report.verifier_model_compatibility.legacy_missing_model_record_count, 0);
+  assert.deepEqual(report.enforcement.blockers, ['unsupported-verifier-model']);
 });
 
 test('reads ndjson files and counts parse errors', () => {

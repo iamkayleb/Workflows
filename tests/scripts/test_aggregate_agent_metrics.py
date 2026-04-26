@@ -74,6 +74,7 @@ def test_build_summary_formats_sections() -> None:
     assert "Unsupported verifier models: n/a" in summary
     assert "Unsupported model dispositions: n/a" in summary
     assert "Missing verifier model metadata: n/a" in summary
+    assert "Legacy missing verifier model metadata: n/a" in summary
     assert "Model selection reasons: default (1)" in summary
     assert "Verifier modes: checkbox (1)" in summary
 
@@ -404,6 +405,33 @@ def test_verifier_summary_counts_missing_model_metadata() -> None:
     )
 
     assert "Missing verifier model metadata: verifier-error (1)" in summary
+
+
+def test_verifier_summary_suppresses_pre_contract_missing_model_metadata() -> None:
+    summary = aggregate_agent_metrics.build_summary(
+        [
+            {
+                "schema": "workflows-terminal-disposition/v1",
+                "artifact_family": "verifier-terminal-disposition",
+                "timestamp": "2026-04-26T04:18:01Z",
+                "run_id": "24948023778",
+                "pr_number": 1872,
+                "disposition": "verifier-error",
+            },
+            {
+                "schema": "workflows-terminal-disposition/v1",
+                "artifact_family": "verifier-terminal-disposition",
+                "timestamp": "2026-04-26T06:00:00Z",
+                "run_id": "24950000000",
+                "pr_number": 1877,
+                "disposition": "needs-human",
+            },
+        ],
+        errors=0,
+    )
+
+    assert "Missing verifier model metadata: needs-human (1)" in summary
+    assert "Legacy missing verifier model metadata: verifier-error (1)" in summary
 
 
 def test_verifier_summary_ignores_review_thread_terminal_model_metadata() -> None:

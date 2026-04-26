@@ -15,6 +15,7 @@ from typing import Any
 _DEFAULT_METRICS_DIR = "agent-metrics"
 _DEFAULT_OUTPUT = "agent-metrics-summary.md"
 _DEFAULT_UNSUPPORTED_VERIFIER_MODELS = {"gpt-5.2-codex"}
+_DEFAULT_VERIFIER_MODEL_METADATA_REQUIRED_AFTER = "2026-04-26T04:25:00Z"
 
 
 def _parse_timestamp(value: Any) -> _dt.datetime | None:
@@ -131,6 +132,29 @@ def _unsupported_verifier_models() -> set[str]:
     return {item.strip().lower() for item in raw.split(",") if item.strip()}
 
 
+def _verifier_model_metadata_required_after() -> _dt.datetime | None:
+    raw = (
+        os.environ.get("TERMINAL_DISPOSITION_VERIFIER_MODEL_METADATA_REQUIRED_AFTER")
+        or os.environ.get("VERIFIER_MODEL_METADATA_REQUIRED_AFTER")
+        or _DEFAULT_VERIFIER_MODEL_METADATA_REQUIRED_AFTER
+    ).strip()
+    if raw.lower() in {"", "0", "false", "none", "off", "disabled"}:
+        return None
+    return _parse_timestamp(raw)
+
+
+def _is_pre_contract_verifier_model_record(
+    entry: dict[str, Any], required_after: _dt.datetime | None
+) -> bool:
+    if required_after is None:
+        return False
+    for key in ("created_at", "timestamp", "run_started_at", "time"):
+        timestamp = _parse_timestamp(entry.get(key))
+        if timestamp is not None:
+            return timestamp < required_after
+    return False
+
+
 def _is_verifier_terminal_entry(entry: dict[str, Any]) -> bool:
     if entry.get("schema") != "workflows-terminal-disposition/v1":
         return False
@@ -225,6 +249,8 @@ def _summarise_verifier(entries: list[dict[str, Any]]) -> dict[str, Any]:
     unsupported_model_dispositions = Counter()
     missing_verifier_model_metadata = Counter()
     unsupported_models = _unsupported_verifier_models()
+    model_metadata_required_after = _verifier_model_metadata_required_after()
+    legacy_missing_verifier_model_metadata = Counter()
     verifier_modes = Counter()
     verifier_run_keys: set[str] = set()
     prs: set[int] = set()
@@ -267,7 +293,10 @@ def _summarise_verifier(entries: list[dict[str, Any]]) -> dict[str, Any]:
             verifier_mode = str(entry.get("verifier_mode") or "").strip().lower()
             if verifier_mode != "evaluate":
                 disposition = entry.get("disposition") or entry.get("terminal_state") or "unknown"
-                missing_verifier_model_metadata[str(disposition)] += 1
+                if _is_pre_contract_verifier_model_record(entry, model_metadata_required_after):
+                    legacy_missing_verifier_model_metadata[str(disposition)] += 1
+                else:
+                    missing_verifier_model_metadata[str(disposition)] += 1
         model_selection_reason = entry.get("codex_model_selection_reason") or entry.get(
             "model_selection_reason"
         )
@@ -299,6 +328,7 @@ def _summarise_verifier(entries: list[dict[str, Any]]) -> dict[str, Any]:
         "unsupported_verifier_models": unsupported_verifier_models,
         "unsupported_model_dispositions": unsupported_model_dispositions,
         "missing_verifier_model_metadata": missing_verifier_model_metadata,
+        "legacy_missing_verifier_model_metadata": legacy_missing_verifier_model_metadata,
         "model_selection_reasons": model_selection_reasons,
         "verifier_modes": verifier_modes,
     }
@@ -486,6 +516,10 @@ def build_summary(entries: list[dict[str, Any]], errors: int) -> str:
             (
                 "- Missing verifier model metadata: "
                 f"{_format_counter(verifier['missing_verifier_model_metadata'])}"
+            ),
+            (
+                "- Legacy missing verifier model metadata: "
+                f"{_format_counter(verifier['legacy_missing_verifier_model_metadata'])}"
             ),
             f"- Model selection reasons: {_format_counter(verifier['model_selection_reasons'])}",
             f"- Verifier modes: {_format_counter(verifier['verifier_modes'])}",
