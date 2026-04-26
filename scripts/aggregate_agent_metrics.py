@@ -63,6 +63,13 @@ class ParseErrorDetail:
         }
 
 
+@dataclass(frozen=True)
+class MetricSource:
+    path: str
+    artifact: str
+    artifact_family: str
+
+
 def _parse_timestamp(value: Any) -> _dt.datetime | None:
     if value is None:
         return None
@@ -109,22 +116,52 @@ def _artifact_family(artifact: str) -> str:
     return "unknown"
 
 
+def _is_artifact_id_segment(value: str) -> bool:
+    return bool(value) and value.isdigit()
+
+
 def _infer_artifact_name(path: Path) -> str:
     parts = path.parts
     for index, part in enumerate(parts):
         if part == "agent-metrics" and index > 0:
-            return parts[index - 1]
+            candidate = parts[index - 1]
+            if _is_artifact_id_segment(candidate) and index > 1:
+                return parts[index - 2]
+            return candidate
+    parent = path.parent.name
+    if _is_artifact_id_segment(parent) and path.parent.parent.name:
+        return path.parent.parent.name
     if path.parent.name:
         return path.parent.name
     return "unknown"
 
 
-def _parse_error_detail(path: Path, line: int | None, reason: str) -> ParseErrorDetail:
+def _metric_source(path: Path) -> MetricSource:
     artifact = _infer_artifact_name(path)
-    return ParseErrorDetail(
+    return MetricSource(
         path=path.as_posix(),
         artifact=artifact,
         artifact_family=_artifact_family(artifact),
+    )
+
+
+def _attach_metric_source(entry: dict[str, Any], path: Path) -> dict[str, Any]:
+    source = _metric_source(path)
+    enriched = dict(entry)
+    enriched.setdefault("artifact_name", source.artifact)
+    enriched.setdefault("artifact_family", source.artifact_family)
+    enriched.setdefault("metric_artifact", source.artifact)
+    enriched.setdefault("metric_artifact_family", source.artifact_family)
+    enriched.setdefault("metric_path", source.path)
+    return enriched
+
+
+def _parse_error_detail(path: Path, line: int | None, reason: str) -> ParseErrorDetail:
+    source = _metric_source(path)
+    return ParseErrorDetail(
+        path=source.path,
+        artifact=source.artifact,
+        artifact_family=source.artifact_family,
         line=line,
         reason=reason,
     )
@@ -154,7 +191,7 @@ def _read_ndjson(files: Iterable[Path]) -> tuple[list[dict[str, Any]], list[Pars
                     file_errors.append(_parse_error_detail(path, line_number, "invalid-json"))
                     continue
                 if isinstance(parsed, dict):
-                    file_entries.append(parsed)
+                    file_entries.append(_attach_metric_source(parsed, path))
                 else:
                     file_errors.append(_parse_error_detail(path, line_number, "non-object-json"))
         if file_errors and not file_entries and raw_lines:
@@ -164,12 +201,12 @@ def _read_ndjson(files: Iterable[Path]) -> tuple[list[dict[str, Any]], list[Pars
                 pass
             else:
                 if isinstance(parsed_file, dict):
-                    file_entries.append(parsed_file)
+                    file_entries.append(_attach_metric_source(parsed_file, path))
                     file_errors = []
                 elif isinstance(parsed_file, list) and all(
                     isinstance(item, dict) for item in parsed_file
                 ):
-                    file_entries.extend(parsed_file)
+                    file_entries.extend(_attach_metric_source(item, path) for item in parsed_file)
                     file_errors = []
         entries.extend(file_entries)
         errors.extend(file_errors)
@@ -572,6 +609,23 @@ def _parse_error_contract(parse_error_details: list[ParseErrorDetail]) -> dict[s
     }
 
 
+def _metric_source_contract(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    family_counts = Counter(
+        str(entry.get("metric_artifact_family") or entry.get("artifact_family") or "unknown")
+        for entry in entries
+    )
+    artifact_counts = Counter(
+        str(entry.get("metric_artifact") or entry.get("artifact_name") or "unknown")
+        for entry in entries
+    )
+    file_counts = Counter(str(entry.get("metric_path") or "unknown") for entry in entries)
+    return {
+        "by_artifact_family": dict(sorted(family_counts.items())),
+        "by_artifact": dict(sorted(artifact_counts.items())),
+        "by_file": dict(sorted(file_counts.items())),
+    }
+
+
 def build_summary(
     entries: list[dict[str, Any]],
     errors: int,
@@ -728,6 +782,7 @@ def build_summary_contract(
         "generated_at": generated_at,
         "record_count": len(entries),
         "record_buckets": dict(sorted(buckets.items())),
+        "metric_sources": _metric_source_contract(entries),
         "parse_errors": _parse_error_contract(parse_error_details),
     }
     if timestamps:

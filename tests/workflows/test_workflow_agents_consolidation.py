@@ -280,6 +280,13 @@ def test_weekly_metrics_uploads_selector_report_on_failure():
             and "agent-weekly-metrics.json" in text
         ), "Weekly metrics must upload a machine-readable aggregate summary"
         assert (
+            'artifact_dir="artifacts/$name/$id"' in text
+        ), "Weekly metrics must isolate same-name artifact downloads by artifact ID"
+        assert (
+            'export ARTIFACT_ZIP="$artifact_dir/$id.zip"' in text
+            and 'unzip -o "$ARTIFACT_ZIP" -d "$ARTIFACT_DIR"' in text
+        ), "Weekly metrics must unzip each artifact inside its unique extraction directory"
+        assert (
             "uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6" in text
         ), "Weekly metrics must pin the Node runtime setup action to the v6 commit SHA"
         assert (
