@@ -118,7 +118,7 @@ def test_collect_repo_state_marks_issue_queue_as_review_input(tmp_path: Path) ->
 
     state = evaluator.collect_repo_state(tmp_path, config)
 
-    assert state["review_status"] == "ready for standardized review"
+    assert state["review_status"] == "pending standardized review"
     assert state["issue_queue_status"] == "draft candidates present"
     assert state["issue_draft_count"] == 1
     assert state["issue_open_task_count"] == 1
@@ -159,7 +159,7 @@ def test_run_git_preserves_status_leading_columns(tmp_path: Path) -> None:
     ]
 
 
-def test_archive_candidates_make_clean_repo_review_ready(tmp_path: Path) -> None:
+def test_archive_candidates_make_clean_repo_review_pending(tmp_path: Path) -> None:
     repo_dir = tmp_path / "trip-planner"
     repo_dir.mkdir()
     subprocess = evaluator.subprocess
@@ -181,13 +181,13 @@ def test_archive_candidates_make_clean_repo_review_ready(tmp_path: Path) -> None
 
     state = evaluator.collect_repo_state(tmp_path, config, [candidate])
 
-    assert state["review_status"] == "ready for standardized review"
+    assert state["review_status"] == "pending standardized review"
     assert state["issue_queue_status"] == "draft candidates present"
     assert state["issue_draft_count"] == 0
     assert state["archive_candidate_count"] == 1
 
 
-def test_collect_repo_state_marks_clean_active_repo_review_ready(tmp_path: Path) -> None:
+def test_collect_repo_state_marks_clean_active_repo_review_pending(tmp_path: Path) -> None:
     repo_dir = tmp_path / "manager"
     repo_dir.mkdir()
     (repo_dir / "README.md").write_text("# Manager\n", encoding="utf-8")
@@ -211,9 +211,41 @@ def test_collect_repo_state_marks_clean_active_repo_review_ready(tmp_path: Path)
 
     state = evaluator.collect_repo_state(tmp_path, config)
 
-    assert state["review_status"] == "ready for standardized review"
+    assert state["review_status"] == "pending standardized review"
     assert state["issue_queue_status"] == "no current draft candidates"
-    assert state["decision"] == "ready for standardized review"
+    assert state["decision"] == "pending standardized review"
+
+
+def test_issues_txt_changes_are_helper_inputs_not_review_blockers(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "intake"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Intake\n", encoding="utf-8")
+    (repo_dir / "Issues.txt").write_text("# helper\n", encoding="utf-8")
+    subprocess = evaluator.subprocess
+    subprocess.run(["git", "-C", str(repo_dir), "init"], check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "Test User"], check=True)
+    subprocess.run(["git", "-C", str(repo_dir), "add", "README.md", "Issues.txt"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo_dir), "commit", "-m", "initial"],
+        check=True,
+        capture_output=True,
+    )
+    (repo_dir / "Issues.txt").write_text("# helper\n# local note\n", encoding="utf-8")
+    config = evaluator.RepoConfig(
+        repo="owner/intake",
+        local_path="intake",
+        status="active",
+        cadence="weekly",
+        decision_anchor="demo anchor",
+    )
+
+    state = evaluator.collect_repo_state(tmp_path, config)
+
+    assert state["review_status"] == "pending standardized review"
+    assert state["helper_dirty_count"] == 1
+    assert state["review_blocking_dirty_count"] == 0
+    assert state["helper_dirty_preview"] == [" M Issues.txt"]
 
 
 def test_write_repo_artifacts_emits_standard_design_review(tmp_path: Path) -> None:

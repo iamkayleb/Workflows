@@ -57,6 +57,16 @@ Outputs are written to `docs/reports/repo-review/`:
 
 The `docs/reports/repo-review/` directory is ephemeral output and is ignored by git.
 
+## Local Signals
+
+Local changes are split by how they affect the review:
+
+- `Issues.txt` is a helper/queue file. Changes there are review inputs, not blockers.
+- Generated output such as `docs/reports/` is ephemeral and does not block review.
+- Other non-generated local changes are surfaced as review-blocking until they are understood, because they may change the implementation being evaluated.
+
+`pending standardized review` means the worksheet has been queued and evidence still needs to be gathered. It does not mean the design-vs-implementation review has already been completed.
+
 ## Archive Use
 
 Archived conversations are not just a source of issue text. They are review precedent:

@@ -56,6 +56,7 @@ GENERATED_DIRTY_PATH_PREFIXES = (
 GENERATED_DIRTY_PATH_PARTS = ("/__pycache__/",)
 GENERATED_DIRTY_SUFFIXES = (".pyc", ".pyo", ".DS_Store")
 GENERATED_DIRTY_FILENAMES = {"workloop-state.md"}
+HELPER_DIRTY_FILENAMES = {"Issues.txt"}
 DESIGN_DOC_EXCLUDED_PREFIXES = (
     ".github/",
     ".venv/",
@@ -188,20 +189,40 @@ def material_status_lines(status_lines: list[str]) -> list[str]:
     return [line for line in status_lines if not is_generated_dirty_path(line)]
 
 
+def is_helper_dirty_path(status_line: str) -> bool:
+    return status_path(status_line) in HELPER_DIRTY_FILENAMES
+
+
+def helper_status_lines(status_lines: list[str]) -> list[str]:
+    return [
+        line
+        for line in status_lines
+        if not is_generated_dirty_path(line) and is_helper_dirty_path(line)
+    ]
+
+
+def review_blocking_status_lines(status_lines: list[str]) -> list[str]:
+    return [
+        line
+        for line in status_lines
+        if not is_generated_dirty_path(line) and not is_helper_dirty_path(line)
+    ]
+
+
 def issue_queue_status(drafts: list[IssueDraft], archive_candidates: list[ArchiveCandidate]) -> str:
     if drafts or archive_candidates:
         return "draft candidates present"
     return "no current draft candidates"
 
 
-def review_status(repo: RepoConfig, repo_path: Path, material_lines: list[str]) -> str:
+def review_status(repo: RepoConfig, repo_path: Path, blocking_lines: list[str]) -> str:
     if repo.status != "active":
         return "not scheduled"
     if not repo_path.exists():
         return "missing local clone"
-    if material_lines:
-        return "blocked by material local changes"
-    return "ready for standardized review"
+    if blocking_lines:
+        return "blocked by non-helper local changes"
+    return "pending standardized review"
 
 
 def is_design_doc_path(rel_path: str) -> bool:
@@ -653,6 +674,8 @@ def collect_repo_state(
     repo_path = workspace_root / repo.local_path
     status_lines = run_git(repo_path, ["status", "--short"]).splitlines()
     material_lines = material_status_lines(status_lines)
+    helper_lines = helper_status_lines(status_lines)
+    blocking_lines = review_blocking_status_lines(status_lines)
     branch = run_git(repo_path, ["branch", "--show-current"])
     origin = run_git(repo_path, ["remote", "get-url", "origin"])
     last_commit = run_git(repo_path, ["log", "-1", "--format=%cs %h %s"])
@@ -666,7 +689,7 @@ def collect_repo_state(
     )
 
     archive_candidates = archive_candidates or []
-    current_review_status = review_status(repo, repo_path, material_lines)
+    current_review_status = review_status(repo, repo_path, blocking_lines)
     current_issue_queue_status = issue_queue_status(drafts, archive_candidates)
 
     return {
@@ -681,9 +704,13 @@ def collect_repo_state(
         "last_commit": last_commit,
         "dirty_count": len(status_lines),
         "material_dirty_count": len(material_lines),
+        "helper_dirty_count": len(helper_lines),
+        "review_blocking_dirty_count": len(blocking_lines),
         "generated_dirty_count": len(status_lines) - len(material_lines),
         "dirty_preview": status_lines[:15],
         "material_dirty_preview": material_lines[:15],
+        "helper_dirty_preview": helper_lines[:15],
+        "review_blocking_dirty_preview": blocking_lines[:15],
         "remote_open_issue_count": remote_open_issue_count(repo.repo),
         "review_status": current_review_status,
         "issue_queue_status": current_issue_queue_status,
@@ -747,7 +774,9 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"- Branch: `{state['branch'] or 'unknown'}`",
         f"- Last commit: `{state['last_commit'] or 'unknown'}`",
         f"- Dirty local changes: `{state['dirty_count']}`",
-        f"- Material dirty local changes: `{state['material_dirty_count']}`",
+        f"- Non-generated local changes: `{state['material_dirty_count']}`",
+        f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
+        f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
         f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
         f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
         f"- Issue drafts found: `{state['issue_draft_count']}`",
@@ -778,9 +807,17 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         "",
         markdown_list(state["report_files"]),
         "",
-        "## Dirty Preview",
+        "## Non-Generated Dirty Preview",
         "",
         markdown_list(state["material_dirty_preview"]),
+        "",
+        "## Review-Blocking Dirty Preview",
+        "",
+        markdown_list(state["review_blocking_dirty_preview"]),
+        "",
+        "## Helper Dirty Preview",
+        "",
+        markdown_list(state["helper_dirty_preview"]),
         "",
     ]
     (repo_dir / "state.md").write_text("\n".join(state_md), encoding="utf-8")
@@ -794,6 +831,7 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         "",
         "- Primary goal: compare intended design to current implementation and testing readiness.",
         "- Secondary goal: turn verified gaps into issue drafts for human approval.",
+        "- Current worksheet status: pending review until a human or automation fills in evidence and findings.",
         "- Completion standard: no issue should be considered ready unless the review identifies the design commitment, current evidence, missing behavior, and a test or live-smoke acceptance gate.",
         "",
         "## Current Signals",
@@ -803,7 +841,9 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"- Existing local issue drafts: `{state['issue_draft_count']}`",
         f"- Archive-derived candidates: `{state['archive_candidate_count']}`",
         f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
-        f"- Material dirty local changes: `{state['material_dirty_count']}`",
+        f"- Non-generated local changes: `{state['material_dirty_count']}`",
+        f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
+        f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
         "",
         "## Design Sources To Read",
         "",
@@ -929,13 +969,13 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
     active = [state for state in states if state["status"] == "active"]
     paused = [state for state in states if state["status"] == "paused"]
     ignored = [state for state in states if state["status"] == "ignored"]
-    review_ready = [
-        state for state in active if state["review_status"] == "ready for standardized review"
+    review_pending = [
+        state for state in active if state["review_status"] == "pending standardized review"
     ]
     blocked = [
         state
         for state in active
-        if state["review_status"] != "ready for standardized review"
+        if state["review_status"] != "pending standardized review"
     ]
     issue_candidate_repos = [
         state for state in active if state["issue_queue_status"] == "draft candidates present"
@@ -949,7 +989,7 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
         "## Summary",
         "",
         f"- Active repos scheduled for review: `{len(active)}`",
-        f"- Active repos ready for standardized review: `{len(review_ready)}`",
+        f"- Active repos pending standardized review: `{len(review_pending)}`",
         f"- Active repos blocked before review: `{len(blocked)}`",
         f"- Active repos with issue-draft inputs: `{len(issue_candidate_repos)}`",
         f"- Paused repos tracked: `{len(paused)}`",
@@ -978,10 +1018,12 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
                 f"- Existing local issue drafts: `{state['issue_draft_count']}`",
                 f"- Archive-derived candidates: `{state['archive_candidate_count']}`",
                 f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
-                f"- Material dirty local changes: `{state['material_dirty_count']}`",
+                f"- Non-generated local changes: `{state['material_dirty_count']}`",
+                f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
+                f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
                 f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
                 f"- Review artifacts: `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
-                "- Human action: complete the standardized review, then approve/edit/defer issue drafts.",
+                "- Human action: conduct the standardized review, then approve/edit/defer issue drafts.",
                 "",
             ]
         )
@@ -995,7 +1037,7 @@ def write_packet(output_dir: Path, states: list[dict[str, Any]], generated_on: s
             {
                 "generated_on": generated_on,
                 "active_count": len(active),
-                "review_ready_count": len(review_ready),
+                "review_pending_count": len(review_pending),
                 "blocked_review_count": len(blocked),
                 "issue_candidate_repo_count": len(issue_candidate_repos),
                 "repos": [
@@ -1055,11 +1097,11 @@ def main() -> None:
                 "output_dir": str(output_dir),
                 "repo_count": len(states),
                 "active_count": sum(1 for state in states if state["status"] == "active"),
-                "review_ready_count": sum(
+                "review_pending_count": sum(
                     1
                     for state in states
                     if state["status"] == "active"
-                    and state["review_status"] == "ready for standardized review"
+                    and state["review_status"] == "pending standardized review"
                 ),
                 "issue_candidate_repo_count": sum(
                     1
