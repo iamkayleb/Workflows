@@ -276,6 +276,21 @@ def test_weekly_metrics_uploads_selector_report_on_failure():
             "artifacts/metric-artifacts-selection.json" in text
         ), "Weekly metrics must include selector JSON in uploaded artifacts"
         assert (
+            ".github/scripts/weekly_metrics_download_manifest.js" in text
+        ), "Weekly metrics must use the artifact download manifest helper"
+        assert (
+            "artifacts/metric-artifact-download-manifest.json" in text
+            and "artifacts/metric-artifact-download-manifest.md" in text
+        ), "Weekly metrics must upload artifact download manifest reports"
+        assert (
+            "--download-status failed" in text
+            and "--unzip-status skipped" in text
+            and "--unzip-status failed" in text
+        ), "Weekly metrics must record download and unzip failure reasons"
+        assert (
+            '--finalize \\\n            --manifest "$download_manifest"' in text
+        ), "Weekly metrics must finalize the artifact download manifest after the loop"
+        assert (
             "OUTPUT_JSON_PATH: agent-weekly-metrics.json" in text
             and "agent-weekly-metrics.json" in text
         ), "Weekly metrics must upload a machine-readable aggregate summary"

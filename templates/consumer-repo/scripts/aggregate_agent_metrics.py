@@ -17,6 +17,7 @@ from typing import Any
 _DEFAULT_METRICS_DIR = "agent-metrics"
 _DEFAULT_OUTPUT = "agent-metrics-summary.md"
 _DEFAULT_JSON_OUTPUT = "agent-metrics-summary.json"
+_DEFAULT_DOWNLOAD_MANIFEST_PATH = "artifacts/metric-artifact-download-manifest.json"
 _DEFAULT_UNSUPPORTED_VERIFIER_MODELS = {"gpt-5.2-codex"}
 _DEFAULT_VERIFIER_MODEL_METADATA_REQUIRED_AFTER = "2026-04-26T04:25:00Z"
 _EXACT_ARTIFACT_FAMILIES = {
@@ -626,6 +627,71 @@ def _metric_source_contract(entries: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _artifact_download_contract(manifest: dict[str, Any], manifest_path: Path) -> dict[str, Any]:
+    artifacts = manifest.get("artifacts")
+    failed_artifacts: list[dict[str, Any]] = []
+    pending_artifacts: list[dict[str, Any]] = []
+    if isinstance(artifacts, list):
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            download_status = str((artifact.get("download") or {}).get("status") or "pending")
+            unzip_status = str((artifact.get("unzip") or {}).get("status") or "pending")
+            entry = {
+                "id": artifact.get("id"),
+                "name": artifact.get("name") or "unknown",
+                "family": artifact.get("family") or "unknown",
+                "artifact_dir": artifact.get("artifact_dir") or "",
+                "download_status": download_status,
+                "unzip_status": unzip_status,
+                "download_error": (artifact.get("download") or {}).get("error") or "",
+                "unzip_error": (artifact.get("unzip") or {}).get("error") or "",
+            }
+            if download_status == "failed" or unzip_status == "failed":
+                failed_artifacts.append(entry)
+            elif download_status == "pending" or unzip_status == "pending":
+                pending_artifacts.append(entry)
+    return {
+        "schema": manifest.get("schema") or "unknown",
+        "path": manifest_path.as_posix(),
+        "status": manifest.get("status") or "unknown",
+        "selection": manifest.get("selection") or {},
+        "stats": manifest.get("stats") or {},
+        "failed_artifacts": failed_artifacts,
+        "pending_artifacts": pending_artifacts,
+    }
+
+
+def _read_artifact_download_contract(manifest_path: Path) -> dict[str, Any] | None:
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {
+            "schema": "workflows-weekly-metrics-artifact-download-manifest/v1",
+            "path": manifest_path.as_posix(),
+            "status": "error",
+            "error_message": str(exc),
+            "selection": {},
+            "stats": {},
+            "failed_artifacts": [],
+            "pending_artifacts": [],
+        }
+    if not isinstance(manifest, dict):
+        return {
+            "schema": "workflows-weekly-metrics-artifact-download-manifest/v1",
+            "path": manifest_path.as_posix(),
+            "status": "error",
+            "error_message": "manifest-not-object",
+            "selection": {},
+            "stats": {},
+            "failed_artifacts": [],
+            "pending_artifacts": [],
+        }
+    return _artifact_download_contract(manifest, manifest_path)
+
+
 def build_summary(
     entries: list[dict[str, Any]],
     errors: int,
@@ -764,7 +830,9 @@ def build_summary(
 
 
 def build_summary_contract(
-    entries: list[dict[str, Any]], parse_error_details: list[ParseErrorDetail]
+    entries: list[dict[str, Any]],
+    parse_error_details: list[ParseErrorDetail],
+    artifact_downloads: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     buckets: dict[str, int] = Counter(_classify_entry(entry) for entry in entries)
     timestamps: list[_dt.datetime] = []
@@ -785,6 +853,8 @@ def build_summary_contract(
         "metric_sources": _metric_source_contract(entries),
         "parse_errors": _parse_error_contract(parse_error_details),
     }
+    if artifact_downloads is not None:
+        contract["artifact_downloads"] = artifact_downloads
     if timestamps:
         contract["range"] = {
             "earliest": min(timestamps).isoformat().replace("+00:00", "Z"),
@@ -799,6 +869,10 @@ def main() -> int:
     metrics_dir = os.environ.get("METRICS_DIR", _DEFAULT_METRICS_DIR)
     output_path = Path(os.environ.get("OUTPUT_PATH", _DEFAULT_OUTPUT))
     output_json_path = Path(os.environ.get("OUTPUT_JSON_PATH", _DEFAULT_JSON_OUTPUT))
+    download_manifest_path = Path(
+        os.environ.get("METRICS_ARTIFACT_DOWNLOAD_MANIFEST_JSON", _DEFAULT_DOWNLOAD_MANIFEST_PATH)
+    )
+    artifact_downloads = _read_artifact_download_contract(download_manifest_path)
 
     files = _gather_metrics_files(metrics_paths, metrics_dir)
     if not files:
@@ -806,7 +880,12 @@ def main() -> int:
         output_path.write_text("No metrics files found to aggregate.\n", encoding="utf-8")
         output_json_path.parent.mkdir(parents=True, exist_ok=True)
         output_json_path.write_text(
-            json.dumps(build_summary_contract([], []), indent=2, sort_keys=True) + "\n",
+            json.dumps(
+                build_summary_contract([], [], artifact_downloads),
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
             encoding="utf-8",
         )
         print("No metrics files found to aggregate.", file=sys.stderr)
@@ -814,7 +893,7 @@ def main() -> int:
 
     entries, parse_error_details = _read_ndjson(files)
     summary = build_summary(entries, len(parse_error_details), parse_error_details)
-    summary_contract = build_summary_contract(entries, parse_error_details)
+    summary_contract = build_summary_contract(entries, parse_error_details, artifact_downloads)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(summary, encoding="utf-8")

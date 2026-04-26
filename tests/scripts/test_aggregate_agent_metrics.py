@@ -600,6 +600,87 @@ def test_main_writes_placeholder_when_no_files(
     assert summary_json["parse_errors"]["count"] == 0
 
 
+def test_main_includes_artifact_download_manifest(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    metrics_dir = tmp_path / "artifacts" / "keepalive-metrics" / "42" / "agent-metrics"
+    metrics_dir.mkdir(parents=True)
+    _write_ndjson(
+        metrics_dir / "keepalive.ndjson",
+        [
+            {
+                "metric_type": "keepalive",
+                "timestamp": "2026-04-26T01:00:00Z",
+                "iteration_count": 1,
+            }
+        ],
+    )
+    manifest_path = tmp_path / "download-manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema": "workflows-weekly-metrics-artifact-download-manifest/v1",
+                "status": "warning",
+                "selection": {"selected_count": 2},
+                "stats": {
+                    "selected_count": 2,
+                    "download_pass_count": 1,
+                    "download_failed_count": 1,
+                    "unzip_pass_count": 1,
+                    "unzip_failed_count": 0,
+                    "unzip_skipped_count": 1,
+                },
+                "artifacts": [
+                    {
+                        "id": 42,
+                        "name": "keepalive-metrics",
+                        "family": "keepalive-metrics",
+                        "artifact_dir": "artifacts/keepalive-metrics/42",
+                        "download": {"status": "pass", "bytes": 256, "error": ""},
+                        "unzip": {"status": "pass", "path": "artifacts/keepalive-metrics/42"},
+                    },
+                    {
+                        "id": 43,
+                        "name": "review-thread-terminal-disposition-1",
+                        "family": "review-thread-terminal-disposition",
+                        "artifact_dir": "artifacts/review-thread-terminal-disposition-1/43",
+                        "download": {"status": "failed", "error": "download-command-failed"},
+                        "unzip": {"status": "skipped", "error": "download-failed"},
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    output_json_path = tmp_path / "summary.json"
+
+    monkeypatch.setenv("METRICS_DIR", str(tmp_path / "artifacts"))
+    monkeypatch.setenv("OUTPUT_PATH", str(tmp_path / "summary.md"))
+    monkeypatch.setenv("OUTPUT_JSON_PATH", str(output_json_path))
+    monkeypatch.setenv("METRICS_ARTIFACT_DOWNLOAD_MANIFEST_JSON", str(manifest_path))
+
+    exit_code = aggregate_agent_metrics.main()
+
+    assert exit_code == 0
+    summary_json = json.loads(output_json_path.read_text(encoding="utf-8"))
+    downloads = summary_json["artifact_downloads"]
+    assert downloads["schema"] == "workflows-weekly-metrics-artifact-download-manifest/v1"
+    assert downloads["status"] == "warning"
+    assert downloads["stats"]["download_failed_count"] == 1
+    assert downloads["failed_artifacts"] == [
+        {
+            "id": 43,
+            "name": "review-thread-terminal-disposition-1",
+            "family": "review-thread-terminal-disposition",
+            "artifact_dir": "artifacts/review-thread-terminal-disposition-1/43",
+            "download_status": "failed",
+            "unzip_status": "skipped",
+            "download_error": "download-command-failed",
+            "unzip_error": "download-failed",
+        }
+    ]
+
+
 def test_autopilot_metrics_summarised() -> None:
     """Auto-pilot step/cycle/escalation records appear in the summary."""
     entries = [
