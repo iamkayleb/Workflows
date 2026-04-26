@@ -418,11 +418,12 @@ def _summarise_verifier(entries: list[dict[str, Any]]) -> dict[str, Any]:
             source_id = entry.get("source_id") or "unknown"
             terminal_sources[f"{source_type}:{source_id}"] += 1
         model = entry.get("codex_model") or entry.get("llm_model") or entry.get("model")
-        if model:
-            model_text = str(model)
-            verifier_models[model_text] += 1
-            if model_text.lower() in unsupported_models:
-                unsupported_verifier_models[model_text] += 1
+        model_text = str(model).strip() if model is not None else ""
+        if model_text:
+            normalized_model_text = model_text.lower()
+            verifier_models[normalized_model_text] += 1
+            if normalized_model_text in unsupported_models:
+                unsupported_verifier_models[normalized_model_text] += 1
                 disposition = entry.get("disposition") or entry.get("terminal_state") or "unknown"
                 unsupported_model_dispositions[str(disposition)] += 1
         elif is_verifier_terminal:

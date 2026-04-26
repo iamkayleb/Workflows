@@ -448,20 +448,30 @@ def test_verifier_summary_counts_unsupported_models(
                 "run_id": "24948023778",
                 "pr_number": 1872,
                 "disposition": "verifier-error",
-                "llm_model": "gpt-5.2-codex",
+                "llm_model": "GPT-5.2-Codex",
+            },
+            {
+                "schema": "workflows-terminal-disposition/v1",
+                "artifact_family": "verifier-terminal-disposition",
+                "run_id": "24948023778",
+                "pr_number": 1872,
+                "disposition": "verifier-error",
+                "llm_model": " gpt-5.2-codex ",
             },
             {
                 "schema": "workflows-terminal-disposition/v1",
                 "run_id": "24948023779",
                 "pr_number": 1873,
                 "disposition": "verified-pass",
-                "llm_model": "gpt-5.3-codex",
+                "llm_model": "GPT-5.3-Codex",
             },
         ]
     )
 
-    assert verifier["unsupported_verifier_models"]["gpt-5.2-codex"] == 1
-    assert verifier["unsupported_model_dispositions"]["verifier-error"] == 1
+    assert verifier["verifier_models"]["gpt-5.2-codex"] == 2
+    assert verifier["verifier_models"]["gpt-5.3-codex"] == 1
+    assert verifier["unsupported_verifier_models"]["gpt-5.2-codex"] == 2
+    assert verifier["unsupported_model_dispositions"]["verifier-error"] == 2
 
     summary = aggregate_agent_metrics.build_summary(
         [

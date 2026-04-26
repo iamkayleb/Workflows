@@ -30,10 +30,23 @@ def hash_directory(path: Path) -> str:
     return h.hexdigest()
 
 
+def _manifest_template_sync_sources(manifest: dict) -> list[str]:
+    sources: list[str] = []
+    for entry in manifest.get("scripts", []) or []:
+        source = entry.get("source", "")
+        if source.startswith(".github/scripts/"):
+            sources.append(source)
+            continue
+        if entry.get("template_sync") == "exact":
+            sources.append(source)
+    return sorted(set(sources))
+
+
 def main() -> int:
     repo_root = Path(__file__).parent.parent
+    template_root = repo_root / "templates" / "consumer-repo"
     source_dir = repo_root / ".github" / "scripts"
-    template_dir = repo_root / "templates" / "consumer-repo" / ".github" / "scripts"
+    template_dir = template_root / ".github" / "scripts"
 
     if not source_dir.exists():
         print(f"❌ Source directory not found: {source_dir}")
@@ -49,18 +62,13 @@ def main() -> int:
         return 1
 
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
-    manifest_scripts = []
-    for entry in manifest.get("scripts", []) or []:
-        source = entry.get("source", "")
-        if source.startswith(".github/scripts/"):
-            manifest_scripts.append(source.replace(".github/scripts/", "", 1))
+    manifest_sources = _manifest_template_sync_sources(manifest)
 
     mismatches = []
-    source_files = [source_dir / rel_path for rel_path in manifest_scripts]
-
-    for source_file in source_files:
-        relative_path = source_file.relative_to(source_dir)
-        template_file = template_dir / relative_path
+    for source in manifest_sources:
+        source_file = repo_root / source
+        template_file = template_root / source
+        relative_path = Path(source)
 
         if not source_file.exists():
             mismatches.append(relative_path)
@@ -83,7 +91,7 @@ def main() -> int:
     if mismatches:
         print("❌ Template files out of sync with source files:\n")
         for path in mismatches:
-            template_file = template_dir / path
+            template_file = template_root / path
             if not template_file.exists():
                 print(f"  • {path} (MISSING - needs to be created)")
             else:
