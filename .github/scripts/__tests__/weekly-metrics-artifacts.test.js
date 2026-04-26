@@ -10,6 +10,7 @@ const {
   formatSelectionMarkdown,
   missingPriorityFamilies,
   normalizeSelectionOptions,
+  priorityFamilyStatuses,
   selectMetricsArtifacts,
 } = require('../weekly_metrics_artifacts.js');
 
@@ -101,6 +102,45 @@ test('selects only recent matching artifacts with a machine-readable report', ()
     'verifier-terminal-disposition',
     'bot-comment-auth-coverage-reusable',
   ]);
+  assert.deepEqual(
+    report.priority_family_statuses.map((family) => ({
+      family: family.family,
+      status: family.status,
+      candidate_count: family.candidate_count,
+      selected_count: family.selected_count,
+      selected_name: family.selected_artifact?.name || '',
+    })),
+    [
+      {
+        family: 'verifier-terminal-disposition',
+        status: 'missing',
+        candidate_count: 0,
+        selected_count: 0,
+        selected_name: '',
+      },
+      {
+        family: 'review-thread-terminal-disposition',
+        status: 'selected',
+        candidate_count: 1,
+        selected_count: 1,
+        selected_name: 'review-thread-terminal-disposition-77',
+      },
+      {
+        family: 'bot-comment-auth-coverage-wrapper',
+        status: 'selected',
+        candidate_count: 2,
+        selected_count: 2,
+        selected_name: 'bot-comment-auth-coverage-wrapper-77-2',
+      },
+      {
+        family: 'bot-comment-auth-coverage-reusable',
+        status: 'missing',
+        candidate_count: 0,
+        selected_count: 0,
+        selected_name: '',
+      },
+    ]
+  );
   assert.deepEqual(report.selected_family_counts, {
     'autopilot-metrics': 1,
     'bot-comment-auth-coverage-wrapper': 2,
@@ -130,6 +170,7 @@ test('builds an error report when artifact selection cannot query GitHub', () =>
     'bot-comment-auth-coverage-wrapper',
     'bot-comment-auth-coverage-reusable',
   ]);
+  assert.ok(report.priority_family_statuses.every((family) => family.status === 'missing'));
   assert.deepEqual(report.selected_artifacts, []);
   assert.match(markdown, /Status: error/);
   assert.match(markdown, /API rate limit exceeded/);
@@ -209,6 +250,39 @@ test('reports priority telemetry families that are absent from the scan', () => 
   ]);
 });
 
+test('builds priority family statuses for available but unselected artifacts', () => {
+  const candidates = [
+    artifact(1, 'bot-comment-auth-coverage-wrapper-1', '2026-04-25T11:00:00Z'),
+    artifact(2, 'bot-comment-auth-coverage-reusable-1', '2026-04-25T10:00:00Z'),
+  ].map((raw) => ({
+    id: raw.id,
+    name: raw.name,
+    family: raw.name.includes('reusable')
+      ? 'bot-comment-auth-coverage-reusable'
+      : 'bot-comment-auth-coverage-wrapper',
+    created_at: raw.created_at,
+    updated_at: raw.updated_at,
+  }));
+  const statuses = priorityFamilyStatuses({
+    candidates,
+    selected: [candidates[0]],
+    candidateFamilyCounts: new Map([
+      ['bot-comment-auth-coverage-wrapper', 1],
+      ['bot-comment-auth-coverage-reusable', 1],
+    ]),
+    selectedFamilyCounts: new Map([['bot-comment-auth-coverage-wrapper', 1]]),
+  });
+
+  const reusable = statuses.find(
+    (family) => family.family === 'bot-comment-auth-coverage-reusable'
+  );
+  assert.equal(reusable.status, 'available');
+  assert.equal(reusable.candidate_count, 1);
+  assert.equal(reusable.selected_count, 0);
+  assert.equal(reusable.latest_candidate.name, 'bot-comment-auth-coverage-reusable-1');
+  assert.equal(reusable.selected_artifact, null);
+});
+
 test('formats selected artifacts for the workflow download loop', () => {
   const tsv = formatArtifactTsv([
     { id: 42, name: 'keepalive-metrics' },
@@ -237,6 +311,7 @@ test('formats a human-visible selector summary for weekly metrics', () => {
     /Missing priority families: verifier-terminal-disposition, review-thread-terminal-disposition, bot-comment-auth-coverage-wrapper, bot-comment-auth-coverage-reusable/
   );
   assert.match(markdown, /Artifact family \| Candidates \| Selected/);
+  assert.match(markdown, /Priority family \| Status \| Candidates \| Selected artifact/);
   assert.match(markdown, /autopilot-metrics/);
   assert.match(markdown, /keepalive-metrics/);
 });

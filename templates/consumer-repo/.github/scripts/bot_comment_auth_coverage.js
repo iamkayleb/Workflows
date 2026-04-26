@@ -227,6 +227,9 @@ function summarizeOrganicEvidence(records = [], options = {}) {
     const blockers = organicChecksDisabled
       ? []
       : missingOrganicEvidenceBlockers(components, requiredEvents);
+    const missingRequirements = organicChecksDisabled
+      ? []
+      : missingOrganicEvidenceRequirements(components, requiredEvents);
     return {
       schema: 'workflows-bot-comment-auth-organic-evidence/v1',
       required_events: requiredEvents,
@@ -234,6 +237,7 @@ function summarizeOrganicEvidence(records = [], options = {}) {
       expected_mode: expectedMode === 'unknown' ? '' : expectedMode,
       event_counts: eventCounts,
       skipped_requirements: [],
+      missing_requirements: missingRequirements,
       blockers,
       status: organicChecksDisabled ? 'pass' : 'no-data',
     };
@@ -253,6 +257,7 @@ function summarizeOrganicEvidence(records = [], options = {}) {
 
   const blockers = [];
   const skippedRequirements = [];
+  const missingRequirements = [];
   for (const component of components) {
     for (const eventName of requiredEvents) {
       const latest = latestByComponentEvent[`${component}:${eventName}`];
@@ -272,7 +277,14 @@ function summarizeOrganicEvidence(records = [], options = {}) {
         continue;
       }
       if (!latest) {
-        blockers.push(`missing-organic-${component}-${eventName}`);
+        const blocker = `missing-organic-${component}-${eventName}`;
+        blockers.push(blocker);
+        missingRequirements.push(missingOrganicEvidenceRequirement({
+          component,
+          eventName,
+          blocker,
+          latestWrapper,
+        }));
         continue;
       }
       if (latest.fallback_warning_active) {
@@ -294,6 +306,7 @@ function summarizeOrganicEvidence(records = [], options = {}) {
     expected_mode: expectedMode === 'unknown' ? '' : expectedMode,
     event_counts: eventCounts,
     skipped_requirements: skippedRequirements,
+    missing_requirements: missingRequirements,
     blockers,
     status: blockers.length > 0 ? 'warning' : 'pass',
   };
@@ -303,6 +316,38 @@ function missingOrganicEvidenceBlockers(components = [], requiredEvents = []) {
   return components.flatMap((component) =>
     requiredEvents.map((eventName) => `missing-organic-${component}-${eventName}`)
   );
+}
+
+function missingOrganicEvidenceRequirements(components = [], requiredEvents = []) {
+  return components.flatMap((component) =>
+    requiredEvents.map((eventName) => missingOrganicEvidenceRequirement({
+      component,
+      eventName,
+      blocker: `missing-organic-${component}-${eventName}`,
+      latestWrapper: null,
+    }))
+  );
+}
+
+function missingOrganicEvidenceRequirement({
+  component,
+  eventName,
+  blocker,
+  latestWrapper,
+}) {
+  return {
+    component,
+    event_name: eventName,
+    blocker,
+    latest_wrapper_run_id: latestWrapper?.run_id || '',
+    latest_wrapper_reusable_invocation_expected:
+      latestWrapper?.reusable_invocation_expected ?? null,
+    latest_wrapper_reusable_invocation_reason:
+      latestWrapper?.reusable_invocation_reason || '',
+    latest_wrapper_has_reusable_decision:
+      latestWrapper?.reusable_invocation_expected !== null &&
+      latestWrapper?.reusable_invocation_expected !== undefined,
+  };
 }
 
 function componentPolicy(component, options = {}) {
@@ -588,6 +633,14 @@ function formatBotCommentAuthCoverageMarkdown(report) {
     if (skipped.length > 0) {
       lines.push(
         `- Skipped organic requirements: ${skipped
+          .map((item) => `${item.component}/${item.event_name}`)
+          .join(', ')}`
+      );
+    }
+    const missing = report.organic_evidence.missing_requirements || [];
+    if (missing.length > 0) {
+      lines.push(
+        `- Missing organic requirements: ${missing
           .map((item) => `${item.component}/${item.event_name}`)
           .join(', ')}`
       );
