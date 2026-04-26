@@ -172,6 +172,7 @@ def _read_ndjson(files: Iterable[Path]) -> tuple[list[dict[str, Any]], list[Pars
     entries: list[dict[str, Any]] = []
     errors: list[ParseErrorDetail] = []
     for path in files:
+        source = _metric_source(path)
         try:
             handle = path.open("r", encoding="utf-8")
         except OSError:
@@ -179,25 +180,33 @@ def _read_ndjson(files: Iterable[Path]) -> tuple[list[dict[str, Any]], list[Pars
             continue
         file_entries: list[dict[str, Any]] = []
         file_errors: list[ParseErrorDetail] = []
-        raw_lines: list[str] = []
+        raw_lines_for_fallback: list[str] = []
         with handle:
             for line_number, line in enumerate(handle, start=1):
                 raw = line.strip()
                 if not raw:
                     continue
-                raw_lines.append(raw)
+                if not file_entries:
+                    raw_lines_for_fallback.append(raw)
                 try:
                     parsed = json.loads(raw)
                 except json.JSONDecodeError:
                     file_errors.append(_parse_error_detail(path, line_number, "invalid-json"))
                     continue
                 if isinstance(parsed, dict):
-                    file_entries.append(_attach_metric_source(parsed, path))
+                    enriched = dict(parsed)
+                    enriched.setdefault("artifact_name", source.artifact)
+                    enriched.setdefault("artifact_family", source.artifact_family)
+                    enriched.setdefault("metric_artifact", source.artifact)
+                    enriched.setdefault("metric_artifact_family", source.artifact_family)
+                    enriched.setdefault("metric_path", source.path)
+                    file_entries.append(enriched)
+                    raw_lines_for_fallback = []
                 else:
                     file_errors.append(_parse_error_detail(path, line_number, "non-object-json"))
-        if file_errors and not file_entries and raw_lines:
+        if file_errors and not file_entries and raw_lines_for_fallback:
             try:
-                parsed_file = json.loads("\n".join(raw_lines))
+                parsed_file = json.loads("\n".join(raw_lines_for_fallback))
             except json.JSONDecodeError:
                 pass
             else:
@@ -563,6 +572,12 @@ def _format_counter(counter: Counter[str]) -> str:
     return ", ".join(parts)
 
 
+def _markdown_table_cell(value: Any) -> str:
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n")
+    text = " ".join(part.strip() for part in text.split("\n"))
+    return text.replace("|", "\\|")
+
+
 def _format_rate(numerator: int, denominator: int) -> str:
     if denominator <= 0:
         return "n/a"
@@ -588,8 +603,11 @@ def _format_parse_error_details(parse_error_details: list[ParseErrorDetail]) -> 
         line = str(detail.line) if detail.line is not None else "n/a"
         lines.append(
             "| "
-            f"{detail.artifact_family} | {detail.artifact} | {detail.path} | {line} | "
-            f"{detail.reason} |"
+            f"{_markdown_table_cell(detail.artifact_family)} | "
+            f"{_markdown_table_cell(detail.artifact)} | "
+            f"{_markdown_table_cell(detail.path)} | "
+            f"{_markdown_table_cell(line)} | "
+            f"{_markdown_table_cell(detail.reason)} |"
         )
     remaining = len(parse_error_details) - _MAX_PARSE_ERROR_ROWS
     if remaining > 0:
@@ -602,12 +620,16 @@ def _parse_error_contract(parse_error_details: list[ParseErrorDetail]) -> dict[s
     family_counts = Counter(detail.artifact_family for detail in parse_error_details)
     artifact_counts = Counter(detail.artifact for detail in parse_error_details)
     reason_counts = Counter(detail.reason for detail in parse_error_details)
+    details = [detail.as_dict() for detail in parse_error_details[:_MAX_PARSE_ERROR_ROWS]]
+    omitted_count = max(0, len(parse_error_details) - len(details))
     return {
         "count": len(parse_error_details),
         "by_artifact_family": dict(sorted(family_counts.items())),
         "by_artifact": dict(sorted(artifact_counts.items())),
         "by_reason": dict(sorted(reason_counts.items())),
-        "details": [detail.as_dict() for detail in parse_error_details],
+        "details": details,
+        "details_truncated": omitted_count > 0,
+        "omitted_count": omitted_count,
     }
 
 

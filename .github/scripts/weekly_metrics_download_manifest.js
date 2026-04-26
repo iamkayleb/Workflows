@@ -87,8 +87,10 @@ function buildInitialManifest(selection = {}, options = {}) {
 function findArtifact(manifest, id, name) {
   const cleanId = cleanString(id);
   const cleanName = cleanString(name);
+  if (cleanId) {
+    return (manifest.artifacts || []).find((artifact) => cleanString(artifact.id) === cleanId);
+  }
   return (manifest.artifacts || []).find((artifact) => {
-    if (cleanId && cleanString(artifact.id) === cleanId) return true;
     return cleanName && cleanString(artifact.name) === cleanName;
   });
 }

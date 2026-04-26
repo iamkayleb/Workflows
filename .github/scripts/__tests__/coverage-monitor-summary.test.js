@@ -214,6 +214,21 @@ test('reports missing and parse-error inputs as repairable monitor warnings', ()
   assert.equal(summary.monitors[1].status, 'parse-error');
 });
 
+test('treats unknown monitor status as a warning', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-monitor-'));
+  const terminal = writeJson(dir, 'terminal.json', report('mystery'));
+  const botAuth = writeJson(dir, 'bot-auth.json', report('pass'));
+
+  const summary = buildCoverageMonitorSummary({
+    terminal_report: terminal,
+    bot_auth_report: botAuth,
+  });
+
+  assert.equal(summary.status, 'warning');
+  assert.equal(summary.monitors[0].status, 'unknown');
+  assert.equal(summary.next_action, 'inspect-monitor-warnings');
+});
+
 test('parses CLI paths and writes summary artifacts without failing warning states', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-monitor-cli-'));
   const terminal = writeJson(dir, 'terminal.json', report('warning'));

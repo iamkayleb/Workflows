@@ -219,6 +219,29 @@ def test_read_ndjson_counts_parse_errors(tmp_path: Path) -> None:
     assert errors[0].line == 2
 
 
+def test_read_ndjson_does_not_buffer_valid_ndjson_for_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "metrics.ndjson"
+    path.write_text('{"key": "value"}\n{"other": true}\n', encoding="utf-8")
+
+    calls = 0
+    original_loads = aggregate_agent_metrics.json.loads
+
+    def counting_loads(raw: str) -> object:
+        nonlocal calls
+        calls += 1
+        return original_loads(raw)
+
+    monkeypatch.setattr(aggregate_agent_metrics.json, "loads", counting_loads)
+
+    entries, errors = aggregate_agent_metrics._read_ndjson([path])
+
+    assert len(entries) == 2
+    assert errors == []
+    assert calls == 2
+
+
 def test_read_ndjson_streams_file_lines(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     path = tmp_path / "metrics.ndjson"
     path.write_text('{"key": "value"}\n', encoding="utf-8")
@@ -278,6 +301,47 @@ def test_read_ndjson_attributes_parse_errors_to_artifact_family(tmp_path: Path) 
         "review-thread-terminal-disposition": 1
     }
     assert contract["parse_errors"]["details"][0]["reason"] == "invalid-json"
+    assert contract["parse_errors"]["details_truncated"] is False
+    assert contract["parse_errors"]["omitted_count"] == 0
+
+
+def test_parse_error_details_escape_markdown_table_cells() -> None:
+    details = [
+        aggregate_agent_metrics.ParseErrorDetail(
+            path="artifact|path\nmetrics.ndjson",
+            artifact="artifact|name",
+            artifact_family="family\nname",
+            line=1,
+            reason="invalid|json\npayload",
+        )
+    ]
+
+    lines = aggregate_agent_metrics._format_parse_error_details(details)
+
+    assert (
+        "| family name | artifact\\|name | artifact\\|path metrics.ndjson | 1 | invalid\\|json payload |"
+        in lines
+    )
+
+
+def test_parse_error_contract_truncates_details() -> None:
+    details = [
+        aggregate_agent_metrics.ParseErrorDetail(
+            path=f"metrics-{index}.ndjson",
+            artifact="artifact",
+            artifact_family="artifact",
+            line=index,
+            reason="invalid-json",
+        )
+        for index in range(aggregate_agent_metrics._MAX_PARSE_ERROR_ROWS + 2)
+    ]
+
+    contract = aggregate_agent_metrics._parse_error_contract(details)
+
+    assert contract["count"] == aggregate_agent_metrics._MAX_PARSE_ERROR_ROWS + 2
+    assert len(contract["details"]) == aggregate_agent_metrics._MAX_PARSE_ERROR_ROWS
+    assert contract["details_truncated"] is True
+    assert contract["omitted_count"] == 2
 
 
 def test_read_ndjson_preserves_artifact_name_with_id_extraction_dir(tmp_path: Path) -> None:

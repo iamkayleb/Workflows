@@ -118,6 +118,28 @@ def test_reusable_bot_comment_handler_prefers_app_client_id() -> None:
     )
 
 
+def test_bot_comment_handler_preserves_pr_number_on_known_pr_skips() -> None:
+    for workflow_path in (
+        ROOT / ".github/workflows/agents-bot-comment-handler.yml",
+        ROOT / "templates/consumer-repo/.github/workflows/agents-bot-comment-handler.yml",
+    ):
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        for skip_reason in (
+            "pr-fetch-failed",
+            "missing-agent-label",
+            "auto-pilot-managed",
+        ):
+            skip_index = workflow_text.index(f"core.setOutput('skip_reason', '{skip_reason}')")
+            pr_output_index = workflow_text.rfind(
+                "core.setOutput('pr_number', prNumber || '');",
+                0,
+                skip_index,
+            )
+            assert (
+                pr_output_index != -1
+            ), f"{workflow_path} must preserve pr_number for {skip_reason}"
+
+
 def test_reusable_bot_comment_handler_uploads_auth_coverage_artifact() -> None:
     workflow = _load_yaml(ROOT / ".github/workflows/reusable-bot-comment-handler.yml")
     collect_steps = workflow["jobs"]["collect"]["steps"]

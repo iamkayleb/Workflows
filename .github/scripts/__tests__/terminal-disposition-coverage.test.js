@@ -323,7 +323,7 @@ test('warns when Codex verifier terminal records omit model metadata', () => {
   assert.doesNotMatch(markdown, /\| pull-request:1873 \| verified-pass \| evaluate/);
 });
 
-test('does not require verifier model metadata when verifier mode is unknown', () => {
+test('warns when verifier terminal model metadata is missing with unknown mode', () => {
   const report = summarizeTerminalDispositionCoverage([
     {
       schema: 'workflows-terminal-disposition/v1',
@@ -337,10 +337,11 @@ test('does not require verifier model metadata when verifier mode is unknown', (
     },
   ]);
 
-  assert.equal(report.status, 'pass');
-  assert.equal(report.verifier_model_compatibility.status, 'pass');
-  assert.equal(report.verifier_model_compatibility.missing_model_record_count, 0);
-  assert.deepEqual(report.enforcement.blockers, []);
+  assert.equal(report.status, 'warning');
+  assert.equal(report.verifier_model_compatibility.status, 'warning');
+  assert.equal(report.verifier_model_compatibility.missing_model_record_count, 1);
+  assert.equal(report.verifier_model_compatibility.missing_model_records[0].verifier_mode, 'unknown');
+  assert.deepEqual(report.enforcement.blockers, ['unsupported-verifier-model']);
 });
 
 test('suppresses pre-contract verifier terminal records missing model metadata', () => {
