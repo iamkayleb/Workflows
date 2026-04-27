@@ -42,10 +42,10 @@ Tests updated:
 
 ## Claude availability (current reality)
 
-- ✅ Claude *API* integration is already present (workflows pass `CLAUDE_API_STRANSKE` and install `langchain-anthropic`).
+- ✅ Claude *API* integration is already present (workflows pass `CLAUDE_API_KEY` and install `langchain-anthropic`).
 - ✅ `reusable-claude-run.yml` now exists and is called from keepalive-loop and autofix-loop.
 - ✅ Phase 5A added `run-claude` jobs to keepalive-loop and autofix-loop templates.
-- ⚠️ `run-claude` jobs require a configured `CLAUDE_AUTH_JSON` runner secret; this is **distinct** from `CLAUDE_API_STRANSKE` (used for LLM analysis in other workflows) and is required for end-to-end `agent:claude` runs.
+- ⚠️ `run-claude` jobs require a configured `CLAUDE_AUTH_JSON` runner secret; this is **distinct** from `CLAUDE_API_KEY` (used for LLM analysis in other workflows) and is required for end-to-end `agent:claude` runs.
 
 ## Why
 
@@ -591,7 +591,7 @@ these test files must also be updated:
 - Must be gated by explicit labels (`agent:claude` or `agent:auto` policy selection).
 
 **Acceptance criteria**
-- `agent:claude` can run at least one PR automation mode (start with keepalive) end-to-end in the Workflows repo when `CLAUDE_API_STRANSKE` is available.
+- `agent:claude` can run at least one PR automation mode (start with keepalive) end-to-end in the Workflows repo when `CLAUDE_API_KEY` is available.
 
 > **Audit status (Feb 18):**
 > - ✅ `reusable-claude-run.yml` exists and is referenced from keepalive-loop, autofix-loop, and gate-followups

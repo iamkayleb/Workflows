@@ -406,7 +406,7 @@ jobs:
           APPLY_LANGCHAIN: ${{ needs.normalize_inputs.outputs.apply_langchain_formatting }}
           GITHUB_TOKEN: ${{ github.token }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
         run: |
           set -euo pipefail
           echo '--- INPUT PREVIEW (first 200 chars) ---'

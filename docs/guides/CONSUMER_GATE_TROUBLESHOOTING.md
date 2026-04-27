@@ -1599,7 +1599,7 @@ The verifier system (`verify:checkbox`, `verify:evaluate`, `verify:compare`) run
 
 **Symptom:** Adding `verify:evaluate` label produces a CONCERNS verdict with zero confidence. The evaluation summary says "LLM evaluation could not run" or "LLM invocation failed".
 
-**Root Cause (Primary):** The LLM provider fallback chain was misconfigured. When no `OPENAI_API_KEY` or `CLAUDE_API_STRANSKE` secrets are set, the auto-select logic falls through to GitHub Models (slot 3). But the GitHub Models slot was configured to use `codex-mini-latest` — a model that does NOT exist on the GitHub Models inference API (`https://models.inference.ai.azure.com`). The API returned "Unknown model" which is not an auth error, so the fallback to other providers was never triggered.
+**Root Cause (Primary):** The LLM provider fallback chain was misconfigured. When no `OPENAI_API_KEY` or `CLAUDE_API_KEY` secrets are set, the auto-select logic falls through to GitHub Models (slot 3). But the GitHub Models slot was configured to use `codex-mini-latest` — a model that does NOT exist on the GitHub Models inference API (`https://models.inference.ai.azure.com`). The API returned "Unknown model" which is not an auth error, so the fallback to other providers was never triggered.
 
 **Root Cause (Secondary):** The `config/` directory was not included in the verifier workflow's sparse-checkout, so `llm_slots.json` was never loaded. The fallback `_default_slots()` function also used `DEFAULT_MODEL` (`codex-mini-latest`) for GitHub Models.
 
@@ -1637,7 +1637,7 @@ The verifier system (`verify:checkbox`, `verify:evaluate`, `verify:compare`) run
 ```
 verify:evaluate auto-select order:
   Slot 1: OpenAI (gpt-5.2)      — requires OPENAI_API_KEY
-  Slot 2: Anthropic (claude-sonnet-4-5) — requires CLAUDE_API_STRANSKE
+  Slot 2: Anthropic (claude-sonnet-4-5) — requires CLAUDE_API_KEY
   Slot 3: GitHub Models (gpt-4.1)      — requires GITHUB_TOKEN + models:read
 
 If the selected provider fails with an auth error:

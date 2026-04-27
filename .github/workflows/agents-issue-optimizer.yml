@@ -241,7 +241,7 @@ jobs:
           ISSUE_NUMBER: ${{ steps.check.outputs.issue_number }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           LANGCHAIN_PROVIDER: anthropic
           LANGCHAIN_MODEL: claude-sonnet-4-5-20250929
           PYTHONPATH: ${{ github.workspace }}
@@ -320,7 +320,7 @@ jobs:
           ISSUE_NUMBER: ${{ steps.check.outputs.issue_number }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
           echo "Checking for potential duplicate issues (advisory)"
@@ -438,7 +438,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           LANGCHAIN_PROVIDER: anthropic
           LANGCHAIN_MODEL: claude-sonnet-4-5-20250929
           PYTHONPATH: ${{ github.workspace }}
@@ -549,7 +549,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           PYTHONPATH: ${{ github.workspace }}
         run: |
           echo "Formatting issue #${ISSUE_NUMBER} into AGENT_ISSUE_TEMPLATE structure"
