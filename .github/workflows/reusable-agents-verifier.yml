@@ -51,7 +51,7 @@ on:
       OPENAI_API_KEY:
         required: false
         description: 'OpenAI API key for evaluate/compare modes'
-      CLAUDE_API_STRANSKE:
+      CLAUDE_API_KEY:
         required: false
         description: 'Anthropic API key for evaluate/compare modes (enables Claude slot)'
       LANGSMITH_API_KEY:
@@ -595,7 +595,7 @@ jobs:
           }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           PROVIDER: ${{ inputs.provider }}
           MODE: ${{ inputs.mode }}
         run: |
@@ -615,9 +615,9 @@ jobs:
               echo "Skipping verifier LLM step that requires OpenAI."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "available=false" >> "$GITHUB_OUTPUT"
-          elif [ "${requires_claude}" = "true" ] && [ -z "${CLAUDE_API_STRANSKE:-}" ]; then
+          elif [ "${requires_claude}" = "true" ] && [ -z "${CLAUDE_API_KEY:-}" ]; then
             {
-              echo "CLAUDE_API_STRANSKE is not set."
+              echo "CLAUDE_API_KEY is not set."
               echo "Skipping verifier LLM step that requires Claude."
             } >> "$GITHUB_STEP_SUMMARY"
             echo "available=false" >> "$GITHUB_OUTPUT"
@@ -631,9 +631,9 @@ jobs:
               echo "Compare will fall back to Claude/GitHub Models."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
-          if [ "${MODE}" = "compare" ] && [ -z "${CLAUDE_API_STRANSKE:-}" ]; then
+          if [ "${MODE}" = "compare" ] && [ -z "${CLAUDE_API_KEY:-}" ]; then
             {
-              echo "CLAUDE_API_STRANSKE is not set."
+              echo "CLAUDE_API_KEY is not set."
               echo "Compare will fall back to OpenAI/GitHub Models."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -650,7 +650,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           PYTHONPATH: .workflows-lib
           CHAIN_DEPTH: ${{ steps.context.outputs.chain_depth || '0' }}
@@ -866,7 +866,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
+          CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           PYTHONPATH: .workflows-lib
           CHAIN_DEPTH: ${{ steps.context.outputs.chain_depth || '0' }}

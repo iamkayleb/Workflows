@@ -136,6 +136,23 @@ test('resolveAgentRoutingFromLabels rejects multiple explicit agent labels (obje
   );
 });
 
+test('resolveAgentRoutingFromLabels ignores non-routing agent:* status labels', () => {
+  const routing = resolveAgentRoutingFromLabels(
+    ['agent:claude', 'agent:needs-attention', 'agent:rate-limited', 'agent:retry'],
+    { registryPath: REGISTRY_PATH },
+  );
+  assert.equal(routing.mode, 'explicit');
+  assert.equal(routing.agentKey, 'claude');
+});
+
+test('resolveAgentRoutingFromLabels defaults when only status labels present', () => {
+  const routing = resolveAgentRoutingFromLabels(
+    ['agent:needs-attention'],
+    { registryPath: REGISTRY_PATH },
+  );
+  assert.equal(routing.mode, 'default');
+});
+
 test('getAgentConfig returns config for codex', () => {
   const config = getAgentConfig('codex', { registryPath: REGISTRY_PATH });
   assert.equal(config.branch_prefix, 'codex/issue-');

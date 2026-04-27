@@ -257,7 +257,7 @@ Navigate to: **Settings** → **Secrets and variables** → **Actions** → **Se
 | `KEEPALIVE_APP_ID` | Keepalive App ID (preferred for keepalive loop auth) | Contact admin for App ID |
 | `KEEPALIVE_APP_PRIVATE_KEY` | Keepalive App private key | Contact admin for private key |
 | `OPENAI_API_KEY` | OpenAI API key for verify/optimizer/decompose flows | Contact admin for token |
-| `CLAUDE_API_STRANSKE` | Claude API key for verify/optimizer/decompose flows | Contact admin for token |
+| `CLAUDE_API_KEY` | Claude API key for verify/optimizer/decompose flows | Contact admin for token |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude Code OAuth token (preferred for Claude CLI runs) | `claude setup-token` |
 | `CLAUDE_AUTH_JSON` | Claude auth JSON fallback when OAuth token is unavailable | Export from existing Claude auth file |
 
@@ -272,7 +272,7 @@ Add each secret:
 - [ ] `KEEPALIVE_APP_ID` — **Required for keepalive parity** - Explicit keepalive app alias
 - [ ] `KEEPALIVE_APP_PRIVATE_KEY` — **Required for keepalive parity** - Explicit keepalive app key
 - [ ] `OPENAI_API_KEY` — Required for verify/decompose/optimizer workflows
-- [ ] `CLAUDE_API_STRANSKE` — Required for verify/decompose/optimizer workflows
+- [ ] `CLAUDE_API_KEY` — Required for verify/decompose/optimizer workflows
 - [ ] `CLAUDE_CODE_OAUTH_TOKEN` (or `CLAUDE_AUTH_JSON`) — Required for Claude CLI workflow runs
 
 ### 3.2.1 Bulk PAT Sync (No Organization Required)

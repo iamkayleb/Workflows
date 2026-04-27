@@ -338,7 +338,7 @@ These are models specifically optimized for OpenAI's Codex coding agent product.
 **Cons**:
 - Released days ago — no production track record
 - Opus-tier pricing (most expensive Anthropic tier)
-- Requires `CLAUDE_API_STRANSKE` API key
+- Requires `CLAUDE_API_KEY` API key
 - Not available via GitHub Models
 - Overkill for task completion detection
 
@@ -368,7 +368,7 @@ These are models specifically optimized for OpenAI's Codex coding agent product.
 - 4+ months of production maturity
 
 **Cons**:
-- Requires `CLAUDE_API_STRANSKE` API key
+- Requires `CLAUDE_API_KEY` API key
 - Not available via GitHub Models
 - Additional infrastructure dependency
 
@@ -448,14 +448,14 @@ Valid Anthropic model IDs use the format `claude-{tier}-{major}-{minor}` (e.g.,
 **Documented Intent** (`llm_provider.py` docstring):
 ```
 1. OpenAI API (primary) — uses OPENAI_API_KEY
-2. Anthropic API (secondary) — uses CLAUDE_API_STRANSKE
+2. Anthropic API (secondary) — uses CLAUDE_API_KEY
 3. GitHub Models API (fallback) — uses GITHUB_TOKEN
 4. Regex patterns (last resort) — no API calls
 ```
 
 **Actual Reality** in CI/CD:
 - ❌ `OPENAI_API_KEY` not set → OpenAI skipped
-- ❌ `CLAUDE_API_STRANSKE` not set → Anthropic skipped (and model ID is wrong anyway)
+- ❌ `CLAUDE_API_KEY` not set → Anthropic skipped (and model ID is wrong anyway)
 - ✅ `GITHUB_TOKEN` always available → **GitHub Models is always the one used**
 - ✅ Regex always available → Ultimate fallback
 

@@ -60,7 +60,7 @@ Provided installation instructions and explained prerequisites (Node.js and npm 
 - `KEEPALIVE_APP_ID`
 - `KEEPALIVE_APP_PRIVATE_KEY`
 - `OPENAI_API_KEY`
-- `CLAUDE_API_STRANSKE`
+- `CLAUDE_API_KEY`
 - `CLAUDE_CODE_OAUTH_TOKEN`
 - `CLAUDE_AH_JSON`
 
@@ -84,7 +84,7 @@ Provided installation instructions and explained prerequisites (Node.js and npm 
 - **`CODEX_AUTH_JSON`**: From `~/.codex/auth.json` after authentication
 - **`OPENAI_API_KEY`**: From platform.openai.com/api-keys (pay-as-you-go)
 - **`CLAUDE_CODE_OAUTH_TOKEN`**: From `claude setup-token` (preferred)
-- **`CLAUDE_API_STRANSKE`**: From console.anthropic.com/settings/keys
+- **`CLAUDE_API_KEY`**: From console.anthropic.com/settings/keys
 - **`CLAUDE_AH_JSON`**: Fallback auth (only needed if no OAuth token)
 
 **Key Insight:** Only 6 unique credentials needed due to reuse opportunities.
@@ -637,7 +637,7 @@ sys.exit(0)
 - ✅ GitHub Apps: `WORKFLOWS_APP_ID/PRIVATE_KEY`, `KEEPALIVE_APP_ID/PRIVATE_KEY`
 - ✅ Codex: `CODEX_AUTH_JSON`
 - ✅ OpenAI: `OPENAI_API_KEY`
-- ✅ Claude: `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_API_STRANSKE`
+- ✅ Claude: `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_API_KEY`
 - ⚠️ Optional: `CLAUDE_AH_JSON` (skipped - using OAuth token instead)
 
 #### Workflow Files (8 core workflows):
