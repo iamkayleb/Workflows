@@ -115,7 +115,7 @@ function hasExplicitIssueReferencePrefix(value) {
     return false;
   }
 
-  return /\b(?:close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|relate[sd]?\s+to|refs?|references?|issue|source\s+issue|github\s+issue)\s*[:#-]?\s*$/i.test(
+  return /\b(?:close[sd]?|closing|fix(?:e[sd])?|fixing|resolve[sd]?|resolving|address(?:e[sd])?|addressing|relate[sd]?\s+to|refs?|references?|issue|source\s+issue|github\s+issue)\s*[:#-]?\s*$/i.test(
     prefix
   );
 }
@@ -213,6 +213,7 @@ function sourceTypeFromCheckedTemplate(body) {
     sectionLines.push(line);
   }
   const text = sectionLines.join('\n');
+  const checkedTypes = new Set();
   for (const line of text.split(/\r?\n/)) {
     const checkbox = line.match(/^\s*[-*]\s+\[[xX]\]\s+(.+?)\s*$/);
     if (!checkbox) {
@@ -221,11 +222,12 @@ function sourceTypeFromCheckedTemplate(body) {
     const label = checkbox[1];
     for (const [sourceType, pattern] of CHECKBOX_SOURCE_PATTERNS) {
       if (pattern.test(label)) {
-        return sourceType;
+        checkedTypes.add(sourceType);
+        break;
       }
     }
   }
-  return SOURCE_TYPES.UNKNOWN;
+  return checkedTypes.size === 1 ? Array.from(checkedTypes)[0] : SOURCE_TYPES.UNKNOWN;
 }
 
 function sourceTypeFromLabels(pull = {}) {
