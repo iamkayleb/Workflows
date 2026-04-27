@@ -119,6 +119,11 @@ test('extractIssueNumberFromPull requires explicit issue wording for body refere
   assert.equal(extractIssueNumberFromPull({ body: 'See PR #456 for context' }), null);
   assert.equal(extractIssueNumberFromPull({ body: 'Related to issue #456' }), 456);
   assert.equal(extractIssueNumberFromPull({ body: 'Closes #789' }), 789);
+  assert.equal(extractIssueNumberFromPull({ body: 'Issue #123' }), 123);
+  assert.equal(extractIssueNumberFromPull({ body: 'Resolve issue #123' }), 123);
+  assert.equal(extractIssueNumberFromPull({ body: '> **Source:** Issue #123' }), 123);
+  assert.equal(extractIssueNumberFromPull({ body: 'Known issue #123 blocks this PR' }), null);
+  assert.equal(extractIssueNumberFromPull({ body: 'No issue #123 is linked' }), null);
 });
 
 test('resolvePrSourceContext does not classify bare and PR-only mentions as issue-sourced', () => {
