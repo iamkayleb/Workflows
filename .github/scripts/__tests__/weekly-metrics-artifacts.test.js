@@ -94,18 +94,22 @@ test('default priority workflow sources use actual artifact producers present in
   ]);
 });
 
-test('default priority workflow sources drop producer workflows missing from a consumer checkout', () => {
+test('default priority workflow sources do not depend on sparse-checkout workflow files', () => {
   const sources = defaultPriorityWorkflowArtifactSources({
     candidates: PRIORITY_WORKFLOW_ARTIFACT_SOURCE_CANDIDATES,
-    workflowsDir: 'templates/consumer-repo/.github/workflows',
+    workflowsDir: 'path/not-present-in-sparse-checkout',
   });
 
   assert.deepEqual(
     sources.map((source) => source.workflow_id),
     [
+      'health-76-codex-cli-freshness.yml',
+      'reusable-agents-verifier.yml',
       'agents-verify-to-new-pr.yml',
       'agents-verify-to-issue-v2.yml',
       'agents-bot-comment-handler.yml',
+      'reusable-bot-comment-handler.yml',
+      'pr-11-ci-smoke.yml',
     ]
   );
 });

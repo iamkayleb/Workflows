@@ -77,16 +77,10 @@ const PRIORITY_WORKFLOW_ARTIFACT_SOURCE_CANDIDATES = [
   },
 ];
 
-function workflowSourceExists(workflowId, workflowsDir = '.github/workflows') {
-  const path = require('path');
-  return fs.existsSync(path.join(process.cwd(), workflowsDir, workflowId));
-}
-
 function defaultPriorityWorkflowArtifactSources({
   candidates = PRIORITY_WORKFLOW_ARTIFACT_SOURCE_CANDIDATES,
-  workflowsDir = '.github/workflows',
 } = {}) {
-  return candidates.filter((source) => workflowSourceExists(source.workflow_id, workflowsDir));
+  return candidates;
 }
 
 const PRIORITY_WORKFLOW_ARTIFACT_SOURCES = defaultPriorityWorkflowArtifactSources();
