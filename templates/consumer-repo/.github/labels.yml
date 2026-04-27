@@ -49,6 +49,9 @@
 - name: from:claude
   color: d4a017
   description: PR was created by or for Claude
+- name: from:gemini
+  color: 4285f4
+  description: PR was created by or for Gemini
 
 
 # Autofix labels

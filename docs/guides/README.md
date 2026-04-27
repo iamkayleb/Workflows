@@ -14,6 +14,7 @@ This folder is intentionally small right now; most “getting started” and int
 
 - **[Agent Runner Implementation](AGENT_RUNNER_IMPLEMENTATION.md)** - Technical patterns for building and debugging agent runner workflows (CLI invocation, unpushed commit detection, artifact filtering, push retry)
 - **[Dual-Location Sync Gotcha](dual-location-sync-gotcha.md)** - Critical gotcha when updating files that exist in both `.github/` and `templates/consumer-repo/`
+- **[Gemini Integration](GEMINI_INTEGRATION.md)** - How the Gemini CLI agent was integrated into the pipeline, including CI auth setup, issues encountered, and consumer repo setup
 
 ## Planned Guides
 
