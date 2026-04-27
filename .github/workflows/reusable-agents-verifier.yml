@@ -147,18 +147,17 @@ jobs:
           path: .workflows-lib
           fetch-depth: 1
 
-      - name: Link node_modules for Workflows scripts
-        run: |
-          # ESM import() resolves relative to file location, not NODE_PATH.
-          # Symlink node_modules so token_load_balancer.js can find @octokit/rest.
-          SRC="${GITHUB_WORKSPACE}/.github/scripts/node_modules"
-          DST="${GITHUB_WORKSPACE}/.workflows-lib/.github/scripts/node_modules"
-          if [ -d "$SRC" ] && [ ! -d "$DST" ]; then
-            ln -sfn "$SRC" "$DST"
-            echo "✅ Linked node_modules → .workflows-lib scripts path"
-          elif [ ! -d "$SRC" ]; then
-            echo "::warning::node_modules not found at $SRC — token rotation may fail"
-          fi
+      # Install @octokit deps directly into .workflows-lib so token_load_balancer.js
+      # can resolve them via ESM import(). The previous symlink approach silently
+      # skipped when .workflows-lib/.github/scripts/node_modules already existed
+      # (it does, because Workflows vendors minimatch et al. under .github/scripts/node_modules).
+      # The canonical action's snapshot/restore logic preserves the vendored deps.
+      - name: Install API deps in .workflows-lib (canonical)
+        uses: ./.workflows-lib/.github/actions/setup-api-client
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          github_token: ${{ github.token }}
+          install_dir: ${{ github.workspace }}/.workflows-lib/.github/scripts
 
       - name: Wait for CI workflows to complete
         id: wait_ci
