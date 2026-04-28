@@ -780,6 +780,32 @@ jobs:
           echo "Installed Claude CLI: $(command -v claude)"
           claude --version || true
 
+      - name: Resolve model from agent registry
+        id: resolve_model
+        shell: bash
+        run: |
+          registry=".github/agents/registry.yml"
+          if [ ! -f "$registry" ]; then
+            wl=".workflows-lib/.github/agents/registry.yml"
+            if [ -f "$wl" ]; then registry="$wl"; fi
+          fi
+          model=""
+          if [ -f "$registry" ]; then
+            model=$(node -e "
+              try {
+                const r = require('./.github/scripts/agent_registry.js');
+                const m = r.getAgentModel('claude');
+                if (m) process.stdout.write(m);
+              } catch (_) {}
+            " 2>/dev/null || true)
+          fi
+          if [ -n "$model" ]; then
+            echo "Resolved model from registry: $model"
+          else
+            echo "No model configured in registry; using CLI default"
+          fi
+          echo "model=$model" >> "$GITHUB_OUTPUT"
+
       - name: Run Claude
         id: run_claude
         if: always()
@@ -792,6 +818,7 @@ jobs:
           SKIP_PERMISSIONS: ${{ inputs.skip_permissions }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN || '' }}
           PR_REF: ${{ inputs.pr_ref }}
+          REGISTRY_MODEL: ${{ steps.resolve_model.outputs.model }}
         run: |
           set -euo pipefail
 
@@ -875,6 +902,12 @@ jobs:
             SESSION_LOG="claude-session.log"
           fi
 
+          model_flag=()
+          if [ -n "${REGISTRY_MODEL:-}" ]; then
+            model_flag=("--model" "$REGISTRY_MODEL")
+            echo "Using registry model: $REGISTRY_MODEL"
+          fi
+
           echo "Running Claude Code in agentic mode..."
           echo "Prompt file: $PROMPT_FILE"
           echo "Output file: $output_file"
@@ -887,6 +920,7 @@ jobs:
           # even if the run fails.
           set +e
           claude -p "$prompt_content" \
+            "${model_flag[@]}" \
             "${perm_flag[@]}" \
             "${extra_args[@]}" \
             2>&1 | tee "$SESSION_LOG" > "$output_file"

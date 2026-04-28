@@ -8,6 +8,7 @@ const os = require('node:os');
 
 const {
   getAgentConfig,
+  getAgentModel,
   getRunnerWorkflow,
   loadAgentRegistry,
   parseRegistryYaml,
@@ -163,6 +164,16 @@ test('getAgentConfig returns config for codex', () => {
 test('getRunnerWorkflow returns configured workflow path', () => {
   const workflow = getRunnerWorkflow('codex', { registryPath: REGISTRY_PATH });
   assert.equal(workflow, '.github/workflows/reusable-codex-run.yml');
+});
+
+test('getAgentModel returns model for claude', () => {
+  const model = getAgentModel('claude', { registryPath: REGISTRY_PATH });
+  assert.equal(model, 'claude-opus-4-7');
+});
+
+test('getAgentModel returns empty string when no model configured', () => {
+  const model = getAgentModel('codex', { registryPath: REGISTRY_PATH });
+  assert.equal(model, '');
 });
 
 test('getAgentEntries returns key/config pairs for each agent', () => {
