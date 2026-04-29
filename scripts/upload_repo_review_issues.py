@@ -12,9 +12,21 @@ import argparse
 import json
 import shlex
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+
+try:
+    from scripts.repo_review_issue_quality import (
+        issue_body_quality_errors,
+        review_evidence_trace_errors,
+    )
+except ModuleNotFoundError:  # pragma: no cover - supports direct script execution.
+    from repo_review_issue_quality import (  # type: ignore[no-redef]
+        issue_body_quality_errors,
+        review_evidence_trace_errors,
+    )
 
 LABELS = {
     "repo-review-approved": {
@@ -49,7 +61,28 @@ def load_queue(path: Path) -> list[dict[str, Any]]:
     issues = data.get("issues", [])
     if not isinstance(issues, list):
         raise ValueError(f"{path} does not contain an issues list")
-    return [issue for issue in issues if isinstance(issue, dict)]
+    loaded = [issue for issue in issues if isinstance(issue, dict)]
+    validate_issue_queue(loaded)
+    return loaded
+
+
+def validate_issue_queue(issues: list[dict[str, Any]]) -> None:
+    failures: list[str] = []
+    for index, issue in enumerate(issues, start=1):
+        repo = str(issue.get("repo") or "<missing repo>")
+        title = str(issue.get("title") or "<missing title>")
+        body = str(issue.get("body") or "")
+        if not repo or repo == "<missing repo>":
+            failures.append(f"issue {index} is missing repo")
+        if not title or title == "<missing title>":
+            failures.append(f"issue {index} is missing title")
+        for error in issue_body_quality_errors(body):
+            failures.append(f"{repo} :: {title}: {error}")
+        for error in review_evidence_trace_errors(issue.get("review_evidence_trace")):
+            failures.append(f"{repo} :: {title}: {error}")
+    if failures:
+        joined = "\n- ".join(failures)
+        raise ValueError(f"approved issue queue failed quality validation:\n- {joined}")
 
 
 def fetch_open_issues(repo: str, prefix: list[str]) -> list[dict[str, Any]]:
@@ -153,6 +186,7 @@ def upload_issues(
         "would_create": [],
     }
     by_repo: dict[str, list[dict[str, Any]]] = {}
+    validate_issue_queue(issues)
     for issue in issues:
         repo = str(issue.get("repo", ""))
         if not repo:
@@ -216,7 +250,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    issues = load_queue(args.queue)
+    try:
+        issues = load_queue(args.queue)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     summary = upload_issues(
         issues,
         prefix=shlex.split(args.gh_prefix),

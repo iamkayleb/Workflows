@@ -19,6 +19,21 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
+try:
+    from scripts.repo_review_issue_quality import (
+        ISSUE_BODY_REQUIRED_SECTIONS,
+        issue_body_is_agent_ready,
+        issue_body_quality_errors,
+        review_evidence_trace_errors,
+    )
+except ModuleNotFoundError:  # pragma: no cover - supports direct script execution.
+    from repo_review_issue_quality import (  # type: ignore[no-redef]
+        ISSUE_BODY_REQUIRED_SECTIONS,
+        issue_body_is_agent_ready,
+        issue_body_quality_errors,
+        review_evidence_trace_errors,
+    )
+
 VALID_STATUSES = {"active", "paused", "ignored", "needs-human"}
 PENDING_REVIEW_STATUS = "pending standardized review"
 EXECUTED_REVIEW_STATUS = "standard review executed; human decision queued"
@@ -185,15 +200,16 @@ REVIEW_DIMENSIONS = (
     },
 )
 PRIORITY_ORDER = {"high": 0, "normal": 1, "low": 2}
-ISSUE_BODY_REQUIRED_SECTIONS = (
-    "## Why",
-    "## Scope",
-    "## Non-Goals",
-    "## Tasks",
-    "## Acceptance Criteria",
-    "## Implementation Notes",
-)
 GITNEXUS_REFRESH_STATUSES = {"missing", "stale"}
+GENERIC_REVIEW_SUMMARY_PHRASES = (
+    "implementation files exist, but the automated keyword pass",
+    "implementation files and repo-domain code hits were found",
+    "semantic review must verify",
+    "testing/live-readiness evidence exists, but approval still requires confirming",
+    "test and smoke/integration markers exist; review must verify",
+    "integration/state/workflow evidence was found; review must confirm",
+    "no candidate issue set was generated from current inputs",
+)
 
 
 @dataclass(frozen=True)
@@ -1382,6 +1398,69 @@ def markdown_bullets(items: list[str], empty: str = "None recorded.") -> str:
     return "\n".join(f"- {item}" for item in items)
 
 
+def markdown_review_evidence_traces(traces: list[dict[str, Any]]) -> str:
+    if not traces:
+        return "None recorded."
+    lines: list[str] = []
+    for index, trace in enumerate(traces, start=1):
+        design_refs = ", ".join(str(item) for item in trace.get("design_refs", [])) or "none"
+        implementation_refs = (
+            ", ".join(str(item) for item in trace.get("implementation_refs", [])) or "none"
+        )
+        test_values = trace.get("test_refs", [])
+        readiness_values = trace.get("readiness_refs", [])
+        if not isinstance(test_values, list):
+            test_values = [test_values]
+        if not isinstance(readiness_values, list):
+            readiness_values = [readiness_values]
+        test_refs = ", ".join(str(item) for item in [*test_values, *readiness_values]) or "none"
+        lines.extend(
+            [
+                f"{index}. {trace.get('gap', 'No gap recorded.')}",
+                f"   - Current state: {trace.get('current_state', 'None recorded.')}",
+                f"   - Required change: {trace.get('required_change', 'None recorded.')}",
+                f"   - Design refs: `{design_refs}`",
+                f"   - Implementation refs: `{implementation_refs}`",
+                f"   - Test/readiness refs: `{test_refs}`",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def review_evidence_trace_template() -> str:
+    return "\n".join(
+        [
+            '    "review_evidence_traces": [',
+            "      {",
+            '        "candidate_title_patterns": ["^Candidate title regex$"],',
+            '        "gap": "Specific unmet design/readiness commitment.",',
+            '        "current_state": "What the current code/tests actually prove today.",',
+            '        "required_change": "What must change to close the gap.",',
+            '        "design_refs": ["README.md", "docs/design.md"],',
+            '        "implementation_refs": ["src/module.py"],',
+            '        "test_refs": ["tests/test_expected_behavior.py"]',
+            "      }",
+            "    ]",
+        ]
+    )
+
+
+def process_chain_checkpoint_lines() -> list[str]:
+    return [
+        "Before changing automation or approving issues, identify the earliest failed stage in this chain:",
+        "",
+        "1. Inputs: registry, repo status, synced local clone, remote issues, archives, GitNexus map, design docs.",
+        "2. Review instructions: the worksheet/profile prompt must require design-vs-implementation comparison, not just file discovery.",
+        "3. Evidence collection: the reviewer must inspect design, implementation, tests, integrations, and open issues.",
+        "4. Human packet: progress/readiness output must be repo-specific and decision-useful.",
+        "5. Issue drafting: every issue must be tied to a verified gap and include concrete agent-ready tasks and acceptance criteria.",
+        "6. Upload gate: only approved, formatted, evidence-traced issues can reach GitHub.",
+        "7. Coding-agent lanes: opener/closer automation should consume the prioritized issue set without repo-specific hardcoding.",
+        "",
+        "If a later stage fails, fix the earliest upstream cause that allowed the bad output, not only the visible symptom.",
+    ]
+
+
 def execution_dimension(state: dict[str, Any], dimension_id: str) -> dict[str, Any]:
     for dimension in state["review_execution"]["dimensions"]:
         if dimension["id"] == dimension_id:
@@ -1494,6 +1573,42 @@ def issue_set_recommendation(state: dict[str, Any]) -> str:
     )
 
 
+def review_summary_quality_errors(brief: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for key, label in (
+        ("progress_summary", "progress summary"),
+        ("readiness_summary", "readiness summary"),
+    ):
+        value = str(brief.get(key) or "").strip()
+        if not value:
+            errors.append(f"missing {label}")
+            continue
+        normalized = value.lower()
+        for phrase in GENERIC_REVIEW_SUMMARY_PHRASES:
+            if phrase in normalized:
+                errors.append(f"{label} uses generic automated-review wording: {phrase}")
+                break
+
+    if not brief.get("review_focus"):
+        errors.append("missing repo-specific review focus")
+    if not brief.get("concerns"):
+        errors.append("missing repo-specific concerns")
+    traces = brief.get("review_evidence_traces") or []
+    if not traces:
+        errors.append("missing review evidence traces")
+    for index, trace in enumerate(traces, start=1):
+        for error in review_evidence_trace_errors(trace):
+            errors.append(f"review evidence trace {index}: {error}")
+    return errors
+
+
+def review_evidence_traces_from_profile(profile: dict[str, Any]) -> list[dict[str, Any]]:
+    traces = profile.get("review_evidence_traces", profile.get("evidence_traces", []))
+    if not isinstance(traces, list):
+        return []
+    return [trace for trace in traces if isinstance(trace, dict)]
+
+
 def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
     implementation = execution_dimension(state, "implementation_coverage")
     testing = execution_dimension(state, "test_and_live_readiness")
@@ -1510,13 +1625,14 @@ def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
         f"files `{gitnexus_stats.get('files', 'unknown')}`, nodes `{gitnexus_stats.get('nodes', 'unknown')}`, "
         f"processes `{gitnexus_stats.get('processes', 'unknown')}`."
     )
-    return {
+    brief = {
         "design_target": state["decision_anchor"] or "No decision anchor recorded.",
         "progress_summary": profile.get("progress_summary") or implementation["finding"],
         "readiness_summary": profile.get("readiness_summary") or readiness_summary(state),
         "issue_set_recommendation": issue_set_recommendation(state),
         "review_focus": profile.get("review_focus", []),
         "concerns": profile.get("concerns", []),
+        "review_evidence_traces": review_evidence_traces_from_profile(profile),
         "recorded_feedback": feedback,
         "gitnexus_summary": gitnexus_summary,
         "design_evidence": execution_dimension(state, "design_contract")["evidence"],
@@ -1528,9 +1644,14 @@ def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
         "feedback_template": [
             "decision: approve | revise | defer | drop | deeper-review",
             "priority: high | normal | low",
+            "approval prerequisite: add matching review_evidence_traces in config/repo_review_profiles.json",
             "notes: what to change before issue creation",
         ],
     }
+    quality_errors = review_summary_quality_errors(brief)
+    brief["review_quality_errors"] = quality_errors
+    brief["review_quality_status"] = "pass" if not quality_errors else "fail"
+    return brief
 
 
 def markdown_candidate_list(candidates: list[dict[str, Any]], empty: str) -> str:
@@ -1603,6 +1724,18 @@ def approved_candidate_indexes(
     return indexes
 
 
+def parse_candidate_indexes(value: Any) -> set[int]:
+    if not isinstance(value, list):
+        value = [value] if value else []
+    indexes: set[int] = set()
+    for item in value:
+        try:
+            indexes.add(int(item))
+        except (TypeError, ValueError):
+            continue
+    return indexes
+
+
 def dropped_candidate_indexes(
     decision: dict[str, Any], candidates: list[dict[str, Any]] | None = None
 ) -> set[int]:
@@ -1620,6 +1753,54 @@ def dropped_candidate_indexes(
             candidate_title_pattern_indexes(decision, "dropped_title_patterns", candidates)
         )
     return indexes
+
+
+def evidence_trace_title_patterns(trace: dict[str, Any]) -> list[str]:
+    values: list[Any] = []
+    for key in (
+        "issue_title_pattern",
+        "issue_title_patterns",
+        "candidate_title_pattern",
+        "candidate_title_patterns",
+    ):
+        value = trace.get(key)
+        if isinstance(value, list):
+            values.extend(value)
+        elif value:
+            values.append(value)
+    return [str(value) for value in values if str(value).strip()]
+
+
+def candidate_matches_evidence_trace(candidate: dict[str, Any], trace: dict[str, Any]) -> bool:
+    candidate_index = int(candidate.get("candidate_index", 0))
+    trace_indexes = parse_candidate_indexes(trace.get("candidate_indexes", []))
+    if candidate_index in trace_indexes:
+        return True
+
+    title = str(candidate.get("title", ""))
+    candidate_titles = trace.get("candidate_titles", [])
+    if not isinstance(candidate_titles, list):
+        candidate_titles = [candidate_titles]
+    if title in {str(item) for item in candidate_titles}:
+        return True
+
+    for pattern in evidence_trace_title_patterns(trace):
+        try:
+            if re.search(pattern, title, flags=re.I):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+def review_evidence_trace_for_candidate(
+    state: dict[str, Any], candidate: dict[str, Any]
+) -> dict[str, Any] | None:
+    traces = state["decision_brief"].get("review_evidence_traces", [])
+    for trace in traces:
+        if isinstance(trace, dict) and candidate_matches_evidence_trace(candidate, trace):
+            return trace
+    return None
 
 
 def open_task_lines(body: str, limit: int = 8) -> list[str]:
@@ -1647,6 +1828,14 @@ def issue_task_lines(candidate: dict[str, Any]) -> list[str]:
 
 
 def build_agent_issue_body(state: dict[str, Any], candidate: dict[str, Any], priority: str) -> str:
+    if candidate["type"] == "local draft":
+        local_body = str(candidate.get("body", "")).strip()
+        local_lines = local_body.splitlines()
+        if local_lines and ISSUE_HEADING_RE.match(local_lines[0].strip()):
+            local_body = "\n".join(local_lines[1:]).strip()
+        if issue_body_is_agent_ready(local_body):
+            return local_body + "\n"
+
     brief = state["decision_brief"]
     design_sources = state["design_files"][:5]
     implementation_evidence = brief["implementation_evidence"][:4]
@@ -1718,7 +1907,7 @@ def build_agent_issue_body(state: dict[str, Any], candidate: dict[str, Any], pri
 
 
 def issue_body_has_required_sections(body: str) -> bool:
-    return all(section in body for section in ISSUE_BODY_REQUIRED_SECTIONS)
+    return issue_body_is_agent_ready(body)
 
 
 def build_approved_issue_queue(
@@ -1776,6 +1965,33 @@ def build_approved_issue_queue(
         if "approve" not in parts:
             continue
 
+        review_quality_errors = state["decision_brief"].get("review_quality_errors", [])
+        if review_quality_errors:
+            error_summary = "; ".join(str(error) for error in review_quality_errors[:5])
+            warnings.append(
+                f"{state['repo']} was approved but its review brief failed the quality gate: "
+                f"{error_summary}"
+            )
+            deeper_review.append(
+                {
+                    "repo": state["repo"],
+                    "priority": priority,
+                    "decision": "deeper-review",
+                    "notes": (
+                        "Approved candidates were held back because the review brief did not "
+                        f"contain a substantive repo-specific progress/readiness review: {error_summary}"
+                    ),
+                    "design_target": state["decision_brief"]["design_target"],
+                    "review_focus": state["decision_brief"]["review_focus"],
+                    "concerns": [
+                        *state["decision_brief"]["concerns"],
+                        "Complete a repo-specific design-vs-implementation review before upload.",
+                    ],
+                    "gitnexus_map": state["gitnexus_map"],
+                }
+            )
+            continue
+
         selected_indexes = approved_candidate_indexes(
             decision, len(candidates), defaults, candidates
         )
@@ -1789,7 +2005,58 @@ def build_approved_issue_queue(
                 continue
             if candidate["candidate_index"] in dropped_indexes:
                 continue
+            evidence_trace = review_evidence_trace_for_candidate(state, candidate)
+            if evidence_trace is None:
+                warnings.append(
+                    f"{state['repo']} candidate {candidate['candidate_index']} was approved but "
+                    "has no matching review evidence trace."
+                )
+                deeper_review.append(
+                    {
+                        "repo": state["repo"],
+                        "priority": priority,
+                        "decision": "deeper-review",
+                        "notes": (
+                            "Approved candidate was held back because no review evidence trace "
+                            f"was tied to candidate {candidate['candidate_index']}: {candidate['title']}"
+                        ),
+                        "design_target": state["decision_brief"]["design_target"],
+                        "review_focus": state["decision_brief"]["review_focus"],
+                        "concerns": [
+                            *state["decision_brief"]["concerns"],
+                            f"Add a review evidence trace for candidate {candidate['candidate_index']}: {candidate['title']}",
+                        ],
+                        "gitnexus_map": state["gitnexus_map"],
+                    }
+                )
+                continue
             body = build_agent_issue_body(state, candidate, priority)
+            quality_errors = issue_body_quality_errors(body)
+            if quality_errors:
+                error_summary = "; ".join(quality_errors[:5])
+                warnings.append(
+                    f"{state['repo']} candidate {candidate['candidate_index']} "
+                    f"was approved but needs issue-body revision before upload: {error_summary}"
+                )
+                deeper_review.append(
+                    {
+                        "repo": state["repo"],
+                        "priority": priority,
+                        "decision": "revise",
+                        "notes": (
+                            "Approved candidate did not pass the agent-ready issue-quality gate: "
+                            f"{error_summary}"
+                        ),
+                        "design_target": state["decision_brief"]["design_target"],
+                        "review_focus": state["decision_brief"]["review_focus"],
+                        "concerns": [
+                            *state["decision_brief"]["concerns"],
+                            f"Revise candidate {candidate['candidate_index']}: {candidate['title']}",
+                        ],
+                        "gitnexus_map": state["gitnexus_map"],
+                    }
+                )
+                continue
             issues.append(
                 {
                     "repo": state["repo"],
@@ -1802,7 +2069,9 @@ def build_approved_issue_queue(
                     "title": normalize_issue_title(candidate["title"]),
                     "labels": ["repo-review-approved", f"priority:{priority}"],
                     "body_format": list(ISSUE_BODY_REQUIRED_SECTIONS),
-                    "body_valid": issue_body_has_required_sections(body),
+                    "body_valid": True,
+                    "body_quality_errors": [],
+                    "review_evidence_trace": evidence_trace,
                     "body": body,
                     "feedback_notes": decision.get("notes", ""),
                     "gitnexus_status": state["gitnexus_map"]["status"],
@@ -1861,6 +2130,9 @@ def write_approved_issue_queue(
                 f"- Source: `{item['source']}`",
                 f"- Labels: `{', '.join(item['labels'])}`",
                 f"- Body follows required issue sections: `{item['body_valid']}`",
+                f"- Evidence gap: {item['review_evidence_trace']['gap']}",
+                f"- Evidence design refs: `{', '.join(item['review_evidence_trace'].get('design_refs', []))}`",
+                f"- Evidence implementation refs: `{', '.join(item['review_evidence_trace'].get('implementation_refs', []))}`",
                 "",
                 "```markdown",
                 item["body"].strip(),
@@ -1913,6 +2185,18 @@ def write_decision_brief(repo_dir: Path, state: dict[str, Any]) -> None:
         "",
         "Use this brief to decide whether the current issue set should be approved, revised, deferred, dropped, or sent back for deeper review.",
         "",
+        "## Review Quality Gate",
+        "",
+        f"- Status: `{brief['review_quality_status']}`",
+        "",
+        "Quality findings:",
+        "",
+        markdown_bullets(brief["review_quality_errors"]),
+        "",
+        "## Process Chain Checkpoint",
+        "",
+        *process_chain_checkpoint_lines(),
+        "",
         "## Current Progress Compared With Design",
         "",
         f"- Design target: {brief['design_target']}",
@@ -1926,6 +2210,16 @@ def write_decision_brief(repo_dir: Path, state: dict[str, Any]) -> None:
         "Concerns to resolve:",
         "",
         markdown_bullets(brief["concerns"]),
+        "",
+        "Review evidence traces:",
+        "",
+        markdown_review_evidence_traces(brief["review_evidence_traces"]),
+        "",
+        "Required profile evidence trace shape:",
+        "",
+        "```json",
+        review_evidence_trace_template(),
+        "```",
         "",
         "Design evidence:",
         "",
@@ -2059,8 +2353,9 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         "",
         "- Primary goal: compare intended design to current implementation and testing readiness.",
         "- Secondary goal: turn verified gaps into issue drafts for human approval.",
-        "- Current worksheet status: pending review until a human or automation fills in evidence and findings.",
+        "- Current worksheet status: pending review until a human or automation fills in evidence traces and findings.",
         "- Completion standard: no issue should be considered ready unless the review identifies the design commitment, current evidence, missing behavior, and a test or live-smoke acceptance gate.",
+        "- Approval standard: every approved issue candidate must have a matching `review_evidence_traces` entry in `config/repo_review_profiles.json`; polished prose without that trace is not uploadable.",
         "",
         "## Current Signals",
         "",
@@ -2074,6 +2369,10 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
         f"- GitNexus map status: `{state['gitnexus_map']['status']}`",
         "",
+        "## Process Chain Checkpoint",
+        "",
+        *process_chain_checkpoint_lines(),
+        "",
         "## Design Sources To Read",
         "",
         markdown_list(state["design_files"]),
@@ -2081,6 +2380,16 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         "## Implementation Areas To Inspect",
         "",
         markdown_list(format_implementation_areas(state["implementation_areas"])),
+        "",
+        "## Required Review Evidence Trace",
+        "",
+        "For every proposed issue, add a trace record to `config/repo_review_profiles.json` that links the candidate to the underlying design-vs-implementation finding:",
+        "",
+        "```json",
+        review_evidence_trace_template(),
+        "```",
+        "",
+        "The trace must be based on files actually inspected during the review. Do not use it as a wording exercise; the uploader validates that the trace exists, and the human packet shows it for review.",
         "",
         "## Review Dimensions",
         "",
@@ -2131,6 +2440,7 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
             "",
             "- a specific design commitment or readiness gap;",
             "- current implementation evidence;",
+            "- a matching `review_evidence_traces` record with design, implementation, and test/readiness refs;",
             "- non-goals that prevent scaffold-only completion claims;",
             "- tasks that a coding agent can complete;",
             "- acceptance criteria with a failing test, smoke test, or documented live-verification gate.",
@@ -2282,13 +2592,16 @@ def write_packet(
         "",
         "## Standard Review Process",
         "",
+        "Before changing automation or approving issues, use the process-chain checkpoint: inputs -> review instructions -> evidence collection -> human packet -> issue drafting -> upload gate -> coding-agent lanes. Fix the earliest upstream cause of a failure, not only the visible symptom.",
+        "",
         "1. Read the design sources and registry decision anchor.",
         "2. Inspect implementation areas and distinguish real behavior from scaffolds or fixtures.",
         "3. Check tests, smoke paths, persistence, integrations, and workflow handoffs.",
-        "4. Use archive-derived candidates as precedent, not as automatically approved issues.",
-        "5. Generate or approve issue drafts only for verified design/readiness gaps.",
-        "6. Route Workflows/template-sync maintenance into Workflows unless the work directly implements repo-local behavior.",
-        "7. Feed approved, formatted issues into `approved-issue-queue.json` for opener-lane automation.",
+        "4. For each proposed issue, write a `review_evidence_traces` record in `config/repo_review_profiles.json` tying the candidate to design refs, implementation refs, and test/readiness refs.",
+        "5. Use archive-derived candidates as precedent, not as automatically approved issues.",
+        "6. Generate or approve issue drafts only for verified design/readiness gaps with evidence traces.",
+        "7. Route Workflows/template-sync maintenance into Workflows unless the work directly implements repo-local behavior.",
+        "8. Feed approved, formatted, evidence-traced issues into `approved-issue-queue.json` for opener-lane automation.",
         "",
         "## Human Review Queue",
         "",
@@ -2308,10 +2621,16 @@ def write_packet(
         safe_name = state["repo"].replace("/", "__")
         brief = state["decision_brief"]
         if state["review_execution"]["status"] == "executed":
-            human_action = (
-                "review execution complete; make the semantic human decision, then "
-                "approve/edit/defer issue drafts."
-            )
+            if brief["review_quality_status"] == "pass":
+                human_action = (
+                    "review execution complete; make the semantic human decision, then "
+                    "approve/edit/defer issue drafts."
+                )
+            else:
+                human_action = (
+                    "review quality gate failed; complete a repo-specific semantic review before "
+                    "approving or uploading issue drafts."
+                )
         elif str(state["review_execution"]["status"]).startswith("blocked"):
             human_action = (
                 "resolve the blocker, rerun review execution, then queue the human decision."
@@ -2324,6 +2643,7 @@ def write_packet(
                 "",
                 f"- Review status: `{state['review_status']}`",
                 f"- Review execution status: `{state['review_execution']['status']}`",
+                f"- Review quality gate: `{brief['review_quality_status']}`",
                 f"- Automated material/blocking gaps: `{state['review_execution']['gap_count']}`",
                 f"- Dimensions needing semantic decision: `{state['review_execution']['needs_decision_count']}`",
                 f"- Issue queue status: `{state['issue_queue_status']}`",
@@ -2345,6 +2665,7 @@ def write_packet(
                 f"- Design target: {brief['design_target']}",
                 f"- Progress summary: {brief['progress_summary']}",
                 f"- GitNexus map: {brief['gitnexus_summary']}",
+                f"- Review quality findings: {', '.join(brief['review_quality_errors']) if brief['review_quality_errors'] else 'none'}",
                 "",
                 "Review focus:",
                 "",
@@ -2353,6 +2674,10 @@ def write_packet(
                 "Concerns to resolve:",
                 "",
                 markdown_bullets(brief["concerns"]),
+                "",
+                "Review evidence traces:",
+                "",
+                markdown_review_evidence_traces(brief["review_evidence_traces"]),
                 "",
                 "Key implementation evidence:",
                 "",

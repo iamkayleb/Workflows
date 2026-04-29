@@ -3,6 +3,51 @@ from pathlib import Path
 
 from scripts import repo_review_evaluator as evaluator
 
+VALID_ISSUE_BODY = """## Why
+
+Travel-Plan-Permission needs CI to execute the LangGraph path so orchestration coverage cannot pass by skipping the graph.
+
+## Scope
+
+- Install the orchestration extra in one deterministic CI/test path.
+- Execute `run_policy_graph(..., prefer_langgraph=True)` against a small fixture plan.
+
+## Non-Goals
+
+- Do not expand every graph failure branch.
+- Do not require live external services.
+
+## Tasks
+
+- [ ] Inspect `tests/python/test_langgraph_ci_gate.py` and `src/travel_plan_permission/orchestration/graph.py`.
+- [ ] Add or update a pytest that imports LangGraph and runs `prefer_langgraph=True`.
+- [ ] Update the repo-local CI command so the orchestration extra is installed for this test path.
+- [ ] Document the exact local or CI command that proves LangGraph coverage.
+
+## Acceptance Criteria
+
+- [ ] The LangGraph-path test is not always skipped in the documented CI/test path.
+- [ ] A broken graph compile or invocation causes a deterministic test failure.
+- [ ] The PR notes the exact command or CI job used to prove the path.
+
+## Implementation Notes
+
+Relevant files: `pyproject.toml`, `.github/workflows/ci.yml`, `src/travel_plan_permission/orchestration/graph.py`, `tests/python/test_langgraph_ci_gate.py`.
+"""
+
+VALID_REVIEW_TRACE = {
+    "candidate_title_patterns": [
+        "^Keep approved repo-local work$",
+        "^Add planner end-to-end tests$",
+    ],
+    "gap": "The reviewed workflow lacks executable proof for the intended path.",
+    "current_state": "Implementation paths exist, but the acceptance path is not proved by the current tests.",
+    "required_change": "Add the targeted smoke or CI gate named by the candidate issue.",
+    "design_refs": ["README.md", "docs/design.md"],
+    "implementation_refs": ["src/travel_plan_permission/orchestration/graph.py"],
+    "test_refs": ["tests/python/test_langgraph_ci_gate.py"],
+}
+
 
 def test_split_issue_entries_accepts_common_heading_shapes() -> None:
     text = """1. First title
@@ -183,12 +228,14 @@ def test_collect_repo_state_uses_profile_and_gitnexus_meta(tmp_path: Path) -> No
             "readiness_summary": "Demo-specific readiness.",
             "review_focus": ["Check the demo workflow."],
             "concerns": ["Avoid generic summaries."],
+            "review_evidence_traces": [VALID_REVIEW_TRACE],
         },
     )
 
     assert state["gitnexus_map"]["status"] == "current"
     assert state["decision_brief"]["progress_summary"] == "Demo-specific progress."
     assert state["decision_brief"]["review_focus"] == ["Check the demo workflow."]
+    assert state["decision_brief"]["review_quality_status"] == "pass"
 
 
 def test_gitnexus_preflight_reports_stale_without_refresh(tmp_path: Path) -> None:
@@ -355,6 +402,8 @@ def test_collect_repo_state_marks_clean_active_repo_review_pending(tmp_path: Pat
     assert state["decision"] == evaluator.EXECUTED_REVIEW_STATUS
     assert state["review_execution"]["status"] == "executed"
     assert state["review_execution"]["gap_count"] >= 1
+    assert state["decision_brief"]["review_quality_status"] == "fail"
+    assert state["decision_brief"]["review_quality_errors"]
 
 
 def test_issues_txt_changes_are_helper_inputs_not_review_blockers(tmp_path: Path) -> None:
@@ -450,11 +499,18 @@ def test_write_repo_artifacts_emits_standard_design_review(tmp_path: Path) -> No
     text = review.read_text(encoding="utf-8")
     assert "Standard Design Review" in text
     assert "Design Contract" in text
+    assert "Process Chain Checkpoint" in text
+    assert "earliest failed stage" in text
+    assert "Required Review Evidence Trace" in text
+    assert "review_evidence_traces" in text
+    assert "candidate_title_patterns" in text
     assert "Issue Generation Gate" in text
+    assert "matching `review_evidence_traces` record" in text
     execution_text = execution.read_text(encoding="utf-8")
     assert "Review Execution" in execution_text
     assert "Dimension Findings" in execution_text
     brief_text = brief.read_text(encoding="utf-8")
+    assert "Review Quality Gate" in brief_text
     assert "Current Progress Compared With Design" in brief_text
     assert "Readiness For Testing Or Live Implementation" in brief_text
     assert "Candidate Issue Set" in brief_text
@@ -481,9 +537,15 @@ def test_write_packet_embeds_substantive_decision_brief(tmp_path: Path) -> None:
 
     packet = (output_dir / "human-decision-packet.md").read_text(encoding="utf-8")
     assert "Current Progress Compared With Design" in packet
+    assert "Review quality gate: `fail`" in packet
+    assert "process-chain checkpoint" in packet
+    assert "Fix the earliest upstream cause" in packet
+    assert "write a `review_evidence_traces` record" in packet
+    assert "Review evidence traces:" in packet
     assert "Readiness For Testing Or Live Implementation" in packet
     assert "Candidate Issue Set" in packet
     assert "Add smoke coverage" in packet
+    assert "approval prerequisite: add matching review_evidence_traces" in packet
     assert "decision: approve | revise | defer | drop | deeper-review" in packet
 
 
@@ -494,8 +556,8 @@ def test_approved_issue_queue_formats_agent_ready_issues_and_drops_feedback_item
     repo_dir.mkdir()
     (repo_dir / "README.md").write_text("# TPP\n", encoding="utf-8")
     (repo_dir / "Issues.txt").write_text(
-        """1. Keep approved repo-local work
-- [ ] implement approved behavior
+        f"""1. Keep approved repo-local work
+{VALID_ISSUE_BODY}
 
 2. Route workflow sync elsewhere
 - [ ] update workflow sync policy
@@ -515,6 +577,9 @@ def test_approved_issue_queue_formats_agent_ready_issues_and_drops_feedback_item
         review_profile={
             "progress_summary": "TPP has implementation surfaces and needs operational proof.",
             "readiness_summary": "TPP needs LangGraph and transport smoke coverage before live confidence.",
+            "review_focus": ["Verify the LangGraph test path before upload."],
+            "concerns": ["Do not treat fallback-only tests as readiness."],
+            "review_evidence_traces": [VALID_REVIEW_TRACE],
         },
     )
     feedback = {
@@ -537,8 +602,143 @@ def test_approved_issue_queue_formats_agent_ready_issues_and_drops_feedback_item
     assert [item["candidate_index"] for item in queue["issues"]] == [1]
     assert queue["issues"][0]["priority"] == "high"
     assert queue["issues"][0]["body_valid"] is True
+    assert queue["issues"][0]["review_evidence_trace"]["gap"] == VALID_REVIEW_TRACE["gap"]
+    assert queue["issues"][0]["body"] == VALID_ISSUE_BODY
     assert "## Acceptance Criteria" in queue["issues"][0]["body"]
+    assert "Implement the approved review gap" not in queue["issues"][0]["body"]
     assert queue["dropped_candidates"][0]["candidate_index"] == 2
+
+
+def test_approved_issue_queue_requires_substantive_review_brief(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "Travel-Plan-Permission"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# TPP\n", encoding="utf-8")
+    (repo_dir / "Issues.txt").write_text(
+        f"""1. Keep approved repo-local work
+{VALID_ISSUE_BODY}
+""",
+        encoding="utf-8",
+    )
+    config = evaluator.RepoConfig(
+        repo="stranske/Travel-Plan-Permission",
+        local_path="Travel-Plan-Permission",
+        status="active",
+        cadence="weekly",
+        decision_anchor="approval workflow",
+    )
+    state = evaluator.collect_repo_state(tmp_path, config)
+    feedback = {
+        "generated_on": "2026-04-26",
+        "defaults": {"approved_candidates": "all"},
+        "decisions": {
+            "stranske/Travel-Plan-Permission": {
+                "decision": "approve",
+                "priority": "high",
+            }
+        },
+    }
+
+    queue = evaluator.build_approved_issue_queue([state], feedback, "2026-04-26")
+
+    assert queue["issues"] == []
+    assert queue["deeper_review"][0]["decision"] == "deeper-review"
+    assert "review brief failed the quality gate" in queue["warnings"][0]
+
+
+def test_approved_issue_queue_rejects_candidate_without_matching_evidence_trace(
+    tmp_path: Path,
+) -> None:
+    repo_dir = tmp_path / "Travel-Plan-Permission"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# TPP\n", encoding="utf-8")
+    (repo_dir / "Issues.txt").write_text(
+        f"""1. Keep approved repo-local work
+{VALID_ISSUE_BODY}
+""",
+        encoding="utf-8",
+    )
+    config = evaluator.RepoConfig(
+        repo="stranske/Travel-Plan-Permission",
+        local_path="Travel-Plan-Permission",
+        status="active",
+        cadence="weekly",
+        decision_anchor="approval workflow",
+    )
+    state = evaluator.collect_repo_state(
+        tmp_path,
+        config,
+        review_profile={
+            "progress_summary": "TPP has implementation surfaces and needs operational proof.",
+            "readiness_summary": "TPP needs LangGraph and transport smoke coverage before live confidence.",
+            "review_focus": ["Verify the LangGraph test path before upload."],
+            "concerns": ["Do not treat fallback-only tests as readiness."],
+            "review_evidence_traces": [
+                VALID_REVIEW_TRACE | {"candidate_title_patterns": ["^Different issue$"]}
+            ],
+        },
+    )
+    feedback = {
+        "generated_on": "2026-04-26",
+        "defaults": {"approved_candidates": "all"},
+        "decisions": {
+            "stranske/Travel-Plan-Permission": {
+                "decision": "approve",
+                "priority": "high",
+            }
+        },
+    }
+
+    queue = evaluator.build_approved_issue_queue([state], feedback, "2026-04-26")
+
+    assert queue["issues"] == []
+    assert queue["deeper_review"][0]["decision"] == "deeper-review"
+    assert "has no matching review evidence trace" in queue["warnings"][0]
+
+
+def test_approved_archive_candidate_without_issue_body_is_routed_to_revision(
+    tmp_path: Path,
+) -> None:
+    repo_dir = tmp_path / "trip-planner"
+    repo_dir.mkdir()
+    (repo_dir / "README.md").write_text("# Trip planner\n", encoding="utf-8")
+    config = evaluator.RepoConfig(
+        repo="stranske/trip-planner",
+        local_path="trip-planner",
+        status="active",
+        cadence="weekly",
+        decision_anchor="planner workflow",
+    )
+    state = evaluator.collect_repo_state(
+        tmp_path,
+        config,
+        archive_candidates=[
+            evaluator.ArchiveCandidate(
+                title="Add planner end-to-end tests",
+                source_file="archive.jsonl",
+                thread_name="Planner review",
+                timestamp="2026-04-26T00:00:00Z",
+                excerpt="Need end-to-end tests for planner turns.",
+            )
+        ],
+        review_profile={
+            "progress_summary": "trip-planner has planner surfaces but needs e2e proof.",
+            "readiness_summary": "Planner readiness depends on an end-to-end smoke path.",
+            "review_focus": ["Verify planner turns through a real user path."],
+            "concerns": ["Archive snippets are not complete issue bodies."],
+            "review_evidence_traces": [VALID_REVIEW_TRACE],
+        },
+    )
+    feedback = {
+        "generated_on": "2026-04-26",
+        "defaults": {"approved_candidates": "all"},
+        "decisions": {"stranske/trip-planner": {"decision": "approve", "priority": "high"}},
+    }
+
+    queue = evaluator.build_approved_issue_queue([state], feedback, "2026-04-26")
+
+    assert queue["issues"] == []
+    assert queue["deeper_review"][0]["decision"] == "revise"
+    assert "needs issue-body revision before upload" in queue["warnings"][0]
 
 
 def test_collect_archive_candidates_reads_review_sessions(tmp_path: Path) -> None:
