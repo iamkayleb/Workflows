@@ -658,21 +658,21 @@ jobs:
         id: codex_auth
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "$CODEX_AUTH_JSON" ]; then
-            echo "::error::CODEX_AUTH_JSON secret is not set or empty."
-            echo "::error::Please add it to repository secrets."
-            echo "Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
-            exit 1
-          fi
-          mkdir -p ~/.codex
-          echo "$CODEX_AUTH_JSON" > ~/.codex/auth.json
-          chmod 600 ~/.codex/auth.json
-          echo "✅ Codex auth configured from CODEX_AUTH_JSON secret"
 
-          # Check token expiration
-          python3 << 'PYEOF'
+          auth_method=""
+
+          if [ -n "${CODEX_AUTH_JSON:-}" ]; then
+            mkdir -p ~/.codex
+            echo "$CODEX_AUTH_JSON" > ~/.codex/auth.json
+            chmod 600 ~/.codex/auth.json
+            echo "✅ Codex auth configured from CODEX_AUTH_JSON secret"
+
+            # Check token expiration — fall back to OPENAI_API_KEY if expired
+            auth_method="codex_auth_json"
+            python3 << 'PYEOF' || auth_method="expired"
           import json, base64, datetime, sys, os
 
           auth_path = os.path.expanduser("~/.codex/auth.json")
@@ -703,21 +703,18 @@ jobs:
               print(f"Token expires: {exp_time.isoformat()}")
               print(f"Days until expiration: {days_left}")
 
-              # Output for GitHub Actions
               with open(os.environ.get("GITHUB_OUTPUT", "/dev/null"), "a") as gh:
                   gh.write(f"token_expires={exp_time.isoformat()}\n")
                   gh.write(f"days_until_expiry={days_left}\n")
 
               if days_left < 0:
                   print("::error::CODEX_AUTH_JSON has expired!")
-                  print("::error::Run 'codex login --device-auth' and update the secret.")
-                  print("::error::See docs/ci/CHATGPT_SUBSCRIPTION_CI.md for instructions.")
+                  print("::warning::Will fall back to OPENAI_API_KEY if available.")
                   sys.exit(1)
               elif days_left < 2:
                   print(
                     f"::warning::CODEX_AUTH_JSON expires in {hours_left:.0f} hours!"
                   )
-                  print("::warning::Consider refreshing soon.")
                   print("::warning::Run 'codex login --device-auth' and update the secret.")
               elif days_left < 5:
                   print(f"::notice::CODEX_AUTH_JSON expires in {days_left} days.")
@@ -725,6 +722,22 @@ jobs:
           except Exception as e:
               print(f"::warning::Could not check token expiration: {e}")
           PYEOF
+          fi
+
+          # Fall back to OPENAI_API_KEY when CODEX_AUTH_JSON is missing or expired
+          if [ "$auth_method" != "codex_auth_json" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
+            auth_method="openai_api_key"
+            echo "✅ Using OPENAI_API_KEY for Codex authentication"
+          fi
+
+          if [ -z "$auth_method" ] || { [ "$auth_method" = "expired" ] && [ -z "${OPENAI_API_KEY:-}" ]; }; then
+            echo "::error::No valid Codex credentials found."
+            echo "::error::Set CODEX_AUTH_JSON (codex login --device-auth) or OPENAI_API_KEY."
+            echo "Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
+            exit 1
+          fi
+
+          echo "auth_method=${auth_method}" >> "$GITHUB_OUTPUT"
 
       # Clean up workflow-generated files that would confuse Codex about git state.
       # The .workflows-lib directory is a separate checkout (NOT a submodule) for scripts
@@ -860,13 +873,19 @@ jobs:
         id: run_codex
         env:
           CODEX_HOME: ${{ runner.temp }}/.codex
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_AUTH_METHOD: ${{ steps.codex_auth.outputs.auth_method }}
         run: |
           set -euo pipefail
 
-          # Copy auth to CODEX_HOME
+          # Copy auth to CODEX_HOME (skip if using API key fallback)
           mkdir -p "$CODEX_HOME"
-          cp ~/.codex/auth.json "$CODEX_HOME/auth.json"
-          chmod 600 "$CODEX_HOME/auth.json"
+          if [ "$CODEX_AUTH_METHOD" != "openai_api_key" ] && [ -f ~/.codex/auth.json ]; then
+            cp ~/.codex/auth.json "$CODEX_HOME/auth.json"
+            chmod 600 "$CODEX_HOME/auth.json"
+          elif [ "$CODEX_AUTH_METHOD" = "openai_api_key" ]; then
+            echo "Using OPENAI_API_KEY (auth.json skipped)"
+          fi
 
           # Build codex exec command
           PROMPT_FILE="${{ steps.prompt.outputs.file }}"
