@@ -727,7 +727,9 @@ jobs:
           # Fall back to OPENAI_API_KEY when CODEX_AUTH_JSON is missing or expired
           if [ "$auth_method" != "codex_auth_json" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
             auth_method="openai_api_key"
-            echo "✅ Using OPENAI_API_KEY for Codex authentication"
+            echo "Logging in with OPENAI_API_KEY..."
+            printenv OPENAI_API_KEY | codex login --with-api-key
+            echo "✅ Codex auth configured from OPENAI_API_KEY"
           fi
 
           if [ -z "$auth_method" ] || { [ "$auth_method" = "expired" ] && [ -z "${OPENAI_API_KEY:-}" ]; }; then
@@ -878,13 +880,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Copy auth to CODEX_HOME (skip if using API key fallback)
+          # Copy auth to CODEX_HOME so the CLI finds credentials
           mkdir -p "$CODEX_HOME"
-          if [ "$CODEX_AUTH_METHOD" != "openai_api_key" ] && [ -f ~/.codex/auth.json ]; then
+          if [ -f ~/.codex/auth.json ]; then
             cp ~/.codex/auth.json "$CODEX_HOME/auth.json"
             chmod 600 "$CODEX_HOME/auth.json"
-          elif [ "$CODEX_AUTH_METHOD" = "openai_api_key" ]; then
-            echo "Using OPENAI_API_KEY (auth.json skipped)"
           fi
 
           # Build codex exec command
@@ -955,7 +955,7 @@ jobs:
           fi
           mapfile -t EXTRA_ARGS < "$EXTRA_ARGS_FILE" || true
 
-          echo "Running Codex CLI directly with ChatGPT auth..."
+          echo "Running Codex CLI (auth: ${CODEX_AUTH_METHOD})..."
           echo "Prompt file: $PROMPT_FILE"
           echo "Sandbox: $SANDBOX"
           if [ "${#EXTRA_ARGS[@]}" -gt 0 ]; then
