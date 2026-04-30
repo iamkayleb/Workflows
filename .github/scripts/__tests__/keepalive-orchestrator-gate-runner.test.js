@@ -69,6 +69,7 @@ function createGithub(options = {}) {
     combinedStatus = { state: 'success', statuses: [] },
     comments = [],
     graphqlError,
+    graphqlUnavailable = false,
   } = options;
   const calls = {
     labelAdds: [],
@@ -113,15 +114,17 @@ function createGithub(options = {}) {
     async paginate() {
       return comments;
     },
-    async graphql(query, variables) {
+    __calls: calls,
+  };
+  if (!graphqlUnavailable) {
+    github.graphql = async function graphql(query, variables) {
       calls.graphql.push({ query, variables });
       if (graphqlError) {
         throw graphqlError;
       }
       return { markPullRequestReadyForReview: { pullRequest: { number: pull?.number || 17, isDraft: false } } };
-    },
-    __calls: calls,
-  };
+    };
+  }
   return github;
 }
 
@@ -435,7 +438,52 @@ test('runKeepaliveGate converts checklist-complete draft PRs to ready for review
   assert.equal(outputs.reason, '');
   assert.equal(github.__calls.graphql.length, 1);
   assert.equal(github.__calls.graphql[0].variables.pullRequestId, 'PR_node_17');
+  const readyMutation = github.__calls.graphql[0].query;
+  assert.match(readyMutation, /mutation MarkPullRequestReadyForReview\(\$pullRequestId: ID!\) \{/);
+  assert.equal(
+    (readyMutation.match(/\{/g) || []).length,
+    (readyMutation.match(/\}/g) || []).length
+  );
+  assert.match(readyMutation, /\n\}$/);
   assert.ok(summary.entries.some((entry) => entry.text?.includes('marked ready for review')));
+  restore();
+});
+
+test('runKeepaliveGate distinguishes unavailable GraphQL client from missing PR node id', async () => {
+  const { core, outputs, summary } = createCore();
+  const gateStub = async () => createGateResult();
+  const { runKeepaliveGate, restore } = loadRunnerWithGate(gateStub);
+
+  const pr = makePullRequest({
+    draft: true,
+    labels: ['agents:keepalive', 'agent:codex'],
+    body: '- [x] Implementation complete\n- [x] Verified behavior',
+  });
+  const github = createGithub({
+    pull: pr,
+    graphqlUnavailable: true,
+  });
+
+  await runKeepaliveGate({
+    core,
+    github,
+    context: { repo: { owner: 'octo', repo: 'demo' }, runId: 44 },
+    env: makeEnv({ KEEPALIVE_MAX_RETRIES: '5' }),
+  });
+
+  assert.equal(outputs.proceed, 'false');
+  assert.equal(outputs.reason, 'pr-draft-ready-failed');
+  assert.equal(github.__calls.graphql.length, 0);
+  assert.ok(
+    summary.entries.some((entry) =>
+      entry.text?.includes('GitHub GraphQL client is unavailable')
+    )
+  );
+  assert.ok(
+    !summary.entries.some((entry) =>
+      entry.text?.includes('missing GraphQL PR node id')
+    )
+  );
   restore();
 });
 

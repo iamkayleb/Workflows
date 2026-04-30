@@ -14,6 +14,14 @@ const PAUSE_LABEL = 'agents:paused';
 const NEEDS_HUMAN_LABEL = 'needs-human';
 const NEEDS_ATTENTION_LABEL = 'agent:needs-attention';
 const DRAFT_DISPOSITION_MARKER = '<!-- keepalive-draft-disposition -->';
+const MARK_PULL_REQUEST_READY_FOR_REVIEW_MUTATION = `mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {
+  markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {
+    pullRequest {
+      number
+      isDraft
+    }
+  }
+}`;
 
 function normaliseLabelName(label) {
   if (!label) {
@@ -105,23 +113,17 @@ async function addLabelsIfMissing({ github, owner, repo, prNumber, labels, curre
 
 async function markDraftReadyForReview({ github, pr, core, summary }) {
   const nodeId = String(pr?.node_id || '').trim();
-  if (!nodeId || typeof github.graphql !== 'function') {
+  if (!nodeId) {
     summary.addRaw('Draft PR could not be converted automatically: missing GraphQL PR node id.').addEOL();
+    return false;
+  }
+  if (typeof github.graphql !== 'function') {
+    summary.addRaw('Draft PR could not be converted automatically: GitHub GraphQL client is unavailable.').addEOL();
     return false;
   }
 
   try {
-    await github.graphql(
-      `mutation($pullRequestId: ID!) {
-        markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {
-          pullRequest {
-            number
-            isDraft
-          }
-        }
-      }`,
-      { pullRequestId: nodeId }
-    );
+    await github.graphql(MARK_PULL_REQUEST_READY_FOR_REVIEW_MUTATION, { pullRequestId: nodeId });
     summary.addRaw('Draft PR had no unchecked checklist items; marked ready for review.').addEOL();
     return true;
   } catch (error) {
