@@ -340,6 +340,39 @@ test('runKeepaliveGate self-heals missing keepalive labels for automation PRs', 
   restore();
 });
 
+test('runKeepaliveGate infers agent from claude/* branch when no agent label is present', async () => {
+  const { core, outputs } = createCore();
+  // Simulate evaluateKeepaliveGate returning no primaryAgent (no existing agent:* label).
+  const gateStub = async () => createGateResult({ primaryAgent: '' });
+  const { runKeepaliveGate, restore } = loadRunnerWithGate(gateStub);
+
+  const pr = makePullRequest({
+    labels: [],
+    head: { sha: 'abc123', ref: 'claude/issue-17-portal-state' },
+  });
+  const github = createGithub({
+    pull: pr,
+    runsByWorkflow: {
+      'pr-00-gate.yml': [
+        { head_sha: 'abc123', status: 'completed', conclusion: 'success' },
+      ],
+    },
+  });
+
+  await runKeepaliveGate({
+    core,
+    github,
+    context: { repo: { owner: 'octo', repo: 'demo' }, runId: 46 },
+    env: makeEnv(),
+  });
+
+  assert.equal(outputs.agent_alias, 'claude');
+  assert.deepEqual(github.__calls.labelAdds.map((call) => call.labels), [
+    ['agents:keepalive', 'agent:claude'],
+  ]);
+  restore();
+});
+
 test('runKeepaliveGate stops after too many prior failures', async () => {
   const { core, outputs } = createCore();
   const gateStub = async () => createGateResult();

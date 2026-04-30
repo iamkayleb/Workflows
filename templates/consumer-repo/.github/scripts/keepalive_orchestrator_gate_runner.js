@@ -30,6 +30,28 @@ function isConcreteAgentLabel(label) {
   return /^agent:[a-z0-9_-]+$/.test(value) && value !== NEEDS_ATTENTION_LABEL && value !== 'agent:auto';
 }
 
+function inferAgentFromBranch(headRef, registry) {
+  const ref = String(headRef || '').trim().toLowerCase();
+  if (!ref || !registry || !registry.agents) {
+    return '';
+  }
+  const firstSegment = ref.split('/')[0];
+  if (!firstSegment) {
+    return '';
+  }
+  for (const [key, config] of Object.entries(registry.agents)) {
+    const branchPrefix = String(config?.branch_prefix || '').trim().toLowerCase();
+    const prefixSegment = branchPrefix ? branchPrefix.split('/')[0] : '';
+    if (prefixSegment && prefixSegment === firstSegment) {
+      return String(key).trim().toLowerCase();
+    }
+    if (String(key).trim().toLowerCase() === firstSegment) {
+      return String(key).trim().toLowerCase();
+    }
+  }
+  return '';
+}
+
 function hasAutomationSignal(pr, labels) {
   const headRef = String(pr?.head?.ref || '').trim().toLowerCase();
   return (
@@ -262,13 +284,22 @@ async function runKeepaliveGate({ core, github, context, env }) {
   });
 
   let _defaultAgent = 'codex';
+  let _registry = null;
   try {
     const { loadAgentRegistry } = require('./agent_registry.js');
-    _defaultAgent = loadAgentRegistry().default_agent || 'codex';
+    _registry = loadAgentRegistry();
+    _defaultAgent = _registry.default_agent || 'codex';
   } catch (_) {
     // Registry unavailable — fall back to codex
   }
-  const agentAlias = preGate.primaryAgent || _defaultAgent;
+  const inferredFromBranch = preGate.primaryAgent
+    ? ''
+    : inferAgentFromBranch(pr?.head?.ref, _registry);
+  const agentAlias = String(
+    preGate.primaryAgent || inferredFromBranch || _defaultAgent || ''
+  )
+    .trim()
+    .toLowerCase();
   const runCap = Number.isFinite(preGate.runCap) ? preGate.runCap : '';
   const activeRuns = Number.isFinite(preGate.activeRuns) ? preGate.activeRuns : '';
   const inflightRuns = '';
