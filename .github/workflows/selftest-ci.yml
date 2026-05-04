@@ -16,8 +16,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify:
+    name: classify changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      is_docs_only: ${{ steps.classify.outputs.is-docs-only || 'false' }}
+      classification_rationale: >-
+        ${{ steps.classify.outputs.classification-rationale || 'path classifier unavailable' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Classify changed paths
+        id: classify
+        uses: ./.github/actions/path-classifier
+        with:
+          force-full: ${{ github.event_name == 'workflow_dispatch' }}
+
   test-javascript:
     name: JavaScript Tests
+    needs: classify
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.classify.outputs.is_docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -37,6 +56,8 @@ jobs:
 
   test-python:
     name: Python Tests
+    needs: classify
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.classify.outputs.is_docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -57,6 +78,8 @@ jobs:
 
   lint-and-validate:
     name: Lint, Format & YAML Validation
+    needs: classify
+    if: ${{ github.event_name == 'workflow_dispatch' || needs.classify.outputs.is_docs_only != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
