@@ -150,6 +150,29 @@ test('blocks consumer-only allowlisted workflow removals in Workflows repo', () 
   assert.ok(result.fatalViolations.some((reason) => reason.includes('was deleted')));
 });
 
+test('uses GITHUB_REPOSITORY when evaluating consumer-only removals', () => {
+  const previousRepository = process.env.GITHUB_REPOSITORY;
+  process.env.GITHUB_REPOSITORY = 'stranske/Workflows';
+
+  try {
+    const result = evaluateGuard({
+      files: [{
+        filename: '.github/workflows/agents-autofix-loop.yml',
+        status: 'removed',
+      }],
+    });
+
+    assert.equal(result.blocked, true);
+    assert.ok(result.fatalViolations.some((reason) => reason.includes('was deleted')));
+  } finally {
+    if (previousRepository === undefined) {
+      delete process.env.GITHUB_REPOSITORY;
+    } else {
+      process.env.GITHUB_REPOSITORY = previousRepository;
+    }
+  }
+});
+
 test('allows consumer-only allowlisted workflow removals in consumer repos', () => {
   const result = evaluateGuard({
     repository: 'stranske/Template',
