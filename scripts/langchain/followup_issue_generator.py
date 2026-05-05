@@ -1768,10 +1768,9 @@ def _build_why_section(
     if verification_data.structural_issues:
         parts.append("The original issue had structural problems that may have hindered progress.")
 
-    if (
-        _has_mixed_repo_and_workflow_acceptance_criteria(original_issue)
-        and not _verification_feedback_mentions_workflow_sync(verification_data)
-    ):
+    if _has_mixed_repo_and_workflow_acceptance_criteria(
+        original_issue
+    ) and not _verification_feedback_mentions_workflow_sync(verification_data):
         parts.append(
             "Workflow-sync acceptance criteria were de-emphasized so this follow-up stays "
             "focused on the repo-local verifier concerns."
