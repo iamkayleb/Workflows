@@ -1806,7 +1806,9 @@ def _has_mixed_repo_and_workflow_acceptance_criteria(original_issue: OriginalIss
     if not criteria:
         return False
     has_workflow = any(_is_workflow_sync_acceptance_criterion(criterion) for criterion in criteria)
-    has_repo_local = any(not _is_workflow_sync_acceptance_criterion(criterion) for criterion in criteria)
+    has_repo_local = any(
+        not _is_workflow_sync_acceptance_criterion(criterion) for criterion in criteria
+    )
     return has_workflow and has_repo_local
 
 
@@ -1829,9 +1831,7 @@ def _select_followup_acceptance_criteria(
         return []
 
     filtered = [
-        criterion
-        for criterion in criteria
-        if not _is_workflow_sync_acceptance_criterion(criterion)
+        criterion for criterion in criteria if not _is_workflow_sync_acceptance_criterion(criterion)
     ]
     if filtered:
         return filtered[:limit]

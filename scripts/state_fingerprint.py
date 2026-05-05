@@ -409,7 +409,9 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--mode", choices=["enforce", "warning"], default="enforce")
     compare.set_defaults(func=_compare_command)
 
-    store = subparsers.add_parser("store", help="persist a fingerprint after workflow work completes")
+    store = subparsers.add_parser(
+        "store", help="persist a fingerprint after workflow work completes"
+    )
     store.add_argument("--workflow", required=True)
     store.add_argument("--hash", required=True)
     store.add_argument("--storage", choices=["pr-comment", "repo-variable"], default="pr-comment")
