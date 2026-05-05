@@ -118,10 +118,15 @@ test('blocks renames of protected workflows that are not allowlisted', () => {
 test('allows removal of allowlisted workflow paths', () => {
   const allowlistedPaths = [
     '.github/workflows/agents-75-keepalive-on-gate.yml',
-    '.github/workflows/agents-autofix-loop.yml',
-    '.github/workflows/agents-bot-comment-handler.yml',
-    '.github/workflows/agents-keepalive-loop.yml',
-    '.github/workflows/agents-verify-to-issue-v2.yml',
+    '.github/workflows/agents-keepalive-pr.yml',
+    '.github/workflows/agents-63-chatgpt-issue-sync.yml',
+    '.github/workflows/agents-63-issue-intake.yml',
+    '.github/workflows/agents-64-pr-comment-commands.yml',
+    '.github/workflows/agents-74-pr-body-writer.yml',
+    '.github/workflows/agents-pr-meta.yml',
+    '.github/workflows/agents-pr-meta-v2.yml',
+    '.github/workflows/agents-pr-meta-v3.yml',
+    '.github/workflows/agents-verify-to-issue.yml',
   ];
 
   for (const filename of allowlistedPaths) {
@@ -148,6 +153,29 @@ test('blocks consumer-only allowlisted workflow removals in Workflows repo', () 
 
   assert.equal(result.blocked, true);
   assert.ok(result.fatalViolations.some((reason) => reason.includes('was deleted')));
+});
+
+test('uses GITHUB_REPOSITORY when evaluating consumer-only removals', () => {
+  const previousRepository = process.env.GITHUB_REPOSITORY;
+  process.env.GITHUB_REPOSITORY = 'stranske/Workflows';
+
+  try {
+    const result = evaluateGuard({
+      files: [{
+        filename: '.github/workflows/agents-autofix-loop.yml',
+        status: 'removed',
+      }],
+    });
+
+    assert.equal(result.blocked, true);
+    assert.ok(result.fatalViolations.some((reason) => reason.includes('was deleted')));
+  } finally {
+    if (previousRepository === undefined) {
+      delete process.env.GITHUB_REPOSITORY;
+    } else {
+      process.env.GITHUB_REPOSITORY = previousRepository;
+    }
+  }
 });
 
 test('allows consumer-only allowlisted workflow removals in consumer repos', () => {

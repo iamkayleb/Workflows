@@ -926,6 +926,7 @@ test('CLI writes report files and prints markdown summary', () => {
         !key.startsWith('BOT_COMMENT_REUSABLE_')
     )
   );
+  delete cliEnv.NODE_OPTIONS;
 
   const result = spawnSync(
     process.execPath,
