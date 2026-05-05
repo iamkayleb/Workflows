@@ -716,6 +716,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.evaluate.outputs.pr_number }}
         run: |
           python scripts/state_fingerprint.py store \
             --workflow "${GITHUB_WORKFLOW}" \

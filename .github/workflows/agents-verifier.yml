@@ -342,6 +342,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ needs.check.outputs.pr_number }}
         run: |
           python scripts/state_fingerprint.py store \
             --workflow "${GITHUB_WORKFLOW}" \
