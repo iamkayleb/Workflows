@@ -85,6 +85,7 @@ def _marker_re(workflow_name: str) -> re.Pattern[str]:
 def _build_marker(workflow_name: str, fingerprint_hash: str) -> str:
     payload = {"hash": fingerprint_hash, "ts": _utc_now()}
     return (
+        f"Workflow state fingerprint for {workflow_name}. Do not edit.\n\n"
         f"<!-- {MARKER_PREFIX}:{workflow_name}:{MARKER_VERSION} "
         f"{json.dumps(payload, sort_keys=True, separators=(',', ':'))} -->"
     )
@@ -368,7 +369,8 @@ def _compare_command(args: argparse.Namespace) -> int:
         should_run = True
         reason = f"warning-mode:{decision.reason}"
 
-    store_fingerprint(args.workflow, decision.current_hash, storage)
+    if decision.should_run or args.mode == "warning":
+        store_fingerprint(args.workflow, decision.current_hash, storage)
 
     outputs = {
         "should_run": "true" if should_run else "false",

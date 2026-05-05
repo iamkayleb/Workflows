@@ -98,6 +98,7 @@ jobs:
               ''
             }}
           GATE_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          FORCE_RETRY: ${{ github.event.inputs.force_retry || 'false' }}
         run: |
           if [ -z "${PR_NUMBER:-}" ]; then
             {
@@ -136,6 +137,7 @@ jobs:
               "pr_number": int(pr_number),
               "head_sha": pr.get("head", {}).get("sha", ""),
               "gate_conclusion": os.environ.get("GATE_CONCLUSION", ""),
+              "force_retry": os.environ.get("FORCE_RETRY", "").lower() == "true",
               "autofix_label_state": [
                   name for name in label_names
                   if name.startswith("autofix") or name == "agent:retry"
