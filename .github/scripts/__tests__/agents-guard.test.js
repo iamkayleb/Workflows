@@ -205,6 +205,34 @@ test('blocks renames of allowlisted removal paths', () => {
   assert.ok(result.fatalViolations.some((reason) => reason.includes('was renamed')));
 });
 
+test('allows archive renames of allowlisted removal paths', () => {
+  const result = evaluateGuard({
+    repository: 'stranske/Template',
+    files: [{
+      filename: 'archives/deprecated-workflows/agents-autofix-loop.yml',
+      previous_filename: '.github/workflows/agents-autofix-loop.yml',
+      status: 'renamed',
+    }],
+  });
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.fatalViolations.length, 0);
+});
+
+test('blocks consumer-only archive renames in Workflows repo', () => {
+  const result = evaluateGuard({
+    repository: 'stranske/Workflows',
+    files: [{
+      filename: 'archives/deprecated-workflows/agents-autofix-loop.yml',
+      previous_filename: '.github/workflows/agents-autofix-loop.yml',
+      status: 'renamed',
+    }],
+  });
+
+  assert.equal(result.blocked, true);
+  assert.ok(result.fatalViolations.some((reason) => reason.includes('was renamed')));
+});
+
 test('does not allow label-only bypass without codeowner approval', () => {
   const result = evaluateGuard({
     files: [protectedFile],
