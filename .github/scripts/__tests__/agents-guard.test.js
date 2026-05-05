@@ -219,6 +219,20 @@ test('allows archive renames of allowlisted removal paths', () => {
   assert.equal(result.fatalViolations.length, 0);
 });
 
+test('blocks renames into retired workflow archive directory', () => {
+  const result = evaluateGuard({
+    repository: 'stranske/Template',
+    files: [{
+      filename: '.github/workflows/archive/agents-autofix-loop.yml',
+      previous_filename: '.github/workflows/agents-autofix-loop.yml',
+      status: 'renamed',
+    }],
+  });
+
+  assert.equal(result.blocked, true);
+  assert.ok(result.fatalViolations.some((reason) => reason.includes('was renamed')));
+});
+
 test('blocks consumer-only archive renames in Workflows repo', () => {
   const result = evaluateGuard({
     repository: 'stranske/Workflows',

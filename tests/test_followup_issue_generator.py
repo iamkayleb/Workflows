@@ -41,6 +41,42 @@ def test_select_followup_acceptance_criteria_drops_workflow_sync_items() -> None
     ]
 
 
+def test_select_followup_acceptance_criteria_keeps_workflow_items_for_workflow_feedback() -> None:
+    original_issue = OriginalIssueData(
+        title="Mixed verifier follow-up",
+        number=44,
+        tasks=[],
+        acceptance_criteria=[
+            "Database migrations preserve existing records",
+            "Workflow template sync PRs are merged across consumers",
+        ],
+    )
+    verification_data = VerificationData(
+        concerns=["Workflow template sync acceptance was not satisfied"]
+    )
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == original_issue.acceptance_criteria
+
+
+def test_select_followup_acceptance_criteria_keeps_repo_local_agent_items() -> None:
+    original_issue = OriginalIssueData(
+        title="Repo-local agent UI",
+        number=45,
+        tasks=[],
+        acceptance_criteria=[
+            "The portal UI can reopen saved workflow state after refresh",
+            "Update .github/agents/registry.yml with repo-local agent config",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The portal did not reopen saved state"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == original_issue.acceptance_criteria
+
+
 def test_build_why_section_explains_mixed_surface_deemphasis() -> None:
     original_issue = OriginalIssueData(
         title="Mixed rollout",
