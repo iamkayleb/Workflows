@@ -219,7 +219,7 @@ test('allows archive renames of allowlisted removal paths', () => {
   assert.equal(result.fatalViolations.length, 0);
 });
 
-test('blocks renames into retired workflow archive directory', () => {
+test('allows renames into retired workflow archive directory', () => {
   const result = evaluateGuard({
     repository: 'stranske/Template',
     files: [{
@@ -229,8 +229,22 @@ test('blocks renames into retired workflow archive directory', () => {
     }],
   });
 
-  assert.equal(result.blocked, true);
-  assert.ok(result.fatalViolations.some((reason) => reason.includes('was renamed')));
+  assert.equal(result.blocked, false);
+  assert.equal(result.fatalViolations.length, 0);
+});
+
+test('allows renames into legacy workflows-archive directory', () => {
+  const result = evaluateGuard({
+    repository: 'stranske/Travel-Plan-Permission',
+    files: [{
+      filename: '.github/workflows-archive/agents-autofix-loop.yml',
+      previous_filename: '.github/workflows/agents-autofix-loop.yml',
+      status: 'renamed',
+    }],
+  });
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.fatalViolations.length, 0);
 });
 
 test('blocks consumer-only archive renames in Workflows repo', () => {
