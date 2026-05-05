@@ -60,6 +60,35 @@ def test_select_followup_acceptance_criteria_keeps_workflow_items_for_workflow_f
     assert selected == original_issue.acceptance_criteria
 
 
+def test_select_followup_acceptance_criteria_accepts_plain_list() -> None:
+    criteria = [
+        "Workflows-owned scripts in Pension-Data stay synced",
+        "Imported records keep their account IDs",
+    ]
+    verification_data = VerificationData(concerns=["Imported records lost account IDs"])
+
+    selected = _select_followup_acceptance_criteria(criteria, verification_data)
+
+    assert selected == ["Imported records keep their account IDs"]
+
+
+def test_select_followup_acceptance_criteria_detects_workflow_file_markers() -> None:
+    original_issue = OriginalIssueData(
+        title="Workflow path rollout",
+        number=46,
+        tasks=[],
+        acceptance_criteria=[
+            "Update .github/workflows/agents-verifier.yml from the template",
+            "The dashboard export renders for the selected account",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The dashboard export failed"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == ["The dashboard export renders for the selected account"]
+
+
 def test_select_followup_acceptance_criteria_keeps_repo_local_agent_items() -> None:
     original_issue = OriginalIssueData(
         title="Repo-local agent UI",

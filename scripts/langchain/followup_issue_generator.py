@@ -1787,6 +1787,12 @@ def _build_why_section(
 WORKFLOW_SYNC_ACCEPTANCE_MARKERS = (
     "consumer sync",
     "consumer-sync",
+    ".github/workflows/",
+    "workflow file",
+    "workflow files",
+    "workflow-owned",
+    "workflows-owned",
+    "workflows-owned scripts",
     "gate workflow",
     "maint-68",
     "synced workflow",
@@ -1799,13 +1805,25 @@ WORKFLOW_SYNC_ACCEPTANCE_MARKERS = (
 )
 
 
+def _acceptance_criteria_from_original_issue(
+    original_issue: OriginalIssueData | list[str],
+) -> list[str]:
+    if isinstance(original_issue, OriginalIssueData):
+        raw_criteria = original_issue.acceptance_criteria
+    else:
+        raw_criteria = original_issue
+    return [criterion for criterion in raw_criteria if criterion]
+
+
 def _is_workflow_sync_acceptance_criterion(criterion: str) -> bool:
     normalized = str(criterion or "").strip().lower()
     return any(marker in normalized for marker in WORKFLOW_SYNC_ACCEPTANCE_MARKERS)
 
 
-def _has_mixed_repo_and_workflow_acceptance_criteria(original_issue: OriginalIssueData) -> bool:
-    criteria = [criterion for criterion in original_issue.acceptance_criteria if criterion]
+def _has_mixed_repo_and_workflow_acceptance_criteria(
+    original_issue: OriginalIssueData | list[str],
+) -> bool:
+    criteria = _acceptance_criteria_from_original_issue(original_issue)
     if not criteria:
         return False
     has_workflow = any(_is_workflow_sync_acceptance_criterion(criterion) for criterion in criteria)
@@ -1826,7 +1844,7 @@ def _verification_feedback_mentions_workflow_sync(verification_data: Verificatio
 
 
 def _select_followup_acceptance_criteria(
-    original_issue: OriginalIssueData,
+    original_issue: OriginalIssueData | list[str],
     verification_data: VerificationData,
     *,
     limit: int = 10,
@@ -1839,7 +1857,7 @@ def _select_followup_acceptance_criteria(
     avoid restating workflow-sync rollout criteria as if they were local tasks.
     """
 
-    criteria = [criterion for criterion in original_issue.acceptance_criteria if criterion]
+    criteria = _acceptance_criteria_from_original_issue(original_issue)
     if not criteria:
         return []
 
