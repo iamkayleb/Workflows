@@ -117,17 +117,17 @@ test('warning mode bypasses denied decisions', () => {
   assert.match(result.reason, /warning mode bypassed denial/);
 });
 
-test('unlabeled events include the removed label as an event signal', () => {
+test('unlabeled events only include labels still present after removal', () => {
   const labels = extractLabels(issuePayload({
     action: 'unlabeled',
     label: { name: 'agent:codex' },
     issue: { labels: [{ name: 'agents:auto-pilot' }] },
   }));
 
-  assert.deepEqual(labels, ['agents:auto-pilot', 'agent:codex']);
+  assert.deepEqual(labels, ['agents:auto-pilot']);
 });
 
-test('unlabeled events can match the removed expected label', () => {
+test('unlabeled events do not match the removed expected label', () => {
   const result = evaluateEligibility({
     payload: issuePayload({
       action: 'unlabeled',
@@ -139,8 +139,8 @@ test('unlabeled events can match the removed expected label', () => {
     expectedLabels: 'agents:keepalive',
   });
 
-  assert.equal(result.shouldRun, true);
-  assert.equal(result.matchedLabel, 'agents:keepalive');
+  assert.equal(result.shouldRun, false);
+  assert.equal(result.reason, 'expected label not present');
 });
 
 test('event-name input default stays blank so runtime env fallback is used', () => {
