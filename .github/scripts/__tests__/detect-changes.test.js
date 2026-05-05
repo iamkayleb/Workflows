@@ -183,3 +183,29 @@ test('detectChanges falls back to raw github when wrapper initialization fails',
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /Failed to enable rate-limit wrapper for detect-changes/);
 });
+
+test('detectChanges preserves non-error wrapper initialization failures', async () => {
+  const warnings = [];
+  const github = {};
+  Object.defineProperty(github, 'request', {
+    get() {
+      throw 'string boom';
+    },
+  });
+  github.hook = {};
+
+  await detectChanges({
+    github,
+    core: {
+      warning(message) {
+        warnings.push(String(message));
+      },
+      setOutput() {},
+    },
+    context: { eventName: 'pull_request' },
+    files: ['src/app.py'],
+  });
+
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /string boom/);
+});

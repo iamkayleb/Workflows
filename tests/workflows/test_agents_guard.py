@@ -229,6 +229,32 @@ def test_issue_intake_deletion_allowed():
 
 
 @skip_if_no_node
+@pytest.mark.parametrize(
+    "filename",
+    [
+        ".github/workflows/agents-autofix-loop.yml",
+        ".github/workflows/agents-bot-comment-handler.yml",
+        ".github/workflows/agents-keepalive-loop.yml",
+        ".github/workflows/agents-verify-to-issue-v2.yml",
+    ],
+)
+def test_consolidated_agent_workflow_deletions_allowed(filename):
+    result = run_guard(
+        files=[
+            {
+                "filename": filename,
+                "status": "removed",
+            }
+        ],
+        codeowners=CODEOWNERS_SAMPLE,
+    )
+
+    assert result["blocked"] is False
+    assert not result["failureReasons"]
+    assert result["commentBody"] is None
+
+
+@skip_if_no_node
 def test_rename_blocks_with_guidance():
     result = run_guard(
         files=[

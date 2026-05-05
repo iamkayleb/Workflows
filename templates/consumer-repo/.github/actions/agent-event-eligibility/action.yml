@@ -18,15 +18,22 @@ inputs:
     required: false
     default: ''
   expected-actions:
-    description: Comma-separated event action allow-list, or event names for events without an action.
+    description: >-
+      Comma-separated event action allow-list, or event names for events
+      without an action.
     required: false
     default: ''
   custom-predicate:
-    description: JMESPath-style predicate evaluated against the event payload. Must be truthy when supplied.
+    description: >-
+      Custom predicate evaluated against the event payload. Supports payload
+      paths, literals, comparisons, &&/||/!, and
+      contains/starts_with/ends_with/length/not_null functions.
     required: false
     default: ''
   mode:
-    description: Eligibility mode. Use enforce to skip denied events, or warning to report denials without skipping.
+    description: >-
+      Eligibility mode. Use enforce to skip denied events, or warning to report
+      denials without skipping.
     required: false
     default: enforce
 outputs:

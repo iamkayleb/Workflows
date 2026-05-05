@@ -269,6 +269,7 @@ jobs:
               }
               for item in files
           ]
+          diff_surface.sort(key=lambda item: item["filename"])
           diff_hash = hashlib.sha256(
               json.dumps(diff_surface, sort_keys=True, separators=(",", ":")).encode("utf-8")
           ).hexdigest()

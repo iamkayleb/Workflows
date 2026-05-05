@@ -137,6 +137,46 @@ test('allows removal of allowlisted workflow paths', () => {
   }
 });
 
+test('blocks consumer-only allowlisted workflow removals in Workflows repo', () => {
+  const result = evaluateGuard({
+    repository: 'stranske/Workflows',
+    files: [{
+      filename: '.github/workflows/agents-autofix-loop.yml',
+      status: 'removed',
+    }],
+  });
+
+  assert.equal(result.blocked, true);
+  assert.ok(result.fatalViolations.some((reason) => reason.includes('was deleted')));
+});
+
+test('allows consumer-only allowlisted workflow removals in consumer repos', () => {
+  const result = evaluateGuard({
+    repository: 'stranske/Template',
+    files: [{
+      filename: '.github/workflows/agents-autofix-loop.yml',
+      status: 'removed',
+    }],
+  });
+
+  assert.equal(result.blocked, false);
+  assert.equal(result.fatalViolations.length, 0);
+});
+
+test('blocks renames of allowlisted removal paths', () => {
+  const result = evaluateGuard({
+    repository: 'stranske/Template',
+    files: [{
+      filename: '.github/workflows/agents-new-entrypoint.yml',
+      previous_filename: '.github/workflows/agents-autofix-loop.yml',
+      status: 'renamed',
+    }],
+  });
+
+  assert.equal(result.blocked, true);
+  assert.ok(result.fatalViolations.some((reason) => reason.includes('was renamed')));
+});
+
 test('does not allow label-only bypass without codeowner approval', () => {
   const result = evaluateGuard({
     files: [protectedFile],
