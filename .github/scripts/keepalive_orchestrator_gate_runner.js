@@ -14,6 +14,14 @@ const PAUSE_LABEL = 'agents:paused';
 const NEEDS_HUMAN_LABEL = 'needs-human';
 const NEEDS_ATTENTION_LABEL = 'agent:needs-attention';
 const DRAFT_DISPOSITION_MARKER = '<!-- keepalive-draft-disposition -->';
+const MARK_PULL_REQUEST_READY_FOR_REVIEW_MUTATION = `mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {
+  markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {
+    pullRequest {
+      number
+      isDraft
+    }
+  }
+}`;
 
 function normaliseLabelName(label) {
   if (!label) {
@@ -105,23 +113,17 @@ async function addLabelsIfMissing({ github, owner, repo, prNumber, labels, curre
 
 async function markDraftReadyForReview({ github, pr, core, summary }) {
   const nodeId = String(pr?.node_id || '').trim();
-  if (!nodeId || typeof github.graphql !== 'function') {
+  if (!nodeId) {
     summary.addRaw('Draft PR could not be converted automatically: missing GraphQL PR node id.').addEOL();
+    return false;
+  }
+  if (typeof github.graphql !== 'function') {
+    summary.addRaw('Draft PR could not be converted automatically: GitHub GraphQL client is unavailable.').addEOL();
     return false;
   }
 
   try {
-    await github.graphql(
-      `mutation($pullRequestId: ID!) {
-        markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {
-          pullRequest {
-            number
-            isDraft
-          }
-        }
-      }`,
-      { pullRequestId: nodeId }
-    );
+    await github.graphql(MARK_PULL_REQUEST_READY_FOR_REVIEW_MUTATION, { pullRequestId: nodeId });
     summary.addRaw('Draft PR had no unchecked checklist items; marked ready for review.').addEOL();
     return true;
   } catch (error) {
@@ -132,7 +134,17 @@ async function markDraftReadyForReview({ github, pr, core, summary }) {
   }
 }
 
-async function routeDraftToHuman({ github, owner, repo, prNumber, currentLabels, checkboxCounts, core, summary }) {
+async function routeDraftToHuman({
+  github,
+  owner,
+  repo,
+  prNumber,
+  currentLabels,
+  checkboxCounts,
+  noChecklist,
+  core,
+  summary,
+}) {
   await addLabelsIfMissing({
     github,
     owner,
@@ -144,11 +156,19 @@ async function routeDraftToHuman({ github, owner, repo, prNumber, currentLabels,
     summary,
   });
 
-  summary
-    .addRaw(
-      `Draft PR requires human disposition: checked=${checkboxCounts.checked}, unchecked=${checkboxCounts.unchecked}.`
-    )
-    .addEOL();
+  if (noChecklist) {
+    summary
+      .addRaw(
+        'Draft PR requires human disposition: no acceptance checklist found in PR body.'
+      )
+      .addEOL();
+  } else {
+    summary
+      .addRaw(
+        `Draft PR requires human disposition: checked=${checkboxCounts.checked}, unchecked=${checkboxCounts.unchecked}.`
+      )
+      .addEOL();
+  }
 
   let comments = [];
   try {
@@ -171,15 +191,23 @@ async function routeDraftToHuman({ github, owner, repo, prNumber, currentLabels,
     return;
   }
 
+  const draftReason = noChecklist
+    ? 'Keepalive found this PR still in draft with no acceptance checklist in the PR body. Draft PRs must not occupy automation capacity silently.'
+    : `Keepalive found this PR still in draft with ${checkboxCounts.unchecked} unchecked checklist item(s). Draft PRs must not occupy automation capacity silently.`;
+
+  const nextAction = noChecklist
+    ? 'Next human action: add an acceptance checklist to the PR body and mark it ready for review, or close/supersede the PR.'
+    : 'Next human action: finish the unchecked acceptance items and mark the PR ready for review, or close/supersede the PR.';
+
   const body = [
     DRAFT_DISPOSITION_MARKER,
     '### Draft PR requires human disposition',
     '',
-    `Keepalive found this PR still in draft with ${checkboxCounts.unchecked} unchecked checklist item(s). Draft PRs must not occupy automation capacity silently.`,
+    draftReason,
     '',
     `Applied \`${NEEDS_ATTENTION_LABEL}\`, \`${NEEDS_HUMAN_LABEL}\`, and \`${PAUSE_LABEL}\` so this is visible in automation summaries and human queues.`,
     '',
-    'Next human action: finish the unchecked acceptance items and mark the PR ready for review, or close/supersede the PR.',
+    nextAction,
   ].join('\n');
 
   try {
@@ -401,6 +429,7 @@ async function runKeepaliveGate({ core, github, context, env }) {
         )
         .addEOL();
 
+      const noChecklist = checkboxCounts.checked === 0 && checkboxCounts.unchecked === 0;
       const allChecklistWorkComplete = checkboxCounts.checked > 0 && checkboxCounts.unchecked === 0;
       if (allChecklistWorkComplete) {
         const ready = await markDraftReadyForReview({ github, pr, core, summary });
@@ -408,13 +437,33 @@ async function runKeepaliveGate({ core, github, context, env }) {
           pr.draft = false;
         } else {
           draftRequiresHuman = true;
-          await routeDraftToHuman({ github, owner, repo, prNumber, currentLabels, checkboxCounts, core, summary });
+          await routeDraftToHuman({
+            github,
+            owner,
+            repo,
+            prNumber,
+            currentLabels,
+            checkboxCounts,
+            noChecklist,
+            core,
+            summary,
+          });
           addReason('pr-draft-ready-failed');
         }
       } else {
         draftRequiresHuman = true;
-        await routeDraftToHuman({ github, owner, repo, prNumber, currentLabels, checkboxCounts, core, summary });
-        addReason('pr-draft-needs-human');
+        await routeDraftToHuman({
+          github,
+          owner,
+          repo,
+          prNumber,
+          currentLabels,
+          checkboxCounts,
+          noChecklist,
+          core,
+          summary,
+        });
+        addReason(noChecklist ? 'pr-draft-no-checklist' : 'pr-draft-needs-human');
       }
     }
     if (!draftRequiresHuman && headSha) {

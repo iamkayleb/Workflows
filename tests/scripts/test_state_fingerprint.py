@@ -120,6 +120,41 @@ def test_warning_mode_bypasses_skip_and_logs_delta(
     assert storage.writes == [prior]
 
 
+def test_enforce_mode_does_not_rewrite_matching_fingerprint(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    current = {"head_sha": "abc"}
+    prior = state_fingerprint.compute_fingerprint("wf", current)
+    storage = MemoryStorage(state_fingerprint._build_marker("wf", prior))
+
+    monkeypatch.setattr(state_fingerprint, "_storage_from_name", lambda _name, _workflow: storage)
+
+    exit_code = state_fingerprint.main(
+        [
+            "compare",
+            "--workflow",
+            "wf",
+            "--inputs",
+            json.dumps(current),
+            "--storage",
+            "pr-comment",
+        ]
+    )
+
+    outputs = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert outputs["should_run"] == "false"
+    assert outputs["reason"] == "fingerprint-match"
+    assert storage.writes == []
+
+
+def test_pr_comment_marker_includes_visible_guidance() -> None:
+    marker = state_fingerprint._build_marker("wf", "a" * 64)
+
+    assert marker.startswith("Workflow state fingerprint for wf. Do not edit.")
+    assert state_fingerprint._extract_hash(marker, "wf") == "a" * 64
+
+
 def test_malformed_prior_marker_is_tolerated() -> None:
     storage = MemoryStorage('<!-- fingerprint:wf:v1 {"hash": -->')
 
