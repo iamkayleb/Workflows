@@ -238,7 +238,8 @@ jobs:
               page = 1
               while True:
                   separator = "&" if "?" in path else "?"
-                  batch = api(f"{path}{separator}{urllib.parse.urlencode({'per_page': 100, 'page': page})}")
+                  query = urllib.parse.urlencode({"per_page": 100, "page": page})
+                  batch = api(f"{path}{separator}{query}")
                   results.extend(batch)
                   if len(batch) < 100:
                       return results
@@ -258,6 +259,7 @@ jobs:
               }
               for item in files
           ]
+          diff_surface.sort(key=lambda item: item["filename"])
           diff_hash = hashlib.sha256(
               json.dumps(diff_surface, sort_keys=True, separators=(",", ":")).encode("utf-8")
           ).hexdigest()

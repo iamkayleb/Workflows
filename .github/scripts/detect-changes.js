@@ -345,7 +345,8 @@ module.exports = {
     try {
       github = await ensureRateLimitWrapped({ github: rawGithub, core, env: process.env });
     } catch (error) {
-      core?.warning?.(`Failed to enable rate-limit wrapper for detect-changes: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+      core?.warning?.(`Failed to enable rate-limit wrapper for detect-changes: ${message}`);
     }
     return detectChanges({ github, context, core, files, fetchFiles });
   },

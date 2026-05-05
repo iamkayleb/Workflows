@@ -153,10 +153,15 @@ class GitHubApi:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
             raise RuntimeError(f"GitHub API {method} {path} failed: {exc.code} {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise RuntimeError(f"GitHub API {method} {path} failed: {exc}") from exc
 
         if not payload:
             return None
-        return json.loads(payload)
+        try:
+            return json.loads(payload)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"GitHub API {method} {path} returned invalid JSON: {exc}") from exc
 
     def paged_get(self, path: str) -> list[dict[str, Any]]:
         page = 1
@@ -376,7 +381,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.func(args)
-    except RuntimeError as exc:
+    except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 1
 
