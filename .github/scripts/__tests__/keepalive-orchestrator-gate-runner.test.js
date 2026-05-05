@@ -139,6 +139,34 @@ function makeEnv(overrides = {}) {
   };
 }
 
+test('normal numeric feature branches are not automation signals', async () => {
+  const { core, outputs } = createCore();
+  const pull = {
+    number: 17,
+    draft: false,
+    head: { ref: 'feat/123', sha: 'abc123' },
+    labels: [],
+    body: 'No checklists here.',
+  };
+  const github = createGithub({ pull });
+  const gate = loadRunnerWithGate(() => ({ ok: false, reason: 'not-routed' }));
+
+  try {
+    await gate.runKeepaliveGate({
+      github,
+      context: { repo: { owner: 'stranske', repo: 'Example' } },
+      core,
+      env: makeEnv(),
+    });
+  } finally {
+    gate.restore();
+  }
+
+  assert.equal(outputs.proceed, 'false');
+  assert.match(outputs.reason, /missing-label:agents:keepalive/);
+  assert.deepEqual(github.__calls.labelAdds, []);
+});
+
 function makePullRequest(overrides = {}) {
   return {
     number: 17,

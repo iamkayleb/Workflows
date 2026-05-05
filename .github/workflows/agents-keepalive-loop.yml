@@ -137,9 +137,18 @@ jobs:
               "pr_number": int(pr_number),
               "head_sha": pr.get("head", {}).get("sha", ""),
               "gate_conclusion": os.environ.get("GATE_CONCLUSION", ""),
-              "autofix_label_state": [
+              "automation_label_state": [
                   name for name in label_names
-                  if name.startswith("autofix") or name == "agent:retry"
+                  if (
+                      name.startswith("autofix")
+                      or name.startswith("agent:")
+                      or name in {
+                          "agents:auto-pilot",
+                          "agents:keepalive",
+                          "agents:paused",
+                          "needs-human",
+                      }
+                  )
               ],
           }
           print(json.dumps(payload, sort_keys=True))

@@ -11,12 +11,59 @@ from scripts.langchain import followup_issue_generator
 from scripts.langchain.followup_issue_generator import (
     OriginalIssueData,
     VerificationData,
+    _select_followup_acceptance_criteria,
     extract_original_issue_data,
     extract_verification_data,
     generate_disposition_comment,
     generate_followup_issue,
     generate_issue_disposition_link_comment,
 )
+
+
+def test_select_followup_acceptance_criteria_drops_workflow_sync_items() -> None:
+    original_issue = OriginalIssueData(
+        title="Database verifier follow-up",
+        number=42,
+        tasks=[],
+        acceptance_criteria=[
+            "Database migrations preserve existing records",
+            "Workflow template sync PRs are merged across consumers",
+            "Pension report rows remain queryable after import",
+        ],
+    )
+    verification_data = VerificationData(concerns=["Database rows were not preserved"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == [
+        "Database migrations preserve existing records",
+        "Pension report rows remain queryable after import",
+    ]
+
+
+def test_build_why_section_explains_mixed_surface_deemphasis() -> None:
+    original_issue = OriginalIssueData(
+        title="Mixed rollout",
+        number=43,
+        tasks=[],
+        acceptance_criteria=[
+            "Workflow template sync PRs are merged across consumers",
+            "Database exports include the new field",
+        ],
+    )
+    verification_data = VerificationData(
+        provider_verdicts={"openai": {"verdict": "CONCERNS", "confidence": 70}},
+        concerns=["Database export omitted the new field"],
+    )
+
+    why = followup_issue_generator._build_why_section(
+        verification_data,
+        original_issue,
+        pr_number=99,
+        verdict="CONCERNS",
+    )
+
+    assert "Workflow-sync acceptance criteria were de-emphasized" in why
 
 
 class TestExtractVerificationData:

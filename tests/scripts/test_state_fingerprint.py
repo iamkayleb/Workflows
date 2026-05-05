@@ -117,7 +117,7 @@ def test_warning_mode_bypasses_skip_and_logs_delta(
     outputs = json.loads(captured.out)
     assert outputs["should_run"] == "true"
     assert outputs["reason"] == "warning-mode:fingerprint-match"
-    assert storage.writes == [prior]
+    assert storage.writes == []
 
 
 def test_enforce_mode_does_not_rewrite_matching_fingerprint(
@@ -146,6 +146,32 @@ def test_enforce_mode_does_not_rewrite_matching_fingerprint(
     assert outputs["should_run"] == "false"
     assert outputs["reason"] == "fingerprint-match"
     assert storage.writes == []
+
+
+def test_store_command_persists_current_hash(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    storage = MemoryStorage()
+    fingerprint = "d" * 64
+
+    monkeypatch.setattr(state_fingerprint, "_storage_from_name", lambda _name, _workflow: storage)
+
+    exit_code = state_fingerprint.main(
+        [
+            "store",
+            "--workflow",
+            "wf",
+            "--hash",
+            fingerprint,
+            "--storage",
+            "pr-comment",
+        ]
+    )
+
+    outputs = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert outputs["stored"] == "true"
+    assert storage.writes == [fingerprint]
 
 
 def test_pr_comment_marker_includes_visible_guidance() -> None:
