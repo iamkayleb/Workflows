@@ -56,6 +56,8 @@ STDLIB_MODULES = {
     "gc",
     "glob",
     "hashlib",
+    "html",
+    "http",
     "importlib",
     "inspect",
     "io",
@@ -72,6 +74,8 @@ STDLIB_MODULES = {
     "random",
     "re",
     "runpy",
+    "email",
+    "secrets",
     "shlex",
     "shutil",
     "signal",
@@ -105,6 +109,8 @@ STDLIB_MODULES = {
     "traceback",
     "pprint",
 }
+if hasattr(sys, "stdlib_module_names"):
+    STDLIB_MODULES.update(sys.stdlib_module_names)
 
 # Known test framework modules
 TEST_FRAMEWORK_MODULES = {
@@ -221,6 +227,7 @@ PROJECT_MODULES: set[str] = set()
 
 # Module name to package name mappings for known exceptions
 MODULE_TO_PACKAGE = {
+    "jwt": "PyJWT",
     "yaml": "PyYAML",
     "PIL": "Pillow",
     "sklearn": "scikit-learn",
