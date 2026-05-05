@@ -52,6 +52,7 @@ def run_guard(
     protected=None,
     author=None,
     marker=None,
+    repository=None,
 ):
     payload = {
         "files": files or [],
@@ -65,6 +66,8 @@ def run_guard(
         payload["authorLogin"] = author
     if marker is not None:
         payload["marker"] = marker
+    if repository is not None:
+        payload["repository"] = repository
 
     script = """
 const fs = require('fs');
@@ -247,11 +250,29 @@ def test_consolidated_agent_workflow_deletions_allowed(filename):
             }
         ],
         codeowners=CODEOWNERS_SAMPLE,
+        repository="stranske/Template",
     )
 
     assert result["blocked"] is False
     assert not result["failureReasons"]
     assert result["commentBody"] is None
+
+
+@skip_if_no_node
+def test_consolidated_agent_workflow_deletion_blocks_in_workflows_repo():
+    result = run_guard(
+        files=[
+            {
+                "filename": ".github/workflows/agents-autofix-loop.yml",
+                "status": "removed",
+            }
+        ],
+        codeowners=CODEOWNERS_SAMPLE,
+        repository="stranske/Workflows",
+    )
+
+    assert result["blocked"] is True
+    assert any("was deleted" in reason for reason in result["failureReasons"])
 
 
 @skip_if_no_node
