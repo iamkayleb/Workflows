@@ -386,6 +386,10 @@ scripts:
   - source: .github/scripts/github-api-with-retry.js
     description: "GitHub API retry wrapper with exponential backoff and pagination support - required by agents-auto-pilot.yml"
 
+  - source: .github/scripts/sync_tracker_state/
+    is_directory: true
+    description: "Shared durable tracker and open PR state helpers for consumer sync workflows"
+
   - source: .github/scripts/github-rate-limited-wrapper.js
     description: "Transparent rate-limit proxy - wraps all github.rest.* calls with automatic retry and token switching"
 
