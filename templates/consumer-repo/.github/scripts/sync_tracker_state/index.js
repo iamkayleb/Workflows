@@ -5,7 +5,7 @@
 const DURABLE_TRACKER_LABEL = 'tracker:durable';
 const AUTOMATED_LABEL = 'automated';
 const DEFAULT_STUCK_WINDOW_SCHEMA = 'sync-tracker-stuck-window/v1';
-const STUCK_WINDOW_MARKER_RE = /<!--\s*sync-tracker-stuck-window:v1\s+({[\s\S]*?})\s*-->/;
+const STUCK_WINDOW_MARKER_RE = /<!--\s*sync-tracker-stuck-window:v1\s+([\s\S]*?)\s*-->/;
 const DURABLE_HEADER_RE = /^>\s*\*\*Durable tracker\*\*[\s\S]*?(?=\n(?!>)|\n*$)/im;
 
 function cleanString(value) {
@@ -160,21 +160,26 @@ async function ensureLabels({
 }
 
 async function findTracker({ github, owner, repo, label, titlePattern, markerPattern, core, withRetry }) {
-  const labelQuery = unique([DURABLE_TRACKER_LABEL, label]).join(',');
-  const labeledIssues = await paginateIssues({
-    github,
-    owner,
-    repo,
-    labels: labelQuery,
-    core,
-    withRetry,
-  });
-  const openIssues = !labelQuery
+  const labeledIssueGroups = await Promise.all(
+    unique([DURABLE_TRACKER_LABEL, label]).map((labelName) =>
+      paginateIssues({
+        github,
+        owner,
+        repo,
+        labels: labelName,
+        core,
+        withRetry,
+      })
+    )
+  );
+  const openIssues = titlePattern || markerPattern
     ? await paginateIssues({ github, owner, repo, core, withRetry })
     : [];
   const byNumber = new Map();
-  for (const issue of [...labeledIssues, ...openIssues]) {
-    byNumber.set(issue.number, issue);
+  for (const issueGroup of [...labeledIssueGroups, openIssues]) {
+    for (const issue of issueGroup) {
+      byNumber.set(issue.number, issue);
+    }
   }
   for (const issue of byNumber.values()) {
     if (!issueMatchesTracker(issue, { label, titlePattern, markerPattern })) {

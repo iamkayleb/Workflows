@@ -18,6 +18,7 @@ const {
 function mockGithub({ issues = [], pulls = [] } = {}) {
   const calls = {
     createdIssues: [],
+    issueLists: [],
     updatedIssues: [],
     comments: [],
     labels: [],
@@ -25,6 +26,7 @@ function mockGithub({ issues = [], pulls = [] } = {}) {
   const api = {
     paginate: async (method, params) => {
       if (method === api.rest.issues.listForRepo) {
+        calls.issueLists.push(params);
         const labelSet = String(params.labels || '')
           .split(',')
           .map((label) => label.trim())
@@ -147,6 +149,62 @@ test('findOrCreateTracker discovers a tracker by durable label and title', async
 
   assert.equal(tracker.number, 11);
   assert.equal(github.calls.createdIssues.length, 0);
+});
+
+test('findOrCreateTracker does not require durable and campaign labels together', async () => {
+  const github = mockGithub({
+    issues: [
+      {
+        number: 12,
+        title: 'Sync/Dependabot campaign queue',
+        body: 'queue body',
+        labels: [{ name: 'campaign:sync-dependabot' }],
+      },
+    ],
+  });
+
+  const tracker = await findOrCreateTracker({
+    github,
+    owner: 'stranske',
+    repo: 'Workflows',
+    label: 'campaign:sync-dependabot',
+    titlePattern: /^Sync\/Dependabot campaign queue$/,
+  });
+
+  assert.equal(tracker.number, 12);
+  assert.equal(
+    github.calls.issueLists.some(
+      (params) => params.labels === 'tracker:durable,campaign:sync-dependabot'
+    ),
+    false,
+  );
+});
+
+test('findOrCreateTracker discovers an unlabeled tracker by marker', async () => {
+  const github = mockGithub({
+    issues: [
+      {
+        number: 13,
+        title: 'Consumer repo drift detected',
+        body: '<!-- consumer-sync-drift:v1 {"schema":"consumer-sync-drift-issue/v1"} -->',
+        labels: [],
+      },
+    ],
+  });
+
+  const tracker = await findOrCreateTracker({
+    github,
+    owner: 'stranske',
+    repo: 'Workflows',
+    label: 'consumer-sync',
+    markerPattern: /consumer-sync-drift:v1/,
+  });
+
+  assert.equal(tracker.number, 13);
+  assert.equal(
+    github.calls.issueLists.some((params) => !params.labels),
+    true,
+  );
 });
 
 test('findOrCreateTracker creates a durable tracker when none is found', async () => {
@@ -280,6 +338,12 @@ test('markStuckWindowBody and clearStuckWindowBody manage the lifecycle marker',
   assert.equal(parsed.since, '2026-05-01T00:00:00Z');
   assert.equal(parsed.reason, 'missing-token');
   assert.match(marked, /sync-tracker-stuck-window:v1/);
+
+  const reasonWithBrace = markStuckWindowBody(marked, '2026-05-02T00:00:00Z', {
+    updatedAt: '2026-05-02T01:00:00Z',
+    reason: 'payload contained } in a message',
+  });
+  assert.equal(parseStuckWindow(reasonWithBrace).reason, 'payload contained } in a message');
 
   const refreshed = markStuckWindowBody(marked, '2026-05-03T00:00:00Z', {
     updatedAt: '2026-05-04T00:00:00Z',
