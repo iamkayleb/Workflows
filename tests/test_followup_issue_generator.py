@@ -123,6 +123,40 @@ def test_select_followup_acceptance_criteria_detects_synced_scripts() -> None:
     assert selected == ["The dashboard export renders for the selected account"]
 
 
+def test_select_followup_acceptance_criteria_detects_synced_actions() -> None:
+    original_issue = OriginalIssueData(
+        title="Action rollout",
+        number=49,
+        tasks=[],
+        acceptance_criteria=[
+            "Synced .github/actions helpers are updated across consumers",
+            "The dashboard export renders for the selected account",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The dashboard export failed"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == ["The dashboard export renders for the selected account"]
+
+
+def test_select_followup_acceptance_criteria_keeps_repo_local_actions() -> None:
+    original_issue = OriginalIssueData(
+        title="Repo-local action",
+        number=50,
+        tasks=[],
+        acceptance_criteria=[
+            "The .github/actions/build-dashboard action handles missing config",
+            "The dashboard export renders for the selected account",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The dashboard export failed"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == original_issue.acceptance_criteria
+
+
 def test_select_followup_acceptance_criteria_keeps_repo_local_agent_items() -> None:
     original_issue = OriginalIssueData(
         title="Repo-local agent UI",
