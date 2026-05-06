@@ -49,6 +49,59 @@ VALID_REVIEW_TRACE = {
 }
 
 
+def _make_round1_candidate(
+    title: str, *, body: str | None = None, tasks: list[str] | None = None
+) -> dict[str, object]:
+    return {
+        "title": title,
+        "gap": "Specific design commitment unmet.",
+        "current_state": "Today's code/tests do not prove the gap is closed.",
+        "required_change": "Add the targeted change described by this candidate.",
+        "design_refs": ["README.md"],
+        "implementation_refs": ["src/example.py"],
+        "test_refs": ["tests/test_example.py"],
+        "acceptance_criteria": ["Test fails before fix and passes after."],
+        "non_goals": ["Do not bundle unrelated cleanup."],
+        "tasks": tasks or ["First task", "Second task"],
+        "priority": "normal",
+        "confidence": "high",
+        "body": body,
+    }
+
+
+def _make_round1_findings(
+    repo: str,
+    *,
+    candidates: list[dict[str, object]] | None = None,
+    agent: str = "codex",
+) -> dict[str, object]:
+    return {
+        "agent": agent,
+        "repo": repo,
+        "design_summary": (
+            f"{repo} is intended to deliver concrete product/workflow behavior; "
+            "the design summary is repo-specific."
+        ),
+        "implementation_classification": [
+            {
+                "piece": "primary code path",
+                "status": "partial",
+                "evidence": ["src/example.py"],
+            }
+        ],
+        "readiness_summary": (
+            "Readiness depends on a specific test/smoke gate that this repo does not "
+            "currently demonstrate."
+        ),
+        "remote_progress_check": "Reviewed open issues + recent merged PRs; no overlap.",
+        "archive_dedup_check": "Reviewed archive entries; no overlap.",
+        "candidates": candidates or [],
+        "no_new_work_justification": "",
+        "deeper_review_needed": False,
+        "deeper_review_reason": "",
+    }
+
+
 def test_split_issue_entries_accepts_common_heading_shapes() -> None:
     text = """1. First title
 Tasks
@@ -148,7 +201,13 @@ def test_load_registry_filters_excluded_repo_names_and_duplicates(tmp_path: Path
     assert repos[0].status == "active"
 
 
-def test_collect_repo_state_marks_issue_queue_as_review_input(tmp_path: Path) -> None:
+def test_collect_repo_state_ignores_issues_txt_as_candidate_source(tmp_path: Path) -> None:
+    """Issues.txt is template scratch; it must not produce candidate state.
+
+    Under the new design Issues.txt is ignored as a candidate source. Without
+    a round-1 findings file the issue queue status is "round 1 not yet run",
+    regardless of whether Issues.txt exists.
+    """
     repo_dir = tmp_path / "demo"
     repo_dir.mkdir()
     (repo_dir / "Issues.txt").write_text("1. Draft\n- [ ] task\n", encoding="utf-8")
@@ -161,12 +220,13 @@ def test_collect_repo_state_marks_issue_queue_as_review_input(tmp_path: Path) ->
         decision_anchor="demo anchor",
     )
 
-    state = evaluator.collect_repo_state(tmp_path, config)
+    state = evaluator.collect_repo_state(tmp_path, config, remote_progress={})
 
     assert state["review_status"] == evaluator.EXECUTED_REVIEW_STATUS
-    assert state["issue_queue_status"] == "draft candidates present"
-    assert state["issue_draft_count"] == 1
-    assert state["issue_open_task_count"] == 1
+    assert state["issue_queue_status"] == "round 1 not yet run"
+    assert state["issue_draft_count"] == 0
+    assert state["issue_open_task_count"] == 0
+    assert state["round1_findings"] is None
     assert state["design_files"] == ["README.md"]
 
 
@@ -278,7 +338,7 @@ def test_gitnexus_preflight_reports_stale_without_refresh(tmp_path: Path) -> Non
 
     assert result["records"]["owner/demo"]["before"]["status"] == "stale"
     assert result["records"]["owner/demo"]["refresh_status"] == "needed-not-requested"
-    assert "owner/demo GitNexus map is stale" in result["warnings"][0]
+    assert "owner/demo GitNexus map needs refresh (stale)" in result["warnings"][0]
 
 
 def test_title_from_recommendation_prefers_concise_first_sentence() -> None:
@@ -343,7 +403,14 @@ def test_run_git_preserves_status_leading_columns(tmp_path: Path) -> None:
     ]
 
 
-def test_archive_candidates_make_clean_repo_review_pending(tmp_path: Path) -> None:
+def test_archive_entries_are_dedup_signal_not_candidates(tmp_path: Path) -> None:
+    """Archive entries are progress-recognition signal only.
+
+    Under the new design, archive entries from prior review sessions are
+    surfaced as `archive_progress` (for the round-1 reviewer to use as dedup
+    against already-discussed/already-shipped work) but they do NOT make the
+    issue queue status "draft candidates present" — only round-1 findings do.
+    """
     repo_dir = tmp_path / "trip-planner"
     repo_dir.mkdir()
     subprocess = evaluator.subprocess
@@ -363,12 +430,14 @@ def test_archive_candidates_make_clean_repo_review_pending(tmp_path: Path) -> No
         excerpt="1. Add failing acceptance tests before implementation.",
     )
 
-    state = evaluator.collect_repo_state(tmp_path, config, [candidate])
+    state = evaluator.collect_repo_state(tmp_path, config, [candidate], remote_progress={})
 
     assert state["review_status"] == evaluator.EXECUTED_REVIEW_STATUS
-    assert state["issue_queue_status"] == "draft candidates present"
+    assert state["issue_queue_status"] == "round 1 not yet run"
     assert state["issue_draft_count"] == 0
-    assert state["archive_candidate_count"] == 1
+    assert state["archive_progress_count"] == 1
+    assert state["archive_candidate_count"] == 1  # backward-compat alias
+    assert state["round1_findings"] is None
 
 
 def test_collect_repo_state_marks_clean_active_repo_review_pending(tmp_path: Path) -> None:
@@ -395,10 +464,10 @@ def test_collect_repo_state_marks_clean_active_repo_review_pending(tmp_path: Pat
         decision_anchor="demo anchor",
     )
 
-    state = evaluator.collect_repo_state(tmp_path, config)
+    state = evaluator.collect_repo_state(tmp_path, config, remote_progress={})
 
     assert state["review_status"] == evaluator.EXECUTED_REVIEW_STATUS
-    assert state["issue_queue_status"] == "no current draft candidates"
+    assert state["issue_queue_status"] == "round 1 not yet run"
     assert state["decision"] == evaluator.EXECUTED_REVIEW_STATUS
     assert state["review_execution"]["status"] == "executed"
     assert state["review_execution"]["gap_count"] >= 1
@@ -517,12 +586,10 @@ def test_write_repo_artifacts_emits_standard_design_review(tmp_path: Path) -> No
 
 
 def test_write_packet_embeds_substantive_decision_brief(tmp_path: Path) -> None:
+    """Packet embeds round-1 candidate titles when round-1 findings exist."""
     repo_dir = tmp_path / "demo"
     repo_dir.mkdir()
     (repo_dir / "README.md").write_text("# Demo\n", encoding="utf-8")
-    (repo_dir / "Issues.txt").write_text(
-        "1. Add smoke coverage\n- [ ] cover the happy path\n", encoding="utf-8"
-    )
     config = evaluator.RepoConfig(
         repo="owner/demo",
         local_path="demo",
@@ -530,7 +597,13 @@ def test_write_packet_embeds_substantive_decision_brief(tmp_path: Path) -> None:
         cadence="weekly",
         decision_anchor="demo anchor",
     )
-    state = evaluator.collect_repo_state(tmp_path, config)
+    findings = _make_round1_findings(
+        "owner/demo",
+        candidates=[_make_round1_candidate("Add smoke coverage")],
+    )
+    state = evaluator.collect_repo_state(
+        tmp_path, config, round1_findings=findings, remote_progress={}
+    )
     output_dir = tmp_path / "out"
 
     evaluator.write_packet(output_dir, [state], generated_on="2026-04-26")
@@ -555,21 +628,19 @@ def test_approved_issue_queue_formats_agent_ready_issues_and_drops_feedback_item
     repo_dir = tmp_path / "Travel-Plan-Permission"
     repo_dir.mkdir()
     (repo_dir / "README.md").write_text("# TPP\n", encoding="utf-8")
-    (repo_dir / "Issues.txt").write_text(
-        f"""1. Keep approved repo-local work
-{VALID_ISSUE_BODY}
-
-2. Route workflow sync elsewhere
-- [ ] update workflow sync policy
-""",
-        encoding="utf-8",
-    )
     config = evaluator.RepoConfig(
         repo="stranske/Travel-Plan-Permission",
         local_path="Travel-Plan-Permission",
         status="active",
         cadence="weekly",
         decision_anchor="approval workflow",
+    )
+    findings = _make_round1_findings(
+        "stranske/Travel-Plan-Permission",
+        candidates=[
+            _make_round1_candidate("Keep approved repo-local work", body=VALID_ISSUE_BODY),
+            _make_round1_candidate("Route workflow sync elsewhere"),
+        ],
     )
     state = evaluator.collect_repo_state(
         tmp_path,
@@ -581,6 +652,8 @@ def test_approved_issue_queue_formats_agent_ready_issues_and_drops_feedback_item
             "concerns": ["Do not treat fallback-only tests as readiness."],
             "review_evidence_traces": [VALID_REVIEW_TRACE],
         },
+        round1_findings=findings,
+        remote_progress={},
     )
     feedback = {
         "generated_on": "2026-04-26",
@@ -645,24 +718,32 @@ def test_approved_issue_queue_requires_substantive_review_brief(tmp_path: Path) 
     assert "review brief failed the quality gate" in queue["warnings"][0]
 
 
-def test_approved_issue_queue_rejects_candidate_without_matching_evidence_trace(
+def test_round1_candidate_auto_generates_matching_evidence_trace(
     tmp_path: Path,
 ) -> None:
+    """Round-1 candidates carry their own evidence (gap, refs, acceptance) and
+    therefore auto-generate a matching trace in the decision brief; the
+    approved queue accepts them without requiring a hand-curated profile trace.
+
+    Under the new design, a non-traceable round-1 candidate cannot reach this
+    code path because the schema validator (`scripts/repo_review_round1_schema.py`)
+    rejects malformed findings before the evaluator ingests them. The legacy
+    "missing trace" rejection path therefore only fires for hand-curated
+    profile traces that don't match any round-1 candidate by title.
+    """
     repo_dir = tmp_path / "Travel-Plan-Permission"
     repo_dir.mkdir()
     (repo_dir / "README.md").write_text("# TPP\n", encoding="utf-8")
-    (repo_dir / "Issues.txt").write_text(
-        f"""1. Keep approved repo-local work
-{VALID_ISSUE_BODY}
-""",
-        encoding="utf-8",
-    )
     config = evaluator.RepoConfig(
         repo="stranske/Travel-Plan-Permission",
         local_path="Travel-Plan-Permission",
         status="active",
         cadence="weekly",
         decision_anchor="approval workflow",
+    )
+    findings = _make_round1_findings(
+        "stranske/Travel-Plan-Permission",
+        candidates=[_make_round1_candidate("Keep approved repo-local work", body=VALID_ISSUE_BODY)],
     )
     state = evaluator.collect_repo_state(
         tmp_path,
@@ -672,10 +753,14 @@ def test_approved_issue_queue_rejects_candidate_without_matching_evidence_trace(
             "readiness_summary": "TPP needs LangGraph and transport smoke coverage before live confidence.",
             "review_focus": ["Verify the LangGraph test path before upload."],
             "concerns": ["Do not treat fallback-only tests as readiness."],
+            # Profile trace that does NOT match the round-1 candidate by title;
+            # the round-1 auto-generated trace is what makes the candidate approvable.
             "review_evidence_traces": [
                 VALID_REVIEW_TRACE | {"candidate_title_patterns": ["^Different issue$"]}
             ],
         },
+        round1_findings=findings,
+        remote_progress={},
     )
     feedback = {
         "generated_on": "2026-04-26",
@@ -690,14 +775,21 @@ def test_approved_issue_queue_rejects_candidate_without_matching_evidence_trace(
 
     queue = evaluator.build_approved_issue_queue([state], feedback, "2026-04-26")
 
-    assert queue["issues"] == []
-    assert queue["deeper_review"][0]["decision"] == "deeper-review"
-    assert "has no matching review evidence trace" in queue["warnings"][0]
+    assert [item["candidate_index"] for item in queue["issues"]] == [1]
+    assert queue["issues"][0]["body_valid"] is True
+    # The matching trace is the auto-generated one (sourced from the round-1
+    # candidate's own gap/refs/acceptance fields), not the unrelated profile trace.
+    matched_trace = queue["issues"][0]["review_evidence_trace"]
+    assert matched_trace["gap"] == "Specific design commitment unmet."
+    assert "src/example.py" in matched_trace["implementation_refs"]
+    assert queue["deeper_review"] == []
 
 
-def test_approved_archive_candidate_without_issue_body_is_routed_to_revision(
+def test_round1_candidate_without_agent_ready_body_is_routed_to_revision(
     tmp_path: Path,
 ) -> None:
+    """A round-1 candidate that doesn't carry an agent-ready body fails the
+    issue-body quality gate and is routed to revision rather than uploaded."""
     repo_dir = tmp_path / "trip-planner"
     repo_dir.mkdir()
     (repo_dir / "README.md").write_text("# Trip planner\n", encoding="utf-8")
@@ -708,25 +800,25 @@ def test_approved_archive_candidate_without_issue_body_is_routed_to_revision(
         cadence="weekly",
         decision_anchor="planner workflow",
     )
+    # Candidate carries no body; build_agent_issue_body will auto-construct one
+    # that uses the placeholder task line and the auto-constructed body fails
+    # the quality gate ("Implement the approved review gap" sentinel).
+    findings = _make_round1_findings(
+        "stranske/trip-planner",
+        candidates=[_make_round1_candidate("Add planner end-to-end tests", tasks=[])],
+    )
     state = evaluator.collect_repo_state(
         tmp_path,
         config,
-        archive_candidates=[
-            evaluator.ArchiveCandidate(
-                title="Add planner end-to-end tests",
-                source_file="archive.jsonl",
-                thread_name="Planner review",
-                timestamp="2026-04-26T00:00:00Z",
-                excerpt="Need end-to-end tests for planner turns.",
-            )
-        ],
         review_profile={
             "progress_summary": "trip-planner has planner surfaces but needs e2e proof.",
             "readiness_summary": "Planner readiness depends on an end-to-end smoke path.",
             "review_focus": ["Verify planner turns through a real user path."],
-            "concerns": ["Archive snippets are not complete issue bodies."],
+            "concerns": ["Round-1 candidates without complete bodies are not uploadable."],
             "review_evidence_traces": [VALID_REVIEW_TRACE],
         },
+        round1_findings=findings,
+        remote_progress={},
     )
     feedback = {
         "generated_on": "2026-04-26",

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shlex
 import subprocess
 import sys
@@ -33,6 +34,10 @@ LABELS = {
         "color": "5319e7",
         "description": "Approved by weekly design-vs-implementation repo review",
     },
+    "repo-review-meta-audit": {
+        "color": "8957a0",
+        "description": "Audit-scope candidate from weekly repo review (produce a report + follow-ups, not a single fix)",
+    },
     "priority:high": {
         "color": "b60205",
         "description": "High-priority weekly repo-review work",
@@ -46,10 +51,99 @@ LABELS = {
         "description": "Low-priority weekly repo-review work",
     },
 }
+SEMANTIC_DUPLICATE_LABEL = "repo-review-approved"
+SEMANTIC_DUPLICATE_THRESHOLD = 0.20
+SEMANTIC_DUPLICATE_MARGIN = 0.08
+SEMANTIC_DUPLICATE_STOPWORDS = {
+    "acceptance",
+    "add",
+    "after",
+    "and",
+    "are",
+    "before",
+    "behavior",
+    "code",
+    "complete",
+    "coverage",
+    "criteria",
+    "current",
+    "database",
+    "design",
+    "docs",
+    "documentation",
+    "document",
+    "existing",
+    "file",
+    "files",
+    "finish",
+    "fix",
+    "for",
+    "from",
+    "goals",
+    "implementation",
+    "implement",
+    "into",
+    "issue",
+    "issues",
+    "local",
+    "manager",
+    "mode",
+    "non",
+    "notes",
+    "path",
+    "paths",
+    "readiness",
+    "relevant",
+    "repo",
+    "review",
+    "reviewed",
+    "scope",
+    "should",
+    "tasks",
+    "test",
+    "tests",
+    "than",
+    "that",
+    "the",
+    "this",
+    "use",
+    "using",
+    "why",
+    "with",
+    "without",
+}
 
 
 def run_command(args: list[str], *, check: bool = False) -> subprocess.CompletedProcess[str]:
     return subprocess.run(args, check=check, capture_output=True, text=True)
+
+
+def run_command_with_retry(
+    args: list[str], *, attempts: int = 2, label: str = ""
+) -> subprocess.CompletedProcess[str]:
+    """Run `gh` with one retry on non-zero exit. The pilot upload hit two
+    transient subprocess failures (one on `gh issue list` for a repo with
+    1000+ issues, one on `gh issue create`) that succeeded on retry. We
+    don't want the entire weekly upload to crash on a one-off network or
+    rate-limit blip — retry once, then surface the failure if it persists.
+    """
+    last_result: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run(args, check=False, capture_output=True, text=True)
+        if result.returncode == 0:
+            return result
+        last_result = result
+        if attempt < attempts:
+            print(
+                f"[upload] {label or args[1] if len(args) > 1 else 'gh'} attempt {attempt}/{attempts} "
+                f"failed (rc={result.returncode}); retrying. stderr: {result.stderr.strip()[:200]}",
+                file=sys.stderr,
+            )
+    assert last_result is not None
+    raise subprocess.CalledProcessError(
+        last_result.returncode, last_result.args,
+        output=last_result.stdout, stderr=last_result.stderr,
+    )
 
 
 def gh_command(prefix: list[str], *args: str) -> list[str]:
@@ -86,7 +180,7 @@ def validate_issue_queue(issues: list[dict[str, Any]]) -> None:
 
 
 def fetch_open_issues(repo: str, prefix: list[str]) -> list[dict[str, Any]]:
-    result = run_command(
+    result = run_command_with_retry(
         gh_command(
             prefix,
             "issue",
@@ -100,16 +194,91 @@ def fetch_open_issues(repo: str, prefix: list[str]) -> list[dict[str, Any]]:
             "--json",
             "number,title,labels,url",
         ),
-        check=True,
+        label=f"issue-list[{repo}]",
     )
     return json.loads(result.stdout or "[]")
 
 
-def ensure_labels(repo: str, labels: list[str], prefix: list[str]) -> None:
-    for label in labels:
-        config = LABELS.get(label)
-        if not config:
+def issue_labels(issue: dict[str, Any]) -> set[str]:
+    return {str(label.get("name")) for label in issue.get("labels", []) if isinstance(label, dict)}
+
+
+def duplicate_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9_]+", text.lower())
+        if len(token) > 2 and token not in SEMANTIC_DUPLICATE_STOPWORDS
+    }
+
+
+def duplicate_text(issue: dict[str, Any]) -> str:
+    trace = issue.get("review_evidence_trace") if isinstance(issue, dict) else None
+    trace_text = ""
+    if isinstance(trace, dict):
+        trace_text = " ".join(
+            str(value)
+            for key in ("gap", "current_state", "required_change")
+            for value in [trace.get(key)]
+            if value
+        )
+    return "\n".join(
+        [
+            str(issue.get("title") or ""),
+            str(issue.get("body") or ""),
+            trace_text,
+        ]
+    )
+
+
+def duplicate_similarity(candidate: dict[str, Any], existing: dict[str, Any]) -> float:
+    candidate_tokens = duplicate_tokens(duplicate_text(candidate))
+    existing_tokens = duplicate_tokens(duplicate_text(existing))
+    if not candidate_tokens or not existing_tokens:
+        return 0.0
+    return len(candidate_tokens & existing_tokens) / len(candidate_tokens | existing_tokens)
+
+
+def find_semantic_duplicate(
+    candidate: dict[str, Any], open_issues: list[dict[str, Any]]
+) -> dict[str, Any] | None:
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for issue in open_issues:
+        if SEMANTIC_DUPLICATE_LABEL not in issue_labels(issue):
             continue
+        scored.append((duplicate_similarity(candidate, issue), issue))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: item[0], reverse=True)
+    best_score, best_issue = scored[0]
+    next_score = scored[1][0] if len(scored) > 1 else 0.0
+    if (
+        best_score >= SEMANTIC_DUPLICATE_THRESHOLD
+        and best_score - next_score >= SEMANTIC_DUPLICATE_MARGIN
+    ):
+        return best_issue
+    return None
+
+
+DEFAULT_LABEL_COLOR = "ededed"
+DEFAULT_LABEL_DESCRIPTION = "Auto-created by repo-review upload helper."
+
+
+
+def ensure_labels(repo: str, labels: list[str], prefix: list[str]) -> None:
+    """Create each label on the target repo if missing.
+
+    For labels in the `LABELS` registry, use the canonical color/description.
+    For unknown labels (e.g. a future audit-scope label not yet promoted to
+    LABELS), create them with neutral defaults rather than crashing — we'd
+    rather have a less-pretty label than block 18 issue uploads on a
+    schema-registry mismatch. `gh label create` is a no-op if the label
+    already exists, so this is idempotent.
+    """
+    for label in labels:
+        config = LABELS.get(label, {
+            "color": DEFAULT_LABEL_COLOR,
+            "description": DEFAULT_LABEL_DESCRIPTION,
+        })
         run_command(
             gh_command(
                 prefix,
@@ -168,7 +337,10 @@ def create_issue(issue: dict[str, Any], prefix: list[str]) -> str:
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md") as body_file:
         body_file.write(str(issue["body"]))
         body_file.flush()
-        result = run_command([*args, "--body-file", body_file.name], check=True)
+        result = run_command_with_retry(
+            [*args, "--body-file", body_file.name],
+            label=f"issue-create[{issue['repo']}]",
+        )
     return result.stdout.strip()
 
 
@@ -203,7 +375,7 @@ def upload_issues(
             ensure_labels(repo, labels, prefix)
         for issue in repo_issues:
             title = str(issue["title"])
-            existing = open_by_title.get(title)
+            existing = open_by_title.get(title) or find_semantic_duplicate(issue, open_issues)
             if existing:
                 if apply:
                     add_missing_labels(
@@ -236,7 +408,8 @@ def parse_args() -> argparse.Namespace:
         "--queue",
         type=Path,
         default=Path("docs/reports/repo-review/approved-issue-queue.json"),
-        help="Path to approved-issue-queue.json",
+        help="Path to approved-issue-queue.json (default: the path the "
+             "coordinator's queue-builder writes)",
     )
     parser.add_argument(
         "--gh-prefix",

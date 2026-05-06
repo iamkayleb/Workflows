@@ -15,7 +15,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -316,10 +316,33 @@ def review_blocking_status_lines(
     ]
 
 
-def issue_queue_status(drafts: list[IssueDraft], archive_candidates: list[ArchiveCandidate]) -> str:
-    if drafts or archive_candidates:
-        return "draft candidates present"
-    return "no current draft candidates"
+def issue_queue_status(
+    round1_findings: dict[str, Any] | None,
+    round2_converged: dict[str, Any] | None = None,
+) -> str:
+    """Issue queue status reflects the latest negotiated review state.
+
+    Precedence: round-2 converged set > round-1 single-agent findings > nothing.
+    Issues.txt drafts and archive entries are not candidate sources under the
+    new design.
+    """
+    if round2_converged:
+        candidates = round2_converged.get("converged_candidates") or []
+        meta = round2_converged.get("meta_candidate")
+        deadlocks = round2_converged.get("deadlocked_candidates") or []
+        if candidates or meta:
+            return "round 2 converged"
+        if deadlocks:
+            return "round 2 deadlocked"
+        return "round 2 found no gaps"
+    if not round1_findings:
+        return "round 1 not yet run"
+    candidates = round1_findings.get("candidates") or []
+    if candidates:
+        return "round 1 candidates present"
+    if round1_findings.get("deeper_review_needed"):
+        return "round 1 requested deeper review"
+    return "round 1 found no gaps"
 
 
 def review_status(repo: RepoConfig, repo_path: Path, blocking_lines: list[str]) -> str:
@@ -670,25 +693,40 @@ def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
         }
     )
 
-    if state["issue_draft_count"] or state["archive_candidate_count"]:
+    findings = state.get("round1_findings")
+    round1_candidate_count = (
+        len(findings.get("candidates") or []) if isinstance(findings, dict) else 0
+    )
+    if findings and round1_candidate_count:
         issue_severity = "needs human decision"
-        issue_finding = "Draft inputs exist; approve only after checking them against the executed review evidence."
-    elif state["remote_open_issue_count"]:
+        issue_finding = (
+            "Round-1 candidates are queued; the human decision is whether to approve them as-is, "
+            "revise, defer, drop, or send back for deeper review."
+        )
+    elif findings and findings.get("deeper_review_needed"):
+        issue_severity = "material"
+        issue_finding = "Round 1 requested deeper review; do not accept no-new-issues from this state."
+    elif findings:
         issue_severity = "needs human decision"
-        issue_finding = "No local/archive candidates are queued, but remote open issues need reconciliation before drafting more."
+        issue_finding = (
+            "Round 1 produced no candidates. Verify the no_new_work_justification before accepting "
+            "no-new-issues; archive-progress and remote-progress entries are dedup signal only, not "
+            "evidence of completion."
+        )
     else:
         issue_severity = "needs human decision"
         issue_finding = (
-            "No current issue candidates were found. This is not a no-gap finding; it means this execution "
-            "needs semantic review before deciding whether new issues would move the repo toward its design."
+            "Round 1 has not run for this repo. Run the round-1 reviewer agent against "
+            "review-inputs.md before approving any issues for this cycle."
         )
     dimensions.append(
         {
             "id": "issue_generation",
             "label": "Issue Generation",
             "evidence": [
-                f"Local issue drafts: {state['issue_draft_count']}",
-                f"Archive-derived candidates: {state['archive_candidate_count']}",
+                f"Round 1 findings: {'present' if findings else 'not yet run'}",
+                f"Round 1 candidates: {round1_candidate_count}",
+                f"Archive progress entries (dedup-only): {state.get('archive_progress_count', 0)}",
                 f"Remote open issues: {state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}",
             ],
             "finding": issue_finding,
@@ -755,6 +793,189 @@ def remote_open_issue_count(repo: str) -> int | None:
     if not isinstance(payload, list):
         return None
     return len(payload)
+
+
+def collect_remote_progress(
+    repo: str,
+    *,
+    open_issue_limit: int = 100,
+    merged_pr_lookback_days: int = 30,
+    merged_pr_limit: int = 50,
+) -> dict[str, Any]:
+    """Collect open GitHub issues + recently-merged PRs for round-1 dedup.
+
+    The output is a dict with:
+      - `open_issues`: list of {number, title, labels, created_at}
+      - `recent_merged_prs`: list of {number, title, merged_at}
+      - `available`: bool — false when `gh` is missing or auth fails.
+      - `lookback_days`: how far back the merged-PR query went.
+
+    The agent uses this to recognize "this gap is already an open issue or
+    already shipped in a recent PR" before raising it as a candidate.
+    """
+    result: dict[str, Any] = {
+        "available": False,
+        "lookback_days": merged_pr_lookback_days,
+        "open_issues": [],
+        "recent_merged_prs": [],
+        "warnings": [],
+    }
+    if shutil.which("gh") is None:
+        result["warnings"].append("gh CLI not available; remote progress unknown")
+        return result
+
+    def _gh_json(args: list[str], timeout: int = 30) -> Any:
+        try:
+            proc = subprocess.run(
+                args, check=False, capture_output=True, text=True, timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            return None
+        if proc.returncode != 0:
+            return None
+        try:
+            payload = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            return None
+        return payload
+
+    issues_payload = _gh_json(
+        [
+            "gh",
+            "issue",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "open",
+            "--limit",
+            str(open_issue_limit),
+            "--json",
+            "number,title,labels,createdAt",
+        ]
+    )
+    if isinstance(issues_payload, list):
+        result["available"] = True
+        for item in issues_payload:
+            labels = item.get("labels") or []
+            label_names = [
+                str(label.get("name", ""))
+                for label in labels
+                if isinstance(label, dict) and label.get("name")
+            ]
+            result["open_issues"].append(
+                {
+                    "number": item.get("number"),
+                    "title": str(item.get("title", "")),
+                    "labels": label_names,
+                    "created_at": str(item.get("createdAt", "")),
+                }
+            )
+    else:
+        result["warnings"].append("gh issue list failed or returned non-list")
+
+    cutoff_date = (
+        datetime.now(UTC).date() - timedelta(days=merged_pr_lookback_days)
+    ).isoformat()
+    pr_payload = _gh_json(
+        [
+            "gh",
+            "pr",
+            "list",
+            "--repo",
+            repo,
+            "--state",
+            "merged",
+            "--search",
+            f"merged:>={cutoff_date}",
+            "--limit",
+            str(merged_pr_limit),
+            "--json",
+            "number,title,mergedAt",
+        ]
+    )
+    if isinstance(pr_payload, list):
+        for item in pr_payload:
+            result["recent_merged_prs"].append(
+                {
+                    "number": item.get("number"),
+                    "title": str(item.get("title", "")),
+                    "merged_at": str(item.get("mergedAt", "")),
+                }
+            )
+    else:
+        result["warnings"].append("gh pr list (merged) failed or returned non-list")
+
+    return result
+
+
+def load_round1_findings(
+    output_dir: Path | None, repo: str
+) -> dict[str, Any] | None:
+    """Load the most recent round-1 findings.json for `repo` if any exist.
+
+    Looks in `<output_dir>/round1/<agent>/<repo_safe>/findings.json` across
+    all agent subdirectories and returns the newest by mtime. Returns None if
+    no findings exist yet.
+
+    Note: when `<output_dir>/round2/<repo_safe>/converged.json` exists, the
+    evaluator uses that as the candidate source instead — round 1 findings
+    are then preserved only as audit-trail context.
+    """
+    if output_dir is None:
+        return None
+    safe_name = repo.replace("/", "__")
+    round1_root = output_dir / "round1"
+    if not round1_root.is_dir():
+        return None
+    candidates: list[tuple[float, Path]] = []
+    for agent_dir in round1_root.iterdir():
+        if not agent_dir.is_dir():
+            continue
+        findings_path = agent_dir / safe_name / "findings.json"
+        if findings_path.is_file():
+            candidates.append((findings_path.stat().st_mtime, findings_path))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    newest = candidates[0][1]
+    try:
+        data = json.loads(newest.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    data["__source_path"] = str(newest)
+    return data
+
+
+def load_round2_converged(
+    output_dir: Path | None, repo: str
+) -> dict[str, Any] | None:
+    """Load the round-2 converged set for `repo` if it exists.
+
+    Looks at `<output_dir>/round2/<repo_safe>/converged.json`. Returns None
+    when round 2 hasn't completed yet — the evaluator then falls back to the
+    most-recent round-1 findings.
+
+    The converged set is the source of truth once round 2 finishes: it
+    contains the negotiated per-instance candidates, any meta-candidate, and
+    the deadlocked items that need human attention.
+    """
+    if output_dir is None:
+        return None
+    safe_name = repo.replace("/", "__")
+    converged_path = output_dir / "round2" / safe_name / "converged.json"
+    if not converged_path.is_file():
+        return None
+    try:
+        data = json.loads(converged_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    data["__source_path"] = str(converged_path)
+    return data
 
 
 def load_registry(path: Path) -> tuple[Path, list[str], list[RepoConfig], list[Path]]:
@@ -834,6 +1055,15 @@ def collect_gitnexus_map(workspace_root: Path, repo_path: Path, repo: RepoConfig
         else:
             status = "available"
         stats = meta.get("stats") if isinstance(meta.get("stats"), dict) else {}
+        # A commit-current map with embeddings: 0 forces every reviewer to fall
+        # back to Cypher because natural-language `gitnexus query` returns
+        # nothing — that's a degraded map, not a complete one. Surface it so
+        # the preflight refreshes the map with --embeddings.
+        embeddings_count = stats.get("embeddings", 0) if isinstance(stats, dict) else 0
+        try:
+            needs_embeddings = int(embeddings_count) <= 0
+        except (TypeError, ValueError):
+            needs_embeddings = True
         return {
             "status": status,
             "meta_path": str(meta_path),
@@ -843,6 +1073,7 @@ def collect_gitnexus_map(workspace_root: Path, repo_path: Path, repo: RepoConfig
             "head_commit": head_commit,
             "remote_url": str(meta.get("remoteUrl", "")),
             "stats": stats,
+            "needs_embeddings": needs_embeddings,
             "usage": (
                 "Use GitNexus MCP query/context for deeper semantic review; the evaluator "
                 "reads only meta.json and never parses the binary local map."
@@ -857,16 +1088,38 @@ def collect_gitnexus_map(workspace_root: Path, repo_path: Path, repo: RepoConfig
         "head_commit": head_commit,
         "remote_url": "",
         "stats": {},
+        "needs_embeddings": True,
         "usage": "No local GitNexus meta.json was found for this repo.",
     }
 
 
 def run_gitnexus_analyze(
-    repo_path: Path, gitnexus_bin: str, timeout: int = 180
+    repo_path: Path,
+    gitnexus_bin: str,
+    *,
+    with_embeddings: bool = True,
+    force: bool = False,
+    timeout: int = 900,
 ) -> tuple[bool, str]:
+    """Run `gitnexus analyze` for a repo.
+
+    Embeddings are enabled by default because round-1 reviewer agents rely on
+    natural-language `gitnexus query` to corroborate or contradict their
+    direct-file inspection — a map without embeddings forces every reviewer to
+    fall back to Cypher, which is fine but loses the easy-mode discovery path.
+
+    `force=True` is required when the indexed commit already matches HEAD but
+    the existing map is degraded (e.g., embeddings: 0); without it, analyze
+    short-circuits with "Already up to date" and the degraded map is preserved.
+    """
+    cmd = [gitnexus_bin, "analyze", str(repo_path), "--skip-agents-md"]
+    if with_embeddings:
+        cmd.append("--embeddings")
+    if force:
+        cmd.append("--force")
     try:
         result = subprocess.run(
-            [gitnexus_bin, "analyze", str(repo_path), "--skip-agents-md"],
+            cmd,
             check=False,
             capture_output=True,
             text=True,
@@ -899,11 +1152,16 @@ def gitnexus_preflight(
         after = before
         refresh_status = "not-needed"
         refresh_error = ""
-        if before["status"] in GITNEXUS_REFRESH_STATUSES:
+        needs_refresh = (
+            before["status"] in GITNEXUS_REFRESH_STATUSES
+            or before.get("needs_embeddings", False)
+        )
+        if needs_refresh:
+            reason = before["status"] if before["status"] in GITNEXUS_REFRESH_STATUSES else "missing-embeddings"
             if not refresh_stale:
                 refresh_status = "needed-not-requested"
                 warnings.append(
-                    f"{repo.repo} GitNexus map is {before['status']}; run with stale-map refresh before relying on graph context."
+                    f"{repo.repo} GitNexus map needs refresh ({reason}); run with stale-map refresh before relying on graph context."
                 )
             elif not gitnexus_available:
                 refresh_status = "skipped-missing-cli"
@@ -912,7 +1170,15 @@ def gitnexus_preflight(
                 )
             else:
                 attempted_refresh.append(repo.repo)
-                ok, refresh_output = run_gitnexus_analyze(repo_path, gitnexus_bin)
+                # When the commit is already current but embeddings are absent,
+                # `gitnexus analyze` short-circuits without rebuilding unless
+                # we pass --force. Stale (commit-mismatched) maps don't need it.
+                force_rebuild = before["status"] == "current" and before.get(
+                    "needs_embeddings", False
+                )
+                ok, refresh_output = run_gitnexus_analyze(
+                    repo_path, gitnexus_bin, force=force_rebuild
+                )
                 if ok:
                     after = collect_gitnexus_map(workspace_root, repo_path, repo)
                     refresh_status = "refreshed"
@@ -1296,6 +1562,10 @@ def collect_repo_state(
     review_profile: dict[str, Any] | None = None,
     feedback_decision: dict[str, Any] | None = None,
     gitnexus_preflight_record: dict[str, Any] | None = None,
+    output_dir: Path | None = None,
+    round1_findings: dict[str, Any] | None = None,
+    remote_progress: dict[str, Any] | None = None,
+    round2_converged: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     repo_path = workspace_root / repo.local_path
     status_lines = run_git(repo_path, ["status", "--short"]).splitlines()
@@ -1305,7 +1575,11 @@ def collect_repo_state(
     branch = run_git(repo_path, ["branch", "--show-current"])
     origin = run_git(repo_path, ["remote", "get-url", "origin"])
     last_commit = run_git(repo_path, ["log", "-1", "--format=%cs %h %s"])
-    drafts = extract_issue_drafts(repo_path / "Issues.txt")
+    # Issues.txt is intentionally NOT ingested as a candidate source under the
+    # new design. It exists as template scratch for direct-on-repo work and is
+    # irrelevant to weekly review evaluation. Helper-dirty classification still
+    # ignores Issues.txt edits so they don't block review.
+    drafts: list[IssueDraft] = []
     design_files = collect_design_files(repo_path)
     implementation_areas = collect_implementation_areas(repo_path)
     report_files = (
@@ -1314,12 +1588,28 @@ def collect_repo_state(
         else []
     )
 
-    archive_candidates = archive_candidates or []
+    # Archive items are now PROGRESS-RECOGNITION signal only (for dedup against
+    # already-discussed/already-shipped work) — never a candidate source.
+    archive_progress_items = archive_candidates or []
     review_profile = review_profile or {}
     feedback_decision = feedback_decision or {}
     gitnexus_preflight_record = gitnexus_preflight_record or {}
+    if round2_converged is None:
+        round2_converged = load_round2_converged(output_dir, repo.repo)
+    if round1_findings is None:
+        round1_findings = load_round1_findings(output_dir, repo.repo)
+    if remote_progress is None and repo.status == "active":
+        remote_progress = collect_remote_progress(repo.repo)
+    elif remote_progress is None:
+        remote_progress = {
+            "available": False,
+            "lookback_days": 0,
+            "open_issues": [],
+            "recent_merged_prs": [],
+            "warnings": ["remote progress not collected for non-active repo"],
+        }
     current_review_status = review_status(repo, repo_path, blocking_lines)
-    current_issue_queue_status = issue_queue_status(drafts, archive_candidates)
+    current_issue_queue_status = issue_queue_status(round1_findings, round2_converged)
 
     state = {
         "repo": repo.repo,
@@ -1344,29 +1634,44 @@ def collect_repo_state(
         "material_dirty_preview": material_lines[:15],
         "helper_dirty_preview": helper_lines[:15],
         "review_blocking_dirty_preview": blocking_lines[:15],
-        "remote_open_issue_count": remote_open_issue_count(repo.repo),
+        "remote_open_issue_count": (
+            len(remote_progress.get("open_issues", []))
+            if remote_progress.get("available")
+            else None
+        ),
+        "remote_progress": remote_progress,
+        "round1_findings": round1_findings,
+        "round2_converged": round2_converged,
         "review_status": current_review_status,
         "issue_queue_status": current_issue_queue_status,
-        "issue_draft_count": len(drafts),
-        "archive_candidate_count": len(archive_candidates),
-        "issue_open_task_count": sum(draft.open_tasks for draft in drafts),
-        "issue_done_task_count": sum(draft.done_tasks for draft in drafts),
+        "issue_draft_count": 0,
+        "archive_progress_count": len(archive_progress_items),
+        # Kept for backward-compat with downstream callers that read this name.
+        "archive_candidate_count": len(archive_progress_items),
+        "issue_open_task_count": 0,
+        "issue_done_task_count": 0,
         "design_files": design_files,
         "design_source_count": len(design_files),
         "implementation_areas": implementation_areas,
         "report_files": [str(path.relative_to(repo_path)) for path in report_files[:10]],
         "decision": current_review_status,
         "review_dimensions": list(REVIEW_DIMENSIONS),
-        "drafts": [
+        # Always empty under the new design; preserved as a state field for
+        # backward-compat with callers expecting the key.
+        "drafts": [],
+        # Archive items recorded for dedup/progress display, NOT as candidates.
+        "archive_progress": [
             {
-                "number": draft.number,
-                "title": draft.title,
-                "open_tasks": draft.open_tasks,
-                "done_tasks": draft.done_tasks,
-                "body": draft.body,
+                "title": candidate.title,
+                "source_file": candidate.source_file,
+                "thread_name": candidate.thread_name,
+                "timestamp": candidate.timestamp,
+                "excerpt": candidate.excerpt,
             }
-            for draft in drafts
+            for candidate in archive_progress_items
         ],
+        # Backward-compat alias of archive_progress; downstream readers can
+        # transition off of this name in a future cleanup.
         "archive_candidates": [
             {
                 "title": candidate.title,
@@ -1375,7 +1680,7 @@ def collect_repo_state(
                 "timestamp": candidate.timestamp,
                 "excerpt": candidate.excerpt,
             }
-            for candidate in archive_candidates
+            for candidate in archive_progress_items
         ],
     }
     state["review_execution"] = build_review_execution(state)
@@ -1486,41 +1791,111 @@ def task_preview(body: str, limit: int = 3) -> list[str]:
     return tasks
 
 
+def _records_from_round2_candidates(
+    raw_candidates: list[Any],
+    converged: dict[str, Any],
+    *,
+    max_items: int | None,
+) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    source_path = str(converged.get("__source_path", ""))
+    for candidate in raw_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        title = str(candidate.get("title") or "").strip()
+        if not title:
+            continue
+        scope = str(candidate.get("scope") or "fix")
+        origin = candidate.get("origin") if isinstance(candidate.get("origin"), dict) else {}
+        agent = str(origin.get("source_agent") or "merged")
+        type_label = "round 2 audit" if scope == "audit" else "round 2 finding"
+        tasks = candidate.get("tasks") or []
+        if not isinstance(tasks, list):
+            tasks = []
+        task_preview_lines = [str(task) for task in tasks[:3]]
+        body = str(candidate.get("body") or "").strip()
+        records.append(
+            {
+                "candidate_index": len(records) + 1,
+                "type": type_label,
+                "title": normalize_issue_title(title),
+                "source": f"round 2 ({agent})",
+                "source_detail": source_path,
+                "task_count": len(tasks) if tasks else None,
+                "task_preview": task_preview_lines,
+                "body": body,
+                "round1_candidate": candidate,
+                "agent": agent,
+                "scope": scope,
+            }
+        )
+        if max_items is not None and len(records) >= max_items:
+            return records
+    return records
+
+
 def issue_candidate_records(
     state: dict[str, Any], max_items: int | None = 8
 ) -> list[dict[str, Any]]:
-    candidates: list[dict[str, Any]] = []
-    for draft in state["drafts"]:
-        candidates.append(
+    """Return candidate issue records sourced from the latest negotiated state.
+
+    Precedence:
+      1. Round-2 converged set (`converged_candidates` + optional `meta_candidate`).
+      2. Round-1 single-agent findings (when round 2 hasn't completed).
+      3. Empty (round 1 not yet run).
+
+    Issues.txt drafts and archive entries are NOT candidate sources under the
+    new design (Issues.txt is template scratch; archive entries are progress-
+    recognition only).
+    """
+    converged = state.get("round2_converged")
+    if isinstance(converged, dict):
+        raw_candidates = list(converged.get("converged_candidates") or [])
+        meta = converged.get("meta_candidate")
+        if isinstance(meta, dict):
+            raw_candidates.append(meta)
+        return _records_from_round2_candidates(
+            raw_candidates, converged, max_items=max_items
+        )
+
+    findings = state.get("round1_findings") or {}
+    raw_candidates = findings.get("candidates") if isinstance(findings, dict) else None
+    if not isinstance(raw_candidates, list):
+        return []
+    records: list[dict[str, Any]] = []
+    for candidate in raw_candidates:
+        if not isinstance(candidate, dict):
+            continue
+        title = str(candidate.get("title", "")).strip()
+        if not title:
+            continue
+        agent = str(findings.get("agent", "")).strip() or "round1"
+        tasks = candidate.get("tasks") or []
+        if not isinstance(tasks, list):
+            tasks = []
+        task_preview_lines = [str(task) for task in tasks[:3]]
+        # Prefer an agent-supplied complete issue body when present (the
+        # round-1 reviewer SHOULD produce a body that already follows
+        # AGENT_ISSUE_FORMAT). Fall back to a placeholder; build_agent_issue_body
+        # will then construct a full body from structured fields.
+        body = str(candidate.get("body") or "").strip()
+        records.append(
             {
-                "candidate_index": len(candidates) + 1,
-                "type": "local draft",
-                "title": normalize_issue_title(draft["title"]),
-                "source": f"Issues.txt draft {draft['number']}",
-                "source_detail": f"Issues.txt draft {draft['number']}",
-                "task_count": draft["open_tasks"],
-                "task_preview": task_preview(draft["body"]),
-                "body": draft["body"],
+                "candidate_index": len(records) + 1,
+                "type": "round 1 finding",
+                "title": normalize_issue_title(title),
+                "source": f"round 1 ({agent})",
+                "source_detail": str(findings.get("__source_path", "")),
+                "task_count": len(tasks) if tasks else None,
+                "task_preview": task_preview_lines,
+                "body": body,
+                "round1_candidate": candidate,
+                "agent": agent,
             }
         )
-        if max_items is not None and len(candidates) >= max_items:
-            return candidates
-    for candidate in state["archive_candidates"]:
-        candidates.append(
-            {
-                "candidate_index": len(candidates) + 1,
-                "type": "archive candidate",
-                "title": normalize_issue_title(candidate["title"]),
-                "source": candidate["thread_name"] or "untitled archive thread",
-                "source_detail": candidate["source_file"],
-                "task_count": None,
-                "task_preview": [candidate["excerpt"]],
-                "body": candidate["excerpt"],
-            }
-        )
-        if max_items is not None and len(candidates) >= max_items:
-            return candidates
-    return candidates
+        if max_items is not None and len(records) >= max_items:
+            return records
+    return records
 
 
 def issue_candidate_summaries(
@@ -1557,19 +1932,77 @@ def issue_set_recommendation(state: dict[str, Any]) -> str:
             "Create or approve issue drafts for the automated material/blocking gaps before "
             "treating the repo as ready."
         )
-    if state["issue_draft_count"] or state["archive_candidate_count"]:
-        return (
-            "Review the candidate issue set below, then approve, revise, merge, defer, or drop "
-            "items repo-by-repo."
+    converged = state.get("round2_converged")
+    if isinstance(converged, dict):
+        per_instance = converged.get("converged_candidates") or []
+        meta = converged.get("meta_candidate")
+        deadlocks = converged.get("deadlocked_candidates") or []
+        no_new_work = converged.get("no_new_work_justifications") or []
+        if not per_instance and not meta:
+            # Both agents independently produced 0 candidates with substantive
+            # no-new-work justifications. Review is complete; conclusion is
+            # "no new gaps." Surface both agents' justifications for human
+            # spot-check before accepting no-new-issues.
+            if isinstance(no_new_work, list) and len(no_new_work) >= 2:
+                return (
+                    f"Round-2 negotiation produced 0 converged candidates. Both agents "
+                    f"({', '.join(str(j.get('agent', '?')) for j in no_new_work)}) wrote "
+                    "substantive `no_new_work_justification` arguing the active backlog "
+                    "covers all design-vs-implementation gaps. Review the dual "
+                    "justifications below and accept no-new-issues if the cited file/test "
+                    "evidence holds; otherwise mark `revise` or `deeper-review`."
+                )
+            return (
+                "Round-2 negotiation produced 0 converged candidates and the "
+                "no_new_work_justifications field is missing or thin — verify the "
+                "review actually completed before accepting no-new-issues."
+            )
+        parts: list[str] = [
+            f"Round-2 negotiation produced {len(per_instance)} converged candidate(s)"
+        ]
+        if isinstance(meta, dict):
+            parts.append("plus 1 meta-candidate (audit scope)")
+        parts.append(
+            "— review the set below, then approve, revise, merge, defer, or drop items repo-by-repo."
         )
-    if state["remote_open_issue_count"]:
+        if deadlocks:
+            parts.append(
+                f"Note: {len(deadlocks)} deadlocked candidate(s) require human resolution; both "
+                "agents' positions are surfaced in the deadlocked-candidates section."
+            )
+        return " ".join(parts)
+    findings = state.get("round1_findings")
+    if not findings:
         return (
-            "No new local/archive candidates were found; reconcile the open remote issues before "
-            "drafting additional work."
+            "Round 1 has not run for this repo. Run the round-1 reviewer agent against "
+            "`review-inputs.md` to produce traced candidates; do not infer no-work from absence."
         )
+    candidates = findings.get("candidates") or []
+    if candidates:
+        return (
+            "Review the round-1 candidate set below, then approve, revise, merge, defer, or drop "
+            "items repo-by-repo. Round-2 negotiation between agents (when both agents have run) "
+            "produces the final converged set; this brief shows the latest available round-1 view."
+        )
+    if findings.get("deeper_review_needed"):
+        reason = str(findings.get("deeper_review_reason") or "no reason recorded").strip()
+        return f"Round 1 requested deeper review: {reason}"
     return (
-        "No candidate issue set was generated from current inputs. The human decision should either "
-        "approve no-new-issues for this cycle or request a deeper semantic design review."
+        "Round 1 found no design-vs-implementation gaps. Review the round-1 "
+        "`no_new_work_justification` against current code/tests before accepting no-new-issues."
+    )
+
+
+def progress_summary(state: dict[str, Any]) -> str:
+    execution = state["review_execution"]
+    return (
+        f"No completed semantic progress review is recorded for {state['repo']}. The automated "
+        f"preflight found {state['design_source_count']} design sources, "
+        f"{execution['implementation_file_count']} source-like files, "
+        f"{execution['test_file_count']} test files, and "
+        f"{execution['workflow_file_count']} workflow files; these are review inputs, not a "
+        "design-vs-implementation judgment. Run the standard semantic review prompt before "
+        "approving issue drafts or deciding that no issues are needed."
     )
 
 
@@ -1594,7 +2027,24 @@ def review_summary_quality_errors(brief: dict[str, Any]) -> list[str]:
     if not brief.get("concerns"):
         errors.append("missing repo-specific concerns")
     traces = brief.get("review_evidence_traces") or []
-    if not traces:
+    no_new_work = brief.get("no_new_work_justifications") or []
+    # Round-2 may legitimately produce 0 candidates with both agents writing
+    # substantive `no_new_work_justification` instead of evidence traces. Both
+    # justifications passing the round-1 schema validator already certifies
+    # they're concrete (file/test refs, ≥120 chars equivalent). Accept that as
+    # an alternative to per-candidate traces — the review IS complete; the
+    # conclusion is just "no new gaps."
+    has_dual_no_new_work = (
+        isinstance(no_new_work, list)
+        and len(no_new_work) >= 2
+        and all(
+            isinstance(entry, dict)
+            and entry.get("candidate_count") == 0
+            and len(str(entry.get("justification") or "").strip()) >= 200
+            for entry in no_new_work
+        )
+    )
+    if not traces and not has_dual_no_new_work:
         errors.append("missing review evidence traces")
     for index, trace in enumerate(traces, start=1):
         for error in review_evidence_trace_errors(trace):
@@ -1607,6 +2057,56 @@ def review_evidence_traces_from_profile(profile: dict[str, Any]) -> list[dict[st
     if not isinstance(traces, list):
         return []
     return [trace for trace in traces if isinstance(trace, dict)]
+
+
+def round1_candidate_to_trace(candidate: dict[str, Any]) -> dict[str, Any]:
+    """Derive an evidence trace from a round-1 candidate's structured fields.
+
+    Round-1 findings are themselves the evidence: each candidate carries gap,
+    current_state, required_change, design_refs, implementation_refs, and
+    test_refs. This mirrors the legacy profile-trace shape so the existing
+    quality gate and approved-queue logic can treat the two sources uniformly.
+    """
+    title = str(candidate.get("title") or "").strip()
+    pattern = f"^{re.escape(title)}$" if title else "^.*$"
+    return {
+        "candidate_title_patterns": [pattern],
+        "gap": str(candidate.get("gap") or ""),
+        "current_state": str(candidate.get("current_state") or ""),
+        "required_change": str(candidate.get("required_change") or ""),
+        "design_refs": list(candidate.get("design_refs") or []),
+        "implementation_refs": list(candidate.get("implementation_refs") or []),
+        "test_refs": list(candidate.get("test_refs") or []),
+    }
+
+
+def review_evidence_traces_for_state(state: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return evidence traces from profile + the latest negotiated state.
+
+    Profile traces are hand-curated (legacy). Round-1 and round-2 candidates
+    each carry their own structured fields (gap/refs/acceptance) — those become
+    auto-generated traces. When round 2 has converged, its candidates are the
+    authoritative source; round-1 is the fallback when round 2 hasn't run.
+    The quality gate accepts traces from any of the three sources.
+    """
+    traces: list[dict[str, Any]] = list(
+        review_evidence_traces_from_profile(state.get("review_profile") or {})
+    )
+    converged = state.get("round2_converged")
+    if isinstance(converged, dict):
+        for candidate in converged.get("converged_candidates") or []:
+            if isinstance(candidate, dict):
+                traces.append(round1_candidate_to_trace(candidate))
+        meta = converged.get("meta_candidate")
+        if isinstance(meta, dict):
+            traces.append(round1_candidate_to_trace(meta))
+        return traces
+    findings = state.get("round1_findings") or {}
+    if isinstance(findings, dict):
+        for candidate in findings.get("candidates") or []:
+            if isinstance(candidate, dict):
+                traces.append(round1_candidate_to_trace(candidate))
+    return traces
 
 
 def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
@@ -1632,7 +2132,10 @@ def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
         "issue_set_recommendation": issue_set_recommendation(state),
         "review_focus": profile.get("review_focus", []),
         "concerns": profile.get("concerns", []),
-        "review_evidence_traces": review_evidence_traces_from_profile(profile),
+        "review_evidence_traces": review_evidence_traces_for_state(state),
+        "no_new_work_justifications": (
+            (state.get("round2_converged") or {}).get("no_new_work_justifications") or []
+        ),
         "recorded_feedback": feedback,
         "gitnexus_summary": gitnexus_summary,
         "design_evidence": execution_dimension(state, "design_contract")["evidence"],
@@ -1652,6 +2155,93 @@ def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
     brief["review_quality_errors"] = quality_errors
     brief["review_quality_status"] = "pass" if not quality_errors else "fail"
     return brief
+
+
+def deadlocked_candidates_section(state: dict[str, Any]) -> list[str]:
+    """Render the deadlocked-candidates section for the per-repo packet.
+
+    Each deadlocked candidate carries both agents' positions inline so the
+    human reviewer can see the disagreement and break the tie without opening
+    converged.json. Returns [] when no deadlocks exist.
+    """
+    converged = state.get("round2_converged") or {}
+    deadlocked = converged.get("deadlocked_candidates") or []
+    if not deadlocked:
+        return []
+    lines: list[str] = ["#### Deadlocked Candidates", "",
+        "These candidates require human resolution — both agents' final-turn "
+        "positions are inlined below. Approve, revise, or drop after reading both.",
+        ""]
+    for index, item in enumerate(deadlocked, start=1):
+        title = str(item.get("title") or "Untitled")
+        lines.append(f"{index}. **{title}** (source: {item.get('source_agent', '?')}, round1 #{item.get('round1_index', '?')})")
+        for mark in item.get("marks_history") or []:
+            agent = mark.get("from_agent", "?")
+            mark_type = mark.get("mark", "?")
+            turn = mark.get("turn", "?")
+            reason = str(mark.get("reason") or "").strip()
+            lines.append(f"   - **{agent}** (turn {turn}): `{mark_type}`")
+            if reason:
+                lines.append(f"     > {reason[:400]}{'...' if len(reason) > 400 else ''}")
+        lines.append("")
+    return lines
+
+
+def deadlocked_meta_section(state: dict[str, Any]) -> list[str]:
+    """Render the deadlocked meta-candidate section, if any.
+
+    A meta-candidate is deadlocked when one agent proposed a systemic-pattern
+    audit and the other rejected it. Surface both positions so the human can
+    decide whether to open the audit anyway.
+    """
+    converged = state.get("round2_converged") or {}
+    dm = converged.get("deadlocked_meta")
+    if not isinstance(dm, dict):
+        return []
+    lines: list[str] = [
+        "#### Deadlocked Meta-Candidate",
+        "",
+        f"**{dm.get('title', 'Untitled meta')}**",
+        "",
+        f"- Pattern: {dm.get('pattern', '')}",
+        f"- Proposed by: `{dm.get('proposed_by', '?')}`",
+        f"- Rejected by: `{', '.join(dm.get('rejected_by') or []) or '?'}`",
+        f"- Priority/confidence: `{dm.get('priority', '?')}` / `{dm.get('confidence', '?')}`",
+        "",
+        "Rejection reasons:",
+        "",
+    ]
+    for agent, reason in (dm.get("rejection_reasons") or {}).items():
+        lines.append(f"- **{agent}**: {str(reason)[:400]}")
+    lines.append("")
+    return lines
+
+
+def no_new_work_justifications_section(state: dict[str, Any]) -> list[str]:
+    """Render dual no-new-work justifications when both agents reached that
+    conclusion (round-2 converged with 0 candidates + ≥2 substantive
+    justifications).
+    """
+    converged = state.get("round2_converged") or {}
+    if (converged.get("converged_candidates") or []) or converged.get("meta_candidate"):
+        return []
+    justifications = [
+        j for j in (converged.get("no_new_work_justifications") or [])
+        if isinstance(j, dict)
+        and j.get("candidate_count") == 0
+        and len(str(j.get("justification") or "").strip()) >= 200
+    ]
+    if len(justifications) < 2:
+        return []
+    lines: list[str] = ["#### No-New-Work Justifications", "",
+        "Both agents independently reached the same conclusion. Verify the cited "
+        "file/test evidence below before accepting no-new-issues for this cycle.",
+        ""]
+    for j in justifications:
+        agent = j.get("agent", "?")
+        text = str(j.get("justification") or "").strip()
+        lines.extend([f"- **{agent}**:", f"  > {text}", ""])
+    return lines
 
 
 def markdown_candidate_list(candidates: list[dict[str, Any]], empty: str) -> str:
@@ -1820,6 +2410,11 @@ def candidate_goal_text(candidate: dict[str, Any]) -> str:
 
 
 def issue_task_lines(candidate: dict[str, Any]) -> list[str]:
+    if candidate["type"] in ("round 1 finding", "round 2 finding", "round 2 audit"):
+        source = candidate.get("round1_candidate") or {}
+        tasks = source.get("tasks") or []
+        if isinstance(tasks, list) and tasks:
+            return [str(item) for item in tasks]
     if candidate["type"] == "local draft":
         tasks = open_task_lines(candidate.get("body", ""))
         if tasks:
@@ -1828,7 +2423,12 @@ def issue_task_lines(candidate: dict[str, Any]) -> list[str]:
 
 
 def build_agent_issue_body(state: dict[str, Any], candidate: dict[str, Any], priority: str) -> str:
-    if candidate["type"] == "local draft":
+    if candidate["type"] in (
+        "local draft",
+        "round 1 finding",
+        "round 2 finding",
+        "round 2 audit",
+    ):
         local_body = str(candidate.get("body", "")).strip()
         local_lines = local_body.splitlines()
         if local_lines and ISSUE_HEADING_RE.match(local_lines[0].strip()):
@@ -2268,6 +2868,233 @@ def write_decision_brief(repo_dir: Path, state: dict[str, Any]) -> None:
     (repo_dir / "decision-brief.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def write_remote_progress(repo_dir: Path, state: dict[str, Any]) -> None:
+    """Write `remote-progress.md` per repo for round-1 dedup reference."""
+    progress = state.get("remote_progress") or {}
+    open_issues = progress.get("open_issues") or []
+    merged_prs = progress.get("recent_merged_prs") or []
+    lookback = progress.get("lookback_days", 30)
+    available = progress.get("available", False)
+    warnings = progress.get("warnings") or []
+
+    lines = [
+        f"# Remote Progress: {state['repo']}",
+        "",
+        "This file is a dedup reference for the round-1 reviewer. Use it to "
+        "recognize gaps that are already covered by an open GitHub issue or a "
+        "recently-merged PR. Do NOT raise candidates that duplicate items here.",
+        "",
+        f"- gh CLI available: `{available}`",
+        f"- Merged-PR lookback: `{lookback} days`",
+        f"- Open issues recorded: `{len(open_issues)}`",
+        f"- Recent merged PRs recorded: `{len(merged_prs)}`",
+        "",
+    ]
+    if warnings:
+        lines.extend(["## Warnings", "", markdown_bullets([str(w) for w in warnings]), ""])
+    lines.extend(["## Open Issues", ""])
+    if open_issues:
+        for item in open_issues:
+            label_str = ", ".join(item.get("labels") or []) or "—"
+            lines.append(
+                f"- #{item.get('number', '?')} `{item.get('created_at', '')}` "
+                f"[{label_str}] {item.get('title', '')}"
+            )
+    else:
+        lines.append("None recorded.")
+    lines.extend(["", "## Recent Merged PRs", ""])
+    if merged_prs:
+        for item in merged_prs:
+            lines.append(
+                f"- #{item.get('number', '?')} merged `{item.get('merged_at', '')}` "
+                f"{item.get('title', '')}"
+            )
+    else:
+        lines.append("None recorded.")
+    lines.append("")
+    (repo_dir / "remote-progress.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_archive_progress(repo_dir: Path, state: dict[str, Any]) -> None:
+    """Write `archive-progress.md` — recently-discussed topics for dedup only.
+
+    These entries are NOT candidate sources. They exist so the round-1
+    reviewer can recognize a gap that has already been raised, shipped, or
+    superseded in prior review work. If the only basis for a candidate is an
+    archive entry, the candidate must be dropped.
+    """
+    items = state.get("archive_progress") or []
+    lines = [
+        f"# Archive Progress: {state['repo']}",
+        "",
+        "Recently-discussed topics from past review sessions. **For dedup only.** "
+        "Do NOT raise a candidate whose sole basis is an entry here — the round-1 "
+        "reviewer must verify the gap against current code, design, and tests.",
+        "",
+        f"- Entries recorded: `{len(items)}`",
+        "",
+    ]
+    if not items:
+        lines.append("None recorded.")
+    else:
+        for index, item in enumerate(items, start=1):
+            lines.extend(
+                [
+                    f"## {index}. {item.get('title', 'Untitled')}",
+                    "",
+                    f"- Thread: `{item.get('thread_name', 'untitled')}`",
+                    f"- Timestamp: `{item.get('timestamp', 'unknown')}`",
+                    f"- Source file: `{item.get('source_file', 'unknown')}`",
+                    "",
+                    "```text",
+                    item.get("excerpt", "").strip(),
+                    "```",
+                    "",
+                ]
+            )
+    (repo_dir / "archive-progress.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def design_source_sufficiency_hint(state: dict[str, Any]) -> str:
+    design_files = state.get("design_files") or []
+    count = len(design_files)
+    if count == 0:
+        return (
+            "No design source files were detected. The reviewer must read the "
+            "repo's README and any in-repo docs directly, and may need to "
+            "infer the design from code if docs are absent."
+        )
+    if count <= 3:
+        return (
+            f"Only {count} design source file(s) were detected. The reviewer "
+            "should not assume the docs cover the full design contract — read "
+            "additional code paths to verify intent."
+        )
+    return (
+        f"{count} design source file(s) detected. Read README plus the most "
+        "load-bearing docs (architecture, integration, ops); deeper code "
+        "inspection is only needed where docs and implementation appear to "
+        "disagree."
+    )
+
+
+def write_review_inputs(repo_dir: Path, state: dict[str, Any]) -> None:
+    """Write `review-inputs.md` — the consolidated round-1 reviewer brief.
+
+    This is THE entry point for the round-1 reviewer agent. It pulls together
+    the decision anchor, design sources, implementation areas, dirty state,
+    GitNexus map status, and pointers to the dedup references (remote-progress
+    + archive-progress). The agent reads this file first, then reads the
+    referenced design sources and implementation paths from the actual repo.
+    """
+    profile = state.get("review_profile") or {}
+    review_focus = profile.get("review_focus") or []
+    concerns = profile.get("concerns") or []
+    gitnexus = state.get("gitnexus_map") or {}
+    progress = state.get("remote_progress") or {}
+    findings = state.get("round1_findings")
+
+    if findings:
+        round1_status = (
+            f"Round 1 already produced findings at `{findings.get('__source_path', 'unknown')}` "
+            f"by agent `{findings.get('agent', 'unknown')}`. Re-running this brief is "
+            "appropriate only if those findings are stale or were rejected."
+        )
+    else:
+        round1_status = (
+            "Round 1 has not run for this repo. After completing this brief, write "
+            "your findings to "
+            f"`<output_dir>/round1/<your_agent_name>/{state['repo'].replace('/', '__')}/findings.json` "
+            "in the schema documented in `docs/ops/REPO_REVIEW_ROUND1_SCHEMA.md`."
+        )
+
+    lines = [
+        f"# Round 1 Reviewer Brief: {state['repo']}",
+        "",
+        "You are running round 1 of the weekly design-vs-implementation review for "
+        "this repository. Another quality professional will independently review "
+        "the same repo with the same inputs; in round 2 you will negotiate toward "
+        "a shared candidate set. Round 1 is your independent assessment.",
+        "",
+        "## Decision Anchor",
+        "",
+        state.get("decision_anchor") or "No decision anchor recorded.",
+        "",
+        "## Profile Review Focus",
+        "",
+        markdown_bullets([str(item) for item in review_focus]),
+        "",
+        "## Profile Concerns",
+        "",
+        markdown_bullets([str(item) for item in concerns]),
+        "",
+        "## Repository Location",
+        "",
+        f"- Local path: `{state['local_path']}`",
+        f"- Origin: `{state.get('origin') or 'unknown'}`",
+        f"- Branch: `{state.get('branch') or 'unknown'}`",
+        f"- Last commit: `{state.get('last_commit') or 'unknown'}`",
+        f"- Review-blocking local changes: `{state.get('review_blocking_dirty_count', 0)}` "
+        "(if non-zero, do not produce candidates until the working tree is clean "
+        "or document why review can proceed despite the dirty state)",
+        "",
+        "## Design Sources To Read",
+        "",
+        design_source_sufficiency_hint(state),
+        "",
+        markdown_list(state.get("design_files") or [], empty="None detected."),
+        "",
+        "## Implementation Areas To Inspect",
+        "",
+        markdown_list(
+            format_implementation_areas(state.get("implementation_areas") or []),
+            empty="None detected.",
+        ),
+        "",
+        "## GitNexus Map",
+        "",
+        f"- Status: `{gitnexus.get('status', 'missing')}`",
+        f"- Indexed at: `{gitnexus.get('indexed_at') or 'unknown'}`",
+        f"- Indexed commit: `{(gitnexus.get('indexed_commit') or 'unknown')[:12]}`",
+        f"- Head commit: `{(gitnexus.get('head_commit') or 'unknown')[:12]}`",
+        "",
+        "## Dedup References",
+        "",
+        f"- Remote progress: see `remote-progress.md` "
+        f"({len(progress.get('open_issues') or [])} open issues, "
+        f"{len(progress.get('recent_merged_prs') or [])} recent merged PRs).",
+        f"- Archive progress: see `archive-progress.md` "
+        f"({state.get('archive_progress_count', 0)} prior-discussion entries).",
+        "",
+        "**Use these for dedup only.** A candidate whose only basis is an archive "
+        "entry must be dropped. A candidate that duplicates an open issue or a "
+        "recently-merged PR must also be dropped (recognize completion / in-flight "
+        "work; do not re-raise).",
+        "",
+        "## Out of Scope",
+        "",
+        "- `Issues.txt` in the repo root: ignore. It is template scratch for direct "
+        "  on-repo work and is not a candidate source.",
+        "- Workflow-sync, AGENTS.md / CLAUDE.md sync, template-sync, and lane-management "
+        "  maintenance: route to `stranske/Workflows`, not to this repo, unless the "
+        "  work directly implements behavior required by THIS repo's design.",
+        "",
+        "## Output",
+        "",
+        round1_status,
+        "",
+        "Schema reference: `docs/ops/REPO_REVIEW_ROUND1_SCHEMA.md` (see Phase 2).",
+        "",
+        "## Review Procedure",
+        "",
+        "Follow the canonical round-1 reviewer procedure documented in "
+        "`docs/ops/REPO_REVIEW_ROUND1_PROMPT.md`. The coordinator hands that prompt "
+        "to each agent (Codex + Claude) along with this `review-inputs.md` brief.",
+        "",
+    ]
+    (repo_dir / "review-inputs.md").write_text("\n".join(lines), encoding="utf-8")
+
+
 def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: int) -> None:
     safe_name = state["repo"].replace("/", "__")
     repo_dir = output_dir / "repos" / safe_name
@@ -2278,6 +3105,9 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         encoding="utf-8",
     )
     write_decision_brief(repo_dir, state)
+    write_review_inputs(repo_dir, state)
+    write_remote_progress(repo_dir, state)
+    write_archive_progress(repo_dir, state)
 
     state_md = [
         f"# Repo Review State: {state['repo']}",
@@ -2301,10 +3131,11 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
         f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
         f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
-        f"- Issue drafts found: `{state['issue_draft_count']}`",
-        f"- Archive-derived candidates found: `{state['archive_candidate_count']}`",
+        f"- Recent merged PRs (last {state.get('remote_progress', {}).get('lookback_days', 30)}d): `{len((state.get('remote_progress') or {}).get('recent_merged_prs') or [])}`",
+        f"- Round 1 findings: `{'present' if state.get('round1_findings') else 'not yet run'}`",
+        f"- Round 1 candidate count: `{len((state.get('round1_findings') or {}).get('candidates') or [])}`",
+        f"- Archive progress entries (dedup-only): `{state.get('archive_progress_count', 0)}`",
         f"- Design source files found: `{state['design_source_count']}`",
-        f"- Unchecked checklist boxes in local `Issues.txt` drafts: `{state['issue_open_task_count']}`",
         "",
         "## Decision Anchor",
         "",
@@ -2361,8 +3192,9 @@ def write_repo_artifacts(output_dir: Path, state: dict[str, Any], max_drafts: in
         "",
         f"- Review status: `{state['review_status']}`",
         f"- Issue queue status: `{state['issue_queue_status']}`",
-        f"- Existing local issue drafts: `{state['issue_draft_count']}`",
-        f"- Archive-derived candidates: `{state['archive_candidate_count']}`",
+        f"- Round 1 findings: `{'present' if state.get('round1_findings') else 'not yet run'}`",
+        f"- Round 1 candidate count: `{len((state.get('round1_findings') or {}).get('candidates') or [])}`",
+        f"- Archive progress entries (dedup-only): `{state.get('archive_progress_count', 0)}`",
         f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
         f"- Non-generated local changes: `{state['material_dirty_count']}`",
         f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
@@ -2565,7 +3397,9 @@ def write_packet(
         state for state in active if str(state["review_execution"]["status"]).startswith("blocked")
     ]
     issue_candidate_repos = [
-        state for state in active if state["issue_queue_status"] == "draft candidates present"
+        state
+        for state in active
+        if state["issue_queue_status"] in {"round 1 candidates present", "round 2 converged"}
     ]
     executed_reviews = [
         state for state in active if state["review_execution"]["status"] == "executed"
@@ -2648,16 +3482,33 @@ def write_packet(
                 f"- Dimensions needing semantic decision: `{state['review_execution']['needs_decision_count']}`",
                 f"- Issue queue status: `{state['issue_queue_status']}`",
                 f"- Design source files: `{state['design_source_count']}`",
-                f"- Existing local issue drafts: `{state['issue_draft_count']}`",
-                f"- Archive-derived candidates: `{state['archive_candidate_count']}`",
+                f"- Round 1 findings: `{'present' if state.get('round1_findings') else 'not yet run'}`",
+                f"- Round 1 candidate count: `{len((state.get('round1_findings') or {}).get('candidates') or [])}`",
+                f"- Round 2 converged: `{'present' if state.get('round2_converged') else 'not yet run'}`",
+                f"- Round 2 candidates: `{len((state.get('round2_converged') or {}).get('converged_candidates') or [])}`"
+                + (
+                    " (+ meta-candidate)"
+                    if isinstance((state.get('round2_converged') or {}).get('meta_candidate'), dict)
+                    else ""
+                ),
+                f"- Round 2 deadlocked: `{len((state.get('round2_converged') or {}).get('deadlocked_candidates') or [])}`",
+                f"- Round 2 meta status: `{(state.get('round2_converged') or {}).get('meta_status', 'n/a')}`"
+                + (
+                    " (meta proposal deadlocked — see deadlocked_meta in converged.json)"
+                    if (state.get('round2_converged') or {}).get('deadlocked_meta')
+                    else ""
+                ),
+                f"- Round 2 dual no-new-work justifications: `{sum(1 for j in ((state.get('round2_converged') or {}).get('no_new_work_justifications') or []) if isinstance(j, dict) and j.get('candidate_count') == 0 and str(j.get('justification') or '').strip())}`",
+                f"- Archive progress entries (dedup-only): `{state.get('archive_progress_count', 0)}`",
                 f"- Remote open GitHub issues: `{state['remote_open_issue_count'] if state['remote_open_issue_count'] is not None else 'unknown'}`",
+                f"- Recent merged PRs (last {state.get('remote_progress', {}).get('lookback_days', 30)}d): `{len((state.get('remote_progress') or {}).get('recent_merged_prs') or [])}`",
                 f"- Non-generated local changes: `{state['material_dirty_count']}`",
                 f"- Nonblocking helper local changes: `{state['helper_dirty_count']}`",
                 f"- Review-blocking local changes: `{state['review_blocking_dirty_count']}`",
                 f"- Generated/cache dirty local changes: `{state['generated_dirty_count']}`",
                 f"- GitNexus map: `{state['gitnexus_map']['status']}`",
                 f"- GitNexus preflight: `{state.get('gitnexus_preflight', {}).get('refresh_status', 'not-run')}`",
-                f"- Review artifacts: `repos/{safe_name}/decision-brief.md`, `repos/{safe_name}/review-execution.md`, `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`, `repos/{safe_name}/issue-drafts.md`",
+                f"- Review artifacts: `repos/{safe_name}/review-inputs.md` (round-1 brief), `repos/{safe_name}/remote-progress.md`, `repos/{safe_name}/archive-progress.md`, `repos/{safe_name}/decision-brief.md`, `repos/{safe_name}/review-execution.md`, `repos/{safe_name}/design-review.md`, `repos/{safe_name}/state.md`",
                 f"- Human action: {human_action}",
                 "",
                 "#### Current Progress Compared With Design",
@@ -2700,6 +3551,9 @@ def write_packet(
                     "No local/archive issue candidates were generated for this cycle.",
                 ),
                 "",
+                *deadlocked_candidates_section(state),
+                *deadlocked_meta_section(state),
+                *no_new_work_justifications_section(state),
                 "#### Feedback Slot",
                 "",
                 f"Recorded feedback: `{brief['recorded_feedback'].get('decision', 'none')}`"
@@ -2815,6 +3669,7 @@ def main() -> None:
                 else {}
             ),
             preflight_result.get("records", {}).get(repo.repo, {}),
+            output_dir=output_dir,
         )
         for repo in repos
         if repo.status in statuses
@@ -2848,7 +3703,8 @@ def main() -> None:
                     1
                     for state in states
                     if state["status"] == "active"
-                    and state["issue_queue_status"] == "draft candidates present"
+                    and state["issue_queue_status"]
+                    in {"round 1 candidates present", "round 2 converged"}
                 ),
                 "automated_gap_repo_count": sum(
                     1
