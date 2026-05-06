@@ -83,7 +83,7 @@ def build_pr_context(
         body = _text(pr.get("formatted_body") or pr.get("body"))
 
     diff_body = _diff_text(pr) if resolved.include_diff else ""
-    metadata_block = _pr_metadata(pr, resolved)
+    metadata_block = _pr_metadata(pr, resolved, diff_body=diff_body)
     extra_sections = [("## Pull Request Diff", diff_body)] if diff_body else None
     return _build_payload(
         kind="pr",
@@ -179,9 +179,7 @@ def _cap_block(text: str, token_budget: int, *, model: str | None = None) -> tup
         return text, False
 
     marker = "\n[truncated: context exceeded token budget]"
-    marker_tokens = estimate_tokens(marker, model=model)
-    allowed_chars = max(1, (token_budget - marker_tokens) * TOKEN_CHARS)
-    return f"{text[:allowed_chars].rstrip()}{marker}", True
+    return _truncate_with_suffix(text, token_budget, suffix=marker, model=model), True
 
 
 def _cap_sections(
@@ -200,7 +198,6 @@ def _cap_sections(
             model=options.model,
         )
         if remaining <= 0:
-            rendered.append(f"{heading}\n[truncated: token budget exhausted before this section]")
             truncated = True
             continue
 
@@ -210,21 +207,95 @@ def _cap_sections(
             continue
 
         marker = "\n\n[truncated: context exceeded token budget]"
-        marker_tokens = estimate_tokens(f"{heading}{marker}", model=options.model)
-        allowed_tokens = max(1, remaining - marker_tokens)
-        allowed_chars = allowed_tokens * TOKEN_CHARS
-        capped_text = _text(text).strip()[:allowed_chars].rstrip()
-        rendered.append(f"{heading}\n{capped_text}{marker}".rstrip())
+        capped_section = _truncate_section(
+            heading,
+            _text(text).strip(),
+            remaining,
+            suffix=marker,
+            model=options.model,
+        )
+        if capped_section:
+            rendered.append(capped_section)
         truncated = True
 
     context = "\n\n".join(part for part in [metadata_block, *rendered] if part)
     while estimate_tokens(context, model=options.model) > budget and rendered:
         truncated = True
+        previous = context
         heading = rendered[-1].split("\n", 1)[0]
-        rendered[-1] = f"{heading}\n[truncated: token budget exhausted before this section]"
+        remaining = budget - estimate_tokens(
+            "\n\n".join(part for part in [metadata_block, *rendered[:-1]] if part),
+            model=options.model,
+        )
+        rendered[-1] = _truncate_section(
+            heading,
+            "",
+            remaining,
+            suffix="\n[truncated: token budget exhausted before this section]",
+            model=options.model,
+        )
+        if not rendered[-1]:
+            rendered.pop()
         context = "\n\n".join(part for part in [metadata_block, *rendered] if part)
+        if context == previous:
+            rendered.pop()
+            context = "\n\n".join(part for part in [metadata_block, *rendered] if part)
 
     return rendered, truncated
+
+
+def _truncate_with_suffix(
+    text: str,
+    token_budget: int,
+    *,
+    suffix: str = "",
+    model: str | None = None,
+) -> str:
+    budget = max(0, token_budget)
+    source = _text(text).rstrip()
+    suffix_text = suffix if estimate_tokens(suffix, model=model) <= budget else ""
+    low = 0
+    high = len(source)
+    best = ""
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = f"{source[:midpoint].rstrip()}{suffix_text}".rstrip()
+        if estimate_tokens(candidate, model=model) <= budget:
+            best = candidate
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    return best
+
+
+def _truncate_section(
+    heading: str,
+    text: str,
+    token_budget: int,
+    *,
+    suffix: str,
+    model: str | None = None,
+) -> str:
+    budget = max(0, token_budget)
+    prefix = f"{heading}\n"
+    if estimate_tokens(prefix.rstrip(), model=model) > budget:
+        return _truncate_with_suffix(heading, budget, model=model)
+
+    suffix_text = (
+        suffix if estimate_tokens(f"{prefix}{suffix}".rstrip(), model=model) <= budget else ""
+    )
+    low = 0
+    high = len(text)
+    best = prefix.rstrip()
+    while low <= high:
+        midpoint = (low + high) // 2
+        candidate = f"{prefix}{text[:midpoint].rstrip()}{suffix_text}".rstrip()
+        if estimate_tokens(candidate, model=model) <= budget:
+            best = candidate
+            low = midpoint + 1
+        else:
+            high = midpoint - 1
+    return best
 
 
 def _issue_metadata(issue: Mapping[str, Any], options: ContextOptions) -> str:
@@ -245,7 +316,7 @@ def _issue_metadata(issue: Mapping[str, Any], options: ContextOptions) -> str:
     return "\n".join(lines)
 
 
-def _pr_metadata(pr: Mapping[str, Any], options: ContextOptions) -> str:
+def _pr_metadata(pr: Mapping[str, Any], options: ContextOptions, *, diff_body: str = "") -> str:
     lines = ["## Pull Request Metadata"]
     number = pr.get("number")
     if number is not None:
@@ -265,7 +336,7 @@ def _pr_metadata(pr: Mapping[str, Any], options: ContextOptions) -> str:
         labels = _labels(pr.get("labels"))
         if labels:
             lines.append(f"- Labels: {', '.join(labels)}")
-    if options.include_diff and _diff_text(pr):
+    if options.include_diff and diff_body:
         lines.append("- Diff: included")
     return "\n".join(lines)
 

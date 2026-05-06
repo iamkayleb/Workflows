@@ -47,6 +47,7 @@ function patternMatches(value, pattern) {
     return true;
   }
   if (pattern instanceof RegExp) {
+    pattern.lastIndex = 0;
     return pattern.test(text);
   }
   const patternText = cleanString(pattern);
@@ -57,14 +58,22 @@ function patternMatches(value, pattern) {
     const lastSlash = patternText.lastIndexOf('/');
     const source = patternText.slice(1, lastSlash);
     const flags = patternText.slice(lastSlash + 1);
-    return new RegExp(source, flags).test(text);
+    try {
+      return new RegExp(source, flags).test(text);
+    } catch {
+      return text.includes(patternText);
+    }
   }
   return text.includes(patternText);
 }
 
-async function callWithRetry(fn, label, { withRetry = null, core = console } = {}) {
+async function callWithRetry(
+  fn,
+  label,
+  { withRetry = null, core = console, allowNonIdempotentRetries = false } = {},
+) {
   if (typeof withRetry === 'function') {
-    return withRetry(fn, { maxRetries: 3, allowNonIdempotentRetries: true });
+    return withRetry(fn, { maxRetries: 3, allowNonIdempotentRetries });
   }
   try {
     return await fn();
@@ -86,13 +95,13 @@ async function paginateIssues({ github, owner, repo, labels = '', core, withRetr
     return cleanArray(await callWithRetry(
       () => github.paginate(method, params),
       `${owner}/${repo} open issues`,
-      { core, withRetry },
+      { core, withRetry, allowNonIdempotentRetries: true },
     ));
   }
   const response = await callWithRetry(
     () => method(params),
     `${owner}/${repo} open issues`,
-    { core, withRetry },
+    { core, withRetry, allowNonIdempotentRetries: true },
   );
   return cleanArray(response?.data);
 }
@@ -101,7 +110,7 @@ async function getIssue({ github, owner, repo, issueNumber, core, withRetry }) {
   const response = await callWithRetry(
     () => github.rest.issues.get({ owner, repo, issue_number: issueNumber }),
     `${owner}/${repo}#${issueNumber}`,
-    { core, withRetry },
+    { core, withRetry, allowNonIdempotentRetries: true },
   );
   return response?.data || null;
 }
@@ -146,7 +155,7 @@ async function ensureLabels({
   await callWithRetry(
     () => github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: names }),
     `${owner}/${repo}#${issueNumber} add labels`,
-    { core, withRetry },
+    { core, withRetry, allowNonIdempotentRetries: true },
   );
 }
 
@@ -160,7 +169,7 @@ async function findTracker({ github, owner, repo, label, titlePattern, markerPat
     core,
     withRetry,
   });
-  const openIssues = markerPattern || !labelQuery
+  const openIssues = !labelQuery
     ? await paginateIssues({ github, owner, repo, core, withRetry })
     : [];
   const byNumber = new Map();
@@ -343,13 +352,16 @@ async function isConsumerOpenPr({
     ? cleanArray(await callWithRetry(
         () => github.paginate(method, params),
         `${parsed.fullName} open pulls`,
-        { core, withRetry },
+        { core, withRetry, allowNonIdempotentRetries: true },
       ))
     : cleanArray((await callWithRetry(
         () => method(params),
         `${parsed.fullName} open pulls`,
-        { core, withRetry },
+        { core, withRetry, allowNonIdempotentRetries: true },
       ))?.data);
+  if (!branchPattern) {
+    return false;
+  }
   return pulls.some((pull) => {
     const headRef = cleanString(pull?.head?.ref || pull?.headRefName || pull?.head_ref);
     return patternMatches(headRef, branchPattern);

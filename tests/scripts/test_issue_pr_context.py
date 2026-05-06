@@ -23,8 +23,36 @@ def test_issue_context_enforces_token_budget_with_truncation() -> None:
 
     assert context["truncated"] is True
     assert context["estimated_tokens"] <= 80
-    assert "context exceeded token budget" in context["context"]
+    assert "truncated:" in context["context"]
     assert len(context["formatted_body"]) < len(issue["body"])
+
+
+def test_issue_context_handles_tiny_budget_without_overflow() -> None:
+    issue = {
+        "number": 123,
+        "title": "Oversize metadata and body",
+        "state": "open",
+        "body": "body " * 100,
+    }
+
+    context = build_issue_context(issue, ContextOptions(token_budget=1))
+
+    assert context["truncated"] is True
+    assert context["estimated_tokens"] <= 1
+
+
+def test_pr_context_caps_metadata_only_payload_without_looping() -> None:
+    pr = {
+        "number": 77,
+        "title": "x" * 2000,
+        "state": "open",
+        "body": "body " * 500,
+    }
+
+    context = build_pr_context(pr, ContextOptions(token_budget=3))
+
+    assert context["truncated"] is True
+    assert context["estimated_tokens"] <= 3
 
 
 def test_reuse_formatted_body_returns_embedded_marker_body() -> None:

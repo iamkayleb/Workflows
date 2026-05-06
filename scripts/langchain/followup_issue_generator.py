@@ -1828,6 +1828,15 @@ WORKFLOW_SYNC_ACCEPTANCE_MARKERS = (
     "workflow-template",
 )
 
+WORKFLOW_SYNC_REPO_LOCAL_MARKERS = (
+    "repo-local",
+    "repository-local",
+    "local-only",
+    "project-specific",
+    "this repository",
+    "this repo",
+)
+
 
 def _acceptance_criteria_from_original_issue(
     original_issue: OriginalIssueData | list[str],
@@ -1844,7 +1853,9 @@ def _is_workflow_sync_acceptance_criterion(criterion: str) -> bool:
     if any(marker in normalized for marker in WORKFLOW_SYNC_ACCEPTANCE_MARKERS):
         return True
     if any(marker in normalized for marker in WORKFLOW_SYNC_PATH_MARKERS):
-        return any(marker in normalized for marker in WORKFLOW_SYNC_CONTEXT_MARKERS)
+        if any(marker in normalized for marker in WORKFLOW_SYNC_REPO_LOCAL_MARKERS):
+            return False
+        return True
     return False
 
 

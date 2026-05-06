@@ -146,7 +146,7 @@ def test_select_followup_acceptance_criteria_keeps_repo_local_actions() -> None:
         number=50,
         tasks=[],
         acceptance_criteria=[
-            "The .github/actions/build-dashboard action handles missing config",
+            "The repo-local .github/actions/build-dashboard action handles missing config",
             "The dashboard export renders for the selected account",
         ],
     )
@@ -155,6 +155,23 @@ def test_select_followup_acceptance_criteria_keeps_repo_local_actions() -> None:
     selected = _select_followup_acceptance_criteria(original_issue, verification_data)
 
     assert selected == original_issue.acceptance_criteria
+
+
+def test_select_followup_acceptance_criteria_treats_workflow_paths_as_sync_by_default() -> None:
+    original_issue = OriginalIssueData(
+        title="Workflow path rollout",
+        number=51,
+        tasks=[],
+        acceptance_criteria=[
+            "Update .github/scripts/sync_tracker_state for tracker reuse",
+            "The dashboard export renders for the selected account",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The dashboard export failed"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == ["The dashboard export renders for the selected account"]
 
 
 def test_select_followup_acceptance_criteria_keeps_repo_local_agent_items() -> None:
