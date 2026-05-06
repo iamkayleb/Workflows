@@ -89,6 +89,40 @@ def test_select_followup_acceptance_criteria_detects_workflow_file_markers() -> 
     assert selected == ["The dashboard export renders for the selected account"]
 
 
+def test_select_followup_acceptance_criteria_detects_workflow_dir_without_slash() -> None:
+    original_issue = OriginalIssueData(
+        title="Workflow path rollout",
+        number=47,
+        tasks=[],
+        acceptance_criteria=[
+            "Changes under .github/workflows are synced to consumers",
+            "The dashboard export renders for the selected account",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The dashboard export failed"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == ["The dashboard export renders for the selected account"]
+
+
+def test_select_followup_acceptance_criteria_detects_synced_scripts() -> None:
+    original_issue = OriginalIssueData(
+        title="Script rollout",
+        number=48,
+        tasks=[],
+        acceptance_criteria=[
+            "Synced .github/scripts helpers are updated across consumers",
+            "The dashboard export renders for the selected account",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The dashboard export failed"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == ["The dashboard export renders for the selected account"]
+
+
 def test_select_followup_acceptance_criteria_keeps_repo_local_agent_items() -> None:
     original_issue = OriginalIssueData(
         title="Repo-local agent UI",
