@@ -9,6 +9,7 @@ const {
   findOrCreateTracker,
   isConsumerOpenPr,
   markStuckWindowBody,
+  patternMatches,
   parseStuckWindow,
   preserveDurableTrackerHeader,
   updateTrackerBody,
@@ -95,7 +96,7 @@ test('findOrCreateTracker discovers a tracker with the durable marker', async ()
         number: 10,
         title: 'Other issue',
         body: '<!-- consumer-sync-drift:v1 {"schema":"consumer-sync-drift-issue/v1"} -->',
-        labels: [{ name: 'automation' }],
+        labels: [{ name: DURABLE_TRACKER_LABEL }, { name: 'consumer-sync' }],
       },
     ],
   });
@@ -114,6 +115,14 @@ test('findOrCreateTracker discovers a tracker with the durable marker', async ()
   assert.equal(tracker.number, 10);
   assert.equal(tracker.sync_tracker_created, false);
   assert.equal(github.calls.createdIssues.length, 0);
+});
+
+test('patternMatches handles invalid and stateful regex patterns deterministically', () => {
+  const globalPattern = /sync\/workflows-/g;
+
+  assert.equal(patternMatches('sync/workflows-abc123', globalPattern), true);
+  assert.equal(patternMatches('sync/workflows-abc123', globalPattern), true);
+  assert.equal(patternMatches('sync/workflows-abc123', '/[/'), false);
 });
 
 test('findOrCreateTracker discovers a tracker by durable label and title', async () => {
@@ -142,6 +151,7 @@ test('findOrCreateTracker discovers a tracker by durable label and title', async
 
 test('findOrCreateTracker creates a durable tracker when none is found', async () => {
   const github = mockGithub();
+  const retryOptions = [];
 
   const tracker = await findOrCreateTracker({
     github,
@@ -152,6 +162,10 @@ test('findOrCreateTracker creates a durable tracker when none is found', async (
     title: 'Consumer repo drift detected',
     body: '## Consumer Repo Drift Detected',
     markerComment: '<!-- consumer-sync-drift:v1 {"schema":"consumer-sync-drift-issue/v1"} -->',
+    withRetry: async (fn, options) => {
+      retryOptions.push(options);
+      return fn();
+    },
   });
 
   assert.equal(tracker.number, 99);
@@ -163,6 +177,7 @@ test('findOrCreateTracker creates a durable tracker when none is found', async (
     'consumer-sync',
   ]);
   assert.match(github.calls.createdIssues[0].body, /consumer-sync-drift:v1/);
+  assert.equal(retryOptions.at(-1).allowNonIdempotentRetries, false);
 });
 
 test('findOrCreateTracker can return null without creating', async () => {
@@ -241,6 +256,14 @@ test('isConsumerOpenPr matches open consumer PR branches by pattern', async () =
       github,
       consumerRepo: 'stranske/Ready',
       branchPattern: /^dependabot\//,
+    }),
+    false,
+  );
+  assert.equal(
+    await isConsumerOpenPr({
+      github,
+      consumerRepo: 'stranske/Ready',
+      branchPattern: '',
     }),
     false,
   );
