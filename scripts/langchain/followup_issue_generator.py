@@ -1811,6 +1811,22 @@ WORKFLOW_SYNC_ACCEPTANCE_MARKERS = (
     "workflow-template",
 )
 
+EXPLICIT_WORKFLOW_SYNC_ACCEPTANCE_MARKERS = (
+    "workflow-owned",
+    "workflows-owned",
+    "maint-68",
+    "synced automation",
+    "synced script",
+    "synced scripts",
+    "synced workflow",
+    "sync pr",
+    "sync-generated",
+    "sync workflow templates",
+    "template sync",
+    "workflow template sync",
+    "workflow-template",
+)
+
 WORKFLOW_SYNC_REPO_LOCAL_MARKERS = (
     "repo-local",
     "repository-local",
@@ -1833,10 +1849,13 @@ def _acceptance_criteria_from_original_issue(
 
 def _is_workflow_sync_acceptance_criterion(criterion: str) -> bool:
     normalized = str(criterion or "").strip().lower()
-    if any(marker in normalized for marker in WORKFLOW_SYNC_ACCEPTANCE_MARKERS):
-        return True
+    has_repo_local_marker = any(marker in normalized for marker in WORKFLOW_SYNC_REPO_LOCAL_MARKERS)
     if any(marker in normalized for marker in WORKFLOW_SYNC_PATH_MARKERS):
-        return not any(marker in normalized for marker in WORKFLOW_SYNC_REPO_LOCAL_MARKERS)
+        return not has_repo_local_marker
+    if any(marker in normalized for marker in WORKFLOW_SYNC_ACCEPTANCE_MARKERS):
+        return not has_repo_local_marker or any(
+            marker in normalized for marker in EXPLICIT_WORKFLOW_SYNC_ACCEPTANCE_MARKERS
+        )
     return False
 
 

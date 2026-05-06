@@ -70,13 +70,16 @@ function patternMatches(value, pattern) {
 async function callWithRetry(
   fn,
   label,
-  { withRetry = null, core = console, allowNonIdempotentRetries = false } = {},
+  { github = null, withRetry = null, core = console, allowNonIdempotentRetries = false } = {},
 ) {
   if (typeof withRetry === 'function') {
-    return withRetry(fn, { maxRetries: 3, allowNonIdempotentRetries });
+    return withRetry(
+      (client) => fn(client || github),
+      { github, maxRetries: 3, allowNonIdempotentRetries },
+    );
   }
   try {
-    return await fn();
+    return await fn(github);
   } catch (error) {
     if (core && typeof core.warning === 'function') {
       core.warning(`${label} failed: ${error.status || error.message}`);
@@ -85,32 +88,58 @@ async function callWithRetry(
   }
 }
 
+async function listAllPages({
+  github,
+  methodForClient,
+  params,
+  label,
+  core = console,
+  withRetry = null,
+  allowNonIdempotentRetries = true,
+}) {
+  const results = [];
+  const perPage = params.per_page || 100;
+  for (let page = 1; ; page += 1) {
+    const response = await callWithRetry(
+      (client = github) => methodForClient(client)({ ...params, page }),
+      `${label} page ${page}`,
+      { github, core, withRetry, allowNonIdempotentRetries },
+    );
+    const data = cleanArray(response?.data);
+    results.push(...data);
+    if (data.length < perPage) {
+      return results;
+    }
+  }
+}
+
 async function paginateIssues({ github, owner, repo, labels = '', core, withRetry }) {
   const params = { owner, repo, state: 'open', per_page: 100 };
   if (labels) {
     params.labels = labels;
   }
-  const method = github.rest.issues.listForRepo;
   if (typeof github.paginate === 'function') {
     return cleanArray(await callWithRetry(
-      () => github.paginate(method, params),
+      (client = github) => client.paginate(client.rest.issues.listForRepo, params),
       `${owner}/${repo} open issues`,
-      { core, withRetry, allowNonIdempotentRetries: true },
+      { github, core, withRetry, allowNonIdempotentRetries: true },
     ));
   }
-  const response = await callWithRetry(
-    () => method(params),
-    `${owner}/${repo} open issues`,
-    { core, withRetry, allowNonIdempotentRetries: true },
-  );
-  return cleanArray(response?.data);
+  return listAllPages({
+    github,
+    methodForClient: (client = github) => client.rest.issues.listForRepo,
+    params,
+    label: `${owner}/${repo} open issues`,
+    core,
+    withRetry,
+  });
 }
 
 async function getIssue({ github, owner, repo, issueNumber, core, withRetry }) {
   const response = await callWithRetry(
-    () => github.rest.issues.get({ owner, repo, issue_number: issueNumber }),
+    (client = github) => client.rest.issues.get({ owner, repo, issue_number: issueNumber }),
     `${owner}/${repo}#${issueNumber}`,
-    { core, withRetry, allowNonIdempotentRetries: true },
+    { github, core, withRetry, allowNonIdempotentRetries: true },
   );
   return response?.data || null;
 }
@@ -153,9 +182,10 @@ async function ensureLabels({
     return;
   }
   await callWithRetry(
-    () => github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: names }),
+    (client = github) =>
+      client.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: names }),
     `${owner}/${repo}#${issueNumber} add labels`,
-    { core, withRetry, allowNonIdempotentRetries: true },
+    { github, core, withRetry, allowNonIdempotentRetries: true },
   );
 }
 
@@ -241,7 +271,7 @@ async function findOrCreateTracker({
     ? `${cleanString(body)}\n\n${cleanString(markerComment)}`.trim()
     : cleanString(body);
   const response = await callWithRetry(
-    () => github.rest.issues.create({
+    (client = github) => client.rest.issues.create({
       owner,
       repo,
       title: issueTitle,
@@ -249,7 +279,7 @@ async function findOrCreateTracker({
       labels: unique([DURABLE_TRACKER_LABEL, AUTOMATED_LABEL, label, ...labels]),
     }),
     `${owner}/${repo} create durable tracker`,
-    { core, withRetry },
+    { github, core, withRetry },
   );
   const created = response?.data || null;
   if (created) {
@@ -305,9 +335,9 @@ async function updateTrackerBody({
     params.title = title;
   }
   const response = await callWithRetry(
-    () => github.rest.issues.update(params),
+    (client = github) => client.rest.issues.update(params),
     `${owner}/${repo}#${tracker.number} update durable tracker`,
-    { core, withRetry },
+    { github, core, withRetry },
   );
   return response?.data || null;
 }
@@ -326,14 +356,14 @@ async function appendTrackerComment({
     throw new Error('appendTrackerComment requires github, owner, repo, and tracker.number');
   }
   const response = await callWithRetry(
-    () => github.rest.issues.createComment({
+    (client = github) => client.rest.issues.createComment({
       owner,
       repo,
       issue_number: tracker.number,
       body: cleanString(comment),
     }),
     `${owner}/${repo}#${tracker.number} append tracker comment`,
-    { core, withRetry },
+    { github, core, withRetry },
   );
   return response?.data || null;
 }
@@ -351,19 +381,21 @@ async function isConsumerOpenPr({
   if (!github || !parsed) {
     throw new Error('isConsumerOpenPr requires github and consumerRepo');
   }
-  const method = github.rest.pulls.list;
   const params = { owner: parsed.owner, repo: parsed.repo, state, per_page: 100 };
   const pulls = typeof github.paginate === 'function'
     ? cleanArray(await callWithRetry(
-        () => github.paginate(method, params),
+        (client = github) => client.paginate(client.rest.pulls.list, params),
         `${parsed.fullName} open pulls`,
-        { core, withRetry, allowNonIdempotentRetries: true },
+        { github, core, withRetry, allowNonIdempotentRetries: true },
       ))
-    : cleanArray((await callWithRetry(
-        () => method(params),
-        `${parsed.fullName} open pulls`,
-        { core, withRetry, allowNonIdempotentRetries: true },
-      ))?.data);
+    : await listAllPages({
+        github,
+        methodForClient: (client = github) => client.rest.pulls.list,
+        params,
+        label: `${parsed.fullName} open pulls`,
+        core,
+        withRetry,
+      });
   if (!branchPattern) {
     return false;
   }

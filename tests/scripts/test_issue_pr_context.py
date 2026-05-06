@@ -69,6 +69,21 @@ def test_reuse_formatted_body_returns_embedded_marker_body() -> None:
     reused = reuse_formatted_body(issue, "agents-auto-pilot")
 
     assert reused == formatted
+    assert '"sha256":"' in marker
+    assert '": "' not in marker
+
+
+def test_reuse_formatted_body_parses_marker_payload_with_braces() -> None:
+    formatted = "## Tasks\n- [ ] Keep } in text\n"
+    body_b64 = base64.b64encode(formatted.encode("utf-8")).decode("ascii")
+    digest = hashlib.sha256(formatted.encode("utf-8")).hexdigest()
+    marker = (
+        "<!-- issue-pr-context:formatted-body:v1 "
+        f'{{"body_b64":"{body_b64}","note":"value with }} brace","sha256":"{digest}",'
+        '"workflow":"agents-auto-pilot"} -->'
+    )
+
+    assert reuse_formatted_body({"body": marker}, "agents-auto-pilot") == formatted
 
 
 def test_reuse_formatted_body_returns_cleaned_body_for_matching_marker() -> None:
@@ -103,7 +118,21 @@ def test_reuse_formatted_body_ignores_malformed_embedded_body() -> None:
     assert reuse_formatted_body({"body": f"Raw body\n\n{marker}"}, "agents-auto-pilot") is None
     assert (
         reuse_formatted_body({"body": f"Raw body\n\n{non_ascii_marker}"}, "agents-auto-pilot")
-        is None
+        == "Raw body"
+    )
+
+
+def test_reuse_formatted_body_falls_back_to_cleaned_body_for_malformed_embed() -> None:
+    marker = (
+        "<!-- issue-pr-context:formatted-body:v1 "
+        '{"body_b64":"abc","workflow":"agents-auto-pilot"} -->'
+    )
+
+    assert (
+        reuse_formatted_body(
+            {"body": f"{marker}\n## Tasks\n- [ ] Visible body"}, "agents-auto-pilot"
+        )
+        == "## Tasks\n- [ ] Visible body"
     )
 
 

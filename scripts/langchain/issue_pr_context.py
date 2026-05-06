@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 import math
 import re
@@ -17,7 +18,7 @@ TOKEN_CHARS = 4
 MARKER_VERSION = "v1"
 MARKER_PREFIX = "issue-pr-context:formatted-body"
 MARKER_RE = re.compile(
-    rf"<!--\s*{re.escape(MARKER_PREFIX)}:{MARKER_VERSION}\s+(\{{.*?\}})\s*-->",
+    rf"<!--\s*{re.escape(MARKER_PREFIX)}:{MARKER_VERSION}\s+(.+?)\s*-->",
     re.DOTALL,
 )
 
@@ -120,8 +121,6 @@ def reuse_formatted_body(
             ):
                 continue
             return embedded
-        if "body_b64" in payload:
-            continue
 
         cleaned = (body[: match.start()] + body[match.end() :]).strip()
         if _body_hash_matches(payload, cleaned):
@@ -145,7 +144,9 @@ def build_formatted_body_marker(
         payload["workflows"] = list(workflows)
     if formatted_body is not None:
         payload["body_b64"] = base64.b64encode(formatted_body.encode("utf-8")).decode("ascii")
-    return f"<!-- {MARKER_PREFIX}:{MARKER_VERSION} {json.dumps(payload, sort_keys=True)} -->"
+        payload["sha256"] = hashlib.sha256(formatted_body.encode("utf-8")).hexdigest()
+    marker_payload = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    return f"<!-- {MARKER_PREFIX}:{MARKER_VERSION} {marker_payload} -->"
 
 
 def _build_payload(
@@ -391,8 +392,6 @@ def _body_hash_matches(payload: Mapping[str, Any], body: str) -> bool:
     expected = payload.get("sha256") or payload.get("body_sha256")
     if not isinstance(expected, str):
         return False
-    import hashlib
-
     return hashlib.sha256(body.encode("utf-8")).hexdigest() == expected
 
 
