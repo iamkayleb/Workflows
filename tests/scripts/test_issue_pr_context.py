@@ -89,7 +89,7 @@ def test_reuse_formatted_body_returns_none_when_marker_missing_or_mismatched() -
 
 def test_reuse_formatted_body_ignores_malformed_embedded_body() -> None:
     marker = (
-        '<!-- issue-pr-context:formatted-body:v1 '
+        "<!-- issue-pr-context:formatted-body:v1 "
         '{"body_b64":"abc","sha256":"bad","workflow":"agents-auto-pilot"} -->'
     )
 
