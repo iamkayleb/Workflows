@@ -1784,16 +1784,31 @@ def _build_why_section(
     return " ".join(parts)
 
 
-WORKFLOW_SYNC_ACCEPTANCE_MARKERS = (
+WORKFLOW_SYNC_CONTEXT_MARKERS = (
     "consumer sync",
     "consumer-sync",
+    "consumer",
+    "consumers",
+    "from the template",
+    "maint-68",
+    "synced",
+    "sync pr",
+    "sync-generated",
+    "template sync",
+    "workflow template sync",
+    "workflow-template",
+    "workflow-owned",
+    "workflows-owned",
+)
+
+WORKFLOW_SYNC_PATH_MARKERS = (
     ".github/actions",
-    ".github/actions/",
     ".github/scripts",
-    ".github/scripts/",
     ".github/sync-manifest.yml",
     ".github/workflows",
-    ".github/workflows/",
+)
+
+WORKFLOW_SYNC_ACCEPTANCE_MARKERS = (
     "workflow file",
     "workflow files",
     "workflow-owned",
@@ -1826,7 +1841,11 @@ def _acceptance_criteria_from_original_issue(
 
 def _is_workflow_sync_acceptance_criterion(criterion: str) -> bool:
     normalized = str(criterion or "").strip().lower()
-    return any(marker in normalized for marker in WORKFLOW_SYNC_ACCEPTANCE_MARKERS)
+    if any(marker in normalized for marker in WORKFLOW_SYNC_ACCEPTANCE_MARKERS):
+        return True
+    if any(marker in normalized for marker in WORKFLOW_SYNC_PATH_MARKERS):
+        return any(marker in normalized for marker in WORKFLOW_SYNC_CONTEXT_MARKERS)
+    return False
 
 
 def _has_mixed_repo_and_workflow_acceptance_criteria(
