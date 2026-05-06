@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+
 from scripts.langchain.issue_pr_context import (
     ContextOptions,
     build_formatted_body_marker,
@@ -85,6 +88,37 @@ def test_reuse_formatted_body_returns_none_when_marker_missing_or_mismatched() -
         is None
     )
     assert reuse_formatted_body({"body": marker}, "agents-pr-meta-v4") is None
+
+
+def test_reuse_formatted_body_ignores_malformed_embedded_body() -> None:
+    marker = (
+        "<!-- issue-pr-context:formatted-body:v1 "
+        '{"body_b64":"abc","sha256":"bad","workflow":"agents-auto-pilot"} -->'
+    )
+    non_ascii_marker = (
+        "<!-- issue-pr-context:formatted-body:v1 "
+        '{"body_b64":"not-ascii-\u2603","workflow":"agents-auto-pilot"} -->'
+    )
+
+    assert reuse_formatted_body({"body": f"Raw body\n\n{marker}"}, "agents-auto-pilot") is None
+    assert (
+        reuse_formatted_body({"body": f"Raw body\n\n{non_ascii_marker}"}, "agents-auto-pilot")
+        is None
+    )
+
+
+def test_reuse_formatted_body_validates_embedded_body_hash() -> None:
+    formatted = "## Tasks\n- [ ] Verify cached body\n"
+    body_b64 = base64.b64encode(formatted.encode("utf-8")).decode("ascii")
+    digest = hashlib.sha256(formatted.encode("utf-8")).hexdigest()
+    marker = (
+        "<!-- issue-pr-context:formatted-body:v1 "
+        f'{{"body_b64":"{body_b64}","sha256":"{digest}","workflow":"agents-auto-pilot"}} -->'
+    )
+    stale_marker = marker.replace(digest, "0" * 64)
+
+    assert reuse_formatted_body({"body": marker}, "agents-auto-pilot") == formatted
+    assert reuse_formatted_body({"body": stale_marker}, "agents-auto-pilot") is None
 
 
 def test_issue_context_shape_for_typical_fixture() -> None:

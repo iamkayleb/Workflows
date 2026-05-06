@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import math
 import re
@@ -113,7 +114,14 @@ def reuse_formatted_body(
 
         embedded = _embedded_body(payload)
         if embedded is not None:
+            if ("sha256" in payload or "body_sha256" in payload) and not _body_hash_matches(
+                payload,
+                embedded,
+            ):
+                continue
             return embedded
+        if "body_b64" in payload:
+            continue
 
         cleaned = (body[: match.start()] + body[match.end() :]).strip()
         if _body_hash_matches(payload, cleaned):
@@ -193,16 +201,18 @@ def _cap_sections(
 
     prefix = metadata_block.strip()
     for heading, text in sections:
-        remaining = budget - estimate_tokens(
-            "\n\n".join(part for part in [prefix, *rendered] if part),
-            model=options.model,
-        )
+        base_context = _join_context([prefix, *rendered])
+        section_prefix = "\n\n" if base_context else ""
+        remaining = budget - estimate_tokens(f"{base_context}{section_prefix}", model=options.model)
         if remaining <= 0:
             truncated = True
             continue
 
         section = f"{heading}\n{_text(text).strip()}".rstrip()
-        if estimate_tokens(section, model=options.model) <= remaining:
+        if (
+            estimate_tokens(f"{base_context}{section_prefix}{section}", model=options.model)
+            <= budget
+        ):
             rendered.append(section)
             continue
 
@@ -223,10 +233,9 @@ def _cap_sections(
         truncated = True
         previous = context
         heading = rendered[-1].split("\n", 1)[0]
-        remaining = budget - estimate_tokens(
-            "\n\n".join(part for part in [metadata_block, *rendered[:-1]] if part),
-            model=options.model,
-        )
+        base_context = _join_context([metadata_block, *rendered[:-1]])
+        section_prefix = "\n\n" if base_context else ""
+        remaining = budget - estimate_tokens(f"{base_context}{section_prefix}", model=options.model)
         rendered[-1] = _truncate_section(
             heading,
             "",
@@ -242,6 +251,10 @@ def _cap_sections(
             context = "\n\n".join(part for part in [metadata_block, *rendered] if part)
 
     return rendered, truncated
+
+
+def _join_context(parts: list[str]) -> str:
+    return "\n\n".join(part for part in parts if part)
 
 
 def _truncate_with_suffix(
@@ -370,7 +383,7 @@ def _embedded_body(payload: Mapping[str, Any]) -> str | None:
         return None
     try:
         return base64.b64decode(body_b64.encode("ascii")).decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
+    except (binascii.Error, UnicodeEncodeError, UnicodeDecodeError, ValueError):
         return None
 
 
