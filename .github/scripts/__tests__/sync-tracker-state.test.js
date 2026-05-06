@@ -327,6 +327,106 @@ test('isConsumerOpenPr matches open consumer PR branches by pattern', async () =
   );
 });
 
+test('isConsumerOpenPr manually paginates when github.paginate is unavailable', async () => {
+  const pageOne = Array.from({ length: 100 }, (_, index) => ({
+    number: index + 1,
+    head: { ref: `feature/manual-${index + 1}` },
+  }));
+  const calls = [];
+  const github = {
+    rest: {
+      pulls: {
+        list: async (params) => {
+          calls.push(params);
+          return {
+            data: params.page === 1 ? pageOne : [{ number: 101, head: { ref: 'sync/workflows-next' } }],
+          };
+        },
+      },
+    },
+  };
+
+  assert.equal(
+    await isConsumerOpenPr({
+      github,
+      consumerRepo: 'stranske/Ready',
+      branchPattern: /^sync\/workflows-/,
+    }),
+    true,
+  );
+  assert.deepEqual(calls.map((params) => params.page), [1, 2]);
+});
+
+test('isConsumerOpenPr uses token-aware retry injected clients', async () => {
+  const primary = mockGithub({ pulls: [] });
+  delete primary.paginate;
+  const injected = mockGithub({
+    pulls: [{ number: 7, head: { ref: 'sync/workflows-injected-client' } }],
+  });
+  delete injected.paginate;
+  const clients = [];
+
+  assert.equal(
+    await isConsumerOpenPr({
+      github: primary,
+      consumerRepo: 'stranske/Ready',
+      branchPattern: /^sync\/workflows-/,
+      withRetry: async (fn) => {
+        clients.push(injected);
+        return fn(injected);
+      },
+    }),
+    true,
+  );
+  assert.equal(clients.length, 1);
+});
+
+test('findOrCreateTracker manually paginates open issue scans', async () => {
+  const pageOne = Array.from({ length: 100 }, (_, index) => ({
+    number: index + 1,
+    title: `Other issue ${index + 1}`,
+    body: '',
+    labels: [],
+  }));
+  const trackerIssue = {
+    number: 101,
+    title: 'Consumer repo drift detected',
+    body: '<!-- consumer-sync-drift:v1 {"schema":"consumer-sync-drift-issue/v1"} -->',
+    labels: [],
+  };
+  const allIssues = [...pageOne, trackerIssue];
+  const calls = [];
+  const github = {
+    rest: {
+      issues: {
+        listForRepo: async (params) => {
+          calls.push(params);
+          if (params.labels) {
+            return { data: [] };
+          }
+          return { data: params.page === 1 ? pageOne : [trackerIssue] };
+        },
+        get: async ({ issue_number }) => ({
+          data: allIssues.find((issue) => issue.number === issue_number) || null,
+        }),
+        addLabels: async (params) => ({ data: params.labels.map((name) => ({ name })) }),
+      },
+    },
+  };
+
+  const tracker = await findOrCreateTracker({
+    github,
+    owner: 'stranske',
+    repo: 'Workflows',
+    label: 'consumer-sync',
+    titlePattern: /^Consumer repo drift detected$/,
+    markerPattern: /consumer-sync-drift:v1/,
+  });
+
+  assert.equal(tracker.number, 101);
+  assert.equal(calls.some((params) => !params.labels && params.page === 2), true);
+});
+
 test('markStuckWindowBody and clearStuckWindowBody manage the lifecycle marker', () => {
   const marked = markStuckWindowBody('## Sync Status\n\nStill failing.', '2026-05-01T00:00:00Z', {
     updatedAt: '2026-05-02T00:00:00Z',

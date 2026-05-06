@@ -157,6 +157,40 @@ def test_select_followup_acceptance_criteria_keeps_repo_local_actions() -> None:
     assert selected == original_issue.acceptance_criteria
 
 
+def test_select_followup_acceptance_criteria_keeps_repo_local_workflow_file_items() -> None:
+    original_issue = OriginalIssueData(
+        title="Repo-local workflow",
+        number=52,
+        tasks=[],
+        acceptance_criteria=[
+            "The workflow file in this repo handles nightly dashboard exports",
+            "The dashboard export renders for the selected account",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The dashboard export failed"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == original_issue.acceptance_criteria
+
+
+def test_select_followup_acceptance_criteria_keeps_explicit_sync_pr_items() -> None:
+    original_issue = OriginalIssueData(
+        title="Workflow sync rollout",
+        number=53,
+        tasks=[],
+        acceptance_criteria=[
+            "The sync PR is opened in this repo for workflow template sync",
+            "The dashboard export renders for the selected account",
+        ],
+    )
+    verification_data = VerificationData(concerns=["The dashboard export failed"])
+
+    selected = _select_followup_acceptance_criteria(original_issue, verification_data)
+
+    assert selected == ["The dashboard export renders for the selected account"]
+
+
 def test_select_followup_acceptance_criteria_treats_workflow_paths_as_sync_by_default() -> None:
     original_issue = OriginalIssueData(
         title="Workflow path rollout",
