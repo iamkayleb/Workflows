@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import math
 import re
@@ -370,7 +371,7 @@ def _embedded_body(payload: Mapping[str, Any]) -> str | None:
         return None
     try:
         return base64.b64decode(body_b64.encode("ascii")).decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
+    except (binascii.Error, ValueError, UnicodeDecodeError):
         return None
 
 

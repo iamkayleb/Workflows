@@ -87,6 +87,15 @@ def test_reuse_formatted_body_returns_none_when_marker_missing_or_mismatched() -
     assert reuse_formatted_body({"body": marker}, "agents-pr-meta-v4") is None
 
 
+def test_reuse_formatted_body_ignores_malformed_embedded_body() -> None:
+    marker = (
+        '<!-- issue-pr-context:formatted-body:v1 '
+        '{"body_b64":"abc","sha256":"bad","workflow":"agents-auto-pilot"} -->'
+    )
+
+    assert reuse_formatted_body({"body": f"Raw body\n\n{marker}"}, "agents-auto-pilot") is None
+
+
 def test_issue_context_shape_for_typical_fixture() -> None:
     issue = {
         "number": 42,
