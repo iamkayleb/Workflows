@@ -122,6 +122,14 @@ poetry.lock
 # --- Local repo-review output (ephemeral human decision packets) ---
 docs/reports/repo-review/
 
+# --- Local issue-completion dashboard cache (runtime artifact, regenerates) ---
+docs/reports/issue_completion_dashboard.md
+docs/reports/issue_completion_queue.tsv
+
+# --- Repo-review pilot scratch dirs (one-off rollout artifacts; preserve via
+#     archive snapshots under docs/reports/repo-review/archive/<date>/ instead) ---
+docs/reports/repo-review-phase*/
+
 # OS
 .DS_Store
 Thumbs.db
