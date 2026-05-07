@@ -351,13 +351,82 @@ def invoke_codex(prompt: str, *, cwd: Path, log_file: Path, timeout: int) -> tup
     return False, f"codex exited {result.returncode} ({result.note}; log: {log_file})"
 
 
+def _resolve_claude_binary() -> str | None:
+    """Return the path to the Claude Desktop-bundled claude CLI binary.
+
+    The cron MUST use the bundled binary, not whatever's on PATH:
+
+    - `/opt/homebrew/bin/claude` (the homebrew package) is older (2.1.45)
+      and its OAuth/keychain auth path is broken — it returns 401 even
+      with a clean env. Empirically tested 2026-05-07.
+    - `~/Library/Application Support/Claude/claude-code/<version>/claude.app/
+      Contents/MacOS/claude` (the bundled binary) authenticates fine when
+      invoked with a clean env. This is what Claude Desktop spawns.
+
+    Resolution order:
+      1. `CLAUDE_CODE_EXECPATH` env var (set by Claude Desktop when nested,
+         points at the bundled binary).
+      2. Newest version under `~/Library/Application Support/Claude/claude-code/`.
+      3. `shutil.which("claude")` as a last resort (may 401 on auth — log a warning).
+    """
+    env_path = os.environ.get("CLAUDE_CODE_EXECPATH")
+    if env_path and Path(env_path).is_file():
+        return env_path
+    bundled_root = Path(os.path.expanduser(
+        "~/Library/Application Support/Claude/claude-code"
+    ))
+    if bundled_root.is_dir():
+        # Sort versions newest-first using a tuple-of-ints key (e.g. "2.1.128"
+        # → (2, 1, 128)) so 2.1.128 sorts higher than 2.1.45 (which is the
+        # whole point of skipping the homebrew install).
+        def _version_key(p: Path) -> tuple[int, ...]:
+            try:
+                return tuple(int(x) for x in p.name.split("."))
+            except ValueError:
+                return (0,)
+        candidates = sorted(
+            (p for p in bundled_root.iterdir() if p.is_dir()),
+            key=_version_key, reverse=True,
+        )
+        for ver_dir in candidates:
+            binary = ver_dir / "claude.app" / "Contents" / "MacOS" / "claude"
+            if binary.is_file():
+                return str(binary)
+    fallback = shutil.which("claude")
+    return fallback
+
+
+def _build_claude_env() -> dict[str, str]:
+    """Return a minimal env for nested claude invocations.
+
+    Empirical findings (2026-05-07):
+
+    - Inheriting `CLAUDECODE`, `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`,
+      `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_AGENT_SDK_VERSION`, etc. causes
+      "401 Invalid authentication credentials" — those vars signal "the host
+      Claude Desktop manages auth" and steer claude away from its own
+      keychain-based auth path.
+    - Inheriting `USER` ALSO causes 401. Reason unknown — likely some
+      internal multi-user detection in claude. Other identity-style vars
+      (LOGNAME, SHELL) do NOT cause this.
+    - All other "neutral" env vars (PATH, HOME, TMPDIR, LANG, TZ, TERM,
+      LOGNAME, SHELL, LC_ALL) are fine.
+
+    We allowlist neutral vars and explicitly drop USER + all CLAUDE*.
+    """
+    keep = ("HOME", "PATH", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "TERM",
+            "SHELL", "TZ")
+    return {k: v for k, v in os.environ.items() if k in keep}
+
+
 def invoke_claude(
     prompt: str, *, cwd: Path, additional_dirs: list[Path], log_file: Path, timeout: int
 ) -> tuple[bool, str]:
-    if shutil.which("claude") is None:
-        return False, "claude CLI not on PATH"
+    binary = _resolve_claude_binary()
+    if binary is None:
+        return False, "claude CLI not found (no CLAUDE_CODE_EXECPATH, no Claude Desktop bundle, not on PATH)"
     cmd = [
-        "claude",
+        binary,
         "-p",
         "--permission-mode",
         "bypassPermissions",
@@ -365,14 +434,7 @@ def invoke_claude(
     ]
     for extra in additional_dirs:
         cmd.extend(["--add-dir", str(extra)])
-    env = os.environ.copy()
-    env.pop("CLAUDECODE", None)  # allow nested invocation when running from within a Claude session
-    # NB: nested claude needs write access to ~/.claude/, ~/.claude.json,
-    # and ~/.claude.lock. When the cron runs us inside another `codex exec`,
-    # those paths must be in `writable_roots` of `~/.codex/config.toml`
-    # (alongside ~/.codex). A HOME redirect was tried and rejected: claude's
-    # auth references state across multiple files (sessions/, mcp-needs-auth-cache,
-    # token caches) and copying just .claude.json yields "Not logged in".
+    env = _build_claude_env()
     result = run_with_heartbeat(
         cmd,
         prompt=prompt,
