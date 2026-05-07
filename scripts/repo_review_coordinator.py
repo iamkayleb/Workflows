@@ -411,6 +411,9 @@ def coordinate_repo(
             return report
 
     # 3. Round-2 negotiation + synthesis.
+    # NB: round-2 runner takes `--agents` as a SINGLE comma-separated string
+    # (`"codex,claude"`), unlike round-1 runner which takes `nargs="+"`. Don't
+    # spread `*agents` here — that becomes positional args round-2 rejects.
     r2_cmd = [
         sys.executable,
         str(workflows_steward_root / "scripts" / "repo_review_round2_runner.py"),
@@ -419,7 +422,7 @@ def coordinate_repo(
         "--output-dir",
         str(output_dir),
         "--agents",
-        *agents,
+        ",".join(agents),
         "--turn-timeout",
         str(round2_timeout),
     ]
