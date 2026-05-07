@@ -453,8 +453,19 @@ def coordinate_repo(
         str(output_dir),
         "--registry",
         str(registry_path),
+        # `claude` is required (not `codex`) when the body-writer runs nested
+        # under `codex exec` — codex's `apply_patch` and `exec_command` tools
+        # both go through a fs sandbox helper that calls `sandbox-exec` to
+        # apply a sub-sandbox profile. macOS does not allow nested
+        # `sandbox-exec` calls and the helper fails with status 71:
+        # "sandbox_apply: Operation not permitted". The body-writer specifically
+        # needs to MODIFY an existing converged.json (round-1/round-2 agents
+        # write fresh files and lucked through with apply_patch retries; the
+        # body-writer's update-file path consistently EPERMs). Claude's Edit
+        # tool writes directly without sandbox-exec wrapping and works in the
+        # nested context. Empirically verified 2026-05-07 (attempt-7).
         "--agent",
-        "codex",  # Codex has historically produced higher-quality bodies.
+        "claude",
         "--timeout",
         str(min(round2_timeout, 60 * 60)),
     ]
