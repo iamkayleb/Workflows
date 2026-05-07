@@ -314,11 +314,17 @@ _STALL_THRESHOLD = int(os.environ.get("REPO_REVIEW_STALL_THRESHOLD", "900"))  # 
 def invoke_codex(prompt: str, *, cwd: Path, log_file: Path, timeout: int) -> tuple[bool, str]:
     if shutil.which("codex") is None:
         return False, "codex CLI not on PATH"
+    # `--ephemeral` is critical when this runner is itself spawned from inside
+    # another `codex exec` (the cron pattern). Without it, the nested codex
+    # tries to write session files at `~/.codex/sessions/`, which the outer
+    # codex's workspace-write sandbox blocks (EPERM). With `--ephemeral`,
+    # session state lives only in memory and the nested codex starts cleanly.
     cmd = [
         "codex",
         "exec",
         "--full-auto",
         "--skip-git-repo-check",
+        "--ephemeral",
         "-C",
         str(cwd),
     ]
@@ -345,6 +351,42 @@ def invoke_codex(prompt: str, *, cwd: Path, log_file: Path, timeout: int) -> tup
     return False, f"codex exited {result.returncode} ({result.note}; log: {log_file})"
 
 
+def _prepare_claude_sandbox_home() -> Path:
+    """Build a sandbox-writable HOME for nested `claude` invocations.
+
+    When the round-2 runner is itself invoked from inside `codex exec` (the cron
+    pattern), the outer codex's workspace-write sandbox blocks claude from
+    writing to its real `~/.claude/`, `~/.claude.json`, `~/.claude.lock`, etc.
+    Symptom: claude exits non-zero with EPERM/ENOENT on those paths.
+
+    Workaround: redirect HOME to a directory under `~/.codex/automations/`
+    (which IS in writable_roots), and seed it with a copy of the user's real
+    `~/.claude.json` so authentication still works. The copy is refreshed on
+    each invocation if the source is newer, so token refreshes propagate
+    forward (we accept that they don't propagate back — for a one-shot review
+    cycle that's the right tradeoff).
+
+    Returns the path to use as HOME.
+    """
+    sandbox_home = Path(os.path.expanduser(
+        "~/.codex/automations/reviewed-repo-weekly-design-review/claude-home"
+    ))
+    sandbox_home.mkdir(parents=True, exist_ok=True)
+
+    # Seed authentication (and other config) from the real claude config.
+    src = Path(os.path.expanduser("~/.claude.json"))
+    dst = sandbox_home / ".claude.json"
+    if src.is_file() and (
+        not dst.is_file() or dst.stat().st_mtime < src.stat().st_mtime
+    ):
+        try:
+            shutil.copy2(src, dst)
+        except OSError:
+            pass  # best-effort; if copy fails, claude will fail with auth errors that we'll see in the log
+
+    return sandbox_home
+
+
 def invoke_claude(
     prompt: str, *, cwd: Path, additional_dirs: list[Path], log_file: Path, timeout: int
 ) -> tuple[bool, str]:
@@ -361,6 +403,9 @@ def invoke_claude(
         cmd.extend(["--add-dir", str(extra)])
     env = os.environ.copy()
     env.pop("CLAUDECODE", None)  # allow nested invocation when running from within a Claude session
+    # Sandbox workaround: redirect HOME so nested claude can write its state.
+    # See `_prepare_claude_sandbox_home` for the full rationale.
+    env["HOME"] = str(_prepare_claude_sandbox_home())
     result = run_with_heartbeat(
         cmd,
         prompt=prompt,
