@@ -622,7 +622,34 @@ def run(args: argparse.Namespace) -> int:
         timeout=600,
     )
 
-    # 4. Summary report on stderr (cron will capture).
+    # 5. Surface the cycle outcome to the human reviewer (macOS notification +
+    #    persistent desktop file). The cron does NOT auto-upload; humans must
+    #    review the packet and run upload_repo_review_issues.py --apply. This
+    #    notify step ensures they actually see the packet is ready.
+    notify_cmd = [
+        sys.executable,
+        str(workflows_steward_root / "scripts" / "repo_review_notify.py"),
+        "--output-dir",
+        str(output_dir),
+        "--queue",
+        str(output_dir / "approved-issue-queue.json"),
+        "--workflows-steward-root",
+        str(workflows_steward_root),
+    ]
+    notify_result = run_subprocess(
+        notify_cmd,
+        cwd=workflows_steward_root,
+        log_path=log_dir / "notify.log",
+        name="notify",
+        timeout=60,
+    )
+    if not notify_result.succeeded:
+        print(
+            f"[coordinator] notify FAILED (non-fatal): {notify_result.notes}",
+            file=sys.stderr,
+        )
+
+    # 6. Summary report on stderr (cron will capture).
     print("[coordinator] summary:")
     for report in reports:
         repo = report["repo"]
