@@ -634,6 +634,11 @@ def run(args: argparse.Namespace) -> int:
         str(registry_path),
         "--out",
         str(backlog_scan_path),
+        # --apply means the cron actually adds the priority labels (default
+        # priority:normal, or priority:low if the issue was created >90 days
+        # ago with no milestone). Umbrellas/epics/blocked items are NOT
+        # auto-labeled — they get surfaced for human decision instead.
+        "--apply",
     ]
     backlog_result = run_subprocess(
         backlog_cmd,

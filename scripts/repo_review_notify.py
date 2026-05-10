@@ -108,26 +108,64 @@ def load_backlog_scan(path: Path | None) -> dict[str, Any]:
         return {"items": []}
 
 
-def format_backlog_section(backlog: dict[str, Any]) -> str:
-    """Return a markdown section listing the unaddressed-backlog items.
+def format_auto_labeled_section(backlog: dict[str, Any]) -> str:
+    """Return a brief info section listing items the cron auto-labeled this week.
 
-    Empty if no items. The section gives the user the EXACT gh commands to
-    promote / deprioritize / close each one, so they can resolve every entry
-    inline without context-switching.
+    No action required from the user — this is FYI. The cron added the label
+    (when --apply was passed); the opener will pick these up on its next pass.
     """
-    items = backlog.get("items", []) or []
+    items = backlog.get("auto_labeled", []) or []
+    if not items:
+        return ""
+    apply_mode = backlog.get("apply_mode", False)
+    note = (
+        "These were auto-labeled by the cron (the opener will pick them up "
+        "on its next pass)."
+        if apply_mode
+        else "These WOULD be auto-labeled if the cron ran with --apply (the "
+             "current run was dry-run only — the labels are NOT on the issues yet)."
+    )
+    header = (
+        f"\n\n## Auto-labeled this week ({len(items)} item"
+        f"{'s' if len(items) != 1 else ''}) — FYI, no action required\n\n"
+        f"{note}\n\n"
+    )
+    lines: list[str] = []
+    for item in items:
+        repo = item["repo"]
+        num = item["number"]
+        title = item["title"]
+        age = item.get("age_days", 0)
+        prio = item.get("applied_priority", "priority:?").replace("priority:", "")
+        applied = item.get("applied", False)
+        applied_marker = "" if applied else " _(dry-run; not yet applied)_"
+        lines.append(
+            f"- {repo}#{num} → **{prio}**{applied_marker} — _{title[:80]}_ "
+            f"({age:.0f}d stale)"
+        )
+    return header + "\n".join(lines) + "\n"
+
+
+def format_needs_human_section(backlog: dict[str, Any]) -> str:
+    """Return a markdown section for items the cron declined to auto-label.
+
+    These are typically umbrella/epic-shaped or blocked issues. Each gets the
+    EXACT three gh commands to promote / deprioritize / close, so the user can
+    resolve every entry inline.
+    """
+    items = backlog.get("needs_human", []) or backlog.get("items", []) or []
     if not items:
         return ""
 
     threshold = backlog.get("stale_days_threshold", 7)
     header = (
-        f"\n\n## Backlog needing your attention ({len(items)} item"
+        f"\n\n## Backlog needing your decision ({len(items)} item"
         f"{'s' if len(items) != 1 else ''})\n\n"
-        f"These open issues are labeled `enhancement` or `feature` but have NO "
-        f"`priority:*` label, NO `agent:*` label, and NO activity in the past "
-        f"{threshold}+ days. The opener cron cannot see them (it selects by "
-        "priority label). Without action, they sit indefinitely.\n\n"
-        "Decide each: **promote** to opener queue, **deprioritize**, or **close**.\n\n"
+        f"These open issues are stale (>{threshold}d) and labeled "
+        "`enhancement`/`feature` without priority. The cron declined to "
+        "auto-label them because each looks like an umbrella/epic, has a "
+        "blocked label, or shows another signal that human judgment is "
+        "required. Decide each: **promote**, **deprioritize**, or **close**.\n\n"
     )
 
     lines: list[str] = []
@@ -137,21 +175,30 @@ def format_backlog_section(backlog: dict[str, Any]) -> str:
         title = item["title"]
         age = item.get("age_days", 0)
         url = item.get("url", "")
-        last_label_hint = ""
+        reason = item.get("surface_reason", "")
         labels = item.get("labels", []) or []
         relevant = [l for l in labels if l not in {"enhancement", "feature"}][:2]
-        if relevant:
-            last_label_hint = f"  _(also labeled: {', '.join(f'`{l}`' for l in relevant)})_\n"
+        label_hint = (
+            f"  _(also labeled: {', '.join(f'`{l}`' for l in relevant)})_\n"
+            if relevant else ""
+        )
+        reason_line = f"  _Surface reason: {reason}_\n" if reason else ""
         lines.append(
             f"### {repo}#{num}: {title}\n"
             f"  ({age:.0f} days since last update — {url})\n"
-            f"{last_label_hint}"
+            f"{label_hint}"
+            f"{reason_line}"
             f"  - Promote: `gh issue edit {num} --repo {repo} --add-label priority:normal`\n"
             f"  - Deprioritize: `gh issue edit {num} --repo {repo} --add-label priority:low`\n"
             f"  - Close: `gh issue close {num} --repo {repo} --comment \"Out of scope; closing per backlog scan.\"`\n"
         )
 
     return header + "\n".join(lines) + "\n"
+
+
+def format_backlog_section(backlog: dict[str, Any]) -> str:
+    """Combined backlog section: auto-labeled FYI + needs-human action items."""
+    return format_auto_labeled_section(backlog) + format_needs_human_section(backlog)
 
 
 def write_desktop_reminder(
@@ -178,21 +225,34 @@ def write_desktop_reminder(
     by_repo = queue_summary["by_repo"]
     skipped_count = queue_summary["skipped_count"]
     titles = queue_summary["issue_titles"]
-    backlog_count = len(backlog.get("items", []) or [])
+    auto_labeled_count = len(backlog.get("auto_labeled", []) or [])
+    needs_human_count = len(backlog.get("needs_human", []) or [])
+    backlog_count = auto_labeled_count + needs_human_count
 
     if total == 0 and backlog_count == 0:
         headline = (
-            "## ✓ No issues queued, no backlog rot\n\n"
-            "The cron ran, found no fresh design-vs-implementation gaps, "
-            "and detected no unaddressed enhancement issues across the fleet. "
-            "No action required — the system will run again next Thursday."
+            "## ✓ Clean week — no action required\n\n"
+            "No fresh design-vs-implementation gaps, no unaddressed "
+            "enhancement issues across the fleet. The system will run "
+            "again next Thursday."
+        )
+    elif total == 0 and needs_human_count == 0:
+        headline = (
+            f"## ✓ Clean week ({auto_labeled_count} backlog item"
+            f"{'s' if auto_labeled_count != 1 else ''} auto-labeled)\n\n"
+            "No fresh design-vs-implementation gaps. The cron found "
+            f"{auto_labeled_count} stale unaddressed enhancement"
+            f"{'s' if auto_labeled_count != 1 else ''} and labeled them with "
+            "priority — no action required from you, see the FYI section below."
         )
     elif total == 0:
         headline = (
-            "## No fresh issues queued this week\n\n"
-            "The cron found no new design-vs-implementation gaps. See the "
-            "**Backlog needing your attention** section below for older "
-            "enhancement issues that fell between the opener and the review."
+            f"## {needs_human_count} backlog item"
+            f"{'s' if needs_human_count != 1 else ''} need your decision\n\n"
+            "No fresh design-vs-implementation gaps this week, but the cron "
+            f"found {needs_human_count} stale issue"
+            f"{'s' if needs_human_count != 1 else ''} (umbrella/epic-shaped or "
+            "blocked) that it couldn't safely auto-label. See the section below."
         )
     else:
         repo_lines = "\n".join(f"- **{r}**: {n}" for r, n in sorted(by_repo.items()))
@@ -321,30 +381,46 @@ def main() -> int:
         else output_dir / "backlog-scan.json"
     )
     backlog = load_backlog_scan(backlog_path)
-    backlog_count = len(backlog.get("items", []) or [])
+    auto_labeled_count = len(backlog.get("auto_labeled", []) or [])
+    needs_human_count = len(backlog.get("needs_human", []) or [])
+    backlog_count = auto_labeled_count + needs_human_count
 
     total = summary["total"]
     by_repo_str = ", ".join(
         f"{r.split('/')[-1]} ({n})" for r, n in sorted(summary["by_repo"].items())
     )
 
+    # Auto-labeled items are FYI — they don't trigger an action-required ping.
+    action_required = (total > 0) or (needs_human_count > 0)
+
     if not args.skip_notification:
-        if total == 0 and backlog_count == 0:
+        if not action_required and backlog_count == 0:
             display_notification(
                 title="Repo-review: clean week",
-                subtitle="No issues queued, no backlog rot",
-                message="See packet for details. Next run: next Thursday.",
+                subtitle="No fresh gaps, no backlog rot",
+                message="No action required. Next run: next Thursday.",
+            )
+        elif not action_required:
+            display_notification(
+                title="Repo-review: clean week",
+                subtitle=f"Auto-labeled {auto_labeled_count} stale backlog item{'s' if auto_labeled_count != 1 else ''}",
+                message="No action required — opener will pick them up next.",
             )
         elif total == 0:
             display_notification(
-                title=f"Repo-review: {backlog_count} backlog item{'s' if backlog_count != 1 else ''} need attention",
+                title=f"Repo-review: {needs_human_count} backlog decision{'s' if needs_human_count != 1 else ''} needed",
                 subtitle="No fresh upload queue this week",
                 message="Action required — see ~/Desktop/REPO-REVIEW-ACTION-NEEDED.md",
             )
         else:
-            backlog_suffix = f" + {backlog_count} backlog" if backlog_count else ""
+            extras = []
+            if needs_human_count:
+                extras.append(f"{needs_human_count} backlog")
+            if auto_labeled_count:
+                extras.append(f"{auto_labeled_count} auto-labeled")
+            suffix = f" (+{', '.join(extras)})" if extras else ""
             display_notification(
-                title=f"Repo-review: {total} issue{'s' if total != 1 else ''} ready to upload{backlog_suffix}",
+                title=f"Repo-review: {total} issue{'s' if total != 1 else ''} to upload{suffix}",
                 subtitle=by_repo_str or "Review packet for details",
                 message="Action required — see ~/Desktop/REPO-REVIEW-ACTION-NEEDED.md",
             )
@@ -362,7 +438,7 @@ def main() -> int:
 
     print(
         f"[notify] {total} issue(s) ready, {summary['skipped_count']} repo decision(s) skipped, "
-        f"{backlog_count} backlog item(s) need attention"
+        f"{auto_labeled_count} backlog auto-labeled, {needs_human_count} backlog need decision"
     )
     return 0
 
