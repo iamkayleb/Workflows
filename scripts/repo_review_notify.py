@@ -98,9 +98,66 @@ def display_notification(title: str, subtitle: str, message: str) -> None:
         print(f"[notify] osascript failed: {exc}", file=sys.stderr)
 
 
+def load_backlog_scan(path: Path | None) -> dict[str, Any]:
+    """Load the backlog-scan.json output, or return empty if absent/malformed."""
+    if path is None or not path.is_file():
+        return {"items": []}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"items": []}
+
+
+def format_backlog_section(backlog: dict[str, Any]) -> str:
+    """Return a markdown section listing the unaddressed-backlog items.
+
+    Empty if no items. The section gives the user the EXACT gh commands to
+    promote / deprioritize / close each one, so they can resolve every entry
+    inline without context-switching.
+    """
+    items = backlog.get("items", []) or []
+    if not items:
+        return ""
+
+    threshold = backlog.get("stale_days_threshold", 7)
+    header = (
+        f"\n\n## Backlog needing your attention ({len(items)} item"
+        f"{'s' if len(items) != 1 else ''})\n\n"
+        f"These open issues are labeled `enhancement` or `feature` but have NO "
+        f"`priority:*` label, NO `agent:*` label, and NO activity in the past "
+        f"{threshold}+ days. The opener cron cannot see them (it selects by "
+        "priority label). Without action, they sit indefinitely.\n\n"
+        "Decide each: **promote** to opener queue, **deprioritize**, or **close**.\n\n"
+    )
+
+    lines: list[str] = []
+    for item in items:
+        repo = item["repo"]
+        num = item["number"]
+        title = item["title"]
+        age = item.get("age_days", 0)
+        url = item.get("url", "")
+        last_label_hint = ""
+        labels = item.get("labels", []) or []
+        relevant = [l for l in labels if l not in {"enhancement", "feature"}][:2]
+        if relevant:
+            last_label_hint = f"  _(also labeled: {', '.join(f'`{l}`' for l in relevant)})_\n"
+        lines.append(
+            f"### {repo}#{num}: {title}\n"
+            f"  ({age:.0f} days since last update — {url})\n"
+            f"{last_label_hint}"
+            f"  - Promote: `gh issue edit {num} --repo {repo} --add-label priority:normal`\n"
+            f"  - Deprioritize: `gh issue edit {num} --repo {repo} --add-label priority:low`\n"
+            f"  - Close: `gh issue close {num} --repo {repo} --comment \"Out of scope; closing per backlog scan.\"`\n"
+        )
+
+    return header + "\n".join(lines) + "\n"
+
+
 def write_desktop_reminder(
     *,
     queue_summary: dict[str, Any],
+    backlog: dict[str, Any],
     packet_path: Path,
     queue_path: Path,
     output_dir: Path,
@@ -109,6 +166,8 @@ def write_desktop_reminder(
     """Write a persistent reminder file to the user's desktop.
 
     Overwrites any prior file (we keep only the latest cycle's reminder).
+    Includes both upload-ready issues AND the unaddressed backlog (issues
+    that fell between the opener and the design-vs-impl review).
     """
     desktop = Path(os.path.expanduser("~/Desktop"))
     desktop.mkdir(parents=True, exist_ok=True)
@@ -119,13 +178,21 @@ def write_desktop_reminder(
     by_repo = queue_summary["by_repo"]
     skipped_count = queue_summary["skipped_count"]
     titles = queue_summary["issue_titles"]
+    backlog_count = len(backlog.get("items", []) or [])
 
-    if total == 0:
+    if total == 0 and backlog_count == 0:
         headline = (
-            "## ✓ No issues queued this week\n\n"
-            "The cron ran but found no fresh design-vs-implementation gaps "
-            "after dedup against existing issues. No action required — "
-            "the system will run again next Thursday."
+            "## ✓ No issues queued, no backlog rot\n\n"
+            "The cron ran, found no fresh design-vs-implementation gaps, "
+            "and detected no unaddressed enhancement issues across the fleet. "
+            "No action required — the system will run again next Thursday."
+        )
+    elif total == 0:
+        headline = (
+            "## No fresh issues queued this week\n\n"
+            "The cron found no new design-vs-implementation gaps. See the "
+            "**Backlog needing your attention** section below for older "
+            "enhancement issues that fell between the opener and the review."
         )
     else:
         repo_lines = "\n".join(f"- **{r}**: {n}" for r, n in sorted(by_repo.items()))
@@ -143,11 +210,11 @@ def write_desktop_reminder(
         else ""
     )
 
-    body = f"""# Weekly repo-review packet ready — {today}
+    backlog_section = format_backlog_section(backlog)
 
-{headline}
-{skipped_note}
-## Next action
+    next_action = "" if total == 0 else f"""
+
+## Next action — upload the queued issues
 
 1. Open the packet to review the candidate set:
 
@@ -165,12 +232,19 @@ def write_desktop_reminder(
        --queue "{queue_path}" \\
        --apply
    ```
+"""
 
-4. Delete this file once you've uploaded (or chosen to skip the cycle):
+    body = f"""# Weekly repo-review packet ready — {today}
 
-   ```
-   rm "{target}"
-   ```
+{headline}
+{skipped_note}{next_action}{backlog_section}
+## When you're done
+
+Delete this file once you've acted on the queued issues AND the backlog:
+
+```
+rm "{target}"
+```
 
 ---
 
@@ -208,6 +282,14 @@ def main() -> int:
         help="path to Workflows-steward checkout (default: 3 parents up from --output-dir, i.e. <root>/docs/reports/repo-review/.. = <root>/docs/reports = .. = <root>/docs = .. = <root>)",
     )
     parser.add_argument(
+        "--backlog-scan",
+        type=Path,
+        default=None,
+        help="path to backlog-scan.json from scripts/repo_review_backlog_scan.py "
+             "(default: <output_dir>/backlog-scan.json if present); when present, "
+             "adds a 'Backlog needing your attention' section to the desktop file",
+    )
+    parser.add_argument(
         "--skip-notification",
         action="store_true",
         help="suppress the macOS notification (still writes the desktop file)",
@@ -233,21 +315,36 @@ def main() -> int:
     queue = load_queue(queue_path)
     summary = summarize_queue(queue)
 
+    # Default backlog path is alongside the queue; coordinator writes it there.
+    backlog_path = (
+        args.backlog_scan if args.backlog_scan is not None
+        else output_dir / "backlog-scan.json"
+    )
+    backlog = load_backlog_scan(backlog_path)
+    backlog_count = len(backlog.get("items", []) or [])
+
     total = summary["total"]
     by_repo_str = ", ".join(
         f"{r.split('/')[-1]} ({n})" for r, n in sorted(summary["by_repo"].items())
     )
 
     if not args.skip_notification:
-        if total == 0:
+        if total == 0 and backlog_count == 0:
             display_notification(
-                title="Repo-review: no issues this week",
-                subtitle="Cycle complete — nothing to upload",
+                title="Repo-review: clean week",
+                subtitle="No issues queued, no backlog rot",
                 message="See packet for details. Next run: next Thursday.",
             )
-        else:
+        elif total == 0:
             display_notification(
-                title=f"Repo-review: {total} issue{'s' if total != 1 else ''} ready to upload",
+                title=f"Repo-review: {backlog_count} backlog item{'s' if backlog_count != 1 else ''} need attention",
+                subtitle="No fresh upload queue this week",
+                message="Action required — see ~/Desktop/REPO-REVIEW-ACTION-NEEDED.md",
+            )
+        else:
+            backlog_suffix = f" + {backlog_count} backlog" if backlog_count else ""
+            display_notification(
+                title=f"Repo-review: {total} issue{'s' if total != 1 else ''} ready to upload{backlog_suffix}",
                 subtitle=by_repo_str or "Review packet for details",
                 message="Action required — see ~/Desktop/REPO-REVIEW-ACTION-NEEDED.md",
             )
@@ -255,6 +352,7 @@ def main() -> int:
     if not args.skip_desktop:
         target = write_desktop_reminder(
             queue_summary=summary,
+            backlog=backlog,
             packet_path=packet_path,
             queue_path=queue_path,
             output_dir=output_dir,
@@ -262,7 +360,10 @@ def main() -> int:
         )
         print(f"[notify] wrote {target}")
 
-    print(f"[notify] {total} issue(s) ready, {summary['skipped_count']} repo decision(s) skipped")
+    print(
+        f"[notify] {total} issue(s) ready, {summary['skipped_count']} repo decision(s) skipped, "
+        f"{backlog_count} backlog item(s) need attention"
+    )
     return 0
 
 

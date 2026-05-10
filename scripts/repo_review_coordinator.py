@@ -621,10 +621,38 @@ def run(args: argparse.Namespace) -> int:
         timeout=600,
     )
 
-    # 5. Surface the cycle outcome to the human reviewer (macOS notification +
+    # 5. Backlog scan: surface enhancement/feature issues that fell between
+    #    the opener (selects by priority:* label) and the design-vs-impl review
+    #    (selects by traced gap). Without this safety net, manually-created
+    #    enhancement issues with no priority label sit invisible indefinitely
+    #    (the Inv-Man-Intake #25/#26/#27 case from 2026-05-07).
+    backlog_scan_path = output_dir / "backlog-scan.json"
+    backlog_cmd = [
+        sys.executable,
+        str(workflows_steward_root / "scripts" / "repo_review_backlog_scan.py"),
+        "--registry",
+        str(registry_path),
+        "--out",
+        str(backlog_scan_path),
+    ]
+    backlog_result = run_subprocess(
+        backlog_cmd,
+        cwd=workflows_steward_root,
+        log_path=log_dir / "backlog-scan.log",
+        name="backlog-scan",
+        timeout=300,  # 9 repos × ~30s of gh API time
+    )
+    if not backlog_result.succeeded:
+        print(
+            f"[coordinator] backlog-scan FAILED (non-fatal): {backlog_result.notes}",
+            file=sys.stderr,
+        )
+
+    # 6. Surface the cycle outcome to the human reviewer (macOS notification +
     #    persistent desktop file). The cron does NOT auto-upload; humans must
-    #    review the packet and run upload_repo_review_issues.py --apply. This
-    #    notify step ensures they actually see the packet is ready.
+    #    review the packet and run upload_repo_review_issues.py --apply. The
+    #    desktop file includes both the upload queue AND the backlog scan so
+    #    the human has one place to act each week.
     notify_cmd = [
         sys.executable,
         str(workflows_steward_root / "scripts" / "repo_review_notify.py"),
@@ -632,6 +660,8 @@ def run(args: argparse.Namespace) -> int:
         str(output_dir),
         "--queue",
         str(output_dir / "approved-issue-queue.json"),
+        "--backlog-scan",
+        str(backlog_scan_path),
         "--workflows-steward-root",
         str(workflows_steward_root),
     ]
