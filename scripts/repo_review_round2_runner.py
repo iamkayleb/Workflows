@@ -681,6 +681,20 @@ def compute_convergence(
       - mixed → pending (carries to next turn)
 
     The latest mark from each agent (highest turn) is what counts.
+
+    **Implicit source-agent endorsement**: a candidate's source agent has
+    already declared "this is a real gap" by submitting it in round 1. If
+    that agent never issues an explicit turn-N mark on its own candidate,
+    we treat its submission as an implicit `agree-keep` at turn 0. Without
+    this, the common case (agent A submits, agent B agree-keeps in turn 1,
+    agent A doesn't bother to re-affirm) gets stuck in `pending` forever
+    and ends up `deadlocked` — even though both agents endorse it.
+    Surfaced 2026-05-13 by 2 candidates in attempt-9 (TPP + Inv-Man-Intake)
+    that were real, fully-traced gaps misclassified as deadlocked.
+
+    If the source agent issues a real later-turn mark (e.g., revises or
+    drops their own candidate), the latest-turn rule preserves that —
+    the implicit turn-0 mark is overridden by the explicit one.
     """
     resolutions: dict[CandidateKey, CandidateResolution] = {}
     for key in candidate_keys:
@@ -690,6 +704,22 @@ def compute_convergence(
             existing = latest_per_agent.get(entry["from_agent"])
             if existing is None or entry["turn"] > existing["turn"]:
                 latest_per_agent[entry["from_agent"]] = entry
+
+        # Inject the implicit source-agent agree-keep iff the source agent
+        # hasn't issued any explicit mark. Turn 0 < any real turn, so an
+        # explicit later-turn mark from the source agent always wins.
+        if key.source_agent and key.source_agent not in latest_per_agent:
+            latest_per_agent[key.source_agent] = {
+                "from_agent": key.source_agent,
+                "turn": 0,
+                "mark": "agree-keep",
+                "reason": (
+                    "(implicit) candidate was sourced by this agent in round 1; "
+                    "submission counts as an agree-keep until explicitly revised."
+                ),
+                "merge_proposal": None,
+                "revision_proposal": None,
+            }
 
         missing = expected_marker_agents - set(latest_per_agent.keys())
         if missing:
