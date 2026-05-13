@@ -234,7 +234,7 @@ def write_desktop_reminder(
             "## ✓ Clean week — no action required\n\n"
             "No fresh design-vs-implementation gaps, no unaddressed "
             "enhancement issues across the fleet. The system will run "
-            "again next Thursday."
+            "again next Wednesday."
         )
     elif total == 0 and needs_human_count == 0:
         headline = (
@@ -315,7 +315,7 @@ rm "{target}"
 - Output dir: `{output_dir}`
 - Generated: {today} (UTC)
 
-If this file isn't deleted by next Thursday's cron run, that run will overwrite it with the next cycle's summary.
+If this file isn't deleted by next Wednesday's cron run, that run will overwrite it with the next cycle's summary.
 """
     target.write_text(body, encoding="utf-8")
     return target
@@ -398,7 +398,7 @@ def main() -> int:
             display_notification(
                 title="Repo-review: clean week",
                 subtitle="No fresh gaps, no backlog rot",
-                message="No action required. Next run: next Thursday.",
+                message="No action required. Next run: next Wednesday.",
             )
         elif not action_required:
             display_notification(
