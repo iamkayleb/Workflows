@@ -102,16 +102,39 @@ def validate_implementation_piece(piece: Any, index: int) -> list[str]:
 
 
 def _looks_like_repo_relative_path(value: str) -> bool:
-    """Heuristic: does this string look like a file ref the agent claims to have inspected?"""
+    """Heuristic: does this string look like a file ref the agent claims to have inspected?
+
+    Accepted shapes:
+      - `path/to/file.py`               (bare path)
+      - `path/to/file.py:24`            (path with line)
+      - `path/to/file.py:24-28`         (path with line range)
+      - `path/to/file.md#Section Name`  (markdown anchor — may contain spaces)
+
+    Strip `:line[-line]` and `#section` suffixes BEFORE the whitespace check
+    so multi-word anchor names like `AGENTS.md#Current Consumer Defaults`
+    validate. The pre-suffix file portion must still be space-free.
+
+    The prior implementation's comment claimed it allowed ":line" / "#section"
+    suffixes but the code only checked whitespace on the full string, which
+    rejected legitimate multi-word anchors. Surfaced 2026-05-13 when codex
+    cited `AGENTS.md#Current Consumer Defaults` and `README.md#Optional LLM
+    Features` and round-1 rejected both as malformed.
+    """
     if not value:
         return False
     if value.startswith(("http://", "https://")):
         return False
-    if " " in value.strip():
-        # Allow a single optional ":line" or "#section" suffix; otherwise strings
-        # with internal whitespace are usually prose, not refs.
+    base = value
+    # Strip `#section ...` first; section names legitimately contain spaces.
+    if "#" in base:
+        base = base.split("#", 1)[0]
+    # Strip `:line[-line]` from the remainder.
+    if ":" in base:
+        base = base.split(":", 1)[0]
+    if " " in base.strip():
+        # Whitespace in the file portion = prose, not a ref.
         return False
-    return bool(re.search(r"[A-Za-z0-9_./\\-]", value))
+    return bool(re.search(r"[A-Za-z0-9_./\\-]", base))
 
 
 def validate_candidate(candidate: Any, index: int) -> list[str]:
