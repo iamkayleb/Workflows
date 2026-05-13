@@ -396,26 +396,63 @@ def _resolve_claude_binary() -> str | None:
     return fallback
 
 
-def _build_claude_env() -> dict[str, str]:
-    """Return a minimal env for nested claude invocations.
+CLAUDE_OAUTH_TOKEN_FILE = Path(os.path.expanduser(
+    "~/.codex/automations/reviewed-repo-weekly-design-review/claude-oauth-token.txt"
+))
 
-    Empirical findings (2026-05-07):
+
+def _read_claude_oauth_token() -> str | None:
+    """Read the long-lived OAuth token written by `claude setup-token`.
+
+    Returns the token string if the file exists and is readable, else None.
+    Empty files are treated as None.
+    """
+    try:
+        if not CLAUDE_OAUTH_TOKEN_FILE.is_file():
+            return None
+        token = CLAUDE_OAUTH_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        return token or None
+    except OSError:
+        return None
+
+
+def _build_claude_env() -> dict[str, str]:
+    """Return a minimal env for nested claude invocations, including OAuth token.
+
+    Empirical findings (2026-05-07 / 2026-05-13):
 
     - Inheriting `CLAUDECODE`, `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`,
       `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_AGENT_SDK_VERSION`, etc. causes
       "401 Invalid authentication credentials" — those vars signal "the host
       Claude Desktop manages auth" and steer claude away from its own
-      keychain-based auth path.
+      auth path.
     - Inheriting `USER` ALSO causes 401. Reason unknown — likely some
       internal multi-user detection in claude. Other identity-style vars
       (LOGNAME, SHELL) do NOT cause this.
     - All other "neutral" env vars (PATH, HOME, TMPDIR, LANG, TZ, TERM,
       LOGNAME, SHELL, LC_ALL) are fine.
 
-    We allowlist neutral vars and explicitly drop USER + all CLAUDE*.
+    Auth strategy: `CLAUDE_CODE_OAUTH_TOKEN`. After Claude Desktop 2.1.138
+    the OAuth-refresh path requires an XPC connection to Desktop that's
+    unreachable from inside `codex exec`'s sandbox (the API returns 401
+    on every nested call). The supported workaround is `claude setup-token`,
+    which generates a long-lived OAuth token (~1 year TTL) tied to the
+    user's Claude subscription. The token is read from the file documented
+    on `CLAUDE_OAUTH_TOKEN_FILE` and injected as the
+    `CLAUDE_CODE_OAUTH_TOKEN` env var. With this var set, claude skips
+    OAuth refresh and authenticates directly — works in any context.
+
+    If the file is absent the env var isn't set and claude falls back to
+    its normal auth path. That path WILL fail in cron context (the whole
+    reason for the token file), but the function still returns a usable
+    env so manual / interactive runs (where OAuth is healthy) keep working.
     """
     keep = ("HOME", "PATH", "LOGNAME", "LANG", "LC_ALL", "TMPDIR", "TERM", "SHELL", "TZ")
-    return {k: v for k, v in os.environ.items() if k in keep}
+    env = {k: v for k, v in os.environ.items() if k in keep}
+    token = _read_claude_oauth_token()
+    if token:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+    return env
 
 
 def invoke_claude(
