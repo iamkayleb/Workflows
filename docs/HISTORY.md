@@ -346,9 +346,9 @@ median is the headline structural change — `path-classifier`,
 `event-eligibility`, `artifact-cache`, and `reusable-ci-scope` collectively
 short-circuit work that the heavier consumers (Counter_Risk, Pension-Data)
 previously ran every gate. The 7-day window is short and the launch week
-itself produced atypical activity, so the +30d re-read at
-[Workflows-fleet-review T+30 milestone](#) is the first comparison
-suitable for confident realization claims.
+itself produced atypical activity, so the Workflows-fleet-review T+30
+milestone re-read is the first comparison suitable for confident
+realization claims.
 
 **T+7 realization snapshot** (window: 2026-05-06 → 2026-05-13;
 realization-tracker `--window-days 7`):
