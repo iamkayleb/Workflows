@@ -200,10 +200,95 @@ def format_backlog_section(backlog: dict[str, Any]) -> str:
     return format_auto_labeled_section(backlog) + format_needs_human_section(backlog)
 
 
+def load_docs_drift_scan(path: Path | None) -> dict[str, Any]:
+    """Load the docs-drift-scan.json output, or return empty if absent/malformed."""
+    if path is None or not path.is_file():
+        return {"by_repo": []}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"by_repo": []}
+
+
+def format_docs_drift_section(drift: dict[str, Any]) -> str:
+    """Render the docs-drift section: ONE bundled remediation block per repo
+    with non-empty drift, with a ready-to-paste ``gh issue create`` snippet.
+
+    Repos with only accurate-no-drift instances are not shown (the audit
+    trail lives in the JSON output for those). Repos with errors but no
+    drift are surfaced briefly so the human knows the scan ran.
+    """
+    by_repo = drift.get("by_repo") or []
+    drifting = [b for b in by_repo if b.get("drift_instances")]
+    error_only = [b for b in by_repo if b.get("errors") and not b.get("drift_instances")]
+
+    if not drifting and not error_only:
+        return ""
+
+    parts: list[str] = []
+    if drifting:
+        plural = "s" if len(drifting) != 1 else ""
+        parts.append(
+            f"\n\n## Doc drift detected ({len(drifting)} repo{plural})\n\n"
+            "The weekly doc-drift scanner flagged source-of-truth docs that "
+            "no longer reflect current implementation. Each repo gets ONE "
+            "bundled remediation issue (drifting docs as task checkboxes); "
+            "do not file per-doc issues.\n"
+        )
+        for bucket in drifting:
+            repo = bucket["repo"]
+            instances = bucket["drift_instances"]
+            doc_list = sorted({inst["doc_path"] for inst in instances})
+            instance_count = len(instances)
+            inst_plural = "s" if instance_count != 1 else ""
+            doc_plural = "s" if len(doc_list) != 1 else ""
+            parts.append(
+                f"\n### {repo} -- {instance_count} drift instance{inst_plural} "
+                f"across {len(doc_list)} doc{doc_plural}\n"
+            )
+            for inst in instances:
+                cls = inst["classification"]
+                claim = inst["claim"][:160]
+                src = inst["authoritative_source"][:160]
+                parts.append(f"  - **{cls}** _{inst['doc_path']}_: {claim}\n")
+                if src:
+                    parts.append(f"    Authoritative source: `{src}`\n")
+            body_lines = "\n".join(f"- [ ] {p}" for p in doc_list)
+            title = f"Remediate doc drift across {len(doc_list)} source-of-truth doc{doc_plural}"
+            body_arg = (
+                f"## Drift detected by weekly doc-drift scanner\n\n"
+                f"Affected docs:\n\n{body_lines}\n\n"
+                f"See `<output_dir>/docs-drift-scan.json` for per-claim detail."
+            )
+            parts.append(
+                f"\n  Bundled remediation snippet:\n\n"
+                f"  ```\n"
+                f"  gh issue create --repo {repo} \\\n"
+                f'      --title "{title}" \\\n'
+                f"      --label priority:normal \\\n"
+                f"      --body {json.dumps(body_arg)}\n"
+                f"  ```\n"
+            )
+
+    if error_only:
+        plural = "s" if len(error_only) != 1 else ""
+        parts.append(
+            f"\n\n## Doc-drift scan errors ({len(error_only)} repo{plural})\n\n"
+            "The scanner ran but couldn't classify the listed docs. No "
+            "drift was detected in the docs it COULD scan -- the errors "
+            "may be transient (claude unavailable, doc moved, etc.).\n"
+        )
+        for bucket in error_only:
+            parts.append(f"- **{bucket['repo']}**: {len(bucket['errors'])} doc(s) errored\n")
+
+    return "".join(parts)
+
+
 def write_desktop_reminder(
     *,
     queue_summary: dict[str, Any],
     backlog: dict[str, Any],
+    docs_drift: dict[str, Any],
     packet_path: Path,
     queue_path: Path,
     output_dir: Path,
@@ -227,15 +312,26 @@ def write_desktop_reminder(
     auto_labeled_count = len(backlog.get("auto_labeled", []) or [])
     needs_human_count = len(backlog.get("needs_human", []) or [])
     backlog_count = auto_labeled_count + needs_human_count
+    docs_drift_count = int((docs_drift or {}).get("total_drift_instances", 0) or 0)
+    docs_drift_error_count = int((docs_drift or {}).get("total_errors", 0) or 0)
+    docs_drift_signal_count = docs_drift_count + docs_drift_error_count
 
-    if total == 0 and backlog_count == 0:
+    if total == 0 and backlog_count == 0 and docs_drift_signal_count == 0:
         headline = (
             "## ✓ Clean week — no action required\n\n"
             "No fresh design-vs-implementation gaps, no unaddressed "
             "enhancement issues across the fleet. The system will run "
             "again next Wednesday."
         )
-    elif total == 0 and needs_human_count == 0:
+    elif total == 0 and backlog_count == 0:
+        headline = (
+            f"## {docs_drift_signal_count} doc-drift item"
+            f"{'s' if docs_drift_signal_count != 1 else ''} need review\n\n"
+            "No fresh design-vs-implementation gaps or backlog decisions, "
+            "but the docs-drift scan found remediation work or scan errors. "
+            "See the doc-drift section below."
+        )
+    elif total == 0 and needs_human_count == 0 and docs_drift_signal_count == 0:
         headline = (
             f"## ✓ Clean week ({auto_labeled_count} backlog item"
             f"{'s' if auto_labeled_count != 1 else ''} auto-labeled)\n\n"
@@ -245,13 +341,22 @@ def write_desktop_reminder(
             "priority — no action required from you, see the FYI section below."
         )
     elif total == 0:
+        detail_parts = []
+        if needs_human_count:
+            detail_parts.append(
+                f"{needs_human_count} backlog item" f"{'s' if needs_human_count != 1 else ''}"
+            )
+        if docs_drift_signal_count:
+            detail_parts.append(
+                f"{docs_drift_signal_count} doc-drift item"
+                f"{'s' if docs_drift_signal_count != 1 else ''}"
+            )
+        detail = " and ".join(detail_parts)
         headline = (
-            f"## {needs_human_count} backlog item"
-            f"{'s' if needs_human_count != 1 else ''} need your decision\n\n"
+            f"## {detail} need your decision\n\n"
             "No fresh design-vs-implementation gaps this week, but the cron "
-            f"found {needs_human_count} stale issue"
-            f"{'s' if needs_human_count != 1 else ''} (umbrella/epic-shaped or "
-            "blocked) that it couldn't safely auto-label. See the section below."
+            "found items that need review before the queue is clean. See the "
+            "backlog and doc-drift sections below."
         )
     else:
         repo_lines = "\n".join(f"- **{r}**: {n}" for r, n in sorted(by_repo.items()))
@@ -270,6 +375,7 @@ def write_desktop_reminder(
     )
 
     backlog_section = format_backlog_section(backlog)
+    docs_drift_section = format_docs_drift_section(docs_drift)
 
     next_action = (
         ""
@@ -300,7 +406,7 @@ def write_desktop_reminder(
     body = f"""# Weekly repo-review packet ready — {today}
 
 {headline}
-{skipped_note}{next_action}{backlog_section}
+{skipped_note}{next_action}{backlog_section}{docs_drift_section}
 ## When you're done
 
 Delete this file once you've acted on the queued issues AND the backlog:
@@ -353,6 +459,14 @@ def main() -> int:
         "adds a 'Backlog needing your attention' section to the desktop file",
     )
     parser.add_argument(
+        "--docs-drift-scan",
+        type=Path,
+        default=None,
+        help="path to docs-drift-scan.json from scripts/repo_review_docs_drift_scan.py "
+        "(default: <output_dir>/docs-drift-scan.json if present); when present, "
+        "adds a 'Doc drift detected' section to the desktop file",
+    )
+    parser.add_argument(
         "--skip-notification",
         action="store_true",
         help="suppress the macOS notification (still writes the desktop file)",
@@ -383,6 +497,13 @@ def main() -> int:
         args.backlog_scan if args.backlog_scan is not None else output_dir / "backlog-scan.json"
     )
     backlog = load_backlog_scan(backlog_path)
+
+    docs_drift_path = (
+        args.docs_drift_scan
+        if args.docs_drift_scan is not None
+        else output_dir / "docs-drift-scan.json"
+    )
+    docs_drift = load_docs_drift_scan(docs_drift_path)
     auto_labeled_count = len(backlog.get("auto_labeled", []) or [])
     needs_human_count = len(backlog.get("needs_human", []) or [])
     backlog_count = auto_labeled_count + needs_human_count
@@ -431,6 +552,7 @@ def main() -> int:
         target = write_desktop_reminder(
             queue_summary=summary,
             backlog=backlog,
+            docs_drift=docs_drift,
             packet_path=packet_path,
             queue_path=queue_path,
             output_dir=output_dir,
@@ -438,9 +560,14 @@ def main() -> int:
         )
         print(f"[notify] wrote {target}")
 
+    docs_drift_total = (docs_drift or {}).get("total_drift_instances", 0) or 0
+    docs_drift_repos = sum(
+        1 for b in (docs_drift or {}).get("by_repo") or [] if b.get("drift_instances")
+    )
     print(
         f"[notify] {total} issue(s) ready, {summary['skipped_count']} repo decision(s) skipped, "
-        f"{auto_labeled_count} backlog auto-labeled, {needs_human_count} backlog need decision"
+        f"{auto_labeled_count} backlog auto-labeled, {needs_human_count} backlog need decision, "
+        f"{docs_drift_total} doc-drift instance(s) across {docs_drift_repos} repo(s)"
     )
     return 0
 
