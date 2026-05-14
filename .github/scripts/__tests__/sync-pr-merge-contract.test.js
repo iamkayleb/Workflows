@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const {
   buildMarkdownSummary,
   buildMergeReport,
+  collectDeletableSyncBranches,
   normalizeSyncHash,
   parseBooleanInput,
   selectActiveSyncPr,
@@ -91,6 +92,8 @@ test('buildMergeReport provides machine-readable summary counts', () => {
     target_missing: 0,
     stale_closed: 1,
     stale_close_failed: 0,
+    branch_deleted: 0,
+    branch_delete_failed: 0,
     checks_failed: 0,
     checks_pending: 0,
     ready: 0,
@@ -99,6 +102,25 @@ test('buildMergeReport provides machine-readable summary counts', () => {
     merge_failed: 0,
     error: 0,
   });
+});
+
+test('collectDeletableSyncBranches keeps open PR branches and non-sync branches', () => {
+  const branches = [
+    { name: 'sync/workflows-old' },
+    { name: 'sync/workflows-open' },
+    { name: 'deps/sync-dev-versions-123' },
+    { name: 'feature/manual-work' },
+  ];
+  const openPullRequests = [pr(10, 'sync/workflows-open', '2026-05-01T00:00:00Z')];
+  const closedPullRequests = [
+    pr(9, 'sync/workflows-old', '2026-04-30T00:00:00Z'),
+    pr(8, 'feature/manual-work', '2026-04-29T00:00:00Z'),
+  ];
+
+  assert.deepEqual(
+    collectDeletableSyncBranches({ branches, openPullRequests, closedPullRequests }),
+    ['sync/workflows-old'],
+  );
 });
 
 test('buildMarkdownSummary includes non-zero statuses and artifact name', () => {

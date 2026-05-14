@@ -189,6 +189,14 @@ of following the first-party default.
 If a reusable workflow fix must ship immediately, trigger:
 - `Maint 68 Sync Consumer Repos` only if template files changed
 
+### Sync PR Branch Cleanup
+
+`maint-71-merge-sync-prs.yml` owns routine cleanup for `sync/workflows-*`
+branches. In addition to closing stale duplicate sync PRs and merging the active
+passing sync PR, it deletes same-repo sync branches that are connected to closed
+or merged sync PRs and no longer have an open PR. Use the `cleanup_branches`
+manual input to disable that cleanup only for diagnostics.
+
 ### Autofix Tool Version Ownership
 
 Workflows owns shared autofix/dev-tool pins in

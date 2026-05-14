@@ -42,6 +42,11 @@ on:
         required: false
         type: string
         default: ""
+      cleanup_branches:
+        description: "Delete sync/workflows-* branches left behind by closed or merged sync PRs"
+        required: false
+        type: boolean
+        default: true
   workflow_call:
     inputs:
       repos:
@@ -64,9 +69,17 @@ on:
         required: false
         type: string
         default: ""
+      cleanup_branches:
+        description: "Delete sync/workflows-* branches left behind by closed or merged sync PRs"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
-  contents: read
+  checks: read
+  contents: write
+  pull-requests: write
+  statuses: read
 
 concurrency:
   group: merge-sync-prs-${{ github.repository }}-${{ github.ref }}
@@ -101,6 +114,7 @@ jobs:
           AUTO_MERGE_INPUT: ${{ inputs.auto_merge }}
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
           SYNC_HASH_INPUT: ${{ inputs.sync_hash || '' }}
+          CLEANUP_BRANCHES_INPUT: ${{ inputs.cleanup_branches }}
           SYNC_PR_MERGE_REPORT_JSON: artifacts/sync-pr-merge-report.json
         with:
           github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
@@ -112,6 +126,7 @@ jobs:
             const {
               buildMarkdownSummary,
               buildMergeReport,
+              collectDeletableSyncBranches,
               normalizeSyncHash,
               parseBooleanInput,
               selectActiveSyncPr,
@@ -130,6 +145,11 @@ jobs:
               process.env.DRY_RUN_INPUT ||
                 (context.payload.client_payload && context.payload.client_payload.dry_run),
               false,
+            );
+            const cleanupBranches = parseBooleanInput(
+              process.env.CLEANUP_BRANCHES_INPUT ||
+                (context.payload.client_payload && context.payload.client_payload.cleanup_branches),
+              true,
             );
             const retryHelpers = fs.existsSync(retryHelperPath)
               ? require(retryHelperPath)
@@ -172,7 +192,8 @@ jobs:
 
             console.log(`Registered consumer repos: ${registeredRepos.join(', ')}`);
             console.log(`Processing repos: ${targetRepos.join(', ')}`);
-            console.log(`Auto-merge: ${autoMerge}, Dry run: ${dryRun}\n`);
+            console.log(`Auto-merge: ${autoMerge}, Dry run: ${dryRun}`);
+            console.log(`Cleanup stale sync branches: ${cleanupBranches}\n`);
             if (requestedSyncHash) {
               console.log(`Target sync hash: ${requestedSyncHash}`);
             }
@@ -198,6 +219,76 @@ jobs:
                 }));
 
                 const syncPRs = prs.filter(pr => pr.head.ref.startsWith('sync/workflows-'));
+
+                if (cleanupBranches) {
+                  try {
+                    const [branches, closedPRs] = await Promise.all([
+                      withRetry((client) => client.paginate(client.rest.repos.listBranches, {
+                        owner,
+                        repo,
+                        per_page: 100,
+                      })),
+                      withRetry((client) => client.paginate(client.rest.pulls.list, {
+                        owner,
+                        repo,
+                        state: 'closed',
+                        per_page: 100,
+                      })),
+                    ]);
+                    const branchesToDelete = collectDeletableSyncBranches({
+                      branches,
+                      openPullRequests: syncPRs,
+                      closedPullRequests: closedPRs,
+                    });
+
+                    if (branchesToDelete.length > 0) {
+                      console.log(
+                        `Found ${branchesToDelete.length} closed sync PR branch(es) to clean up`,
+                      );
+                    }
+
+                    for (const branch of branchesToDelete) {
+                      if (dryRun) {
+                        console.log(`[DRY RUN] Would delete ${branch}`);
+                        results.push({
+                          owner,
+                          repo,
+                          branch,
+                          status: 'branch_deleted',
+                          dry_run: true,
+                        });
+                        continue;
+                      }
+
+                      try {
+                        await withRetry((client) => client.rest.git.deleteRef({
+                          owner,
+                          repo,
+                          ref: `heads/${branch}`,
+                        }));
+                        console.log(`✓ Deleted leftover branch ${branch}`);
+                        results.push({ owner, repo, branch, status: 'branch_deleted' });
+                      } catch (branchErr) {
+                        console.log(`⚠ Could not delete leftover branch ${branch}: ${branchErr.message}`);
+                        results.push({
+                          owner,
+                          repo,
+                          branch,
+                          status: 'branch_delete_failed',
+                          error: branchErr.message,
+                        });
+                      }
+                    }
+                  } catch (cleanupErr) {
+                    console.log(`⚠ Sync branch cleanup failed: ${cleanupErr.message}`);
+                    results.push({
+                      owner,
+                      repo,
+                      status: 'branch_delete_failed',
+                      error: cleanupErr.message,
+                    });
+                  }
+                }
 
                 if (syncPRs.length === 0) {
                   console.log('No sync PRs found');
@@ -447,8 +538,17 @@ jobs:
                       ref: `heads/${pr.head.ref}`
                     }));
                     console.log('✓ Branch deleted');
+                    results.push({ owner, repo, pr: pr.number, branch: pr.head.ref, status: 'branch_deleted' });
                   } catch (e) {
                     console.log(`⚠ Could not delete branch: ${e.message}`);
+                    results.push({
+                      owner,
+                      repo,
+                      pr: pr.number,
+                      branch: pr.head.ref,
+                      status: 'branch_delete_failed',
+                      error: e.message,
+                    });
                   }
 
                   results.push({ owner, repo, pr: pr.number, branch: pr.head.ref, status: 'merged' });
@@ -495,11 +595,13 @@ jobs:
 
             const merged = report.summary.merged;
             const stale = report.summary.stale_closed;
+            const branchesDeleted = report.summary.branch_deleted;
             const blockingFailures = results.filter(
               (r) =>
                 r.status === 'checks_failed' ||
                 r.status === 'merge_failed' ||
                 r.status === 'stale_close_failed' ||
+                r.status === 'branch_delete_failed' ||
                 r.status === 'target_missing',
             );
             const failed = dryRun ? 0 : blockingFailures.length;
@@ -508,6 +610,7 @@ jobs:
 
             console.log(`\nMerged: ${merged}`);
             console.log(`Stale closed: ${stale}`);
+            console.log(`Leftover branches deleted: ${branchesDeleted}`);
             console.log(`Failed: ${failed}`);
             console.log(`Pending: ${pending}`);
             console.log(`Ready (not auto-merged): ${ready}`);
