@@ -298,8 +298,12 @@ Archived data can be restored when needed:
 Retention operations are tracked in `metrics-retention.ndjson`, including record counts, archive destinations, and storage
 reduction percentages.
 
-Needs-human: add a scheduled workflow (e.g. nightly) to run `scripts/metrics_retention.py` so the policy executes
-automatically.
+The nightly schedule is implemented by `.github/workflows/maint-metrics-retention.yml`. The workflow runs
+`scripts/metrics_retention.py` at 02:00 UTC, supports `workflow_dispatch` (with an optional `dry_run` input) for manual
+runs, and runs in `--dry-run` mode on `pull_request` triggers that touch the script, the policy config, or the workflow
+file itself. The retention log is uploaded as the `metrics-retention-log` artifact and the storage reduction percentage
+is surfaced in the workflow step summary. Fresh checkouts with no metrics logs are treated as successful no-op runs:
+the script writes a zero-file `retention_summary` record so pull-request validation still produces durable evidence.
 
 ## Security Considerations
 
