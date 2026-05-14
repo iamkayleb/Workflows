@@ -215,6 +215,10 @@ def test_merge_sync_prs_uploads_machine_readable_report_and_hash_input():
     assert (
         "selectActiveSyncPr" in text
     ), "Maint 71 must select the active PR with the hash-aware contract"
+    assert "cleanup_branches:" in text, "Maint 71 must expose sync branch cleanup control"
+    assert (
+        "collectDeletableSyncBranches" in text and "branch_delete_failed" in text
+    ), "Maint 71 must delete leftover sync branches and report deletion failures"
     assert (
         "parseBooleanInput" in text and "AUTO_MERGE_INPUT" in text
     ), "Maint 71 must preserve explicit false boolean inputs"
@@ -225,6 +229,11 @@ def test_merge_sync_prs_uploads_machine_readable_report_and_hash_input():
     assert (
         "sync-pr-merge-report" in text
     ), "Maint 71 must upload the merge report as a GitHub-visible artifact"
+
+
+def test_dependabot_weekly_sweep_deletes_merged_branches():
+    text = (WORKFLOWS_DIR / "maint-dependabot-weekly-sweep.yml").read_text(encoding="utf-8")
+    assert "--delete-branch" in text, "Dependabot sweep must request branch deletion on merge"
 
 
 def test_consumer_sync_run_uploads_machine_readable_report():

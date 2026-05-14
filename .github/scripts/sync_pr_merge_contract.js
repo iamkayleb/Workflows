@@ -16,6 +16,17 @@ function syncBranchForHash(syncHash) {
   return normalized ? `${SYNC_BRANCH_PREFIX}${normalized}` : '';
 }
 
+function branchNameFromRef(value) {
+  return String(value || '')
+    .trim()
+    .replace(/^refs\/heads\//, '')
+    .replace(/^heads\//, '');
+}
+
+function isSyncBranchName(value) {
+  return branchNameFromRef(value).startsWith(SYNC_BRANCH_PREFIX);
+}
+
 function parseBooleanInput(value, defaultValue = false) {
   if (value === undefined || value === null || String(value).trim() === '') {
     return Boolean(defaultValue);
@@ -28,6 +39,30 @@ function parseBooleanInput(value, defaultValue = false) {
     return false;
   }
   return Boolean(defaultValue);
+}
+
+function collectDeletableSyncBranches({
+  branches = [],
+  openPullRequests = [],
+  closedPullRequests = [],
+} = {}) {
+  const openBranches = new Set(
+    (openPullRequests || [])
+      .map((pr) => branchNameFromRef(pr?.head?.ref || pr?.headRefName || pr?.branch))
+      .filter(isSyncBranchName),
+  );
+  const closedBranches = new Set(
+    (closedPullRequests || [])
+      .map((pr) => branchNameFromRef(pr?.head?.ref || pr?.headRefName || pr?.branch))
+      .filter(isSyncBranchName),
+  );
+
+  return (branches || [])
+    .map((branch) => branchNameFromRef(branch?.name || branch?.ref || branch))
+    .filter(isSyncBranchName)
+    .filter((branch) => !openBranches.has(branch))
+    .filter((branch) => closedBranches.has(branch))
+    .sort();
 }
 
 function sortSyncPrs(prs) {
@@ -66,6 +101,8 @@ function summarizeResults(results) {
     target_missing: 0,
     stale_closed: 0,
     stale_close_failed: 0,
+    branch_deleted: 0,
+    branch_delete_failed: 0,
     checks_failed: 0,
     checks_pending: 0,
     ready: 0,
@@ -141,6 +178,9 @@ function buildMarkdownSummary(report) {
 module.exports = {
   REPORT_SCHEMA,
   SYNC_BRANCH_PREFIX,
+  branchNameFromRef,
+  collectDeletableSyncBranches,
+  isSyncBranchName,
   normalizeSyncHash,
   syncBranchForHash,
   parseBooleanInput,

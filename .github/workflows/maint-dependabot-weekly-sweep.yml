@@ -66,7 +66,7 @@ jobs:
             for pr in $prs; do
               echo "Processing ${repo}#${pr}"
 
-              auto_out=$(gh pr merge "$pr" --repo "$repo" --auto --merge 2>&1) || true
+              auto_out=$(gh pr merge "$pr" --repo "$repo" --auto --merge --delete-branch 2>&1) || true
               echo "$auto_out"
 
               if echo "$auto_out" | grep -qi "Protected branch rules not configured"; then
@@ -102,7 +102,7 @@ jobs:
                 ')
 
                 if [ "$failed" -eq 0 ] && [ "$pending" -eq 0 ]; then
-                  if ! gh pr merge "$pr" --repo "$repo" --merge; then
+                  if ! gh pr merge "$pr" --repo "$repo" --merge --delete-branch; then
                     echo "Merge failed; continuing to next PR."
                     continue
                   fi
