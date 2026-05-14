@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 import pytest
+import scripts.repo_review_docs_drift_scan as drift_scan
 from scripts.repo_review_docs_drift_scan import (
     DriftInstance,
     aggregate,
@@ -21,69 +22,18 @@ from scripts.repo_review_docs_drift_scan import (
     load_active_repos,
     load_docs_config,
     parse_drift_response,
+    resolve_repo_root,
     resolve_workspace_root,
     scan,
     scan_doc,
 )
 
-# ---------------------------------------------------------------------------
-# Seeded fixtures -- the three drift instances confirmed during 2026-05-13.
-# ---------------------------------------------------------------------------
-
+FIXTURE_PATH = (
+    Path(__file__).parent / "fixtures" / "repo_review_docs_drift_scan" / "seeded_responses.json"
+)
 SEEDED_FIXTURE_RESPONSES: dict[str, str] = {
-    "README.md": json.dumps(
-        {
-            "doc_path": "README.md",
-            "instances": [
-                {
-                    "claim": "README cites claude-3-5-sonnet-20241022 as the default model",
-                    "authoritative_source": "tools/langchain_client.py:96-98 _default_slots()",
-                    "classification": "stale",
-                },
-                {
-                    "claim": "Pipeline orchestration overview accurately summarizes phase ordering",
-                    "authoritative_source": "scripts/repo_review_coordinator.py:1-30 module docstring",
-                    "classification": "accurate-no-drift",
-                },
-            ],
-        }
-    ),
-    "docs/ci/WORKFLOWS.md": json.dumps(
-        {
-            "doc_path": "docs/ci/WORKFLOWS.md",
-            "instances": [
-                {
-                    "claim": "Autofix is documented as both ON for all PRs and as gated by autofix label",
-                    "authoritative_source": "templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml",
-                    "classification": "contradictory",
-                }
-            ],
-        }
-    ),
-    "docs/ops/REPO_REVIEW_PROCESS.md": json.dumps(
-        {
-            "doc_path": "docs/ops/REPO_REVIEW_PROCESS.md",
-            "instances": [
-                {
-                    "claim": "Weekly Run section cites repo_review_evaluator.py as the entry point",
-                    "authoritative_source": "scripts/repo_review_coordinator.py is the Phase-4 entry point",
-                    "classification": "stale",
-                }
-            ],
-        }
-    ),
-    "docs/AGENTS_POLICY.md": json.dumps(
-        {
-            "doc_path": "docs/AGENTS_POLICY.md",
-            "instances": [
-                {
-                    "claim": "Protected workflow inventory matches .github/workflows/",
-                    "authoritative_source": ".github/workflows/ listing",
-                    "classification": "accurate-no-drift",
-                }
-            ],
-        }
-    ),
+    key: json.dumps(value)
+    for key, value in json.loads(FIXTURE_PATH.read_text(encoding="utf-8")).items()
 }
 
 
@@ -221,6 +171,63 @@ def test_gitnexus_status_malformed_falls_back_to_missing(tmp_path: Path):
     assert is_gitnexus_stale(tmp_path) == "missing"
 
 
+def test_scan_doc_logs_gitnexus_skip_for_coordinator_log(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "README.md").write_text("dummy\n", encoding="utf-8")
+
+    def fake_invoker(*, prompt: str, cwd: Path, timeout: int, log_file: Path):
+        return True, '{"instances": []}'
+
+    result = scan_doc(
+        repo="stranske/Workflows",
+        doc_path="README.md",
+        doc_focus="model versions",
+        repo_root=repo_root,
+        log_dir=tmp_path / "logs",
+        timeout=10,
+        invoker=fake_invoker,
+    )
+
+    assert result.error is None
+    assert result.gitnexus_status == "missing"
+    captured = capsys.readouterr()
+    assert "skipping behavioral check" in captured.out
+    assert "README.md" in captured.out
+
+
+def test_scan_doc_logs_gitnexus_skip_when_meta_stale(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+):
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "README.md").write_text("dummy\n", encoding="utf-8")
+    gitnexus_dir = repo_root / ".gitnexus"
+    gitnexus_dir.mkdir()
+    (gitnexus_dir / "meta.json").write_text(json.dumps({"stale": True}), encoding="utf-8")
+
+    def fake_invoker(*, prompt: str, cwd: Path, timeout: int, log_file: Path):
+        return True, '{"instances": []}'
+
+    result = scan_doc(
+        repo="stranske/Workflows",
+        doc_path="README.md",
+        doc_focus="model versions",
+        repo_root=repo_root,
+        log_dir=tmp_path / "logs",
+        timeout=10,
+        invoker=fake_invoker,
+    )
+
+    assert result.error is None
+    assert result.gitnexus_status == "stale"
+    captured = capsys.readouterr()
+    assert "skipping behavioral check" in captured.out
+    assert "GitNexus map stale" in captured.out
+
+
 # ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
@@ -299,6 +306,42 @@ def test_resolve_workspace_root_honors_registry_contract(tmp_path: Path):
     assert resolve_workspace_root(registry) == workspace.resolve()
 
 
+def test_resolve_repo_root_prefers_workspace_local_path(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    repo_dir = workspace / "Workflows-steward"
+    repo_dir.mkdir(parents=True)
+    resolved = resolve_repo_root(
+        workspace_root=workspace,
+        local_path="Workflows-steward",
+        repo="stranske/Workflows",
+        cwd=tmp_path / "Workflows",
+    )
+    assert resolved == repo_dir.resolve()
+
+
+def test_resolve_repo_root_falls_back_to_matching_cwd_repo_slug(tmp_path: Path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+    cwd_repo = tmp_path / "Workflows"
+    cwd_repo.mkdir(parents=True)
+    resolved = resolve_repo_root(
+        workspace_root=workspace,
+        local_path="Workflows-steward",
+        repo="stranske/Workflows",
+        cwd=cwd_repo,
+    )
+    assert resolved == cwd_repo.resolve()
+
+
+def test_parse_args_defaults_docs_config(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        ["repo_review_docs_drift_scan.py", "--registry", "config/r.json", "--out", "/tmp/o.json"],
+    )
+    args = drift_scan.parse_args()
+    assert args.docs_config == Path("config/source_of_truth_docs.yml")
+
+
 # ---------------------------------------------------------------------------
 # Aggregate: one bundled remediation block per repo, NOT per doc
 # ---------------------------------------------------------------------------
@@ -370,6 +413,12 @@ def _make_fixture_workspace(tmp_path: Path) -> tuple[Path, Path]:
     (ci_dir / "WORKFLOWS.md").write_text("dummy WORKFLOWS\n", encoding="utf-8")
     (ops_dir / "REPO_REVIEW_PROCESS.md").write_text("dummy process\n", encoding="utf-8")
     (docs_dir / "AGENTS_POLICY.md").write_text("dummy policy\n", encoding="utf-8")
+    (docs_dir / "LABELS.md").write_text("dummy labels\n", encoding="utf-8")
+    (docs_dir / "WORKFLOW_GUIDE.md").write_text("dummy workflow guide\n", encoding="utf-8")
+    (docs_dir / "MODEL_MANAGEMENT.md").write_text("dummy model management\n", encoding="utf-8")
+    keepalive_dir = docs_dir / "keepalive"
+    keepalive_dir.mkdir(parents=True, exist_ok=True)
+    (keepalive_dir / "Agents.md").write_text("dummy keepalive agents\n", encoding="utf-8")
     registry = steward / "config" / "repo_review_registry.json"
     registry.parent.mkdir(parents=True, exist_ok=True)
     registry.write_text(
@@ -395,6 +444,14 @@ repos:
         focus: Phase-4 entry point
       - path: docs/AGENTS_POLICY.md
         focus: protected workflows
+      - path: docs/LABELS.md
+        focus: label contract
+      - path: docs/WORKFLOW_GUIDE.md
+        focus: workflow inventory links
+      - path: docs/MODEL_MANAGEMENT.md
+        focus: model registry references
+      - path: docs/keepalive/Agents.md
+        focus: keepalive role contracts
 """,
         encoding="utf-8",
     )
@@ -430,9 +487,9 @@ def test_scan_end_to_end_with_seeded_fixtures(tmp_path: Path):
     )
 
     # Acceptance criteria: at least the 3 known drifts plus clean baselines.
-    assert summary["total_docs_scanned"] == 4
+    assert summary["total_docs_scanned"] == 8
     assert summary["total_drift_instances"] == 3, summary
-    assert summary["total_accurate_instances"] >= 2, summary
+    assert summary["total_accurate_instances"] >= 5, summary
     bucket = summary["by_repo"][0]
     drift_docs = sorted({i["doc_path"] for i in bucket["drift_instances"]})
     assert drift_docs == [
@@ -645,3 +702,75 @@ def test_notify_headline_reflects_docs_drift(tmp_path: Path, monkeypatch: pytest
     rendered = path.read_text(encoding="utf-8")
     assert "doc-drift item" in rendered
     assert "Clean week" not in rendered
+
+
+def test_notify_headline_uses_by_repo_fallback_counts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from scripts.repo_review_notify import write_desktop_reminder
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    path = write_desktop_reminder(
+        queue_summary={
+            "total": 0,
+            "by_repo": {},
+            "skipped_count": 0,
+            "issue_titles": [],
+        },
+        backlog={"auto_labeled": [], "needs_human": []},
+        docs_drift={
+            # Intentionally omit total_drift_instances/total_errors to ensure
+            # notifier derives counts from by_repo buckets.
+            "by_repo": [
+                {
+                    "repo": "stranske/X",
+                    "drift_instances": [
+                        {
+                            "doc_path": "README.md",
+                            "claim": "c",
+                            "authoritative_source": "s",
+                            "classification": "stale",
+                        }
+                    ],
+                    "accurate_instances": [],
+                    "errors": [],
+                }
+            ],
+        },
+        packet_path=tmp_path / "packet.md",
+        queue_path=tmp_path / "queue.json",
+        output_dir=tmp_path / "out",
+        workflows_steward_root=tmp_path / "Workflows-steward",
+    )
+    rendered = path.read_text(encoding="utf-8")
+    assert "Doc drift detected" in rendered
+    assert "Clean week" not in rendered
+
+
+def test_notify_falls_back_when_desktop_unwritable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    from scripts import repo_review_notify
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    original_mkdir = repo_review_notify.Path.mkdir
+
+    def _mkdir_with_desktop_failure(self: Path, *args: object, **kwargs: object) -> None:
+        if str(self).endswith("/Desktop"):
+            raise PermissionError("desktop blocked")
+        return original_mkdir(self, *args, **kwargs)
+
+    monkeypatch.setattr(repo_review_notify.Path, "mkdir", _mkdir_with_desktop_failure)
+
+    out_dir = tmp_path / "out"
+    path = repo_review_notify.write_desktop_reminder(
+        queue_summary={"total": 0, "by_repo": {}, "skipped_count": 0, "issue_titles": []},
+        backlog={"auto_labeled": [], "needs_human": []},
+        docs_drift={},
+        packet_path=tmp_path / "packet.md",
+        queue_path=tmp_path / "queue.json",
+        output_dir=out_dir,
+        workflows_steward_root=tmp_path / "Workflows-steward",
+    )
+
+    assert path == out_dir / repo_review_notify.DESKTOP_FILENAME
+    assert path.exists()
