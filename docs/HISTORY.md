@@ -21,9 +21,10 @@ quiet stretch where the system was used by consumers without active rebuilds.
 | 2. v1.1.x release & first Feb push | 2026-01-13 → 2026-02-10 | 832 | 81 → 94 | 229 | `v1.1.0`/`v1.1.1`/`v1.1.2` (1-26 → 1-31) | Verifier follow-up pipeline, GitHub-App token minting, sync-quality surveillance triad |
 | 3. Feb consolidation push | 2026-02-11 → 2026-02-28 | 413 | 94 → 98 | 232 | — | Claude becomes first-class agent, agent-agnostic belt rename, LangSmith integration, +4 consumers |
 | 4. Production quiet | 2026-03-01 → 2026-04-11 | 45 | 98 → 99 | 232 | — | PR-health scanner subsystem, Claude code-review opt-in, real consumer use without rebuilds |
-| 5. Post-quiet re-engagement | 2026-04-12 → 2026-04-29 (current) | 240 | 99 → 101 | 260 | — | Repo-review subsystem, sync/Dependabot campaign queue, action-pin contract, Python 3.12 fleet pin, durable-tracker convention |
+| 5. Post-quiet re-engagement | 2026-04-12 → 2026-04-29 | 240 | 99 → 101 | 260 | — | Repo-review subsystem, sync/Dependabot campaign queue, action-pin contract, Python 3.12 fleet pin, durable-tracker convention |
+| 6. Fleet review & systemic optimization | 2026-04-30 → 2026-05-07 (current) | 106 | 101 → 100 | 280 | — | 6-phase systematic review of all 101 workflows, 11 systemic fixes (state-fingerprint, event-eligibility, path-classifier, runner-lib, sync-tracker-state, issue-pr-context, verifier-config, reusable-ci-scope, artifact-cache, bot-comment-handler-fixtures, agents-guard split), Wave 0 deprecated-template cleanup, workflow-local follow-ons |
 
-Counts cover the period through commit `e0d04b6c` on 2026-04-29. Workflow file
+Counts cover the period through commit `969b8381` on 2026-05-07. Workflow file
 counts are `.github/workflows/*.yml` only; test counts are
 `tests/**/*.py` + `.github/scripts/__tests__/*.test.js`. The full snapshot of
 every dimension is at the foot of this doc under
@@ -192,7 +193,7 @@ phase endpoint.
 
 ---
 
-## Phase 5 — Post-quiet re-engagement (Apr 12 → Apr 29, 2026, current)
+## Phase 5 — Post-quiet re-engagement (Apr 12 → Apr 29, 2026)
 
 **Endpoint commit**: [`e0d04b6c`](https://github.com/stranske/Workflows/commit/e0d04b6c) — 240 commits in 17 days; ~190 of them in the last 6 days.
 
@@ -256,6 +257,165 @@ are 1 transient alert (#1976 token rotation) plus 3 durable trackers (#1796,
 
 ---
 
+## Phase 6 — Fleet review & systemic optimization (Apr 30 → May 7, 2026, current)
+
+**Endpoint commit**: [`969b8381`](https://github.com/stranske/Workflows/commit/969b8381) — 106 commits in 8 days, with 50 commits on the May 6 merge day alone (Wave 0 + Wave 1-3 systemic fixes + workflow-local follow-ons all landing in one push).
+
+**What worked**: The first systematic, evaluator-driven optimization
+pass over the whole workflow fleet. Instead of incremental fixes, the
+phase ran a 6-phase review rubric ([`docs/ops/WORKFLOW_REVIEW_RUBRIC.md`](ops/WORKFLOW_REVIEW_RUBRIC.md))
+against every workflow file, scoring each on 4 dimensions (token cost,
+CI time, code quality, automation gap), bucketing into 3 tiers (A: deep
+review = 41 workflows, B: sanity skim, C: out-of-scope), and synthesizing
+patterns across reviews into 11 shipped systemic fixes:
+
+1. **state-fingerprint pattern** — [`scripts/state_fingerprint.py`](../scripts/state_fingerprint.py)
+   with PR-comment + repo-variable storage backends, providing
+   skip-when-state-unchanged for keepalive, autofix, and pr-meta loops.
+   tiktoken estimator floors at `chars/4` so it can't be fooled by
+   compressible inputs.
+2. **event-eligibility composite action** —
+   [`.github/actions/agent-event-eligibility/`](../.github/actions/agent-event-eligibility/)
+   with expected-labels, expected-actions, JMESPath custom predicates,
+   and enforce/warning modes for early-exit before agent compute.
+3. **path-classifier** —
+   [`.github/actions/path-classifier/`](../.github/actions/path-classifier/)
+   plus [`.github/path-classification.yml`](../.github/path-classification.yml)
+   for changed-paths → classification routing across gate workflows.
+4. **runner-lib** — [`scripts/runner_lib/`](../scripts/runner_lib/)
+   shared helpers (`assemble_prompt`, `parse_runner_output`,
+   `should_dispatch`, `record_completion`) consolidating Codex/Claude
+   dispatch out of inline workflow YAML.
+5. **sync-tracker-state** —
+   [`.github/scripts/sync_tracker_state/`](../.github/scripts/sync_tracker_state/)
+   for find-or-create tracker, body update, and consumer-PR detection,
+   with graceful 401/403 fallback so workflows still function without
+   PAT/App token access.
+6. **issue-pr-context builder** —
+   [`scripts/langchain/issue_pr_context.py`](../scripts/langchain/issue_pr_context.py)
+   with `build_issue_context`, `build_pr_context`, `reuse_formatted_body`.
+7. **verifier-config consolidation** —
+   [`scripts/langchain/verifier_config.py`](../scripts/langchain/verifier_config.py)
+   (prompt budget constants, schema-repair policy, terminal-artifact
+   gating).
+8. **reusable-ci-scope** —
+   [`scripts/reusable_ci_scope.py`](../scripts/reusable_ci_scope.py) for
+   changed-input scenario selection in the reusable CI workflows.
+9. **artifact-cache composite** —
+   [`.github/actions/artifact-cache/`](../.github/actions/artifact-cache/)
+   wrapping `actions/cache@v5` with run-window keys + producer-run
+   discovery fallback.
+10. **bot-comment-handler fixture coverage** — fixture-backed tests for
+    [`reusable-bot-comment-handler.yml`](../.github/workflows/reusable-bot-comment-handler.yml)
+    parsing edge cases (the original "extract an inline @agent parser"
+    fix was re-scoped after Codex found no such parser existed; the
+    fixtures cover the actual surface).
+11. **Health 45 Agents Guard repo-aware split** —
+    [`agents-guard.js`](../.github/scripts/agents-guard.js) refactored
+    into `LEGACY_ALLOW_REMOVED_PATHS` + `CONSUMER_ONLY_ALLOW_REMOVED_PATHS`
+    with `isConsumerOnlyRemovalAllowed()` so canonical and consumer
+    repos enforce the right deletion policy. Resolved a chicken-and-egg
+    where `pull_request_target` ran the base ref's guard against the
+    head ref's deletions.
+
+Adjacent to the systemic work: **Wave 0 cleanup** removed 6 deprecated
+consumer-template workflows (`agents-autofix-loop.yml`,
+`agents-bot-comment-handler.yml`, `agents-keepalive-loop.yml`,
+`agents-pr-meta.yml`, `agents-verify-to-issue-v2.yml`,
+`agents-verify-to-issue.yml`) past their 2026-02-15 deprecation deadline,
+and 7 **workflow-local follow-ons** shipped as separate PRs (#2047
+bot-comment-handler fixtures, #2051 auto-pilot transition extraction,
+#2052 debug-event trigger tightening, #2053 agents-63 ChatGPT import
+fixtures, #2054 maint-50 tool-version fixtures, #2055 reusable-10-ci-python
+contract fixtures, #2056 health-75 inline-script extraction reducing
+1,968 LOC → ~446 LOC across 9 modules + 5 fixtures).
+
+The realization tracker
+([`Workflows-fleet-review/realization-tracker.py`](https://github.com/stranske/Workflows-fleet-review)
+in scratch) captured the post-merge T0 baseline and re-runs against it at
++7d / +30d / +60d milestones to surface realized-vs-estimated deltas.
+
+**Agent footprint**: Codex 870 (+160, the largest single-phase jump in
+any phase), Claude 389 (+107, first growth since Phase 3 — driven by
+`reusable-claude-run` callsite expansion and the multi-agent repo-review
+pipeline), Copilot 29.
+
+**Consumer CI**: Median Gate run **203s (3.4 min)**, p90 ~470s, n=5
+consumers × 10 recent successes each. The drop from Phase 5's 519s
+median is the headline structural change — `path-classifier`,
+`event-eligibility`, `artifact-cache`, and `reusable-ci-scope` collectively
+short-circuit work that the heavier consumers (Counter_Risk, Pension-Data)
+previously ran every gate. The 7-day window is short and the launch week
+itself produced atypical activity, so the Workflows-fleet-review T+30
+milestone re-read is the first comparison suitable for confident
+realization claims.
+
+**T+7 realization snapshot** (window: 2026-05-06 → 2026-05-13;
+realization-tracker `--window-days 7`):
+
+- **CI minutes realized: +49%** of synthesis-targeted savings already
+  showing (4,212 of 8,528 min/mo across 21 workflows with quantified
+  targets).
+- **Per-workflow standouts**: `agents-pr-meta-v4.yml` 229% realized
+  (7,035 → 600 min/mo), `agents-auto-pilot.yml` 94% (2,126 → 189),
+  `agents-bot-comment-handler.yml` 124% (714 → 364), `agents-guard.yml`
+  94% (582 → 328).
+- **Skip-rate signal**: 26 workflows now emit fingerprint / eligibility /
+  classifier markers. 5 show strong gating already
+  (`agents-auto-pilot.yml` 100%, `agents-bot-comment-handler.yml` 100%,
+  `autofix.yml` 78%, `agents-guard.yml` 70%, `agents-moderate-connector.yml`
+  30%); the remaining 21 are wired and emitting markers but haven't yet
+  exercised a skip in this window.
+- **Incidents**: 0 priority:high incidents closed in the 7-day window
+  (prior rate would have predicted ~2). One transient alert open
+  (#2073 — recurring `CODEX_AUTH_JSON` expiry).
+- **Aggregate token spend went UP** (31.3M → 50.9M/mo, +63%) — the
+  targeted token reductions on specific workflows are real but swamped
+  by the new multi-agent repo-review pipeline that landed mid-phase.
+  The +30d re-read should disentangle these effects.
+- **Workflows showing negative realization** (gates and self-tests
+  running more than baseline) are likely contaminated by the May 4-7
+  launch-week activity spike; the +30d window will normalize.
+
+**Pain points**:
+- Aggregate token use ticked up despite per-workflow reductions, because
+  the multi-agent repo-review pipeline (commit `50002f59` on May 5)
+  introduced a Codex/Claude round-1/round-2/body-writer flow that
+  consumes tokens at a higher rate than the workflows it monitors. This
+  is expected behavior — the pipeline is producing 6 new repo-review-
+  approved issues per run (#2085-#2090) — but it confounds the
+  token-savings story for the systemic fixes.
+- 5 sync-review-comments-1836 PRs (#1985, #1994, #1995, #1996, #2009)
+  remain open as closer-iteration debt from earlier rounds and are
+  outside the Phase 6 scope.
+- The realization tracker's T0 capture showed `skip_rate_signal=0`
+  because of a sandbox-blocked `gh run view --log` cache write; the +7d
+  re-run from a non-sandboxed shell surfaced 26 signaling workflows, so
+  the gap was tooling-only.
+
+**What it couldn't do yet**: Demonstrate per-fix realization with
+statistical confidence at +7d — the launch-week activity contamination
+makes several gate workflows appear to use more CI than baseline. The
++30d window is the earliest read suitable for the realization-vs-estimate
+deltas to be confident. Token-spend confounding from the new repo-review
+pipeline will also need disentangling at +30d.
+
+**End-of-phase backlog**: 12 open issues, 7 open PRs. The composition
+matters: of 12 issues, 6 are `repo-review-approved` outputs from the
+working multi-agent pipeline (#2085-#2090 — the system *generating* its
+own queue is the design goal), 3 are durable trackers
+([#1796](https://github.com/stranske/Workflows/issues/1796),
+[#1836](https://github.com/stranske/Workflows/issues/1836),
+[#1868](https://github.com/stranske/Workflows/issues/1868)), 1 is the
+recurring CODEX_AUTH alert (#2073), and 2 are automation alerts (#2079
+integration-sync drift, #2082 CI tool updates). Of 7 open PRs, 5 are
+closer-lane iterations on the same sync-review-1836 chain (#1985,
+#1994, #1995, #1996, #2009); 2 are recent (#2048, #2050) follow-ons to
+the runner-lib hardening. The "real" backlog — items requiring fresh
+attention — is closer to 3 issues than to 12.
+
+---
+
 ## Cross-cutting trends
 
 ### Consumer Gate-CI duration trend
@@ -271,10 +431,13 @@ successful Gate run's wall-clock duration.
 | 3. Feb consolidate | 412s (6.9 min) | 850s | 13 | Counter_Risk onboarding LangChain installs drove p90. |
 | 4. Production quiet | 86s (1.4 min) | 323s | 8 | **Sampling artifact** — only trip-planner was active. |
 | 5. Re-engage | 519s (8.7 min) | 702s | 13 | Slowest median; Counter_Risk + Inv-Man-Intake LangChain weight. |
+| 6. Fleet optimization | 203s (3.4 min) | ~470s | 50 | First measured drop. `path-classifier` + `event-eligibility` + `reusable-ci-scope` + `artifact-cache` short-circuiting work on heavy consumers. 7-day window — re-confirm at +30d. |
 
-The trend: consumer CI has gotten slower as agent integrations matured
-(LangChain, LangSmith, verifier follow-ups). Reducing install cost on heavy
-consumers is the obvious next target.
+The trend: consumer CI got slower across Phases 1-5 as agent integrations
+matured (LangChain, LangSmith, verifier follow-ups), then dropped sharply
+in Phase 6 once the systematic fixes started short-circuiting ineligible
+work. The Phase 6 number is from a short window and will be re-confirmed
+at the +30d realization re-read.
 
 ### Consumer onboarding timeline
 
@@ -289,16 +452,21 @@ consumers is the obvious next target.
 ### Agent registry growth
 
 - **Codex** — present at the initial commit (2025-12-16); dominant from day
-  one. `reusable-codex-run.yml` shipped in Phase 1.
+  one. `reusable-codex-run.yml` shipped in Phase 1. Phase 6 saw the largest
+  single-phase jump (+160 mentions, 710 → 870) as `runner-lib` callsites
+  expanded.
 - **Copilot** — referenced in Phase 1 only as auto-label and dedupe-comment
-  guards; no dedicated runner. Mention count stable at 17–24 across all
+  guards; no dedicated runner. Mention count stable at 17–29 across all
   phases.
 - **Claude** — first appears as scattered string references in Phase 1.
   First-class adoption in Phase 3:
   [`reusable-claude-run.yml`](../.github/workflows/reusable-claude-run.yml)
   ships 2026-02-17 (#1534), Sonnet 4.5 optimizer mid-Phase 2 (#1312),
-  consumer-side `maint-76-claude-code-review.yml` opt-in at Phase 3/4 boundary
-  (#1687). Workflow mentions plateau at 282 in Phase 5.
+  consumer-side `maint-76-claude-code-review.yml` opt-in at Phase 3/4
+  boundary (#1687). Plateaued at 282 in Phase 5, then jumped to 389 in
+  Phase 6 (+107) — driven by the multi-agent repo-review pipeline
+  (Codex round-1 / Claude round-2 / body-writer) and broadened
+  `reusable-claude-run` use.
 
 ### Notable incidents
 
@@ -323,6 +491,19 @@ consumers is the obvious next target.
   header-aware diff later).
 - **Phase 4 PR backlog** — 12 PRs open at 2026-04-11 (all stacked during the
   quiet); fully cleared during Phase 5 (0 open PRs at HEAD).
+- **Phase 6 launch-week activity spike** (May 4-7, 2026) — 91 PRs merged
+  in a single 4-day window during the Wave 0/1/2/3 push, including 50
+  commits on May 6 alone. This produced atypical gate / self-test
+  traffic that contaminates the +7d realization read for several gate
+  workflows (`pr-00-gate.yml`, `health-44`, `selftest-ci.yml`). The
+  +30d window will normalize.
+- **Repo-review pipeline as token sink** (started May 5, 2026) — the
+  multi-agent repo-review pipeline (commit `50002f59` adding round-1 +
+  round-2 + body-writer + coordinator) added a substantial new
+  token-consumer at the same time as the systemic fixes tried to reduce
+  fleet-wide token spend. Per-workflow token reductions are real but
+  swamped in the aggregate; this is the design (pipeline-as-feature) and
+  will be disentangled in the +30d realization analysis.
 
 ### Per-phase backlog snapshot (queue health)
 
@@ -333,16 +514,19 @@ consumers is the obvious next target.
 | 3 | 4 | 2 | Race conditions + token rotation visible. |
 | 4 | 7 | **12** | Quiet stacked the queue. |
 | 5 | 4 | 0 | Cleanest queue; all 4 open issues either transient alert (#1976) or durable trackers. |
+| 6 | 12 | 7 | Headline numbers up but composition matters: 6 of 12 issues are `repo-review-approved` pipeline outputs (#2085-#2090) — the design goal of the multi-agent pipeline — and 5 of 7 PRs are closer-iteration on the legacy sync-review-1836 chain. Net new attention needed ≈ 3 items. |
 
 ---
 
 ## Where the repo stands now
 
-As of 2026-04-29 (HEAD `e0d04b6c`):
+As of 2026-05-07 (HEAD `969b8381`):
 
-- **Workflow surface**: 101 workflow files in `.github/workflows/`,
-  39 in `templates/consumer-repo/.github/workflows/`. Reusable contract is
-  stable; consumer defaults are
+- **Workflow surface**: 100 workflow files in `.github/workflows/`,
+  32 in `templates/consumer-repo/.github/workflows/` (down from 39 at
+  Phase 5 end after Wave 0 removed 6 deprecated consumer workflows past
+  their 2026-02-15 deadline + 1 redundant canonical). Reusable contract
+  is stable; consumer defaults are
   [`agents-issue-intake.yml`](../templates/consumer-repo/.github/workflows/agents-issue-intake.yml),
   [`agents-80-pr-event-hub.yml`](../templates/consumer-repo/.github/workflows/agents-80-pr-event-hub.yml),
   [`agents-81-gate-followups.yml`](../templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml),
@@ -356,40 +540,95 @@ As of 2026-04-29 (HEAD `e0d04b6c`):
   Collab-Admin, Counter_Risk, Pension-Data, Inv-Man-Intake, Ready) plus the
   Workflows-Integration-Tests harness.
 - **Agent integrations**: Codex (canonical, dominant), Claude (first-class
-  since Phase 3, optional code-review in consumers), Copilot (auto-label and
-  dedupe-comment only).
-- **Active surfaces with structural improvements from Phase 5**:
-  repo-review pipeline with quality gates, sync/Dependabot campaign queue with
-  claim-leases, bot-comment auth coverage with eligibility-gated hard-block,
-  Codex CLI freshness monitoring, action-pin contract, Python-3.12 fleet pin,
-  durable-tracker convention.
-- **Open queue**: 4 open issues, 0 open PRs. Of the issues, 1 is a transient
-  alert ([#1976](https://github.com/stranske/Workflows/issues/1976) — Codex
-  token rotation, ~24h window) and 3 are durable auto-bot trackers
+  since Phase 3, expanded reach in Phase 6 via the multi-agent repo-review
+  pipeline), Copilot (auto-label and dedupe-comment only).
+- **Active surfaces with structural improvements from Phase 6**:
+  - **state-fingerprint pattern** — `scripts/state_fingerprint.py` with
+    PR-comment + repo-variable storage, gating keepalive/autofix/pr-meta
+    loops on unchanged-state.
+  - **event-eligibility composite** —
+    `.github/actions/agent-event-eligibility/` with JMESPath custom
+    predicates + enforce/warning modes; live skip-rate 30-100% on 5
+    workflows.
+  - **path-classifier composite** —
+    `.github/actions/path-classifier/` routing gate work by changed-paths
+    classification.
+  - **runner-lib shared helpers** — `scripts/runner_lib/` consolidating
+    Codex/Claude dispatch.
+  - **sync-tracker-state helper** — `.github/scripts/sync_tracker_state/`
+    with 401/403 graceful fallback.
+  - **issue-pr-context with chars/4 token floor** —
+    `scripts/langchain/issue_pr_context.py` honoring budgets on
+    compressible inputs.
+  - **verifier-config** — `scripts/langchain/verifier_config.py`
+    centralizing prompt budgets + schema-repair policy.
+  - **reusable-ci-scope** — `scripts/reusable_ci_scope.py` for changed-
+    input scenario selection.
+  - **artifact-cache composite** —
+    `.github/actions/artifact-cache/` with run-window keys.
+  - **Health 45 Agents Guard repo-aware split** — legacy vs
+    consumer-only allow-removed-paths.
+  - **Realization tracker** — re-runnable in
+    `Workflows-fleet-review/realization-tracker.py` (scratch, not in
+    repo) with `--compare A.json B.json` mode; T0 + T+7 snapshots
+    captured, T+30 / T+60 milestones queued.
+- **Active surfaces carried from Phase 5**: repo-review pipeline with
+  quality gates, sync/Dependabot campaign queue with claim-leases,
+  bot-comment auth coverage with eligibility-gated hard-block, Codex CLI
+  freshness monitoring, action-pin contract, Python-3.12 fleet pin,
+  durable-tracker convention. The repo-review pipeline expanded to a
+  multi-agent format (round-1 + round-2 + body-writer + coordinator) on
+  2026-05-05 (commit `50002f59`), producing the 6 `repo-review-approved`
+  issues (#2085-#2090) in the current open queue.
+- **Open queue**: 12 open issues, 7 open PRs — but most are designed-by-
+  pipeline outputs or legacy chain debt, not net-new backlog. Of the 12
+  issues, 6 are `repo-review-approved` pipeline outputs (#2085-#2090),
+  3 are durable auto-bot trackers
   ([#1796](https://github.com/stranske/Workflows/issues/1796),
   [#1836](https://github.com/stranske/Workflows/issues/1836),
-  [#1868](https://github.com/stranske/Workflows/issues/1868)) — see
-  [`docs/ops/DURABLE_TRACKING_ISSUES.md`](ops/DURABLE_TRACKING_ISSUES.md).
+  [#1868](https://github.com/stranske/Workflows/issues/1868)), 1 is the
+  recurring CODEX_AUTH_JSON expiry alert (#2073), and 2 are automation
+  alerts (#2079 integration-sync drift, #2082 CI tool updates). Of the
+  7 open PRs, 5 are closer-iteration on the legacy sync-review-1836
+  chain (#1985, #1994, #1995, #1996, #2009) and 2 are recent runner-lib
+  follow-ons (#2048, #2050). See
+  [`docs/ops/DURABLE_TRACKING_ISSUES.md`](ops/DURABLE_TRACKING_ISSUES.md)
+  for the durable-tracker convention.
 - **Known carry-over concerns**:
-  - Median consumer Gate-CI duration has climbed each active phase (234s →
-    292s → 412s → 519s for the heavier consumers). LangChain/LangSmith
-    install cost is the main driver; this is the next obvious optimization
-    target.
-  - Token rotation still requires human secret-update access, even though
-    auto-persist of refreshed bundles in PR #1734 reduced the failure mode.
+  - Phase 6's +7d realization read shows +49% of targeted CI savings
+    realized fleet-wide (4,212 of 8,528 min/mo). Several gate workflows
+    show negative realization at +7d due to launch-week activity
+    contamination — re-confirm at +30d (2026-06-05). The
+    `Workflows-fleet-review/realization-tracker.py` script handles the
+    re-run.
+  - **Aggregate token spend is up** (31.3M → 50.9M/mo, +63%) despite
+    per-workflow reductions, because the multi-agent repo-review
+    pipeline is a substantial new consumer. The +30d analysis should
+    separate the systemic-fix delta from the new-pipeline delta.
+  - Token rotation still requires human secret-update access, even
+    though auto-persist of refreshed bundles in PR #1734 reduced the
+    failure mode. #2073 is the current iteration.
   - README hasn't been refreshed since Phase 2; it still advertises the
-    Feb 2026 verifier metrics and a 5-consumer footprint.
-  - `maint-69-sync-integration-repo.yml` had three silent failures between
-    2026-04-14 and 2026-04-20 because every step is gated on
-    `token_available == 'true'` — a follow-up audit was spawned during the
-    Phase 5 wrap to add alerting.
+    Feb 2026 verifier metrics and a 5-consumer footprint. The
+    `maint-66-monthly-audit.yml` quarterly README refresher exists but
+    a manual sweep is overdue.
+  - 21 of the 26 helper-wired workflows show `skip_rate=0` at +7d: the
+    helpers are emitting markers but the eligibility / classifier
+    predicates haven't yet rejected any events. Mostly expected (broad
+    changes during launch week didn't narrow to skippable scope); the
+    +30d read should show some of these activating as production traffic
+    normalizes.
 
 ---
 
 ## See also
 
 - [`CHANGELOG.md`](../CHANGELOG.md) — per-release records (the Unreleased
-  section currently captures the Phase 5 work).
+  section currently captures Phase 5 + Phase 6 work — no tag has been cut
+  since `v1.1.2` in late January).
+- [`docs/ops/WORKFLOW_REVIEW_RUBRIC.md`](ops/WORKFLOW_REVIEW_RUBRIC.md) —
+  the 4-dimension / 3-tier / 6-phase rubric that drove Phase 6's
+  systematic review.
 - [`README.md`](../README.md) — current capability advertisement (note: the
   consumer count and verifier metrics tables are stale as of HEAD).
 - [`COMPATIBILITY.md`](../COMPATIBILITY.md) — versioning and deprecation
