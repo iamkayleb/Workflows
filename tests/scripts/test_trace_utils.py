@@ -48,6 +48,15 @@ class _ProviderTypeErrorRunnable:
         raise TypeError("provider payload type failed")
 
 
+class _ProviderConfigTypeErrorRunnable:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, payload, *, config=None):
+        self.calls += 1
+        raise TypeError("provider got an unexpected keyword argument 'config'")
+
+
 class _NoKeywordCallable:
     def __init__(self) -> None:
         self.calls = 0
@@ -66,6 +75,25 @@ class _NoKeywordErrorRunnable:
 
 class _BuiltinNoKeywordRunnable:
     invoke = staticmethod(len)
+
+
+class _DelegatingRunnable:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.inner = _LegacyRunnable()
+
+    def invoke(self, payload, **kwargs):
+        self.calls += 1
+        return self.inner.invoke(payload, **kwargs)
+
+
+class _VariadicWrapperProviderConfigTypeErrorRunnable:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, payload, **kwargs):
+        self.calls += 1
+        raise TypeError("provider got an unexpected keyword argument 'config'")
 
 
 def test_invoke_with_trace_passes_standard_metadata(monkeypatch):
@@ -105,7 +133,7 @@ def test_invoke_with_trace_retries_builtin_no_keyword_callable_without_config(
     monkeypatch,
 ):
     monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
-    monkeypatch.setattr(trace_utils, "_invoke_accepts_config", lambda _invoke: True)
+    monkeypatch.setattr(trace_utils, "_invoke_config_support", lambda _invoke: "unknown")
     runnable = _BuiltinNoKeywordRunnable()
 
     response, trace = invoke_with_trace(
@@ -122,7 +150,6 @@ def test_invoke_with_trace_does_not_retry_internal_no_keyword_type_error(
     monkeypatch,
 ):
     monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
-    monkeypatch.setattr(trace_utils, "_invoke_accepts_config", lambda _invoke: True)
     runnable = _NoKeywordErrorRunnable()
 
     with pytest.raises(TypeError, match="takes no keyword arguments"):
@@ -133,6 +160,23 @@ def test_invoke_with_trace_does_not_retry_internal_no_keyword_type_error(
         )
 
     assert runnable.invoke.calls == 1
+
+
+def test_invoke_with_trace_retries_delegating_variadic_wrapper_without_config(
+    monkeypatch,
+):
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
+    runnable = _DelegatingRunnable()
+
+    _response, trace = invoke_with_trace(
+        runnable,
+        "prompt",
+        operation="delegating_unit_test",
+    )
+
+    assert runnable.calls == 2
+    assert runnable.inner.calls == 1
+    assert trace.trace_id == "trace-123"
 
 
 def test_invoke_with_trace_does_not_retry_provider_failures(monkeypatch):
@@ -151,5 +195,29 @@ def test_invoke_with_trace_does_not_retry_unrelated_type_errors(monkeypatch):
 
     with pytest.raises(TypeError, match="provider payload type failed"):
         invoke_with_trace(runnable, "prompt", operation="type_error_unit_test")
+
+    assert runnable.calls == 1
+
+
+def test_invoke_with_trace_does_not_retry_explicit_config_provider_type_error(
+    monkeypatch,
+):
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
+    runnable = _ProviderConfigTypeErrorRunnable()
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'config'"):
+        invoke_with_trace(runnable, "prompt", operation="config_type_error_unit_test")
+
+    assert runnable.calls == 1
+
+
+def test_invoke_with_trace_does_not_retry_variadic_provider_config_type_error(
+    monkeypatch,
+):
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
+    runnable = _VariadicWrapperProviderConfigTypeErrorRunnable()
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'config'"):
+        invoke_with_trace(runnable, "prompt", operation="variadic_config_type_error_unit_test")
 
     assert runnable.calls == 1
