@@ -341,6 +341,25 @@ class TestValidateTasks:
         assert result.tasks == tasks
         assert result.fates[0].original_index == 1
 
+    def test_blank_filtering_preserves_original_input_indexes(self) -> None:
+        tasks = [
+            "",
+            "Create scripts/metrics.py with timing functions",
+            "  ",
+            "Fix",
+            "Add unit tests for metrics collection",
+        ]
+
+        result = validate_tasks(tasks, use_llm=False)
+
+        assert result.tasks == [
+            "Create scripts/metrics.py with timing functions",
+            "Fix",
+            "Add unit tests for metrics collection",
+        ]
+        assert result.fates[0].original_index == 3
+        assert "3 input" in result.audit_summary
+
 
 class TestTaskFateSerialization:
     """Test TaskFate dataclass serialization."""
