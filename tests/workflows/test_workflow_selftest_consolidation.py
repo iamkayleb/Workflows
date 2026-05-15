@@ -361,6 +361,13 @@ def test_selftest_runner_jobs_contract() -> None:
     assert (
         verify_env.get("SCENARIO_LIST") == "${{ env.SCENARIO_LIST }}"
     ), "Verification step should read scenario list from aggregate env."
+    verify_script = (verify_step.get("with") or {}).get("script", "")
+    assert (
+        "matchesExpectedArtifact" in verify_script
+    ), "Verification should tolerate upload-artifact uniqueness suffixes."
+    assert (
+        ".split('/')[0]" in verify_script
+    ), "Verification should normalize nested reusable workflow job names."
 
     upload_step = _find_step(lambda step: step.get("name") == "Upload self-test report")
     assert upload_step, "Aggregate job must upload the self-test report artifact."
@@ -391,9 +398,10 @@ def test_selftest_runner_publish_job_contract() -> None:
 
     assert publish, f"{SELFTEST_WORKFLOW_NAME} should retain the publish job."
     assert set(publish.get("needs", [])) == {
+        "select-scenarios",
         "scenarios",
         "summarize",
-    }, "publish should depend on both the matrix execution and aggregation jobs."
+    }, "publish should depend on scenario selection, matrix execution, and aggregation jobs."
     assert (
         publish.get("if") == "${{ always() }}"
     ), "publish should always execute to surface matrix status."
@@ -426,6 +434,7 @@ def test_selftest_runner_publish_job_contract() -> None:
         "COMMENT_TITLE",
         "REASON",
         "WORKFLOW_RESULT",
+        "SELECTED_COUNT",
         "SUMMARY_TABLE",
         "FAILURE_COUNT",
         "RUN_ID",
@@ -485,6 +494,7 @@ def test_selftest_runner_publish_job_contract() -> None:
         "Verification table output missing",
         "Failure count output missing",
         "Self-test reported",
+        "no scenarios were selected",
         "Self-test matrix completed with status",
     ):
         assert (
@@ -501,6 +511,7 @@ def test_selftest_runner_publish_job_contract() -> None:
         "Verification table output missing",
         "Failure count output missing",
         "Self-test reported",
+        "no scenarios were selected",
         "Self-test matrix completed with status",
     ):
         assert snippet in comment_script, f"Comment finalizer guard should mention '{snippet}'."

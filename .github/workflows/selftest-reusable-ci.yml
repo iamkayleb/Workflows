@@ -486,6 +486,14 @@ jobs:
               }
             }
 
+            function escapeRegExp(value) {
+              return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            }
+
+            function matchesExpectedArtifact(actual, expected) {
+              return actual === expected || new RegExp(`^${escapeRegExp(expected)}-\\d+$`).test(actual);
+            }
+
             let artifactNames;
             let jobs;
             try {
@@ -540,17 +548,20 @@ jobs:
             const nameSet = new Set(artifactNames);
 
             const matrixJobs = jobs.filter((job) => job.name && job.name.startsWith('Scenario - '));
-            const jobStatusByScenario = Object.fromEntries(
-              matrixJobs.map((job) => {
-                const scenarioName = job.name.replace('Scenario - ', '').trim();
-                const status = job.conclusion === 'success'
-                  ? '✅'
-                  : job.conclusion === 'failure'
-                    ? '❌'
-                    : 'ℹ️';
-                return [scenarioName, status];
-              })
-            );
+            const jobStatusByScenario = {};
+            for (const job of matrixJobs) {
+              const scenarioName = job.name.replace('Scenario - ', '').split('/')[0].trim();
+              if (!scenarioNames.includes(scenarioName)) {
+                continue;
+              }
+              if (job.conclusion === 'failure' || job.conclusion === 'cancelled') {
+                jobStatusByScenario[scenarioName] = '❌';
+              } else if (job.conclusion !== 'success' && job.conclusion !== 'skipped') {
+                jobStatusByScenario[scenarioName] = 'ℹ️';
+              } else if (!jobStatusByScenario[scenarioName]) {
+                jobStatusByScenario[scenarioName] = '✅';
+              }
+            }
 
             const rows = [
               '| Scenario | Status | Missing | Unexpected |',
@@ -566,10 +577,14 @@ jobs:
 
             for (const scenario of scenarioNames) {
               const expected = expectedArtifactsFor(scenario);
-              const missing = expected.filter((name) => !nameSet.has(name));
+              const missing = expected.filter(
+                (name) => !artifactNames.some((actual) => matchesExpectedArtifact(actual, name)),
+              );
               const prefix = `sf-${scenario}-`;
               const actual = artifactNames.filter((name) => name.startsWith(prefix));
-              const unexpected = actual.filter((name) => !expected.includes(name));
+              const unexpected = actual.filter(
+                (name) => !expected.some((expectedName) => matchesExpectedArtifact(name, expectedName)),
+              );
               const ok =
                 missing.length === 0 &&
                 unexpected.length === 0 &&
@@ -591,7 +606,11 @@ jobs:
             }
 
             const stray = artifactNames.filter(
-              (name) => name.startsWith('sf-') && !expectedUniverse.has(name),
+              (name) =>
+                name.startsWith('sf-') &&
+                !Array.from(expectedUniverse).some((expected) =>
+                  matchesExpectedArtifact(name, expected)
+                ),
             );
             if (stray.length) {
               rows.push(`| (stray) | ❌ | (n/a) | ${stray.join('<br>')} |`);
@@ -640,6 +659,7 @@ jobs:
   publish:
     name: Publish Results
     needs:
+      - select-scenarios
       - scenarios
       - summarize
     if: ${{ always() }}
@@ -676,6 +696,7 @@ jobs:
           'nightly verification'
         }}
       WORKFLOW_RESULT: ${{ needs.scenarios.result }}
+      SELECTED_COUNT: ${{ needs.select-scenarios.outputs.selected_count || '0' }}
       SUMMARY_TABLE: ${{ needs.summarize.outputs.summary_table }}
       FAILURE_COUNT: ${{ needs.summarize.outputs.failure_count }}
       RUN_ID: ${{ needs.summarize.outputs.run_id }}
@@ -793,6 +814,11 @@ jobs:
           if [ "${FAILURE_COUNT}" != "0" ]; then
             echo "Self-test reported ${FAILURE_COUNT} mismatch(es)." >&2
             exit 1
+          fi
+
+          if [ "${WORKFLOW_RESULT}" = "skipped" ] && [ "${SELECTED_COUNT}" = "0" ]; then
+            echo "Self-test matrix skipped because no scenarios were selected."
+            exit 0
           fi
 
           if [ "${WORKFLOW_RESULT}" != "success" ]; then
@@ -934,6 +960,11 @@ jobs:
           if [ "${FAILURE_COUNT}" != "0" ]; then
             echo "Self-test reported ${FAILURE_COUNT} mismatch(es)." >&2
             exit 1
+          fi
+
+          if [ "${WORKFLOW_RESULT}" = "skipped" ] && [ "${SELECTED_COUNT}" = "0" ]; then
+            echo "Self-test matrix skipped because no scenarios were selected."
+            exit 0
           fi
 
           if [ "${WORKFLOW_RESULT}" != "success" ]; then
