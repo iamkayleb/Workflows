@@ -87,12 +87,41 @@ class _DelegatingRunnable:
         return self.inner.invoke(payload, **kwargs)
 
 
+class _HelperDelegatingRunnable:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.helper_calls = 0
+        self.inner = _LegacyRunnable()
+
+    def invoke(self, payload, **kwargs):
+        self.calls += 1
+        return self._forward(payload, **kwargs)
+
+    def _forward(self, payload, **kwargs):
+        self.helper_calls += 1
+        return self.inner.invoke(payload, **kwargs)
+
+
 class _VariadicWrapperProviderConfigTypeErrorRunnable:
     def __init__(self) -> None:
         self.calls = 0
 
     def invoke(self, payload, **kwargs):
         self.calls += 1
+        raise TypeError("provider got an unexpected keyword argument 'config'")
+
+
+class _HelperProviderConfigTypeErrorRunnable:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.helper_calls = 0
+
+    def invoke(self, payload, **kwargs):
+        self.calls += 1
+        return self._forward(payload, **kwargs)
+
+    def _forward(self, payload, **kwargs):
+        self.helper_calls += 1
         raise TypeError("provider got an unexpected keyword argument 'config'")
 
 
@@ -179,6 +208,24 @@ def test_invoke_with_trace_retries_delegating_variadic_wrapper_without_config(
     assert trace.trace_id == "trace-123"
 
 
+def test_invoke_with_trace_retries_helper_delegating_wrapper_without_config(
+    monkeypatch,
+):
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
+    runnable = _HelperDelegatingRunnable()
+
+    _response, trace = invoke_with_trace(
+        runnable,
+        "prompt",
+        operation="helper_delegating_unit_test",
+    )
+
+    assert runnable.calls == 2
+    assert runnable.helper_calls == 2
+    assert runnable.inner.calls == 1
+    assert trace.trace_id == "trace-123"
+
+
 def test_invoke_with_trace_does_not_retry_provider_failures(monkeypatch):
     monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
     runnable = _ProviderFailureRunnable()
@@ -221,3 +268,16 @@ def test_invoke_with_trace_does_not_retry_variadic_provider_config_type_error(
         invoke_with_trace(runnable, "prompt", operation="variadic_config_type_error_unit_test")
 
     assert runnable.calls == 1
+
+
+def test_invoke_with_trace_does_not_retry_helper_provider_config_type_error(
+    monkeypatch,
+):
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
+    runnable = _HelperProviderConfigTypeErrorRunnable()
+
+    with pytest.raises(TypeError, match="unexpected keyword argument 'config'"):
+        invoke_with_trace(runnable, "prompt", operation="helper_config_type_error_unit_test")
+
+    assert runnable.calls == 1
+    assert runnable.helper_calls == 1
