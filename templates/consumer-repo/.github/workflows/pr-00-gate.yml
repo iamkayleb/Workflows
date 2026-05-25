@@ -1,6 +1,14 @@
 # Gate orchestrates CI enforcement for pull requests. The final `summary`
 # job aggregates artifacts, computes coverage deltas, publishes the commit
 # status, and maintains the consolidated PR comment.
+#
+# Fresh-consumer bootstrap note:
+# This expanded Gate is not yet safe to seed into brand-new consumer repos.
+# sync_mode: create_only only protects repos that already have a Gate file; a
+# repo missing pr-00-gate.yml can still receive this template on first sync.
+# Fresh consumers should start from stranske/Template or another known-green
+# deployed consumer Gate, then upgrade after issue #2158 proves this expanded
+# detect-output version no longer hits the startup-failure regression.
 name: Gate
 
 on:
