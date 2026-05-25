@@ -22,6 +22,8 @@
 #   - description: What this file does (required for documentation)
 #   - skip_repos: Optional list of repo-specific exclusions with a reason.
 #       Use only when a consumer has an intentional incompatible path or policy.
+#   - overwrite_repos: Optional list of repos that should ignore create_only and
+#       stay byte-aligned with the canonical template (for example stranske/Template).
 
 version: 1
 
@@ -31,10 +33,14 @@ workflows:
   - source: .github/workflows/pr-00-gate.yml
     description: "Gate workflow - runs tests, lint, type checking before merge. Bootstrap note: the expanded template Gate is not yet fresh-consumer deployable; see issue #2158 before seeding it into new repos."
     sync_mode: create_only  # Don't overwrite existing consumer Gate files; fresh repos can still receive this file, so follow #2158 before first seeding.
+    overwrite_repos:
+      - stranske/Template
 
   - source: .github/workflows/ci.yml
     description: "CI workflow - main continuous integration entry point"
     sync_mode: create_only  # Don't overwrite - repos customize coverage-min, python versions
+    overwrite_repos:
+      - stranske/Template
 
   - source: .github/workflows/autofix.yml
     description: "Autofix workflow - automatically fixes lint/format issues"
@@ -156,6 +162,8 @@ removals:
     description: "Remove deprecated verify-to-issue v1 template workflow past the 2026-02-15 removal deadline (replaced by agents-80-pr-event-hub.yml)"
   - target: .github/workflows/agents-verify-to-issue-v2.yml
     description: "Remove deprecated verify-to-issue v2 template workflow past the 2026-02-15 removal deadline (replaced by agents-80-pr-event-hub.yml)"
+  - target: .github/workflows/agents-70-orchestrator.yml
+    description: "Remove deprecated orchestrator workflow from template consumers (replaced by agents-80-pr-event-hub.yml and agents-81-gate-followups.yml)"
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md

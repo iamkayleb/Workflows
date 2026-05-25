@@ -305,7 +305,8 @@ jobs:
       - name: Compute result artifact name
         id: repo_meta
         run: |
-          safe_name=$(printf '%s' '${{ matrix.repo }}' | sed -E 's/[^A-Za-z0-9_.-]+/-/g; s/^-+|-+$//g')
+          safe_name=$(printf '%s' '${{ matrix.repo }}' \
+            | sed -E 's/[^A-Za-z0-9_.-]+/-/g; s/^-+|-+$//g')
           echo "artifact_name=${safe_name:-unknown-repo}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout Workflows
@@ -430,6 +431,11 @@ jobs:
                   return str(rule.get('reason', '')).strip() or 'Manifest skip for repo'
               return ''
 
+          def repo_overwrites_create_only(item, repo):
+              """Return whether repo should ignore create_only for this manifest item."""
+              overwrite_repos = item.get('overwrite_repos', [])
+              return isinstance(overwrite_repos, list) and repo in overwrite_repos
+
           def comparable_lines(path):
               """Return file lines after leading comment/blank header lines."""
               lines = path.read_text().splitlines()
@@ -547,7 +553,11 @@ jobs:
 
               def skip_create_only():
                   """File exists and sync_mode is create_only"""
-                  return sync_mode == 'create_only' and consumer_dst.exists()
+                  return (
+                      sync_mode == 'create_only'
+                      and consumer_dst.exists()
+                      and not repo_overwrites_create_only(item, current_repo)
+                  )
 
               # Determine skip function: check create_only first (covers most cases),
               # then custom_gate for legacy repos that have completely custom Gates
@@ -810,7 +820,9 @@ jobs:
           branch_name="sync/workflows-${{ needs.prepare.outputs.template_hash }}"
 
           if [ "$EXISTING_SYNC_PR" = "true" ]; then
-            existing_pr=$(gh pr list --head "$branch_name" --json number -q '.[0].number' || echo "")
+            existing_pr=$(
+              gh pr list --head "$branch_name" --json number -q '.[0].number' || echo ""
+            )
             echo "PR #$existing_pr already exists for this sync"
             echo "::notice::Existing PR: #$existing_pr"
             {
