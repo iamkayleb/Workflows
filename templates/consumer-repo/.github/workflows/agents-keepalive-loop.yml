@@ -821,12 +821,6 @@ jobs:
         run: |
           node .github/scripts/should-post-review.js review_result.json
 
-
-      - name: Evaluate whether to post review
-        id: review_guard
-        run: |
-          node .github/scripts/should-post-review.js review_result.json
-
       - name: Post review feedback to PR
         if: steps.review_guard.outputs.should_post_review == 'true'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
