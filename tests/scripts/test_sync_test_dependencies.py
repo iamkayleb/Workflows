@@ -262,6 +262,19 @@ def test_tests_dir_on_pythonpath_falls_back_when_pyproject_has_no_pytest_config(
     assert std._tests_dir_on_pythonpath() is True
 
 
+def test_tests_dir_on_pythonpath_falls_back_when_pyproject_pytest_is_not_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[tool]\npytest = "not-a-table"\n', encoding="utf-8")
+    (tmp_path / "tox.ini").write_text("[pytest]\npythonpath = tests\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(std, "PYPROJECT_FILE", pyproject)
+
+    assert std._tests_dir_on_pythonpath() is True
+
+
 def test_tests_dir_on_pythonpath_falls_back_when_pyproject_is_invalid(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -273,6 +286,53 @@ def test_tests_dir_on_pythonpath_falls_back_when_pyproject_is_invalid(
     monkeypatch.setattr(std, "PYPROJECT_FILE", pyproject)
 
     assert std._tests_dir_on_pythonpath() is True
+
+
+@pytest.mark.parametrize("pythonpath", ["src tests", ".\\tests", ["tests\\"]])
+def test_tests_dir_on_pythonpath_accepts_common_path_spellings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pythonpath: object
+) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    if isinstance(pythonpath, list):
+        value = ", ".join(f'"{entry.replace(chr(92), chr(92) * 2)}"' for entry in pythonpath)
+        pyproject.write_text(
+            f"[tool.pytest]\npythonpath = [{value}]\n",
+            encoding="utf-8",
+        )
+    else:
+        escaped_pythonpath = str(pythonpath).replace("\\", "\\\\")
+        pyproject.write_text(
+            f'[tool.pytest]\npythonpath = "{escaped_pythonpath}"\n',
+            encoding="utf-8",
+        )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(std, "PYPROJECT_FILE", pyproject)
+
+    assert std._tests_dir_on_pythonpath() is True
+
+
+@pytest.mark.parametrize("pythonpath", ["src,tests", ["src,tests"]])
+def test_tests_dir_on_pythonpath_does_not_split_comma_separated_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pythonpath: object
+) -> None:
+    pyproject = tmp_path / "pyproject.toml"
+    if isinstance(pythonpath, list):
+        value = ", ".join(f'"{entry}"' for entry in pythonpath)
+        pyproject.write_text(
+            f"[tool.pytest]\npythonpath = [{value}]\n",
+            encoding="utf-8",
+        )
+    else:
+        pyproject.write_text(
+            f'[tool.pytest]\npythonpath = "{pythonpath}"\n',
+            encoding="utf-8",
+        )
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(std, "PYPROJECT_FILE", pyproject)
+
+    assert std._tests_dir_on_pythonpath() is False
 
 
 def test_tests_dir_on_pythonpath_reads_ini_values_without_interpolation(
