@@ -424,7 +424,10 @@ jobs:
           fi
 
           if [ -f pyproject.toml ]; then
-            python -m pip install -e ".[dev]" || python -m pip install -e .
+            python -m pip install -e ".[dev]" || python -m pip install -e . || {
+              echo "::warning::Editable install failed — the repo may not have a valid Python package structure."
+              echo "::warning::Codex will continue without editable install."
+            }
           fi
 
       - name: Install Workflows repo LLM dependencies

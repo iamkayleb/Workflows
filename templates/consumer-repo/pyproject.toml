@@ -12,11 +12,14 @@ requires-python = ">=3.11"
 app = []
 dev = []
 
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.setuptools.package-dir]
-"" = "src"
+[tool.setuptools]
+# No importable packages by default. If this repo becomes a Python project
+# with a src/ layout, replace with:
+#   [tool.setuptools.packages.find]
+#   where = ["src"]
+#   [tool.setuptools.package-dir]
+#   "" = "src"
+packages = []
 
 [tool.black]
 line-length = 100
