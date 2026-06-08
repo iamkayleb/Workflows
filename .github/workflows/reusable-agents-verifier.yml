@@ -651,6 +651,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          # verify:compare is the ONLY place the metered API keys may be spent.
+          LLM_ALLOW_METERED: '1'
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           PYTHONPATH: .workflows-lib
           CHAIN_DEPTH: ${{ steps.context.outputs.chain_depth || '0' }}
@@ -867,6 +869,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+          # verify:compare is the ONLY place the metered API keys may be spent.
+          LLM_ALLOW_METERED: '1'
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
           PYTHONPATH: .workflows-lib
           CHAIN_DEPTH: ${{ steps.context.outputs.chain_depth || '0' }}
