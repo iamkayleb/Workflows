@@ -44,7 +44,7 @@ Error: LLM invocation failed: Error code: 429 -
 
 **Fix:** Add billing credits at `https://platform.openai.com/settings/organization/billing`.
 
-**Lesson:** The same `OPENAI_API_KEY` is used for both the Codex agent runner and the verification LLM slot. The Codex CLI uses ChatGPT subscription auth separately, but the verifier calls the OpenAI API directly and needs paid API credits.
+**Lesson:** `OPENAI_API_KEY` must be reserved **exclusively for verify:compare**. It is NOT a Codex code-production credential — code production uses the ChatGPT subscription token (`CODEX_AUTH_JSON`). verify:compare is cheap (tens of thousands of runs cost well under $100), but using the API to *produce code* burns tokens orders of magnitude faster and will exhaust the verify budget. An earlier change that let the Codex runner fall back to `OPENAI_API_KEY` for code production was reverted for exactly this reason — see the Multi-Agent Testing Retrospective, "API key spent on code production."
 
 ---
 

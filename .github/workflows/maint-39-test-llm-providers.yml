@@ -25,6 +25,10 @@ concurrency:
 jobs:
   test-providers:
     runs-on: ubuntu-latest
+    # This is a manual diagnostic whose purpose is to exercise every provider,
+    # including the metered ones, so it opts into metered providers explicitly.
+    env:
+      LLM_ALLOW_METERED: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v6

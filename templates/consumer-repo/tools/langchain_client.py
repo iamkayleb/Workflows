@@ -14,7 +14,11 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from tools.llm_provider import DEFAULT_MODEL, GITHUB_MODELS_BASE_URL
+from tools.llm_provider import (
+    DEFAULT_MODEL,
+    GITHUB_MODELS_BASE_URL,
+    metered_providers_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +218,10 @@ def build_chat_client(
     github_token = os.environ.get("GITHUB_TOKEN")
     openai_token = os.environ.get("OPENAI_API_KEY")
     anthropic_token = os.environ.get(ENV_ANTHROPIC_KEY)
+    # Cost isolation: metered keys only when explicitly opted in (verify:compare).
+    if not metered_providers_allowed():
+        openai_token = None
+        anthropic_token = None
     if not github_token and not openai_token and not anthropic_token:
         return None
 
@@ -334,6 +342,10 @@ def build_chat_clients(
     github_token = os.environ.get("GITHUB_TOKEN")
     openai_token = os.environ.get("OPENAI_API_KEY")
     anthropic_token = os.environ.get(ENV_ANTHROPIC_KEY)
+    # Cost isolation: metered keys only when explicitly opted in (verify:compare).
+    if not metered_providers_allowed():
+        openai_token = None
+        anthropic_token = None
     if not github_token and not openai_token and not anthropic_token:
         return []
 

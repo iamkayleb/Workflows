@@ -194,6 +194,41 @@ To ensure CI validation and autofix produce identical output, both must use the 
 2. More mature and stable
 3. Explicit formatting rules prevent ambiguity
 
+## Keeping the Coding Agents Current
+
+The Python lint/test tools above are pinned in `autofix-versions.env`. The
+**coding agent CLIs** are installed from npm and tracked separately:
+
+| Agent | Package | Pinning |
+|-------|---------|---------|
+| Codex | `@openai/codex` | **Exact pin** (for stability) in `reusable-codex-run.yml` (`codex_cli_version` default) and `reusable-agents-verifier.yml` (`npm install -g`) |
+| Claude | `@anthropic-ai/claude-code` | `latest` (no pin) — floats automatically |
+| Gemini | `@google/gemini-cli` | `latest` (no pin) — floats automatically |
+
+### Automated monitoring (`maint-53-agent-version-check.yml`)
+
+Runs weekly (Mondays 09:00 UTC) and on demand. It:
+
+1. Reads the pinned Codex version from both workflow files.
+2. Compares against the latest published `@openai/codex` release.
+3. Flags **drift** if the two Codex pins disagree.
+4. Opens/updates a `maintenance,dependencies` issue when a newer Codex
+   version is available, with the exact files to update.
+5. Reports Claude/Gemini latest versions for visibility (they self-update).
+
+### Updating the Codex pin
+
+Because Codex is pinned in two places, **update both together**:
+
+1. Review the release notes: <https://github.com/openai/codex/releases>
+2. Bump `codex_cli_version` default in `reusable-codex-run.yml`.
+3. Bump the `@openai/codex@X.Y.Z` install in `reusable-agents-verifier.yml`.
+4. Open a PR; let the keepalive/verify health checks run before merging.
+
+Claude and Gemini require no pin maintenance — they install `latest` on each
+run. Pin them (via the `*_cli_version` inputs) only if you need to freeze a
+known-good version for a controlled reason.
+
 ## Related Documentation
 
 - [Autofix System](AUTOFIX.md) - How automatic fixes work
@@ -202,6 +237,7 @@ To ensure CI validation and autofix produce identical output, both must use the 
 
 ## Maintenance Schedule
 
-- **Weekly**: Automated version check (Mondays 8:00 AM UTC)
+- **Weekly**: Automated tool version check (`maint-50`, Mondays 8:00 AM UTC)
+- **Weekly**: Automated agent CLI version check (`maint-53`, Mondays 9:00 AM UTC)
 - **As Needed**: Manual updates when security issues arise
 - **Quarterly**: Review and update this documentation

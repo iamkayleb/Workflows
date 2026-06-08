@@ -1,0 +1,256 @@
+name: Maint 53 Agent Version Check
+
+# Keep the coding agents current.
+#
+# The agent CLIs are installed from npm. Codex is pinned to an exact version
+# (for stability); Claude and Gemini default to "latest". This workflow checks
+# the pinned Codex version against the latest published release and opens (or
+# updates) a maintenance issue when a newer version is available, so a human
+# can review the changelog and bump the pin. It also flags drift between the
+# two places the Codex version is pinned.
+#
+# Runs weekly; can also be triggered manually.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly on Mondays at 09:00 UTC
+  workflow_dispatch:
+    inputs:
+      force_issue:
+        description: 'Open the issue even if everything is current'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-agent-versions:
+    name: Check for agent CLI updates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Collect current pins and latest versions
+        id: compare
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          import urllib.request
+
+          CODEX_RUN = ".github/workflows/reusable-codex-run.yml"
+          VERIFIER = ".github/workflows/reusable-agents-verifier.yml"
+          CLAUDE_RUN = ".github/workflows/reusable-claude-run.yml"
+          GEMINI_RUN = ".github/workflows/reusable-gemini-run.yml"
+
+          def read(path):
+              try:
+                  with open(path, encoding="utf-8") as fh:
+                      return fh.read()
+              except OSError:
+                  return ""
+
+          def codex_default_pin(text):
+              # The `default: 'X.Y.Z'` that follows the `codex_cli_version:` input.
+              m = re.search(
+                  r"codex_cli_version:.*?default:\s*'([^']+)'", text, re.DOTALL
+              )
+              return m.group(1) if m else "unknown"
+
+          def codex_verifier_pin(text):
+              m = re.search(r"@openai/codex@([0-9][\w.\-]*)", text)
+              return m.group(1) if m else "unknown"
+
+          def npm_latest(package):
+              # Prefer `npm view`; fall back to the registry HTTP API.
+              try:
+                  out = subprocess.run(
+                      ["npm", "view", package, "version"],
+                      capture_output=True, text=True, timeout=60, check=True,
+                  )
+                  v = out.stdout.strip()
+                  if v:
+                      return v
+              except Exception:
+                  pass
+              try:
+                  url = f"https://registry.npmjs.org/{package}/latest"
+                  with urllib.request.urlopen(url, timeout=30) as resp:
+                      return json.loads(resp.read()).get("version", "unknown")
+              except Exception:
+                  return "unknown"
+
+          def to_tuple(v):
+              parts = re.findall(r"\d+", v or "")
+              return tuple(int(p) for p in parts) if parts else (0,)
+
+          codex_pin = codex_default_pin(read(CODEX_RUN))
+          verifier_pin = codex_verifier_pin(read(VERIFIER))
+          codex_latest = npm_latest("@openai/codex")
+          claude_latest = npm_latest("@anthropic-ai/claude-code")
+          gemini_latest = npm_latest("@google/gemini-cli")
+
+          rows = []
+          rows.append("## Agent CLI Version Status\n")
+          rows.append("| Agent | Source | Pinned | Latest | Status |")
+          rows.append("|-------|--------|--------|--------|--------|")
+
+          updates = []
+          has_updates = False
+
+          # Codex runner pin (the authoritative default)
+          codex_behind = (
+              codex_latest != "unknown"
+              and codex_pin != "unknown"
+              and to_tuple(codex_pin) < to_tuple(codex_latest)
+          )
+          codex_status = "🆕 Update available" if codex_behind else "✅ Current"
+          rows.append(
+              f"| Codex | reusable-codex-run.yml | {codex_pin} | "
+              f"{codex_latest} | {codex_status} |"
+          )
+          if codex_behind:
+              has_updates = True
+              updates.append(
+                  f"- **Codex CLI** `@openai/codex`: {codex_pin} → {codex_latest}"
+              )
+
+          # Verifier hardcoded Codex pin — should match the runner default
+          drift = (
+              verifier_pin != "unknown"
+              and codex_pin != "unknown"
+              and verifier_pin != codex_pin
+          )
+          drift_status = "⚠️ Drifts from runner" if drift else "✅ Matches runner"
+          rows.append(
+              f"| Codex | reusable-agents-verifier.yml | {verifier_pin} | "
+              f"{codex_pin} | {drift_status} |"
+          )
+          if drift:
+              has_updates = True
+              updates.append(
+                  f"- **Codex pin drift**: verifier pins {verifier_pin} but the "
+                  f"runner default is {codex_pin} — align them."
+              )
+
+          # Claude and Gemini float to latest (no pin) — informational only
+          rows.append(
+              f"| Claude | reusable-claude-run.yml | latest (no pin) | "
+              f"{claude_latest} | ✅ Floats to latest |"
+          )
+          rows.append(
+              f"| Gemini | reusable-gemini-run.yml | latest (no pin) | "
+              f"{gemini_latest} | ✅ Floats to latest |"
+          )
+
+          report = "\n".join(rows)
+          print(report)
+
+          out = os.environ["GITHUB_OUTPUT"]
+          with open(out, "a", encoding="utf-8") as f:
+              f.write("report<<REPORT_EOF\n")
+              f.write(report + "\n")
+              f.write("REPORT_EOF\n")
+              f.write(f"codex_pin={codex_pin}\n")
+              f.write(f"codex_latest={codex_latest}\n")
+              if updates:
+                  f.write("updates<<UPDATES_EOF\n")
+                  f.write("\n".join(updates) + "\n")
+                  f.write("UPDATES_EOF\n")
+              else:
+                  f.write("updates=\n")
+              f.write(f"has_updates={'true' if has_updates else 'false'}\n")
+          PY
+
+      - name: Create or update issue
+        if: steps.compare.outputs.has_updates == 'true' || github.event.inputs.force_issue == 'true'
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const retryHelperPath = './.github/scripts/github-api-with-retry.js';
+            const retryHelpers = fs.existsSync(retryHelperPath)
+              ? require(retryHelperPath)
+              : { withRetry: (fn) => fn() };
+            const { withRetry } = retryHelpers;
+
+            const outFile = fs.readFileSync(process.env.GITHUB_OUTPUT, 'utf8');
+            const report = outFile
+              .match(/report<<REPORT_EOF\n([\s\S]*?)\nREPORT_EOF/)?.[1] || '';
+            const updates = outFile
+              .match(/updates<<UPDATES_EOF\n([\s\S]*?)\nUPDATES_EOF/)?.[1] || '';
+
+            const repoUrl = context.payload.repository.html_url;
+            const workflowUrl =
+              repoUrl + '/actions/workflows/maint-53-agent-version-check.yml';
+            const timestamp = new Date().toISOString();
+            const title = '🤖 Agent CLI Updates Available';
+
+            const howTo = [
+              '### How to update Codex',
+              '',
+              '1. Review the release notes: ' +
+                'https://github.com/openai/codex/releases',
+              '2. Bump the pin in **both** places (keep them in sync):',
+              '   - `reusable-codex-run.yml` → `codex_cli_version` default',
+              '   - `reusable-agents-verifier.yml` → `npm install -g "@openai/codex@..."`',
+              '3. Open a PR and let the keepalive/verify health checks run before merging.',
+              '',
+              '_Claude and Gemini install `latest` automatically (no pin), so they ' +
+              'stay current on their own — the table above is informational for them._',
+            ].join('\n');
+
+            const body = report + '\n\n' +
+              '### Updates / Actions\n\n' +
+              (updates || '- (forced run — no updates detected)') + '\n\n' +
+              howTo + '\n\n' +
+              '---\n' +
+              '*Automatically generated by the ' +
+              '[Agent Version Check workflow](' + workflowUrl + ').*\n' +
+              '*Last checked: ' + timestamp + '*';
+
+            const issues = await withRetry(() =>
+              github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: 'maintenance,dependencies',
+                per_page: 100,
+              })
+            );
+            const existing = issues.data.find((i) => i.title === title);
+
+            if (existing) {
+              await withRetry(() => github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              }));
+              core.notice(`Updated existing issue #${existing.number}`);
+            } else {
+              const created = await withRetry(() => github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+                labels: ['maintenance', 'dependencies'],
+              }));
+              core.notice(`Created issue #${created.data.number}`);
+            }
+
+      - name: Summary
+        run: |
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ${{ steps.compare.outputs.report }}
+          EOF
