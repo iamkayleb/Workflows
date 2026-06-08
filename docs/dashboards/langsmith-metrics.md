@@ -1,6 +1,6 @@
 # LangSmith Metrics Dashboard
 
-> **Last Updated:** 2026-06-01 11:02 UTC
+> **Last Updated:** 2026-06-08 10:52 UTC
 > **Period:** Last 7 days
 
 ---
