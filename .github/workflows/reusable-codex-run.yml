@@ -55,7 +55,7 @@ on:
       codex_cli_version:
         description: 'Pinned @openai/codex CLI version to install.'
         required: false
-        default: '0.101.0'
+        default: '0.137.0'
         type: string
       codex_args:
         description: 'Optional Codex CLI arguments (string or JSON array).'
@@ -661,10 +661,15 @@ jobs:
         id: codex_auth
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
 
+          # Codex code production authenticates with the ChatGPT subscription
+          # token (CODEX_AUTH_JSON) ONLY. Do NOT fall back to OPENAI_API_KEY:
+          # the API key is reserved for verify:compare, and using it to generate
+          # code is not economical (burns the verify budget very fast).
+          # If CODEX_AUTH_JSON is missing/expired, refresh it with
+          # `codex login --device-auth` and update the repo secret.
           auth_method=""
 
           if [ -n "${CODEX_AUTH_JSON:-}" ]; then
@@ -673,7 +678,7 @@ jobs:
             chmod 600 ~/.codex/auth.json
             echo "✅ Codex auth configured from CODEX_AUTH_JSON secret"
 
-            # Check token expiration — fall back to OPENAI_API_KEY if expired
+            # Check token expiration — fail clearly if expired
             auth_method="codex_auth_json"
             python3 << 'PYEOF' || auth_method="expired"
           import json, base64, datetime, sys, os
@@ -712,7 +717,7 @@ jobs:
 
               if days_left < 0:
                   print("::error::CODEX_AUTH_JSON has expired!")
-                  print("::warning::Will fall back to OPENAI_API_KEY if available.")
+                  print("::error::Refresh it with 'codex login --device-auth' and update the secret.")
                   sys.exit(1)
               elif days_left < 2:
                   print(
@@ -727,17 +732,10 @@ jobs:
           PYEOF
           fi
 
-          # Fall back to OPENAI_API_KEY when CODEX_AUTH_JSON is missing or expired
-          if [ "$auth_method" != "codex_auth_json" ] && [ -n "${OPENAI_API_KEY:-}" ]; then
-            auth_method="openai_api_key"
-            echo "Logging in with OPENAI_API_KEY..."
-            printenv OPENAI_API_KEY | codex login --with-api-key
-            echo "✅ Codex auth configured from OPENAI_API_KEY"
-          fi
-
-          if [ -z "$auth_method" ] || { [ "$auth_method" = "expired" ] && [ -z "${OPENAI_API_KEY:-}" ]; }; then
-            echo "::error::No valid Codex credentials found."
-            echo "::error::Set CODEX_AUTH_JSON (codex login --device-auth) or OPENAI_API_KEY."
+          if [ "$auth_method" != "codex_auth_json" ]; then
+            echo "::error::No valid Codex credentials found (CODEX_AUTH_JSON missing or expired)."
+            echo "::error::Refresh it with 'codex login --device-auth' and update the CODEX_AUTH_JSON secret."
+            echo "::error::Do NOT use OPENAI_API_KEY for code production — it is reserved for verify:compare."
             echo "Go to: https://github.com/${{ github.repository }}/settings/secrets/actions"
             exit 1
           fi
@@ -878,7 +876,9 @@ jobs:
         id: run_codex
         env:
           CODEX_HOME: ${{ runner.temp }}/.codex
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # OPENAI_API_KEY intentionally NOT passed here: code production must use
+          # the CODEX_AUTH_JSON subscription token, not the metered API key
+          # (which is reserved for verify:compare).
           CODEX_AUTH_METHOD: ${{ steps.codex_auth.outputs.auth_method }}
         run: |
           set -euo pipefail

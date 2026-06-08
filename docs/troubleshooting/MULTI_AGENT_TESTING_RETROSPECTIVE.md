@@ -39,6 +39,7 @@ everything downstream, so they were fixed roughly in this order:
 | 12 | Verify | OpenAI slot: `insufficient_quota` | API key had no billing credits | add credits |
 | 13 | Verify | Anthropic slot: `temperature is deprecated` | Opus rejects the `temperature` param | `b403d1f` |
 | 14 | Auto-pilot | Auto-pilot verify step syntax error | Leftover `agentType`/`issueNumber` from a refactor | `f25b2eb` |
+| 15 | Cost | OpenAI API budget drained | Codex fallback used `OPENAI_API_KEY` for **code production** (not just verify) | reverted |
 
 ---
 
@@ -77,6 +78,48 @@ created via `codex login --with-api-key`.
 
 **Lesson:** Setting an env var is not the same as authenticating a CLI. Check
 the tool's actual auth mechanism.
+
+### Issue 15: OpenAI API budget drained by code production (reverted)
+
+**Symptom:** The `OPENAI_API_KEY` hit `insufficient_quota` far faster than
+verify:compare usage could explain. (For context: verify:compare has been run
+tens of thousands of times over 6 months for well under $100.)
+
+**Root cause:** Issues 1–2 "fixed" Codex auth by falling back to
+`OPENAI_API_KEY` and logging the Codex CLI in with it
+(`codex login --with-api-key`). That made **code production** run through the
+metered API. Generating code burns tokens orders of magnitude faster than
+verification, so it rapidly exhausted the API budget that is meant to be
+reserved for verify:compare.
+
+**Why this matters:** The two billing surfaces are deliberately separate:
+
+| Purpose | Auth | Billing model |
+|---|---|---|
+| Code production (agent writing code) | ChatGPT **subscription** (`CODEX_AUTH_JSON`) | flat-rate |
+| verify:compare (judging PRs) | OpenAI **API** key (`OPENAI_API_KEY`) | metered, but cheap |
+
+Mixing code production into the API key collapses that separation and makes
+verify costs unpredictable.
+
+**Fix (this change):** Reverted the fallback. Codex code production now uses
+`CODEX_AUTH_JSON` **only**; if it is missing/expired the runner fails with a
+clear "refresh the subscription token" error instead of silently spending API
+credits. `OPENAI_API_KEY` was removed from the Codex auth step, the `codex exec`
+runtime env, the agent registry, and the keepalive/gate-followups secret
+checks. It is now reserved for verify:compare (plus lightweight LLM
+session-analysis, which falls back to free GitHub Models when the key is
+absent).
+
+**Claude, for comparison, was already correct:** the `Run Claude` step
+authenticates with `CLAUDE_CODE_OAUTH_TOKEN` (subscription) and the Claude Code
+CLI never receives `ANTHROPIC_API_KEY`, so Claude code production never touches
+the metered API.
+
+**Lesson:** Never authenticate a code-producing agent CLI with a metered API
+key. Reserve API keys for verification/analysis; use subscription/OAuth tokens
+for code production, and refresh those tokens when they expire rather than
+falling back to the API.
 
 ---
 
