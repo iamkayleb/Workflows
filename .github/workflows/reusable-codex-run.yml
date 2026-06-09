@@ -53,9 +53,15 @@ on:
         default: drop-sudo
         type: string
       codex_cli_version:
-        description: 'Pinned @openai/codex CLI version to install.'
+        description: >-
+          Pinned @openai/codex CLI version to install. NOTE: do not bump blindly.
+          0.137.0 broke command execution on GitHub-hosted runners
+          (`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` — the
+          CLI's bubblewrap sandbox cannot set up a network namespace in CI).
+          0.101.0 is the validated-good version. Validate any bump in CI
+          (watch for the bwrap error) before changing this.
         required: false
-        default: '0.137.0'
+        default: '0.101.0'
         type: string
       codex_args:
         description: 'Optional Codex CLI arguments (string or JSON array).'

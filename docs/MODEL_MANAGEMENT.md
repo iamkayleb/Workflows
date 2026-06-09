@@ -34,7 +34,7 @@ curl https://api.openai.com/v1/models \
 
 ### OpenAI Models (requires OPENAI_API_KEY)
 - **o1 / o1-preview**: Reasoning models - best for critical evaluation
-- **gpt-5.2**: High-quality strict evaluation
+- **gpt-5.5**: Latest flagship - high-quality strict evaluation (verify:compare slot1)
 
 ### Efficient Models (for rapid iteration)
 - **gpt-4o-mini**: Fast, cost-effective (but too lenient for verification)
@@ -42,10 +42,12 @@ curl https://api.openai.com/v1/models \
 
 ### Verification Mode Defaults
 - **verify:evaluate**: gpt-4o (best GitHub Models option, no extra key needed)
-- **verify:compare**: gpt-5.2 (OpenAI) + Mistral-large-2407 (GitHub Models)
+- **verify:compare**: gpt-5.5 (OpenAI) + claude-opus-4-7 (Anthropic) + gpt-4.1 (GitHub Models)
+
+The active verify:compare slot models are defined in `config/llm_slots.json`.
 
 Note: gpt-4o-mini was found to be too lenient, passing obvious deficiencies.
-verify:compare requires OPENAI_API_KEY for gpt-5.2 but provides stricter
+verify:compare requires OPENAI_API_KEY for gpt-5.5 but provides stricter
 cross-provider evaluation with diverse perspectives.
 
 ### GitHub Models vs OpenAI
