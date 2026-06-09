@@ -197,6 +197,37 @@ Codex ever started.
 **Lesson:** Reusable workflows run against repos that aren't necessarily Python
 projects. Setup steps that assume a project shape must degrade gracefully.
 
+### Issue 16: consumer `"type": "module"` broke the workflow's CommonJS helper
+
+**Symptom:** "Setup API client" failed and the **"Run Codex" job was skipped**,
+so the agent never ran — runs showed success/2-files earlier but no commits
+landed, tasks stuck at 0/N. The failing step logged:
+
+```
+create_vendor_aliases.js:3  const fs = require('fs');
+ReferenceError: require is not defined in ES module scope
+... because '.../bukay/package.json' contains "type": "module".
+```
+
+**Root cause:** The Codex scaffold created a Next.js project whose root
+`package.json` has `"type": "module"`. Node then treats **every** `.js` file in
+the repo as an ES module — including the workflow's vendored CommonJS helper
+`.github/actions/setup-api-client/create_vendor_aliases.js`, which uses
+`require()`. The `.github/scripts/*.js` helpers survived because
+`.github/scripts/package.json` (no `"type"`) shields them; the action helper
+had no such shield.
+
+**Fix (this change):** Renamed the helper to **`.cjs`**
+(`create_vendor_aliases.cjs`) in both the canonical action and the consumer
+template, and updated `action.yml` to invoke it. A `.cjs` extension is always
+CommonJS regardless of any parent `package.json` `"type"`. Verified by running
+the helper under a `{"type":"module"}` repo — no more ESM `require` error.
+
+**Lesson:** Any `.js` file a workflow executes via `node <file>` can break when
+the consumer repo declares `"type": "module"`. Workflow-owned CommonJS scripts
+must be insulated — either by a sibling `package.json` without `"type": "module"`
+(as `.github/scripts/` already has) or by using the `.cjs` extension.
+
 ---
 
 ## Phase 4 — Keepalive loop state (the big one)
