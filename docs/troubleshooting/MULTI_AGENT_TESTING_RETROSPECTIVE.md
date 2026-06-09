@@ -277,9 +277,15 @@ before any work. (Model availability for ChatGPT accounts changes over time —
 this likely worked on earlier runs when the default was a supported model.)
 
 **Fix (this change):** Pin the model explicitly in `reusable-codex-run.yml`
-(`--model "$CODEX_MODEL"`), defaulting to `gpt-5.1-codex` and overridable per
-consumer via the `CODEX_MODEL` repo variable (e.g. `gpt-5-codex`). The flag is
-only added if the caller didn't already pass `--model` via `codex_args`.
+(`--model "$CODEX_MODEL"`), defaulting to `gpt-5.5` and overridable per consumer
+via the `CODEX_MODEL` repo variable. The flag is only added if the caller didn't
+already pass `--model` via `codex_args`.
+
+**Key detail:** ChatGPT-account auth exposes the **plain flagship** model
+(`gpt-5.5`), NOT the `-codex` suffixed variants. Both `gpt-5.2-codex` and
+`gpt-5.1-codex` were rejected; the account's `codex` model picker
+(`codex` → `/model`) showed `gpt-5.5`. Always read the picker for the exact id
+your plan exposes rather than guessing `-codex` names.
 
 **Lesson:** Two different "Codex versions" matter and fail independently: the
 **CLI version** (npm `@openai/codex`) and the **model** it requests. ChatGPT

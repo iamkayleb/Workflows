@@ -13,7 +13,7 @@ The keepalive system routes work to different agents based on the `agent:*` labe
 
 | Label | Agent | Workflow |
 |-------|-------|----------|
-| `agent:codex` | Codex CLI (gpt-5.1-codex) | `reusable-codex-run.yml` |
+| `agent:codex` | Codex CLI (gpt-5.5) | `reusable-codex-run.yml` |
 | `agent:claude` | Claude (future) | *(not implemented in this repo)* |
 | `agent:gemini` | Gemini (future) | *(not implemented in this repo)* |
 
