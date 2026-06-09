@@ -886,6 +886,11 @@ jobs:
           # the CODEX_AUTH_JSON subscription token, not the metered API key
           # (which is reserved for verify:compare).
           CODEX_AUTH_METHOD: ${{ steps.codex_auth.outputs.auth_method }}
+          # Model Codex runs. The CLI default (gpt-5.2-codex) is NOT available on
+          # ChatGPT-account auth, so we pin a supported codex model. Override per
+          # consumer with the CODEX_MODEL repo variable if your plan supports a
+          # different one (e.g. gpt-5-codex).
+          CODEX_MODEL: ${{ vars.CODEX_MODEL || 'gpt-5.1-codex' }}
         run: |
           set -euo pipefail
 
@@ -1062,6 +1067,13 @@ jobs:
             --sandbox "$SANDBOX"
             --output-last-message "$OUTPUT_FILE"
           )
+          # Pin the model when set (CLI default gpt-5.2-codex is rejected by
+          # ChatGPT-account auth). Allow EXTRA_ARGS to override by only adding
+          # --model if the caller didn't already pass one.
+          if [ -n "${CODEX_MODEL:-}" ] && ! printf '%s\n' "${EXTRA_ARGS[@]:-}" | grep -qx -- '--model'; then
+            cmd+=(--model "$CODEX_MODEL")
+            echo "Codex model: $CODEX_MODEL"
+          fi
           if [ "${#EXTRA_ARGS[@]}" -gt 0 ]; then
             cmd+=("${EXTRA_ARGS[@]}")
           fi

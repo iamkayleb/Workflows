@@ -259,6 +259,33 @@ is exactly why `maint-53` *notifies* rather than auto-bumps. Sandbox/runtime
 regressions in a coding-agent CLI are invisible until the agent tries to run a
 command.
 
+### Issue 18: Codex CLI default model unsupported on ChatGPT-account auth
+
+**Symptom:** With the sandbox fixed (0.101.0), Codex authenticated
+(`auth: codex_auth_json`), ran ~6s, exited 1, and wrote an **empty**
+`codex-output`. The session JSONL showed the real error:
+
+```
+error: "The 'gpt-5.2-codex' model is not supported when using Codex with a ChatGPT account."
+turn.failed → no last agent message → empty content written
+```
+
+**Root cause:** The runner never passed `--model`, so Codex used the CLI's
+built-in default (`gpt-5.2-codex`). That model is not available to
+**ChatGPT-subscription** auth (`CODEX_AUTH_JSON`), so the very first turn failed
+before any work. (Model availability for ChatGPT accounts changes over time —
+this likely worked on earlier runs when the default was a supported model.)
+
+**Fix (this change):** Pin the model explicitly in `reusable-codex-run.yml`
+(`--model "$CODEX_MODEL"`), defaulting to `gpt-5.1-codex` and overridable per
+consumer via the `CODEX_MODEL` repo variable (e.g. `gpt-5-codex`). The flag is
+only added if the caller didn't already pass `--model` via `codex_args`.
+
+**Lesson:** Two different "Codex versions" matter and fail independently: the
+**CLI version** (npm `@openai/codex`) and the **model** it requests. ChatGPT
+auth and API auth support different model sets — pin a model the auth method
+actually allows, and make it configurable.
+
 ---
 
 ## Phase 4 — Keepalive loop state (the big one)
