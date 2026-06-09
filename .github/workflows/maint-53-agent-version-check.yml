@@ -254,7 +254,12 @@ jobs:
               '2. Bump the pin in **both** places (keep them in sync):',
               '   - `reusable-codex-run.yml` → `codex_cli_version` default',
               '   - `reusable-agents-verifier.yml` → `npm install -g "@openai/codex@..."`',
-              '3. Open a PR and let the keepalive/verify health checks run before merging.',
+              '3. **Validate in CI before merging.** Run a real keepalive round and ' +
+                'confirm Codex can execute commands — newer CLIs have broken the ' +
+                'bubblewrap sandbox on GitHub runners ' +
+                '(`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`). ' +
+                '0.101.0 is the last validated-good version; 0.137.0 was broken.',
+              '4. Open a PR and let the keepalive/verify health checks run before merging.',
               '',
               '### How to update the verify:compare slot models',
               '',

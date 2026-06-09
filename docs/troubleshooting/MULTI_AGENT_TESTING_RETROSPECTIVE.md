@@ -228,6 +228,37 @@ the consumer repo declares `"type": "module"`. Workflow-owned CommonJS scripts
 must be insulated — either by a sibling `package.json` without `"type": "module"`
 (as `.github/scripts/` already has) or by using the `.cjs` extension.
 
+### Issue 17: Codex CLI 0.137.0 broke the sandbox in GitHub Actions
+
+**Symptom:** After the `.cjs` fix, Codex ran end-to-end (auth OK, exit 0) but in
+~31s, made **no source edits**, and completed no tasks. The `codex-output-*.md`
+final message said:
+
+> Blocked before I could inspect or edit the repo: every shell command fails
+> immediately with `bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`.
+> This happens even for `pwd` … I did not modify files, run tests, or commit.
+
+The task appendix was fine (1504 bytes, streamed into the prompt) — the agent
+simply couldn't run any command.
+
+**Root cause:** The "keep agents current" bump from `0.101.0` → `0.137.0`
+(commit `ce62d97`). Codex sandboxes command execution with **bubblewrap**; in
+`workspace-write` mode it creates an isolated network namespace and brings up
+loopback, which GitHub-hosted runners do not permit. `0.101.0` ran fine with
+the same sandbox (it made real commits on PRs #50/#52); `0.137.0` changed the
+sandbox behavior and fails on the runner.
+
+**Fix (this change):** Reverted the Codex pin to `0.101.0` (runner default +
+verifier install), with a comment warning not to bump blindly. Updated
+`maint-53`'s update instructions to require a real CI keepalive round —
+watching for the `bwrap` error — before bumping.
+
+**Lesson:** "Latest" is not "working." Agent CLI bumps must be validated in CI
+(actually executing a round), not just pinned to the newest npm release. This
+is exactly why `maint-53` *notifies* rather than auto-bumps. Sandbox/runtime
+regressions in a coding-agent CLI are invisible until the agent tries to run a
+command.
+
 ---
 
 ## Phase 4 — Keepalive loop state (the big one)
