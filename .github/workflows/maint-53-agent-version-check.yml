@@ -39,6 +39,15 @@ jobs:
 
       - name: Collect current pins and latest versions
         id: compare
+        env:
+          # Optional: set these repo variables to the latest model id for each
+          # provider. When set and they differ from config/llm_slots.json, the
+          # workflow flags the verify:compare slot as out of date. Kept as repo
+          # variables (not an API call) so this workflow never touches the
+          # metered API keys reserved for verify:compare.
+          LATEST_OPENAI_MODEL: ${{ vars.LATEST_OPENAI_MODEL }}
+          LATEST_ANTHROPIC_MODEL: ${{ vars.LATEST_ANTHROPIC_MODEL }}
+          LATEST_GITHUB_MODEL: ${{ vars.LATEST_GITHUB_MODEL }}
         run: |
           python3 - <<'PY'
           import json
@@ -51,6 +60,7 @@ jobs:
           VERIFIER = ".github/workflows/reusable-agents-verifier.yml"
           CLAUDE_RUN = ".github/workflows/reusable-claude-run.yml"
           GEMINI_RUN = ".github/workflows/reusable-gemini-run.yml"
+          SLOTS = "config/llm_slots.json"
 
           def read(path):
               try:
@@ -152,7 +162,47 @@ jobs:
               f"{gemini_latest} | ✅ Floats to latest |"
           )
 
-          report = "\n".join(rows)
+          # --- verify:compare slot models (config/llm_slots.json) ---
+          # Compare each slot model against the optional LATEST_* repo variable
+          # for its provider. No API calls — keeps metered keys reserved for
+          # verify:compare. Set the repo variable when a new model ships.
+          expected_by_provider = {
+              "openai": os.environ.get("LATEST_OPENAI_MODEL", "").strip(),
+              "anthropic": os.environ.get("LATEST_ANTHROPIC_MODEL", "").strip(),
+              "github-models": os.environ.get("LATEST_GITHUB_MODEL", "").strip(),
+          }
+
+          slot_rows = ["", "## verify:compare Slot Models (config/llm_slots.json)\n"]
+          slot_rows.append("| Slot | Provider | Configured | Expected latest | Status |")
+          slot_rows.append("|------|----------|-----------|-----------------|--------|")
+          try:
+              slots = json.loads(read(SLOTS)).get("slots", [])
+          except Exception:
+              slots = []
+          for slot in slots:
+              name = slot.get("name", "?")
+              provider = slot.get("provider", "?")
+              model = slot.get("model", "?")
+              expected = expected_by_provider.get(provider, "")
+              if not expected:
+                  status = "ℹ️ No LATEST_* var set"
+                  shown = "—"
+              elif expected != model:
+                  status = "🆕 Update available"
+                  shown = expected
+                  has_updates = True
+                  updates.append(
+                      f"- **verify {name}** ({provider}): {model} → {expected} "
+                      f"(edit `config/llm_slots.json`)"
+                  )
+              else:
+                  status = "✅ Current"
+                  shown = expected
+              slot_rows.append(
+                  f"| {name} | {provider} | {model} | {shown} | {status} |"
+              )
+
+          report = "\n".join(rows + slot_rows)
           print(report)
 
           out = os.environ["GITHUB_OUTPUT"]
@@ -206,7 +256,19 @@ jobs:
               '   - `reusable-agents-verifier.yml` → `npm install -g "@openai/codex@..."`',
               '3. Open a PR and let the keepalive/verify health checks run before merging.',
               '',
-              '_Claude and Gemini install `latest` automatically (no pin), so they ' +
+              '### How to update the verify:compare slot models',
+              '',
+              '1. Edit `config/llm_slots.json` and set the slot `model` to the new id.',
+              '2. Keep `tools/langchain_client.py` `_default_slots()` in sync (fallback).',
+              '3. Re-score any in-flight agent comparisons with the new model for ' +
+                'consistency.',
+              '',
+              '_To get an automatic "slot is behind" alert, set the repo variables ' +
+              '`LATEST_OPENAI_MODEL` / `LATEST_ANTHROPIC_MODEL` / `LATEST_GITHUB_MODEL` ' +
+              'to the newest model id for each provider. This check compares against ' +
+              'those (no API calls), so the metered keys stay reserved for verify:compare._',
+              '',
+              '_Claude and Gemini CLIs install `latest` automatically (no pin), so they ' +
               'stay current on their own — the table above is informational for them._',
             ].join('\n');
 
