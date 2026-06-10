@@ -168,7 +168,9 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             from langchain_openai import OpenAIEmbeddings
             from pydantic import SecretStr
         except ImportError as exc:
-            raise RuntimeError("langchain_openai is required for OpenAI embeddings.") from exc
+            raise RuntimeError(
+                "langchain_openai and pydantic are required for OpenAI embeddings."
+            ) from exc
 
         try:
             api_key = SecretStr(os.environ["OPENAI_API_KEY"])
