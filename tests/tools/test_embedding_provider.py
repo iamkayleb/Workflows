@@ -1,11 +1,29 @@
+import hashlib
 import sys
 import types
 
 from tools import embedding_provider
 
 
+class StubEmbeddings:
+    last_instance = None
+
+    def __init__(self, model, api_key=None):
+        self.model = model
+        self.api_key = api_key
+        StubEmbeddings.last_instance = self
+
+    def embed_documents(self, texts):
+        return [[float(len(text))] for text in texts]
+
+
 def _install_stub_langchain(monkeypatch):
     monkeypatch.setitem(sys.modules, "langchain_openai", types.SimpleNamespace())
+
+
+def _install_stub_openai_embeddings(monkeypatch):
+    module = types.SimpleNamespace(OpenAIEmbeddings=StubEmbeddings)
+    monkeypatch.setitem(sys.modules, "langchain_openai", module)
 
 
 def test_registry_selects_openai_with_credentials(monkeypatch):
@@ -46,6 +64,37 @@ def test_registry_selects_fallback_without_credentials(monkeypatch):
     assert selection is not None
     assert selection.provider.provider_id == "fallback"
     assert selection.provider.is_fallback() is True
+
+
+def test_provider_capabilities_are_immutable_and_fallback_hash_uses_sha256():
+    assert embedding_provider.EmbeddingProvider.capabilities == frozenset()
+    assert embedding_provider.OpenAIEmbeddingProvider.capabilities == frozenset({"embeddings"})
+    assert embedding_provider.LocalFallbackEmbeddingProvider.capabilities == frozenset(
+        {"embeddings", "local"}
+    )
+
+    digest = hashlib.sha256(b"example").digest()
+    expected = int.from_bytes(digest[:8], "little")
+    assert embedding_provider._hash_token("example") == expected
+
+
+def test_base_provider_supports_model_accepts_keyword_argument():
+    provider = embedding_provider.LocalFallbackEmbeddingProvider()
+
+    assert provider.supports_model(model="custom-embedding-model") is True
+
+
+def test_openai_provider_passes_api_key(monkeypatch):
+    _install_stub_openai_embeddings(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "token")
+
+    provider = embedding_provider.OpenAIEmbeddingProvider()
+    response = provider.embed(["alpha"])
+
+    assert response.vectors == [[5.0]]
+    assert response.metadata.provider == "openai"
+    assert response.metadata.dimensions == 1
+    assert StubEmbeddings.last_instance.api_key == "token"
 
 
 def test_registry_selection_is_deterministic(monkeypatch):

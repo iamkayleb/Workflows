@@ -17,6 +17,7 @@ Selection semantics:
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import math
 import os
@@ -83,7 +84,7 @@ class EmbeddingProvider(ABC):
     cost_tier: int = 1
     latency_tier: int = 1
     priority: int = 0
-    capabilities: set[str] = set()
+    capabilities: frozenset[str] = frozenset()
 
     @property
     def default_model(self) -> str:
@@ -103,7 +104,7 @@ class EmbeddingProvider(ABC):
         """Return True if this provider is a non-LLM fallback."""
         return False
 
-    def supports_model(self, model: str | None) -> bool:
+    def supports_model(self, model: str | None) -> bool:  # noqa: ARG002
         """Return True if the provider can serve the requested model."""
         return True
 
@@ -132,7 +133,7 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
     cost_tier = 2
     latency_tier = 2
     priority = 10
-    capabilities = {"embeddings"}
+    capabilities = frozenset({"embeddings"})
 
     @property
     def default_model(self) -> str:
@@ -169,7 +170,10 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
             raise RuntimeError("langchain_openai is required for OpenAI embeddings.") from exc
 
         try:
-            client = OpenAIEmbeddings(model=resolved_model, api_key=os.environ["OPENAI_API_KEY"])
+            client = OpenAIEmbeddings(
+                model=resolved_model,
+                api_key=os.environ["OPENAI_API_KEY"],
+            )
             vectors = client.embed_documents(items)
         except Exception as exc:  # pragma: no cover - depends on external SDK errors
             raise RuntimeError("OpenAI embeddings request failed.") from exc
@@ -191,7 +195,7 @@ class LocalFallbackEmbeddingProvider(EmbeddingProvider):
     cost_tier = 0
     latency_tier = 1
     priority = 0
-    capabilities = {"embeddings", "local"}
+    capabilities = frozenset({"embeddings", "local"})
 
     @property
     def default_model(self) -> str:
@@ -231,7 +235,7 @@ def _tokenize(text: str) -> list[str]:
 
 
 def _hash_token(token: str) -> int:
-    digest = hashlib.md5(token.encode("utf-8")).digest()
+    digest = hashlib.sha256(token.encode("utf-8")).digest()
     return int.from_bytes(digest[:8], "little")
 
 
@@ -253,12 +257,14 @@ class EmbeddingProviderRegistry:
         """Register a provider instance."""
         self._providers.append(provider)
 
-    def list(self) -> list[EmbeddingProvider]:
+    def list(self) -> builtins.list[EmbeddingProvider]:
         """Return a copy of registered providers."""
         return list(self._providers)
 
-    def _eligible_providers(self, criteria: EmbeddingSelectionCriteria) -> list[EmbeddingProvider]:
-        candidates: list[EmbeddingProvider] = []
+    def _eligible_providers(
+        self, criteria: EmbeddingSelectionCriteria
+    ) -> builtins.list[EmbeddingProvider]:
+        candidates: builtins.list[EmbeddingProvider] = []
         for provider in self._providers:
             provider_id = provider.provider_id
             if criteria.provider_allowlist and provider_id not in criteria.provider_allowlist:

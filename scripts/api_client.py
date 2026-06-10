@@ -1,16 +1,32 @@
 from __future__ import annotations
 
+import importlib
 import time
-from typing import Any
+from collections.abc import Callable, Mapping
+from typing import Any, Protocol, cast
 from urllib.parse import urlencode
-
-import requests
 
 GITHUB_API = "https://api.github.com"
 DEFAULT_TIMEOUT = 30
 DEFAULT_RETRY_ATTEMPTS = 3
 DEFAULT_RETRY_BACKOFF = 1.0
 RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+class _Response(Protocol):
+    status_code: int
+    text: str
+
+    def json(self) -> Any: ...
+
+
+class _RequestsModule(Protocol):
+    RequestException: type[Exception]
+
+    def request(self, method: str, url: str, **kwargs: Any) -> _Response: ...
+
+
+requests = cast(_RequestsModule, importlib.import_module("requests"))
 
 
 def _should_retry(status_code: int, detail: Any) -> bool:
@@ -64,19 +80,23 @@ def _request_response(
     *,
     max_attempts: int = DEFAULT_RETRY_ATTEMPTS,
     backoff: float = DEFAULT_RETRY_BACKOFF,
-) -> requests.Response:
+) -> _Response:
     attempts = max(1, max_attempts)
     for attempt in range(1, attempts + 1):
         try:
-            response = requests.request(
-                method,
-                url,
-                headers={
+            request_kwargs: dict[str, Any] = {
+                "headers": {
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/vnd.github+json",
                 },
-                json=payload,
-                timeout=DEFAULT_TIMEOUT,
+                "timeout": DEFAULT_TIMEOUT,
+            }
+            if payload is not None:
+                request_kwargs["json"] = payload
+            response = requests.request(
+                method,
+                url,
+                **request_kwargs,
             )
         except requests.RequestException as exc:
             if attempt >= attempts:
@@ -122,9 +142,10 @@ def fetch_issue(
     issue_number: int,
     token: str,
     *,
+    parser: Callable[[dict[str, Any]], Any] | None = None,
     retry_attempts: int | None = None,
     retry_backoff: float | None = None,
-):
+) -> Any:
     url = f"{GITHUB_API}/repos/{repo}/issues/{issue_number}"
     data = _request_json(
         "GET",
@@ -135,9 +156,9 @@ def fetch_issue(
     )
     if not isinstance(data, dict):
         raise RuntimeError("GitHub API did not return a JSON object for the issue.")
-    from scripts.duplicate_detection import parse_source_issue
-
-    return parse_source_issue(data)
+    if parser is not None:
+        return parser(data)
+    return data
 
 
 def fetch_issues(
@@ -198,9 +219,11 @@ def create_issue(
     retry_backoff: float | None = None,
 ) -> dict[str, Any]:
     url = f"{GITHUB_API}/repos/{repo}/issues"
-    from scripts.duplicate_detection import build_issue_payload
-
-    payload = build_issue_payload(title, body, labels)
+    payload: dict[str, Any] = {"title": title}
+    if body is not None:
+        payload["body"] = body
+    if labels:
+        payload["labels"] = labels
     data = _request_json(
         "POST",
         url,
@@ -230,6 +253,7 @@ def fetch_oauth_scopes(
     except RuntimeError:
         return None
     headers = getattr(response, "headers", None)
-    if not headers:
+    if not isinstance(headers, Mapping):
         return None
-    return headers.get("X-OAuth-Scopes")
+    scopes = headers.get("X-OAuth-Scopes")
+    return str(scopes) if scopes is not None else None

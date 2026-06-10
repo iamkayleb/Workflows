@@ -235,6 +235,94 @@ def test_request_json_returns_payload(monkeypatch) -> None:
     assert api_client._request_json("GET", "http://example", "token", None) == {"ok": True}
 
 
+def test_request_json_omits_json_argument_without_payload(monkeypatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def _fake_request(method, url, **kwargs):
+        captured_kwargs.update(kwargs)
+        return DummyResponse(200, json_data={"ok": True})
+
+    monkeypatch.setattr(api_client.requests, "request", _fake_request)
+
+    assert api_client._request_json("GET", "http://example", "token", None) == {"ok": True}
+    assert "json" not in captured_kwargs
+
+
+def test_request_json_includes_json_argument_with_payload(monkeypatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def _fake_request(method, url, **kwargs):
+        captured_kwargs.update(kwargs)
+        return DummyResponse(200, json_data={"ok": True})
+
+    monkeypatch.setattr(api_client.requests, "request", _fake_request)
+
+    assert api_client._request_json("POST", "http://example", "token", {"x": 1}) == {"ok": True}
+    assert captured_kwargs["json"] == {"x": 1}
+
+
+def test_fetch_issue_returns_raw_issue_json_without_parser(monkeypatch) -> None:
+    def _fake_request(method, url, **kwargs):
+        return DummyResponse(
+            200,
+            json_data={
+                "number": 42,
+                "title": "Source",
+                "body": "Details",
+                "html_url": "http://example/42",
+            },
+        )
+
+    monkeypatch.setattr(api_client.requests, "request", _fake_request)
+
+    assert api_client.fetch_issue("owner/repo", 42, "token") == {
+        "number": 42,
+        "title": "Source",
+        "body": "Details",
+        "html_url": "http://example/42",
+    }
+
+
+def test_fetch_issue_applies_optional_parser(monkeypatch) -> None:
+    def _fake_request(method, url, **kwargs):
+        return DummyResponse(200, json_data={"number": 42, "title": "Source"})
+
+    monkeypatch.setattr(api_client.requests, "request", _fake_request)
+
+    assert (
+        api_client.fetch_issue(
+            "owner/repo",
+            42,
+            "token",
+            parser=lambda data: f"#{data['number']} {data['title']}",
+        )
+        == "#42 Source"
+    )
+
+
+def test_create_issue_builds_payload_without_duplicate_detection_import(monkeypatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def _fake_request(method, url, **kwargs):
+        captured_kwargs.update(kwargs)
+        return DummyResponse(200, json_data={"html_url": "http://example/created"})
+
+    monkeypatch.setattr(api_client.requests, "request", _fake_request)
+
+    assert api_client.create_issue(
+        "owner/repo",
+        "token",
+        "Title",
+        "Body",
+        ["triage"],
+    ) == {"html_url": "http://example/created"}
+    assert captured_kwargs["json"] == {
+        "title": "Title",
+        "body": "Body",
+        "labels": ["triage"],
+    }
+
+
 def test_request_json_retries_on_server_error(monkeypatch) -> None:
     responses = [
         DummyResponse(500, json_data={"message": "oops"}),
