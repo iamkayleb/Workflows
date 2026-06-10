@@ -94,7 +94,7 @@ def test_openai_provider_passes_api_key(monkeypatch):
     assert response.vectors == [[5.0]]
     assert response.metadata.provider == "openai"
     assert response.metadata.dimensions == 1
-    assert StubEmbeddings.last_instance.api_key == "token"
+    assert StubEmbeddings.last_instance.api_key.get_secret_value() == "token"
 
 
 def test_registry_selection_is_deterministic(monkeypatch):
