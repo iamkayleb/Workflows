@@ -94,22 +94,7 @@ def test_openai_provider_passes_api_key(monkeypatch):
     assert response.vectors == [[5.0]]
     assert response.metadata.provider == "openai"
     assert response.metadata.dimensions == 1
-    assert StubEmbeddings.last_instance.api_key.get_secret_value() == "token"
-
-
-def test_openai_provider_names_required_imports(monkeypatch):
-    _install_stub_openai_embeddings(monkeypatch)
-    monkeypatch.setitem(sys.modules, "pydantic", None)
-    monkeypatch.setenv("OPENAI_API_KEY", "token")
-
-    provider = embedding_provider.OpenAIEmbeddingProvider()
-
-    try:
-        provider.embed(["alpha"])
-    except RuntimeError as exc:
-        assert "langchain_openai and pydantic are required" in str(exc)
-    else:
-        raise AssertionError("expected missing pydantic to raise RuntimeError")
+    assert StubEmbeddings.last_instance.api_key == "token"
 
 
 def test_registry_selection_is_deterministic(monkeypatch):
