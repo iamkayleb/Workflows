@@ -43,9 +43,16 @@ on:
         default: 45
         type: number
       sandbox:
-        description: 'Sandbox mode to pass through to Codex.'
+        description: >-
+          Sandbox mode passed to Codex. Default danger-full-access: on
+          GitHub-hosted runners Codex's bubblewrap sandbox (workspace-write)
+          cannot create a network namespace
+          (`bwrap: loopback: Failed RTM_NEWADDR`), which blocks every command.
+          The runner is already an isolated, ephemeral sandbox, so we disable
+          Codex's internal one. Override per consumer with the CODEX_SANDBOX
+          repo variable.
         required: false
-        default: workspace-write
+        default: danger-full-access
         type: string
       safety_strategy:
         description: 'Safety strategy to pass through to Codex.'
@@ -54,14 +61,14 @@ on:
         type: string
       codex_cli_version:
         description: >-
-          Pinned @openai/codex CLI version to install. NOTE: do not bump blindly.
-          0.137.0 broke command execution on GitHub-hosted runners
-          (`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted` — the
-          CLI's bubblewrap sandbox cannot set up a network namespace in CI).
-          0.101.0 is the validated-good version. Validate any bump in CI
-          (watch for the bwrap error) before changing this.
+          Pinned @openai/codex CLI version to install. Must be new enough for the
+          configured model (gpt-5.5 requires a recent CLI). Newer CLIs default to
+          a bubblewrap sandbox that fails on GitHub runners
+          (`bwrap: loopback: Failed RTM_NEWADDR`) — that is handled by running with
+          sandbox=danger-full-access (see the `sandbox` input). Validate any bump
+          in CI (run a real round; confirm Codex executes commands) before changing.
         required: false
-        default: '0.101.0'
+        default: '0.139.0'
         type: string
       codex_args:
         description: 'Optional Codex CLI arguments (string or JSON array).'
@@ -913,12 +920,13 @@ jobs:
             OUTPUT_FILE="codex-output.md"
             SESSION_JSONL="codex-session.jsonl"
           fi
-          SANDBOX="${{ inputs.sandbox }}"
+          SANDBOX="${{ vars.CODEX_SANDBOX || inputs.sandbox }}"
           EXTRA_ARGS_RAW="${{ inputs.codex_args }}"
 
-          # Default sandbox if not specified
+          # Default sandbox if not specified. danger-full-access avoids the
+          # bubblewrap network-namespace failure on GitHub-hosted runners.
           if [ -z "$SANDBOX" ]; then
-            SANDBOX="workspace-write"
+            SANDBOX="danger-full-access"
           fi
 
           # Parse EXTRA_ARGS_RAW safely (no eval). Supports:
