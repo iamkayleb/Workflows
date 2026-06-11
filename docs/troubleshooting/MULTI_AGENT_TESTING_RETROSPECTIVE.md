@@ -248,16 +248,21 @@ loopback, which GitHub-hosted runners do not permit. `0.101.0` ran fine with
 the same sandbox (it made real commits on PRs #50/#52); `0.137.0` changed the
 sandbox behavior and fails on the runner.
 
-**Fix (this change):** Reverted the Codex pin to `0.101.0` (runner default +
-verifier install), with a comment warning not to bump blindly. Updated
-`maint-53`'s update instructions to require a real CI keepalive round —
-watching for the `bwrap` error — before bumping.
+**Fix (final):** We first reverted to `0.101.0`, but that version is too old for
+the `gpt-5.5` model the account requires (see Issue 18), so staying on it wasn't
+viable. The real fix is to **disable Codex's internal sandbox in CI**: run with
+`--sandbox danger-full-access`. The GitHub runner is already an isolated,
+ephemeral sandbox, so bubblewrap is redundant — and not using it avoids the
+network-namespace/loopback failure entirely. With that, we run the current CLI
+(`0.139.0`). The `sandbox` value is overridable per consumer via the
+`CODEX_SANDBOX` repo variable. `maint-53` still requires a real CI round before
+bumping.
 
-**Lesson:** "Latest" is not "working." Agent CLI bumps must be validated in CI
-(actually executing a round), not just pinned to the newest npm release. This
-is exactly why `maint-53` *notifies* rather than auto-bumps. Sandbox/runtime
-regressions in a coding-agent CLI are invisible until the agent tries to run a
-command.
+**Lesson:** "Latest" is not "working." Newer Codex CLIs default to a bubblewrap
+sandbox that can't initialize networking on GitHub-hosted runners; the fix is to
+turn Codex's sandbox off in CI (the runner is the sandbox), not to freeze on an
+old CLI. Sandbox/runtime regressions are invisible until the agent runs a
+command, which is why `maint-53` *notifies* rather than auto-bumps.
 
 ### Issue 18: Codex CLI default model unsupported on ChatGPT-account auth
 
@@ -277,9 +282,15 @@ before any work. (Model availability for ChatGPT accounts changes over time —
 this likely worked on earlier runs when the default was a supported model.)
 
 **Fix (this change):** Pin the model explicitly in `reusable-codex-run.yml`
-(`--model "$CODEX_MODEL"`), defaulting to `gpt-5.1-codex` and overridable per
-consumer via the `CODEX_MODEL` repo variable (e.g. `gpt-5-codex`). The flag is
-only added if the caller didn't already pass `--model` via `codex_args`.
+(`--model "$CODEX_MODEL"`), defaulting to `gpt-5.5` and overridable per consumer
+via the `CODEX_MODEL` repo variable. The flag is only added if the caller didn't
+already pass `--model` via `codex_args`.
+
+**Key detail:** ChatGPT-account auth exposes the **plain flagship** model
+(`gpt-5.5`), NOT the `-codex` suffixed variants. Both `gpt-5.2-codex` and
+`gpt-5.1-codex` were rejected; the account's `codex` model picker
+(`codex` → `/model`) showed `gpt-5.5`. Always read the picker for the exact id
+your plan exposes rather than guessing `-codex` names.
 
 **Lesson:** Two different "Codex versions" matter and fail independently: the
 **CLI version** (npm `@openai/codex`) and the **model** it requests. ChatGPT
