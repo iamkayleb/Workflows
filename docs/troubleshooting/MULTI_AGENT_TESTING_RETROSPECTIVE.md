@@ -7,7 +7,22 @@ the next person evaluating agents does not have to rediscover these failures.
 
 For the verification-specific issues (`verify:compare`), see the companion
 doc: [`VERIFY_COMPARE_ISSUES.md`](./VERIFY_COMPARE_ISSUES.md). They are
-summarized here for completeness but documented in full there.
+summarized here for completeness but documented in full there. For the
+cost-isolation + Codex runtime arc that followed the maintainer review, see
+[`CODEX_COST_AND_RUNTIME_FIXES.md`](./CODEX_COST_AND_RUNTIME_FIXES.md).
+
+> **Current end-state (read this first).** Several early "fixes" below were later
+> superseded. The configuration that actually works today:
+> - **Codex code production:** `CODEX_AUTH_JSON` (ChatGPT subscription) **only** —
+>   there is **no `OPENAI_API_KEY` fallback** (it drained the verify budget; see
+>   Issue 15).
+> - **Codex CLI** `0.139.0`, **sandbox** `danger-full-access`, **model** `gpt-5.5`
+>   (Issues 17–18). Override per consumer via `CODEX_MODEL` / `CODEX_SANDBOX`
+>   repo variables.
+> - **Metered keys** (`OPENAI_API_KEY` / `CLAUDE_API_KEY`) are spent **only** by
+>   verify:compare, gated behind `LLM_ALLOW_METERED`.
+> - **Claude** code production uses `CLAUDE_CODE_OAUTH_TOKEN` and never touches
+>   the Anthropic API.
 
 ## How to read this
 
@@ -25,8 +40,8 @@ everything downstream, so they were fixed roughly in this order:
 
 | # | Phase | Symptom | Root cause | Fix commit |
 |---|-------|---------|-----------|-----------|
-| 1 | Auth | Codex fails: `CODEX_AUTH_JSON` expired | ChatGPT subscription token expired | `f25b2eb` |
-| 2 | Auth | Codex still fails with `OPENAI_API_KEY` set | CLI needs `codex login --with-api-key`, not just the env var | `fc1e108` |
+| 1 | Auth | Codex fails: `CODEX_AUTH_JSON` expired | ChatGPT subscription token expired | `f25b2eb` (reverted → #15) |
+| 2 | Auth | Codex still fails with `OPENAI_API_KEY` set | CLI needs `codex login --with-api-key`, not just the env var | `fc1e108` (reverted → #15) |
 | 3 | Loop dispatch | Keepalive never runs; "duplicate `review_guard`" | Duplicated step ID broke YAML parse | `24dd9f6` |
 | 4 | Loop dispatch | All keepalive jobs skipped | `vars.USE_CONSOLIDATED_WORKFLOWS` set to `true` | repo var change |
 | 5 | Loop dispatch | Branch filter shows 0 keepalive runs | `workflow_run` runs appear under `main`, not the PR branch | (understanding) |
@@ -53,16 +68,22 @@ everything downstream, so they were fixed roughly in this order:
 **Root cause:** `CODEX_AUTH_JSON` holds a ChatGPT-subscription token that
 expires. There was no fallback when it lapsed.
 
-**Fix (`f25b2eb`):** Added an `OPENAI_API_KEY` fallback path to
-`reusable-codex-run.yml`. The auth step now tries `CODEX_AUTH_JSON` first,
-checks its expiry, and falls back to `OPENAI_API_KEY` if missing/expired. The
-agent registry lists both secrets with `required_secrets_mode: any`, and the
-fallback is wired through every secret check (keepalive, gate-followups,
-autofix).
+**Fix (`f25b2eb`) — ⚠️ later REVERTED, see Issue 15:** Originally added an
+`OPENAI_API_KEY` fallback to `reusable-codex-run.yml` (try `CODEX_AUTH_JSON`,
+fall back to the API key on expiry). This was undone because routing code
+production through the metered API key drained the verify:compare budget.
 
-**Lesson:** `CODEX_AUTH_JSON` (subscription auth) needs no API credits but
-expires; `OPENAI_API_KEY` (API auth) needs billing credits but doesn't expire.
-Keep both configured so one covers the other.
+**Current behaviour:** Codex code production uses `CODEX_AUTH_JSON` (ChatGPT
+subscription) **only** — there is no `OPENAI_API_KEY` fallback. If the token is
+missing/expired the runner fails with a clear "refresh the subscription token"
+error. Refresh it with `codex login --device-auth` and update the
+`CODEX_AUTH_JSON` secret **in the consumer repo** (the `health-codex-auth-check`
+workflow opens an issue before it expires).
+
+**Lesson:** `CODEX_AUTH_JSON` (subscription, flat-rate) is the correct credential
+for code production; `OPENAI_API_KEY` (metered) is reserved for verify:compare.
+Do NOT fall back to the API key for code — refresh the subscription token
+instead.
 
 ### Issue 2: Codex CLI ignores `OPENAI_API_KEY` env var
 
@@ -73,11 +94,14 @@ after ~16s.
 environment for auth — it requires cached credentials in `~/.codex/auth.json`,
 created via `codex login --with-api-key`.
 
-**Fix (`fc1e108`):** The auth step now pipes the key into the CLI:
-`printenv OPENAI_API_KEY | codex login --with-api-key`.
+**Fix (`fc1e108`) — ⚠️ later REVERTED, see Issue 15:** Piped the key into the
+CLI (`printenv OPENAI_API_KEY | codex login --with-api-key`). Removed entirely
+when the `OPENAI_API_KEY` fallback was reverted — Codex no longer authenticates
+with the API key at all.
 
-**Lesson:** Setting an env var is not the same as authenticating a CLI. Check
-the tool's actual auth mechanism.
+**Lesson:** Setting an env var is not the same as authenticating a CLI — but,
+more importantly (Issue 15), the metered API key should not be used for Codex
+code-production auth regardless. Subscription auth only.
 
 ### Issue 15: OpenAI API budget drained by code production (reverted)
 
@@ -434,17 +458,23 @@ These aren't failures but hard-won lessons about reading the results:
 
 ## Quick reference: "the agent isn't working" decision tree
 
-1. **Job failed at auth?** → Issues 1–2. Check `CODEX_AUTH_JSON` expiry and the
-   `OPENAI_API_KEY` fallback.
+1. **Job failed at auth?** → Issue 1. Codex uses `CODEX_AUTH_JSON` **only** (no
+   `OPENAI_API_KEY` fallback). Refresh the subscription token
+   (`codex login --device-auth`) and update the secret in the **consumer** repo.
 2. **Loop never ran / jobs skipped?** → Issues 3–4. Check workflow YAML and
    `USE_CONSOLIDATED_WORKFLOWS`.
 3. **Can't find the loop runs?** → Issue 5. Look under `main`, not the PR
    branch.
-4. **Job died at "Install Python dependencies"?** → Issue 6. Non-Python repo
-   hitting the `src/` assumption.
+4. **Job died at "Install Python dependencies" or "Setup API client"?** →
+   Issues 6 & 16. A non-Python / `"type":"module"` consumer repo breaking
+   workflow tooling.
 5. **Runs but stops after one task / iteration frozen?** → Issue 7. Check the
    `summary` job for a crash (this was the headline bug).
 6. **Implementation done but won't finish?** → Issue 8. Acceptance criteria need
    manual ticking or a verification round.
 7. **`verify:compare` green but no comment?** → Issues 11–13. All slots failed;
    check OpenAI billing and the Anthropic temperature guard.
+8. **Codex runs but makes no edits, or exits with a sandbox/model error?** →
+   Issues 17–18. Confirm: CLI new enough for the model (`gpt-5.5` needs ≥0.138),
+   sandbox is `danger-full-access` (bubblewrap fails on runners otherwise), and
+   `CODEX_MODEL` is a model the ChatGPT plan exposes (read `codex` → `/model`).
