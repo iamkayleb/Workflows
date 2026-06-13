@@ -742,13 +742,14 @@ async function countActive({
     const label = WORKER_WORKFLOW_FILES.includes(workflowFile) ? 'worker' : 'orchestrator';
     for (const status of statuses) {
       try {
-        const runs = await paginateWithBackoff(github, github.rest.actions.listWorkflowRuns, {
+        const listParams = {
           owner,
           repo,
           workflow_id: workflowFile,
           status,
           per_page: 100,
-        }, { core });
+        };
+        const runs = await paginateWithBackoff(github, github.rest.actions.listWorkflowRuns, listParams, { core });
         for (const run of runs) {
           const runId = Number(run?.id || 0);
           if (!Number.isFinite(runId) || runId <= 0) {
@@ -757,10 +758,6 @@ async function countActive({
           if (runIds.has(runId)) {
             continue;
           }
-          if (!(await runMatchesPr(run))) {
-            continue;
-          }
-
           if (status === 'completed') {
             if (!includeRecentCompleted) {
               continue;
@@ -769,6 +766,9 @@ async function countActive({
             if (completedAt < recentCutoff) {
               continue;
             }
+          }
+          if (!(await runMatchesPr(run))) {
+            continue;
           }
 
           runIds.add(runId);
