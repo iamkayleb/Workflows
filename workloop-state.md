@@ -1,5 +1,13 @@
 # Workloop State
 
+## 2026-06-13T15:33Z - closer (codex) fixed #2305 Gate catalog regression
+
+- **Selected complex lane:** `stranske/Workflows` PR [#2305](https://github.com/stranske/Workflows/pull/2305), source issue `#2279`, branch `codex/issue-2279-docs-remediation`.
+- **Blocker:** after the review-thread fix, Gate `python ci / python 3.12` and `python ci / python 3.13` failed on `tests/docs/test_workflow_catalog_consumer_defaults.py::test_ci_workflows_guide_marks_consumer_default_event_hub_pair`; `docs/ci/WORKFLOWS.md` no longer explicitly named `agents-80-pr-event-hub.yml` even though the test requires the consumer default event-hub pair.
+- **Action:** restored the explicit consumer-template `agents-80-pr-event-hub.yml` and `agents-81-gate-followups.yml` filenames in the CI workflow catalog note.
+- **Validation:** run `python -m pytest tests/docs/test_workflow_catalog_consumer_defaults.py tests/test_setup_checklist_ci_scripts.py -q -rA`, template completeness/sync validation, and `git diff --check` before pushing.
+- **Next action:** push the fix to #2305 and wait for fresh checks. If checks settle green and no new review threads appear, merge #2305, apply `verify:compare`, and keep #2279 open until verifier disposition.
+
 ## 2026-06-13T15:12Z - closer (codex) addressed #2304 API helper review thread
 
 - **Selected complex lane:** `stranske/Workflows` PR [#2304](https://github.com/stranske/Workflows/pull/2304), source issue `#2278`, branch `claude/issue-2278-consolidate-github-api-wrappers`.
@@ -7,6 +15,31 @@
 - **Action:** updated the reusable init rate-limit pre-check to require `.github/scripts/github-api-with-retry.js`, which already exports `checkRateLimitStatus` after the consolidation. After fresh checks exposed `Cannot find module './error_classifier'` in `agents-guard.yml`, added `.github/scripts/error_classifier.js` to the root and consumer-template guard sparse-checkout lists.
 - **Validation:** run focused grep for live `api-helpers.js` workflow requires, workflow YAML parse, JS API helper tests, Agents Guard tests, template completeness/sync validation, and `git diff --check` before push.
 - **Next action:** push the guard dependency fix, then wait for fresh checks. If checks settle green and no new review threads appear, merge #2304, apply `verify:compare`, and keep #2278 open until verifier disposition.
+
+## 2026-06-13T15:19Z - opener (codex) quick-recovered #2305 lint formatting
+
+- **Selected opener lane:** PR [#2305](https://github.com/stranske/Workflows/pull/2305), source issue `#2279`, branch `codex/issue-2279-docs-remediation`.
+- **Failure:** live `Lint, Format & YAML Validation` job `81200876206` failed on `black --check --line-length 100 .`; the job log named exactly two files: `tests/test_setup_checklist_ci_scripts.py` and `tests/workflows/test_workflows_doc_links_resolve.py`.
+- **Action:** ran `black --line-length 100` on those two files only.
+- **Validation:** `black --check --line-length 100 tests/test_setup_checklist_ci_scripts.py tests/workflows/test_workflows_doc_links_resolve.py` passed; focused docs pytest set passed (`5 passed`); `git diff --check` passed.
+- **Next action:** push the recovery commit and let fresh Gate/keepalive checks run asynchronously.
+
+## 2026-06-13T15:15Z - opener (codex) opened #2305 for issue #2279
+
+- **Selected opener lane:** issue [#2279](https://github.com/stranske/Workflows/issues/2279), branch `codex/issue-2279-docs-remediation`, ready-for-review PR [#2305](https://github.com/stranske/Workflows/pull/2305).
+- **Routing:** PR #2305 is non-draft, base `main`, head `codex/issue-2279-docs-remediation`, and labels are exactly `agent:codex`, `agents:keepalive`, and `autofix`.
+- **Implementation summary:** canonicalized setup docs to `templates/consumer-repo/docs/SETUP_CHECKLIST.md`, added operator and pause/resume runbooks, documented missing control-plane labels in the synced label guide, pruned phantom workflow catalog entries, and added a non-zero workflow-doc link-resolution guard.
+- **Validation:** focused docs tests passed (`5 passed`), workflow naming/inventory tests passed (`9 passed`), `git diff --check origin/main..HEAD` clean, and deliberate-break proof failed on `maint-keepalive.yml` before reverting to the passing state.
+- **Next action:** keepalive/Gate owns CI and review iteration on #2305.
+
+## 2026-06-13T15:13Z - opener (codex) issue #2279 docs remediation
+
+- **Selected opener lane:** issue [#2279](https://github.com/stranske/Workflows/issues/2279), branch `codex/issue-2279-docs-remediation`; PR not opened yet at this checkpoint.
+- **Cap/drain context:** opener cap was 3/5 after the mandatory cap-health and infra-stall preflight. #2303 and #2304 had fresh Gate/keepalive evidence and were active-moving; #2287 remains scoped-blocked on the known Selftest:Reusables zero-scenario decision. No opener-owned PR needed label repair, rerun, or bounded quick recovery before new materialization.
+- **Queue/liveness disposition:** liveness guard required action. High-priority queue entries for Travel-Plan-Permission and trip-planner were stale duplicates: TPP #1191/#1192 already completed the TripState smoke item; trip-planner #1363 and #1369 were already closed. A duplicate TPP issue #1193 was created from the stale queue, then immediately corrected with the full body, commented as duplicate of #1191/#1192, and closed as completed before selecting the next live unlinked issue.
+- **Implementation:** replaced stale `docs/keepalive/SETUP_CHECKLIST.md` with a compatibility pointer to `templates/consumer-repo/docs/SETUP_CHECKLIST.md`; updated README setup links; added `docs/ops/RUNBOOK.md` and `docs/ops/PAUSE_RESUME_RUNBOOK.md`; documented missing control-plane labels in canonical and consumer-template `docs/LABELS.md`; pruned nonexistent active workflow entries from `docs/ci/WORKFLOWS.md`; added `tests/workflows/test_workflows_doc_links_resolve.py`.
+- **Validation:** new workflow-doc link test passed with `workflow references checked: 103` and `dangling workflow references: []`; deliberate break by re-adding `maint-keepalive.yml` failed naming `['maint-keepalive.yml']`, then reverted and passed. Focused docs tests passed (`5 passed`): link guard, label sync, label table formatting, setup-checklist pointer. `tests/workflows/test_workflow_naming.py` passed (`9 passed`). `git diff --check` passed. Acceptance greps: each required label appeared in `docs/LABELS.md`; old README `docs/keepalive/SETUP_CHECKLIST.md` setup links returned no matches; both ops runbooks are non-empty.
+- **Next action:** commit, rebase onto the latest `origin/main`, push, open a ready-for-review PR with `agent:codex`, `agents:keepalive`, and `autofix`, then fire `pr_opened` for #2279.
 
 ## 2026-06-13T15:00Z - closer (codex) narrowed #2303 follow-up lane metadata
 
@@ -113,6 +146,14 @@
 - **Validation:** `node --test .github/scripts/__tests__/agents-verifier-context.test.js` passed (`30 passed`); `python -m pytest tests/workflows/test_verifier_terminal_disposition.py -q` passed (`3 passed`); `python scripts/validate_template_completeness.py` passed; `scripts/sync_templates.sh` reported all files already in sync; `git diff --check` clean.
 - **Post-push state:** pushed code head `beb4818f`, posted evidence comment on #2294, resolved review threads `PRRT_kwDOQprj9M6JUfsP` and `PRRT_kwDOQprj9M6JUft7`, then pushed this state entry as final head `26267f30`. Final live snapshot after the state commit: review threads 0 unresolved; PR open/non-draft, `MERGEABLE`, `mergeStateStatus=UNSTABLE`; fresh checks are queued/in progress on `26267f30`. Non-key async wait override does not apply.
 - **Next action:** re-check #2294 after fresh checks settle on the latest head; if checks are green and review threads remain resolved, merge #2294, apply the intended `verify:compare` label, and sequence source issue `#2271` until durable verifier disposition.
+
+## 2026-06-13T15:25Z - closer (codex) review-fix for #2305 docs remediation
+
+- **Selected complex lane:** `stranske/Workflows` PR [#2305](https://github.com/stranske/Workflows/pull/2305), source issue [#2279](https://github.com/stranske/Workflows/issues/2279), branch `codex/issue-2279-docs-remediation`.
+- **Blocker:** three unresolved review threads: the canonical consumer setup checklist omitted required reusable Python CI helpers (`scripts/sync_test_dependencies.py`, `tools/resolve_mypy_pin.py`), and `docs/ops/PAUSE_RESUME_RUNBOOK.md` incorrectly described `agents:pause` as a no-op even though active keepalive/PR-health paths still honor it as a legacy alias.
+- **Action:** added the required CI-helper copy/verification step to `templates/consumer-repo/docs/SETUP_CHECKLIST.md`; changed the pause runbook to document `agents:pause` as a legacy PR-level alias while keeping `agents:paused` as the canonical operator spelling; extended `tests/test_setup_checklist_ci_scripts.py` to cover both doc contracts.
+- **Validation:** `python -m pytest tests/test_setup_checklist_ci_scripts.py -q -rA` passed (`2 passed`); `python3 scripts/validate_template_completeness.py` passed; `python3 scripts/validate_template_sync.py` passed; `git diff --check` clean.
+- **Next action:** push the review-fix commit to PR #2305, resolve review threads `PRRT_kwDOQprj9M6JVZvM`, `PRRT_kwDOQprj9M6JVZvP`, and `PRRT_kwDOQprj9M6JVZ4c`, then wait for fresh CI. If checks settle green and no new review threads appear, merge #2305, apply `verify:compare`, and keep #2279 open until verifier disposition.
 
 ## 2026-06-13T11:04Z - opener (codex) issue #2273 LangSmith dashboard wiring
 
