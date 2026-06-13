@@ -64,15 +64,6 @@ workflows:
   - source: .github/workflows/agents-keepalive-loop-reporter.yml
     description: "Keepalive reporter - posts summary when keepalive run fails or cancels"
 
-  - source: .github/workflows/agents-belt-dispatcher.yml
-    description: "Belt dispatcher (agent-agnostic alias) - delegates to agents-71-codex-belt-dispatcher"
-
-  - source: .github/workflows/agents-belt-worker.yml
-    description: "Belt worker (agent-agnostic alias) - delegates to agents-72-codex-belt-worker"
-
-  - source: .github/workflows/agents-belt-conveyor.yml
-    description: "Belt conveyor (agent-agnostic alias) - delegates to agents-73-codex-belt-conveyor"
-
   - source: .github/workflows/agents-71-codex-belt-dispatcher.yml
     description: "Codex belt dispatcher - selects issues and creates agent branches for work"
 
@@ -172,6 +163,14 @@ removals:
     description: "Remove deprecated orchestrator workflow from template consumers (replaced by agents-80-pr-event-hub.yml and agents-81-gate-followups.yml)"
   - target: .github/workflows/agents-orchestrator.yml
     description: "Remove deprecated legacy orchestrator workflow from template consumers (replaced by agents-80-pr-event-hub.yml and agents-81-gate-followups.yml)"
+  - target: .github/workflows/agents-belt-dispatcher.yml
+    description: "Remove retired belt dispatcher alias wrapper from template consumers (callers rewired to agents-71-codex-belt-dispatcher.yml)"
+  - target: .github/workflows/agents-belt-worker.yml
+    description: "Remove retired belt worker alias wrapper from template consumers (callers rewired to agents-72-codex-belt-worker.yml)"
+  - target: .github/workflows/agents-belt-conveyor.yml
+    description: "Remove retired belt conveyor alias wrapper from template consumers (callers rewired to agents-73-codex-belt-conveyor.yml)"
+  - target: .github/scripts/rate-limit-aware-client.js
+    description: "Remove retired rate-limit-aware client from template consumers (superseded by github-rate-limited-wrapper.js)"
 # Codex prompts for agent operations
 prompts:
   - source: .github/codex/prompts/keepalive_next_task.md
@@ -418,9 +417,6 @@ scripts:
 
   - source: .github/scripts/github-rate-limited-wrapper.js
     description: "Transparent rate-limit proxy - wraps all github.rest.* calls with automatic retry and token switching"
-
-  - source: .github/scripts/rate-limit-aware-client.js
-    description: "Rate limit aware client - proactively checks API limits before operations"
 
   - source: .github/scripts/prompt_injection_guard.js
     description: "Security guard against prompt injection attacks"
