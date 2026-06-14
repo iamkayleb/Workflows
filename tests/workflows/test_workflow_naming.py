@@ -236,6 +236,7 @@ EXPECTED_NAMES = {
     "health-codex-auth-check.yml": "Health 46 Codex Auth Check",
     "health-50-security-scan.yml": "Health 50 Security Scan",
     "health-51-zizmor.yml": "Health 51 Actions SAST (zizmor)",
+    "health-52-semgrep.yml": "Health 52 Semgrep Scan",
     "maint-45-cosmetic-repair.yml": "Maint 45 Cosmetic Repair",
     "maint-46-post-ci.yml": "Maint 46 Post CI",
     "maint-47-disable-legacy-workflows.yml": "Maint 47 Disable Legacy Workflows",
@@ -300,3 +301,8 @@ EXPECTED_NAMES = {
     "maint-39-test-llm-providers.yml": "Maint 39 Test LLM Providers",
     "maint-84-prune-agent-stubs.yml": "Maint 84 Prune Agent Stubs",
 }
+
+
+def test_semgrep_workflow_display_name_mapping():
+    """The Semgrep CE scan workflow must carry its canonical display name."""
+    assert EXPECTED_NAMES["health-52-semgrep.yml"] == "Health 52 Semgrep Scan"
