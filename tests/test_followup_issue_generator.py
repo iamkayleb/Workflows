@@ -372,6 +372,29 @@ def test_build_why_section_explains_mixed_surface_deemphasis() -> None:
     assert "Workflow-sync acceptance criteria were de-emphasized" in why
 
 
+def test_get_followup_client_distinguishes_missing_deps_from_missing_keys(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A None from build_client must report the actual cause.
+
+    The shared build_client collapses an ``ImportError`` (langchain deps
+    missing) and a credential miss to the same ``None``. _get_followup_client
+    must still emit a distinct diagnostic for each, as the pre-refactor helper
+    did.
+    """
+    monkeypatch.setattr(followup_issue_generator, "build_client", lambda **_: None)
+
+    # Deps importable -> credential-miss message.
+    monkeypatch.setitem(sys.modules, "tools.langchain_client", ModuleType("tools.langchain_client"))
+    assert followup_issue_generator._get_followup_client() is None
+    assert "No LLM API keys found" in capsys.readouterr().err
+
+    # Deps not importable -> distinct import-failure message.
+    monkeypatch.setitem(sys.modules, "tools.langchain_client", None)
+    assert followup_issue_generator._get_followup_client() is None
+    assert "langchain_client not available" in capsys.readouterr().err
+
+
 class TestExtractVerificationData:
     """Tests for extract_verification_data function."""
 
@@ -878,12 +901,14 @@ def test_extract_structural_issues():
     assert any("code snippets" in issue.lower() for issue in data.structural_issues)
 
 
-def test_get_llm_client_defaults_to_expected_models(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_followup_client_defaults_to_expected_models(monkeypatch: pytest.MonkeyPatch) -> None:
     """Standard and reasoning follow-up paths should use the documented defaults."""
 
     calls: list[tuple[str | None, str | None]] = []
 
-    def fake_build_chat_client(*, model: str | None = None, provider: str | None = None):
+    def fake_build_chat_client(
+        *, model: str | None = None, provider: str | None = None, force_openai: bool = False
+    ):
         calls.append((model, provider))
         return SimpleNamespace(
             client=object(), model=model or "fallback", provider=provider or "auto"
@@ -896,8 +921,8 @@ def test_get_llm_client_defaults_to_expected_models(monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv("FOLLOWUP_MODEL", raising=False)
     monkeypatch.delenv("FOLLOWUP_REASONING_MODEL", raising=False)
 
-    standard_client = followup_issue_generator._get_llm_client(reasoning=False)
-    reasoning_client = followup_issue_generator._get_llm_client(reasoning=True)
+    standard_client = followup_issue_generator._get_followup_client(reasoning=False)
+    reasoning_client = followup_issue_generator._get_followup_client(reasoning=True)
 
     assert standard_client is not None
     assert reasoning_client is not None
