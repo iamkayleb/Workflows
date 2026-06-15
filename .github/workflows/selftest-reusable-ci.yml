@@ -5,11 +5,13 @@ on:
     - cron: '30 6 * * *'
   pull_request:
     paths:
+      - '.github/actions/agent-run-base/action.yml'
       - '.github/workflows/reusable-*.yml'
       - '.github/workflows/selftest-reusable-ci.yml'
       - 'scripts/ci_*.py'
       - 'scripts/coverage_history_append.py'
       - 'scripts/reusable_ci_scope.py'
+      - 'tests/workflows/test_reusable_run_shared_base.py'
       - 'tools/coverage_trend.py'
       - 'tools/resolve_mypy_pin.py'
   workflow_dispatch:
@@ -191,10 +193,12 @@ jobs:
                       "enable-soft-gate": False,
                       "scope": {
                           "paths": [
+                              ".github/actions/agent-run-base/action.yml",
                               ".github/workflows/reusable-10-ci-python.yml",
                               ".github/workflows/selftest-reusable-ci.yml",
                               "scripts/reusable_ci_scope.py",
                               "scripts/sync_test_dependencies.py",
+                              "tests/workflows/test_reusable_run_shared_base.py",
                               "tools/resolve_mypy_pin.py",
                           ],
                       },
