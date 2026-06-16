@@ -140,18 +140,17 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Optimizations applied (2026-02-22)**: Removed the redundant GitHub App token mint from both the gate and guard jobs; both already use the shared API client and installation token for API calls.
 - **Next steps**: Consider persisting historical coverage metrics to compare against prior weeks automatically.
 
-### `maint-dependabot-auto-label.yml`
-- **Purpose**: Adds `agents:allow-change` to Dependabot PRs so automation workflows can touch them.
+### `maint-auto-label-dep-prs.yml`
+- **Purpose**: Adds `agents:allow-change` to dependency-bot PRs so automation workflows can touch them.
 - **Notes (2026-02-22)**: Workflow is already minimal (pure `gh pr edit` with the default token); no changes required.
 
-### `maint-dependabot-auto-lock.yml`
-- **Purpose**: When Dependabot updates `pyproject.toml`, this job regenerates `requirements.lock` with `uv` and pushes the update back to the PR branch.
+### `maint-auto-lock-deps.yml`
+- **Purpose**: When a dependency bot updates lock inputs, this job regenerates `requirements.lock` with `uv` and pushes the update back to the PR branch.
 - **Notes (2026-02-22)**: Process already uses the default token, a single checkout, and targeted `uv` commands—no adjustments needed this pass.
 
 ### `maint-dependabot-weekly-sweep.yml`
-- **Purpose**: Weekly automation that scans consumer repos for open Dependabot PRs and auto-merges them when checks pass.
-- **Optimizations applied (2026-02-22)**: Replaced the inline YAML parser with the shared `scripts/list_registered_consumer_repos.py`, keeping the roster consistent with other maintenance workflows.
-- **Next steps**: Add a run summary listing repos merged vs. skipped so we can track sweep coverage.
+- **Purpose**: Retired weekly automation that scanned consumer repos for open Dependabot PRs and auto-merged them when checks passed.
+- **Retirement note**: The workflow was removed when the repo moved to bot-agnostic dependency handling; queue visibility now lives in the Sync/Dependency campaign surfaces.
 
 ### `maint-sync-env-from-pyproject.yml`
 - **Purpose**: Keeps `.github/workflows/autofix-versions.env` aligned with `pyproject.toml` whenever main receives dependency updates.
