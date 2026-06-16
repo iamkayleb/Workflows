@@ -30,7 +30,7 @@ jobs:
           token_rotation_json: ${{ secrets.TOKEN_ROTATION_JSON }}
           token_rotation_env_keys: ${{ vars.TOKEN_ROTATION_ENV_KEYS }}
       - name: Ensure environments exist with protections
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
