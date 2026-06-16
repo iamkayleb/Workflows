@@ -843,6 +843,27 @@ def test_read_metric_ndjson_accepts_legacy_pretty_json_array(tmp_path: Path) -> 
     assert [entry["pr_number"] for entry in entries] == [1872, 1873]
 
 
+def test_read_metric_ndjson_accepts_compact_legacy_json_array(tmp_path: Path) -> None:
+    path = tmp_path / "compact-array.ndjson"
+    path.write_text(
+        "\n".join(
+            [
+                "[",
+                '{"schema":"workflows-keepalive-metrics/v1","pr_number":1872},',
+                '{"schema":"workflows-keepalive-metrics/v1","pr_number":1873}',
+                "]",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    entries, errors = aggregate_agent_metrics.read_metric_ndjson_files([path])
+
+    assert errors == []
+    assert [entry["pr_number"] for entry in entries] == [1872, 1873]
+
+
 def test_read_metric_ndjson_counts_read_error_during_iteration(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -896,6 +917,28 @@ def test_read_metric_ndjson_bounds_legacy_json_fallback_buffer(tmp_path: Path) -
     )
     assert errors[-1].line is None
     assert errors[-1].reason == "legacy-json-fallback-buffer-limit"
+
+
+def test_read_metric_ndjson_preserves_entries_after_parse_error(tmp_path: Path) -> None:
+    path = tmp_path / "mixed.ndjson"
+    path.write_text(
+        "\n".join(
+            [
+                '{"schema":"workflows-keepalive-metrics/v1","pr_number":1872}',
+                "not-json",
+                '{"schema":"workflows-keepalive-metrics/v1","pr_number":1873}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    entries, errors = aggregate_agent_metrics.read_metric_ndjson_files([path])
+
+    assert [entry["pr_number"] for entry in entries] == [1872, 1873]
+    assert len(errors) == 1
+    assert errors[0].line == 2
+    assert errors[0].reason == "invalid-json"
 
 
 def test_classify_entry_prefers_explicit_type() -> None:

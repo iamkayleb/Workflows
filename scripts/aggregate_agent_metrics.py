@@ -289,20 +289,6 @@ def _parse_error_counter(parse_error_details: list[ParseErrorDetail], field: str
     return counts
 
 
-def _canonical_parse_error_detail(path: Path, error: str) -> ParseErrorDetail:
-    line_match = re.search(r":(\d+): ", error)
-    line = int(line_match.group(1)) if line_match else None
-    if "invalid JSON" in error:
-        reason = "invalid-json"
-    elif "expected object" in error:
-        reason = "non-object-json"
-    elif "legacy-json-fallback-buffer-limit" in error:
-        reason = "legacy-json-fallback-buffer-limit"
-    else:
-        reason = "unreadable-file"
-    return _parse_error_detail(path, line, reason)
-
-
 def _format_parse_error(path: Path, line: int | None, reason: str, detail: str = "") -> str:
     if reason == "invalid-json":
         suffix = f" ({detail})" if detail else ""
@@ -328,6 +314,7 @@ def _read_ndjson_file_streaming(
     raw_lines_for_fallback: list[str] = []
     raw_fallback_bytes = 0
     raw_fallback_truncated = False
+    parsed_entry_before_parse_error = False
     saw_parse_error = False
     saw_read_error = False
     with handle:
@@ -357,6 +344,7 @@ def _read_ndjson_file_streaming(
                 if isinstance(parsed, dict):
                     entries.append(parsed)
                     if not saw_parse_error:
+                        parsed_entry_before_parse_error = True
                         raw_lines_for_fallback = []
                         raw_fallback_bytes = 0
                 else:
@@ -366,7 +354,7 @@ def _read_ndjson_file_streaming(
             saw_read_error = True
             record_error(None, "unreadable-file", str(exc))
 
-    if not saw_parse_error or saw_read_error:
+    if not saw_parse_error or saw_read_error or parsed_entry_before_parse_error:
         return entries, False
 
     raw_text = "\n".join(raw_lines_for_fallback)
