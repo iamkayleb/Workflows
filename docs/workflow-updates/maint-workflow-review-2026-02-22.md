@@ -141,16 +141,19 @@ This log mirrors the health-workflow audit but targets the `maint-*` workflows. 
 - **Next steps**: Consider persisting historical coverage metrics to compare against prior weeks automatically.
 
 ### `maint-auto-label-dep-prs.yml`
+
 - **Purpose**: Adds `agents:allow-change` to dependency-bot PRs so automation workflows can touch them.
 - **Notes (2026-02-22)**: Workflow is already minimal (pure `gh pr edit` with the default token); no changes required.
 
 ### `maint-auto-lock-deps.yml`
+
 - **Purpose**: When a dependency bot updates lock inputs, this job regenerates `requirements.lock` with `uv` and pushes the update back to the PR branch.
 - **Notes (2026-02-22)**: Process already uses the default token, a single checkout, and targeted `uv` commands—no adjustments needed this pass.
 
 ### `maint-dependabot-weekly-sweep.yml`
+
 - **Purpose**: Retired weekly automation that scanned consumer repos for open Dependabot PRs and auto-merged them when checks passed.
-- **Retirement note**: The workflow was removed when the repo moved to bot-agnostic dependency handling; queue visibility now lives in the Sync/Dependency campaign surfaces.
+- **Retirement note**: The workflow was removed when the repo moved to bot-agnostic dependency handling; queue visibility now lives in the Sync/Dependabot campaign surfaces.
 
 ### `maint-sync-env-from-pyproject.yml`
 - **Purpose**: Keeps `.github/workflows/autofix-versions.env` aligned with `pyproject.toml` whenever main receives dependency updates.

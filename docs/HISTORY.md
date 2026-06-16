@@ -206,10 +206,11 @@ biggest architectural additions:
   Reviews now require semantic content, evidence traces, process-chain
   checkpoints, duplicate detection, and freshness checks before issues are
   filed.
-- **Sync/Dependency campaign queue** — [`maint-82-sync-dependency-campaign.yml`](../.github/workflows/maint-82-sync-dependency-campaign.yml)
+- **Sync/Dependabot campaign queue** — [`maint-82-sync-dependency-campaign.yml`](../.github/workflows/maint-82-sync-dependency-campaign.yml)
   + [`.github/scripts/sync_dependency_campaign.js`](../.github/scripts/sync_dependency_campaign.js)
   with claim-leases, source-review history, source-freshness tracking, and
-  parse contracts so concurrent sweeps don't race or auto-close active campaigns.
+  parse contracts so concurrent sync/dependency-bot sweeps don't race or
+  auto-close active campaigns.
 - **Bot-comment auth coverage** — [`bot_comment_auth_coverage.js`](../.github/scripts/bot_comment_auth_coverage.js)
   (+853 lines) plus reusable auth-policy knob, with hard-block enforcement
   gated behind eligibility evidence.
