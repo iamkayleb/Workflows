@@ -1,5 +1,6 @@
 import json
 from collections import Counter
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -814,6 +815,59 @@ def test_read_metric_ndjson_accepts_legacy_pretty_json_object(tmp_path: Path) ->
     assert entries[0]["pr_number"] == 1872
     assert entries[0]["iteration_count"] == 0
     assert entries[0]["artifact_name"] == "keepalive-metrics"
+
+
+def test_read_metric_ndjson_accepts_legacy_pretty_json_array(tmp_path: Path) -> None:
+    path = tmp_path / "keepalive-metrics.ndjson"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "schema": "workflows-keepalive-metrics/v1",
+                    "pr_number": 1872,
+                },
+                {
+                    "schema": "workflows-keepalive-metrics/v1",
+                    "pr_number": 1873,
+                },
+            ],
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    entries, errors = aggregate_agent_metrics.read_metric_ndjson_files([path])
+
+    assert errors == []
+    assert [entry["pr_number"] for entry in entries] == [1872, 1873]
+
+
+def test_read_metric_ndjson_counts_read_error_during_iteration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    path = tmp_path / "metrics.ndjson"
+
+    class FailingHandle:
+        def __enter__(self) -> "FailingHandle":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def __iter__(self) -> Iterator[str]:
+            yield '{"key": "value"}\n'
+            raise OSError("downloaded artifact became unreadable")
+
+    monkeypatch.setattr(Path, "open", lambda *_args, **_kwargs: FailingHandle())
+
+    entries, errors = aggregate_agent_metrics.read_metric_ndjson_files([path])
+
+    assert len(entries) == 1
+    assert entries[0]["key"] == "value"
+    assert len(errors) == 1
+    assert errors[0].reason == "unreadable-file"
+    assert errors[0].line is None
 
 
 def test_read_metric_ndjson_bounds_legacy_json_fallback_buffer(tmp_path: Path) -> None:
