@@ -1,4 +1,7 @@
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 from tools import post_ci_summary
@@ -143,6 +146,29 @@ def test_main_writes_github_output(tmp_path: Path, monkeypatch) -> None:
     output_text = output_path.read_text(encoding="utf-8")
     assert "body<<EOF" in output_text
     assert "Automated Status Summary" in output_text
+
+
+def test_main_runs_when_invoked_by_file_path(tmp_path: Path) -> None:
+    output_path = tmp_path / "output.txt"
+    contexts_path = tmp_path / "contexts.json"
+    _write_json(contexts_path, [])
+
+    result = subprocess.run(
+        [sys.executable, "tools/post_ci_summary.py"],
+        cwd=Path(__file__).resolve().parents[1],
+        env={
+            **os.environ,
+            "RUNS_JSON": "[]",
+            "REQUIRED_CONTEXTS_FILE": str(contexts_path),
+            "GITHUB_OUTPUT": str(output_path),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Automated Status Summary" in output_path.read_text(encoding="utf-8")
 
 
 def test_collect_triage_block_from_artifacts(tmp_path: Path) -> None:
