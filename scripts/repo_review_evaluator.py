@@ -166,6 +166,54 @@ STATE_INTEGRATION_RE = re.compile(
     r"\b(api|client|database|db|github|integration|persist|provider|source|state|store|token|workflow)\b",
     re.I,
 )
+LIVENESS_CLAIM_PATTERNS = [
+    "automated",
+    "automation",
+    "cadence",
+    "cron",
+    "dashboard",
+    "implemented",
+    "ingest",
+    "pipeline",
+    "pull",
+    "scheduled",
+    "telemetry",
+    "wired",
+]
+LIVENESS_EVIDENCE_PATTERNS = [
+    "artifact",
+    "count",
+    "counts",
+    "e2e",
+    "live",
+    "non-zero",
+    "output",
+    "record",
+    "records",
+    "row",
+    "rows",
+    "sample",
+    "sink",
+    "smoke",
+    "verified",
+    "wrote",
+    "written",
+]
+
+
+def bounded_keyword_pattern(keyword: str) -> str:
+    """Match a human word/phrase without matching snake_case fragments."""
+    escaped = re.escape(keyword).replace(r"\ ", r"[- ]")
+    return rf"(^|[^[:alnum:]_]){escaped}([^[:alnum:]_]|$)"
+
+
+LIVENESS_CLAIM_GREP_PATTERNS = [
+    bounded_keyword_pattern(keyword if keyword != "pull" else "pull request")
+    for keyword in LIVENESS_CLAIM_PATTERNS
+]
+LIVENESS_EVIDENCE_GREP_PATTERNS = [
+    bounded_keyword_pattern(keyword) for keyword in LIVENESS_EVIDENCE_PATTERNS
+]
 REVIEW_DIMENSIONS = (
     {
         "id": "design_contract",
@@ -197,6 +245,15 @@ REVIEW_DIMENSIONS = (
         "prompt": (
             "Check cross-repo contracts, external providers, persistence, reload behavior, "
             "source authority, generated artifacts, and workflow automation handoffs."
+        ),
+    },
+    {
+        "id": "liveness_evidence",
+        "label": "Liveness Evidence",
+        "prompt": (
+            "For every feature or pipeline described as implemented, wired, scheduled, or automated, "
+            "query the actual sink/output. Require a real recent row, artifact, smoke result, dashboard "
+            "sample, or equivalent upstream-to-sink evidence before treating the claim as done."
         ),
     },
     {
@@ -493,11 +550,14 @@ def git_grep_files(
     pathspecs: list[str],
     limit: int = 12,
     timeout: int = 10,
+    extended_regex: bool = False,
 ) -> list[str]:
     bounded_pathspecs = list(dict.fromkeys(pathspecs))[:REVIEW_SCAN_FILE_LIMIT]
     if not patterns or not bounded_pathspecs or not repo_path.exists():
         return []
     args = ["grep", "-Il", "-i"]
+    if extended_regex:
+        args.append("-E")
     for pattern in patterns[:30]:
         args.extend(["-e", pattern])
     args.extend(["--", *bounded_pathspecs])
@@ -680,6 +740,20 @@ def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
     integration_files = list(dict.fromkeys([*integration_name_files, *integration_content_files]))[
         :12
     ]
+    liveness_claim_files = git_grep_files(
+        repo_path,
+        LIVENESS_CLAIM_GREP_PATTERNS,
+        pathspecs=evidence_files[:REVIEW_SCAN_FILE_LIMIT],
+        limit=20,
+        extended_regex=True,
+    )
+    liveness_evidence_files = git_grep_files(
+        repo_path,
+        LIVENESS_EVIDENCE_GREP_PATTERNS,
+        pathspecs=evidence_files[:REVIEW_SCAN_FILE_LIMIT],
+        limit=20,
+        extended_regex=True,
+    )
     design_headings = {
         rel_path: markdown_headings(repo_path, rel_path) for rel_path in state["design_files"][:6]
     }
@@ -800,6 +874,38 @@ def build_review_execution(state: dict[str, Any]) -> dict[str, Any]:
             "finding": integration_finding,
             "gap_severity": integration_severity,
             "issue_draft_needed": gap_label(integration_severity),
+        }
+    )
+
+    if liveness_claim_files and not liveness_evidence_files:
+        liveness_severity = "material"
+        liveness_finding = (
+            "Implementation/status/data-flow claims were detected, but the automated pass found no "
+            "real sink/output evidence. Do not certify this work from code existence, docs, or schedules alone."
+        )
+    elif liveness_claim_files:
+        liveness_severity = "needs human decision"
+        liveness_finding = (
+            "Implementation/status/data-flow claims and possible sink/output evidence were both detected; "
+            "semantic review must verify a real recent upstream event reached the claimed sink."
+        )
+    else:
+        liveness_severity = "needs human decision"
+        liveness_finding = (
+            "No explicit implementation/status/data-flow claims were detected by the automated pass; "
+            "semantic review must still check docs and reports for completion claims before accepting no-new-work."
+        )
+    dimensions.append(
+        {
+            "id": "liveness_evidence",
+            "label": "Liveness Evidence",
+            "evidence": [
+                f"Implementation/status/data-flow claim files: {', '.join(liveness_claim_files) if liveness_claim_files else 'none'}",
+                f"Sink/output/live evidence files: {', '.join(liveness_evidence_files) if liveness_evidence_files else 'none'}",
+            ],
+            "finding": liveness_finding,
+            "gap_severity": liveness_severity,
+            "issue_draft_needed": gap_label(liveness_severity),
         }
     )
 
@@ -2032,6 +2138,12 @@ def readiness_summary(state: dict[str, Any]) -> str:
         return "Review execution is blocked; testing or implementation readiness cannot be decided."
     test_dimension = execution_dimension(state, "test_and_live_readiness")
     integration_dimension = execution_dimension(state, "integration_and_state")
+    liveness_dimension = execution_dimension(state, "liveness_evidence")
+    if liveness_dimension["gap_severity"] in {"material", "blocks testing", "blocks live use"}:
+        return (
+            "Not ready to approve completion claims without liveness evidence; "
+            f"{liveness_dimension['finding']}"
+        )
     if test_dimension["gap_severity"] in {"material", "blocks testing", "blocks live use"}:
         return (
             "Not ready to approve testing/live implementation without issue work; "
@@ -2039,8 +2151,9 @@ def readiness_summary(state: dict[str, Any]) -> str:
         )
     return (
         "Testing/live-readiness evidence exists, but approval still requires confirming "
-        "that the tests, smoke paths, integrations, and state behavior prove the documented user journey. "
-        f"{test_dimension['finding']} {integration_dimension['finding']}"
+        "that the tests, smoke paths, integrations, state behavior, and liveness evidence prove "
+        "the documented user journey. "
+        f"{test_dimension['finding']} {integration_dimension['finding']} {liveness_dimension['finding']}"
     )
 
 
@@ -2232,6 +2345,7 @@ def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
     implementation = execution_dimension(state, "implementation_coverage")
     testing = execution_dimension(state, "test_and_live_readiness")
     integration = execution_dimension(state, "integration_and_state")
+    liveness = execution_dimension(state, "liveness_evidence")
     issue_generation = execution_dimension(state, "issue_generation")
     profile = state.get("review_profile") or {}
     feedback = state.get("feedback_decision") or {}
@@ -2261,6 +2375,7 @@ def build_decision_brief(state: dict[str, Any]) -> dict[str, Any]:
         "implementation_evidence": implementation["evidence"],
         "testing_evidence": testing["evidence"],
         "integration_evidence": integration["evidence"],
+        "liveness_evidence": liveness["evidence"],
         "issue_generation_evidence": issue_generation["evidence"],
         "issue_candidates": issue_candidate_summaries(state),
         "feedback_template": [
@@ -3216,6 +3331,10 @@ def write_decision_brief(repo_dir: Path, state: dict[str, Any]) -> None:
         "",
         markdown_list(brief["integration_evidence"]),
         "",
+        "Liveness evidence:",
+        "",
+        markdown_list(brief["liveness_evidence"]),
+        "",
         "## Candidate Issue Set",
         "",
         brief["issue_set_recommendation"],
@@ -3441,6 +3560,14 @@ def write_review_inputs(repo_dir: Path, state: dict[str, Any]) -> None:
         "current code does not explain or correct it:",
         "",
         ("\n".join(f"- `{p}`" for p in (state.get("report_files") or [])) or "_None detected._"),
+        "",
+        "## Liveness Evidence Check",
+        "",
+        "When a doc, issue draft, implementation note, report, dashboard, telemetry, or pipeline "
+        "claims behavior is implemented, wired, scheduled, automated, or otherwise complete, "
+        "verify the real sink/output. Require a recent row, artifact, smoke result, dashboard "
+        "sample, or equivalent upstream-to-sink trace before treating the claim as complete. "
+        "Static code presence, broad status wording, or old setup docs are not enough.",
         "",
         "## Dedup References",
         "",
