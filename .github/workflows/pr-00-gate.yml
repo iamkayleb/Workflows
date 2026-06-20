@@ -220,6 +220,11 @@ jobs:
           fi
           python -m pip install --upgrade pip pytest pyyaml
           python -m pytest "${tests[@]}" -q
+      - name: Warn on stale managed AGENTS.md playbook refs
+        run: >-
+          python scripts/check_agents_md_freshness.py
+          --repo-root .
+          --github-annotations
 
   github-scripts-tests:
     name: github scripts tests
