@@ -52,7 +52,7 @@ content. Use logging, or at most a collapsed "Diagnostics" expander.
 **Rule:** a tab/control that isn't applicable in the current mode states so up front (a badge/label),
 rather than opening into a silent empty/disabled surface.
 - **web:** `.ds .badge` on the tab/control (e.g. "multi-period only", "needs setup").
-- **Streamlit:** `ds_streamlit.availability_badge(label)` in the tab title / disabled control caption.
+- **Streamlit:** `ds_streamlit.availability_badge(label)` in the tab title / disabled control caption; use `plain=False` only in trusted HTML containers.
 - **Fixes:** TMP #5629 (4/6 Results tabs empty — fixed by labelling, the canonical example), PA #2026
   (upload-only pages with no sample path → mark/offer the sample).
 
@@ -81,6 +81,7 @@ rather than opening into a silent empty/disabled surface.
 | Default dark theme (TMP/PA/MD/IMI) | P1 |
 
 ## Streamlit design kit (most of the fleet is Streamlit)
+
 The CSS components above cover the web apps (Pension-Data, trip-planner, LMS). The four Streamlit
 Tier-A apps need a Streamlit-native equivalent — ship a shared `ds_streamlit.py` alongside the CSS:
 - `inject_theme()` — applies the `theme-air` palette (P1); pairs with `.streamlit/config.toml`.
