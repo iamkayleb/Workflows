@@ -420,9 +420,11 @@ def _self_smoke(schema_dir: Path, registry_path: Path) -> int:
                     True,
                 )
             )
+        # Unsafe raw payload fixtures must fail without echoing sensitive values.
         for inv in (
             "missing_cost.json",
             "unsafe_rows_inline.json",
+            "unsafe_prompt_inline.json",
             "artifact_not_in_manifest.json",
             "bad_identity_ref.json",
         ):
