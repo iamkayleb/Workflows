@@ -101,6 +101,16 @@ fixed infrastructure**; then scope tidiness; then resilience.
 Add a dated report under `docs/evaluations/YYYY-MM-DD-<task>.md` (see
 `2026-06-12-prisma-data-model.md` for the format).
 
+### 8. (Optional) Close the loop on an eval branch
+
+`verify:create-new-pr` is now eval-branch-aware. When you add it to a PR that
+merged into an eval branch (e.g. `eval/codex`), the generated follow-up issue
+carries a `<!-- base-branch: <ref> -->` marker, and the belt dispatcher /
+auto-pilot resolve the follow-up PR's base to that same branch instead of the
+repository default. So the fix round stays on the eval branch rather than
+escaping to `main`. If the marked branch no longer exists, the tooling logs a
+warning and falls back to the default branch (dispatch still succeeds).
+
 ## Immediate next action: clean Codex re-run (Prisma task)
 
 To settle the efficiency question left open by the 2026-06-12 report:
