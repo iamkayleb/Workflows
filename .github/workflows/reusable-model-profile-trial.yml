@@ -32,7 +32,11 @@ on:
         required: true
         type: number
       expected_source_sha:
-        description: Full immutable Workflows source SHA for this arm.
+        description: Full immutable Workflows main SHA for this arm.
+        required: true
+        type: string
+      runner_sha:
+        description: Immutable commit containing this reusable runner and contract helper.
         required: true
         type: string
     secrets:
@@ -54,11 +58,53 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      PINNED_RUNNER_SHA: ${{ inputs.runner_sha }}
+      PINNED_RUNNER_REF: >-
+        stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@${{ inputs.runner_sha }}
+      ZERO_SOURCE_MANIFEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
     steps:
-      - name: Checkout exact source
-        uses: actions/checkout@v7
+      - name: Checkout immutable trial runner
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          repository: stranske/Workflows
+          ref: ${{ inputs.runner_sha }}
+          path: runner-src
+          persist-credentials: false
+
+      - name: Require pinned runner and current remote main
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$EXPECTED_SOURCE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::expected_source_sha must be a full lowercase Git SHA."
+            exit 1
+          fi
+          runner_sha="$(git -C runner-src rev-parse HEAD)"
+          if ! printf '%s' "$PINNED_RUNNER_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::runner_sha must be a full lowercase Git SHA."
+            exit 1
+          fi
+          if [ "$runner_sha" != "$PINNED_RUNNER_SHA" ]; then
+            echo "::error::Runner checkout does not match its immutable runner commit."
+            exit 1
+          fi
+          remote_main="$(
+            git ls-remote https://github.com/stranske/Workflows.git refs/heads/main |
+              awk 'NR == 1 { print $1 }'
+          )"
+          if [ -z "$remote_main" ] || [ "$remote_main" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "::error::expected_source_sha must equal current remote main before auth."
+            exit 1
+          fi
+
+      - name: Checkout exact trial source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: stranske/Workflows
           ref: ${{ inputs.expected_source_sha }}
+          path: target-src
           persist-credentials: false
 
       - name: Set up Node
@@ -67,7 +113,7 @@ jobs:
           node-version: "24"
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.14"
 
@@ -84,13 +130,9 @@ jobs:
           LAUNCH_ORDINAL: ${{ inputs.launch_ordinal }}
         run: |
           set -euo pipefail
-          source_sha="$(git rev-parse HEAD)"
+          source_sha="$(git -C target-src rev-parse HEAD)"
           if [ "$source_sha" != "$EXPECTED_SOURCE_SHA" ]; then
-            echo "::error::Checkout SHA does not match expected_source_sha."
-            exit 1
-          fi
-          if ! printf '%s' "$EXPECTED_SOURCE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
-            echo "::error::expected_source_sha must be a full lowercase Git SHA."
+            echo "::error::Target checkout SHA does not match expected_source_sha."
             exit 1
           fi
           if ! printf '%s' "$REQUEST_HASH" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
@@ -112,18 +154,33 @@ jobs:
             fi
           done
 
-          # Ruby's standard-library YAML parser avoids an unpinned Python
-          # dependency solely to read the authoritative agent registry.
+          # The target registry is parsed as data. All executable helper code
+          # comes from the separately checked-out immutable runner commit.
           ruby -ryaml -rjson -e \
             'puts JSON.generate(YAML.safe_load(File.read(ARGV[0]), aliases: false))' \
-            .github/agents/registry.yml > "$RUNNER_TEMP/agent-registry.json"
-
-          python scripts/model_profile_trial_contract.py resolve \
+            target-src/.github/agents/registry.yml > "$RUNNER_TEMP/agent-registry.json"
+          python runner-src/scripts/model_profile_trial_contract.py resolve \
             --registry-json "$RUNNER_TEMP/agent-registry.json" \
-            --model-registry config/model_registry.json \
+            --model-registry target-src/config/model_registry.json \
             --profile-id "$PROFILE_ID" \
             --output "$RUNNER_TEMP/resolved-profile.json"
+          resolved_runner_ref="$(
+            python -c 'import json,sys; print(json.load(open(sys.argv[1]))["runner_ref"])' \
+              "$RUNNER_TEMP/resolved-profile.json"
+          )"
+          if [ "$resolved_runner_ref" != "$PINNED_RUNNER_REF" ]; then
+            echo "::error::Target registry runner_ref does not match the executing runner."
+            exit 1
+          fi
           echo "source-sha-before=$source_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Snapshot bounded trial source before auth
+        id: manifest_before
+        run: |
+          set -euo pipefail
+          python runner-src/scripts/model_profile_trial_contract.py source-manifest \
+            --root target-src \
+            --output "$RUNNER_TEMP/source-manifest-before.json"
 
       - name: Install exact Codex CLI
         id: cli
@@ -160,12 +217,12 @@ jobs:
           EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
         run: |
           set -euo pipefail
+          install -d "$RUNNER_TEMP/codex-workdir"
           {
             echo "You are one arm of a frozen read-only model-profile plumbing canary."
-            echo "Inspect this checkout only enough to confirm that it is readable."
+            echo "Do not use tools or inspect or execute the target checkout."
             echo "Do not edit, create, commit, push, comment, or refresh auth."
             echo "Do not invoke another evaluator."
-            echo "The source checkout must remain byte-for-byte clean."
             echo "Return one concise line containing all four exact values below:"
             echo "packet_hash=$PACKET_HASH"
             echo "source_sha=$EXPECTED_SOURCE_SHA"
@@ -190,11 +247,12 @@ jobs:
           : > "$final_message"
           rm -f "$stderr_pipe"
           mkfifo "$stderr_pipe"
-          python scripts/model_profile_trial_contract.py bound-stream \
+          python runner-src/scripts/model_profile_trial_contract.py bound-stream \
             --output "$stderr_log" --max-bytes 65536 \
             < "$stderr_pipe" &
           stderr_capture_pid=$!
 
+          cd "$RUNNER_TEMP/codex-workdir"
           codex exec \
             --json \
             --ignore-user-config \
@@ -220,12 +278,34 @@ jobs:
           SOURCE_SHA_BEFORE: ${{ steps.profile.outputs.source-sha-before }}
           EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
         run: |
-          set -euo pipefail
-          source_sha_after="$(git rev-parse HEAD)"
+          set -uo pipefail
           source_clean=true
+          source_sha_after="$EXPECTED_SOURCE_SHA"
+          if ! source_sha_after="$(
+            git -C target-src rev-parse HEAD 2>"$RUNNER_TEMP/git-head.err"
+          )"; then
+            echo "::error::Unable to read the target checkout HEAD."
+            sed -n '1,20p' "$RUNNER_TEMP/git-head.err"
+            source_clean=false
+          fi
+          if ! status_output="$(
+            git -C target-src status --porcelain --untracked-files=all \
+              2>"$RUNNER_TEMP/git-status.err"
+          )"; then
+            echo "::error::Unable to determine target checkout status."
+            sed -n '1,20p' "$RUNNER_TEMP/git-status.err"
+            source_clean=false
+            status_output="git-status-failed"
+          fi
           if [ "$SOURCE_SHA_BEFORE" != "$EXPECTED_SOURCE_SHA" ] || \
              [ "$source_sha_after" != "$EXPECTED_SOURCE_SHA" ] || \
-             [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+             [ -n "$status_output" ]; then
+            source_clean=false
+          fi
+          if ! python runner-src/scripts/model_profile_trial_contract.py source-manifest \
+            --root target-src \
+            --output "$RUNNER_TEMP/source-manifest-after.json"; then
+            echo "::error::Unable to compute the bounded post-run source manifest."
             source_clean=false
           fi
           echo "source-sha-after=$source_sha_after" >> "$GITHUB_OUTPUT"
@@ -241,9 +321,12 @@ jobs:
             ${{ steps.profile.outputs.source-sha-before || inputs.expected_source_sha }}
           SOURCE_SHA_AFTER: >-
             ${{ steps.source_after.outputs.source-sha-after || inputs.expected_source_sha }}
+          SOURCE_MANIFEST_BEFORE: >-
+            ${{ steps.manifest_before.outputs.aggregate-sha256 || env.ZERO_SOURCE_MANIFEST }}
+          SOURCE_MANIFEST_AFTER: >-
+            ${{ steps.source_after.outputs.aggregate-sha256 || env.ZERO_SOURCE_MANIFEST }}
           SOURCE_CLEAN: ${{ steps.source_after.outputs.source-clean || 'false' }}
           REQUESTED_MODEL: ${{ steps.profile.outputs.model }}
-          RUNNER_VERSION: ${{ steps.profile.outputs.runner-ref }}
           CLI_VERSION: ${{ steps.cli.outputs.cli-version || 'unknown' }}
           TRIAL_ID: ${{ inputs.trial_id }}
           REQUEST_ID: ${{ inputs.request_id }}
@@ -253,9 +336,16 @@ jobs:
           LAUNCH_ORDINAL: ${{ inputs.launch_ordinal }}
           PACKET_HASH: ${{ inputs.packet_hash }}
           EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          GITHUB_REPOSITORY_VALUE: ${{ github.repository }}
+          GITHUB_WORKFLOW_REF_VALUE: ${{ github.workflow_ref }}
+          GITHUB_WORKFLOW_SHA_VALUE: ${{ github.workflow_sha }}
+          GITHUB_RUN_ID_VALUE: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT_VALUE: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          python scripts/model_profile_trial_contract.py artifact \
+          artifact_name="model-profile-trial-${PROFILE_ID}-${GITHUB_RUN_ID_VALUE}"
+          artifact_name+="-${GITHUB_RUN_ATTEMPT_VALUE}-${LAUNCH_ORDINAL}"
+          python runner-src/scripts/model_profile_trial_contract.py artifact \
             --trial-id "$TRIAL_ID" \
             --request-id "$REQUEST_ID" \
             --request-hash "$REQUEST_HASH" \
@@ -266,21 +356,30 @@ jobs:
             --expected-source-sha "$EXPECTED_SOURCE_SHA" \
             --source-sha-before "$SOURCE_SHA_BEFORE" \
             --source-sha-after "$SOURCE_SHA_AFTER" \
+            --source-manifest-sha256-before "$SOURCE_MANIFEST_BEFORE" \
+            --source-manifest-sha256-after "$SOURCE_MANIFEST_AFTER" \
             --requested-model "$REQUESTED_MODEL" \
-            --runner-version "$RUNNER_VERSION" \
+            --requested-reasoning-effort "high" \
+            --runner-version "$PINNED_RUNNER_REF" \
             --cli-version "$CLI_VERSION" \
             --session-stream "$RUNNER_TEMP/codex-trial-session.jsonl" \
             --codex-home "$CODEX_HOME" \
             --final-message "$RUNNER_TEMP/codex-trial-final.txt" \
             --exit-code "$CODEX_EXIT_CODE" \
             --source-clean "$SOURCE_CLEAN" \
+            --github-repository "$GITHUB_REPOSITORY_VALUE" \
+            --github-workflow-ref "$GITHUB_WORKFLOW_REF_VALUE" \
+            --github-workflow-sha "$GITHUB_WORKFLOW_SHA_VALUE" \
+            --github-run-id "$GITHUB_RUN_ID_VALUE" \
+            --github-run-attempt "$GITHUB_RUN_ATTEMPT_VALUE" \
+            --artifact-name "$artifact_name" \
             --output "$RUNNER_TEMP/model-profile-trial-attempt.json"
 
       - name: Upload unique trial attempt
         if: ${{ always() && steps.artifact.outcome == 'success' }}
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: model-trial-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ steps.artifact.outputs.artifact-name }}
           path: ${{ runner.temp }}/model-profile-trial-attempt.json
           if-no-files-found: error
           retention-days: 30

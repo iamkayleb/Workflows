@@ -11,15 +11,24 @@ provider-resolved identity.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 from pathlib import Path
 from typing import Any
 
-ARTIFACT_SCHEMA = "workflows.model-profile-trial-result/v1"
-IDENTITY_AUTHORITY = "workflows-read-only-trial-artifact/v1"
+ARTIFACT_SCHEMA = "workflows.model-profile-trial-result/v2"
+IDENTITY_AUTHORITY = "workflows-read-only-trial-artifact/v2"
+COLLECTOR_IDENTITY_AUTHORITY = "github-actions-api/workflows-read-only-trial-artifact/v2"
 EXPECTED_CLI_VERSION = "0.144.1"
+EXPECTED_REPOSITORY = "stranske/Workflows"
+EXPECTED_WORKFLOW_REF = (
+    "stranske/Workflows/.github/workflows/agents-model-profile-trial.yml@refs/heads/main"
+)
+MAX_SOURCE_FILES = 20_000
+MAX_SOURCE_BYTES = 200 * 1024 * 1024
+SOURCE_SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "dist", "build", "__pycache__"}
 EXPECTED_PROFILES = {
     "codex-5.6-sol-high": "gpt-5.6-sol",
     "codex-5.6-terra-high": "gpt-5.6-terra",
@@ -28,7 +37,8 @@ EXPECTED_PROFILES = {
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PINNED_RUNNER_RE = re.compile(
-    r"^stranske/Workflows/\.github/workflows/" r"reusable-model-profile-trial\.yml@[0-9a-f]{40}$"
+    r"^stranske/Workflows/\.github/workflows/"
+    r"reusable-model-profile-trial\.yml@[0-9a-f]{40}$"
 )
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
 
@@ -50,11 +60,25 @@ ARTIFACT_FIELDS = {
     "provider_resolved_provider",
     "provider_resolved_model",
     "fallback_reason",
+    "identity_authority",
+    "operation_role",
     "runner_version",
     "cli_version",
     "thread_id",
+    "requested_reasoning_effort",
+    "reported_reasoning_effort",
     "source_sha_before",
     "source_sha_after",
+    "source_manifest_sha256_before",
+    "source_manifest_sha256_after",
+    "source_clean",
+    "exit_code",
+    "github_repository",
+    "github_workflow_ref",
+    "github_workflow_sha",
+    "github_run_id",
+    "github_run_attempt",
+    "artifact_name",
 }
 
 
@@ -91,6 +115,62 @@ def _require_source_sha(label: str, value: str) -> str:
     if not SOURCE_SHA_RE.fullmatch(text):
         raise ContractError(f"{label} must be a full lowercase Git SHA")
     return text
+
+
+def _require_positive_int(label: str, value: int | str) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ContractError(f"{label} must be a positive integer") from exc
+    if parsed <= 0:
+        raise ContractError(f"{label} must be a positive integer")
+    return parsed
+
+
+def source_manifest(root: Path) -> dict[str, Any]:
+    """Hash a bounded checkout without following symlinks or reading Git metadata."""
+    root = root.expanduser().resolve()
+    if not root.is_dir():
+        raise ContractError(f"source manifest root is not a directory: {root}")
+    rows: list[dict[str, Any]] = []
+    total_bytes = 0
+    for current, dirs, files in os.walk(root, topdown=True, followlinks=False):
+        dirs[:] = sorted(name for name in dirs if name not in SOURCE_SKIP_DIRS)
+        base = Path(current)
+        for name in sorted(files):
+            path = base / name
+            rel = path.relative_to(root).as_posix()
+            if len(rows) >= MAX_SOURCE_FILES:
+                raise ContractError("source manifest file limit exceeded")
+            if path.is_symlink():
+                target = os.readlink(path)
+                payload = target.encode("utf-8", errors="surrogateescape")
+                kind = "symlink"
+            elif path.is_file():
+                size = path.stat().st_size
+                if total_bytes + size > MAX_SOURCE_BYTES:
+                    raise ContractError("source manifest byte limit exceeded")
+                payload = path.read_bytes()
+                total_bytes += size
+                kind = "file"
+            else:
+                continue
+            rows.append(
+                {
+                    "path": rel,
+                    "kind": kind,
+                    "bytes": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+    encoded = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        "schema": "workflows.source-manifest/v1",
+        "version": 1,
+        "file_count": len(rows),
+        "total_bytes": total_bytes,
+        "aggregate_sha256": "sha256:" + hashlib.sha256(encoded).hexdigest(),
+    }
 
 
 def resolve_profile(
@@ -131,6 +211,7 @@ def resolve_profile(
         "mode": "read-only",
         "artifact_schema": ARTIFACT_SCHEMA,
         "identity_authority": IDENTITY_AUTHORITY,
+        "collector_identity_authority": COLLECTOR_IDENTITY_AUTHORITY,
         "cli_version": EXPECTED_CLI_VERSION,
         "runtime_fallback_allowed": False,
         "auxiliary_evaluator_allowed": False,
@@ -141,7 +222,7 @@ def resolve_profile(
 
     runner_ref = str(contract.get("runner_ref") or "")
     if not PINNED_RUNNER_RE.fullmatch(runner_ref):
-        raise ContractError("trial contract runner_ref is not an immutable reusable workflow ref")
+        raise ContractError("trial contract runner_ref is not this immutable reusable workflow")
     if profile.get("runner_ref") != runner_ref:
         raise ContractError(f"execution profile {profile_id} runner_ref drifted")
 
@@ -247,7 +328,10 @@ def build_artifact(
     expected_source_sha: str,
     source_sha_before: str,
     source_sha_after: str,
+    source_manifest_sha256_before: str,
+    source_manifest_sha256_after: str,
     requested_model: str,
+    requested_reasoning_effort: str,
     runner_version: str,
     cli_version: str,
     session_stream: Path,
@@ -255,6 +339,12 @@ def build_artifact(
     final_message: Path,
     exit_code: int,
     source_clean: bool,
+    github_repository: str,
+    github_workflow_ref: str,
+    github_workflow_sha: str,
+    github_run_id: int,
+    github_run_attempt: int,
+    artifact_name: str,
 ) -> dict[str, Any]:
     """Build one strict attempt artifact, including failed canaries."""
     trial_id = _require_safe_id("trial_id", trial_id)
@@ -266,12 +356,28 @@ def build_artifact(
     expected_source_sha = _require_source_sha("expected_source_sha", expected_source_sha)
     source_sha_before = _require_source_sha("source_sha_before", source_sha_before)
     source_sha_after = _require_source_sha("source_sha_after", source_sha_after)
+    source_manifest_sha256_before = _require_hash(
+        "source_manifest_sha256_before", source_manifest_sha256_before
+    )
+    source_manifest_sha256_after = _require_hash(
+        "source_manifest_sha256_after", source_manifest_sha256_after
+    )
     if profile_id not in EXPECTED_PROFILES or requested_model != EXPECTED_PROFILES[profile_id]:
         raise ContractError("requested model does not match the exact profile")
     if not 1 <= int(launch_ordinal) <= 3:
         raise ContractError("launch_ordinal must be between 1 and 3")
-    if not PINNED_RUNNER_RE.fullmatch(str(runner_version or "")):
-        raise ContractError("runner_version is not the pinned reusable trial workflow")
+    if not PINNED_RUNNER_RE.fullmatch(runner_version):
+        raise ContractError("runner_version is not an immutable reusable trial workflow")
+    if requested_reasoning_effort != "high":
+        raise ContractError("requested_reasoning_effort must be high")
+    if github_repository != EXPECTED_REPOSITORY:
+        raise ContractError("github_repository is not the authoritative Workflows repo")
+    github_workflow_sha = _require_source_sha("github_workflow_sha", github_workflow_sha)
+    github_run_id = _require_positive_int("github_run_id", github_run_id)
+    github_run_attempt = _require_positive_int("github_run_attempt", github_run_attempt)
+    if github_workflow_ref != EXPECTED_WORKFLOW_REF:
+        raise ContractError("github_workflow_ref is not the authoritative main-branch shim")
+    artifact_name = _require_safe_id("artifact_name", artifact_name)
 
     identity_parse_failed = False
     try:
@@ -306,6 +412,8 @@ def build_artifact(
         failures.append("source_sha_changed")
     if not source_clean:
         failures.append("source_tree_changed")
+    if source_manifest_sha256_after != source_manifest_sha256_before:
+        failures.append("source_manifest_changed")
     if not acknowledged:
         failures.append("packet_not_acknowledged")
     if not thread_id:
@@ -322,7 +430,7 @@ def build_artifact(
     fallback_reason = failures[0] if failures else None
     artifact = {
         "schema": ARTIFACT_SCHEMA,
-        "version": 1,
+        "version": 2,
         "trial_id": trial_id,
         "request_id": request_id,
         "request_hash": request_hash,
@@ -338,11 +446,25 @@ def build_artifact(
         "provider_resolved_provider": None,
         "provider_resolved_model": None,
         "fallback_reason": fallback_reason,
+        "identity_authority": IDENTITY_AUTHORITY,
+        "operation_role": "worker",
         "runner_version": runner_version,
         "cli_version": cli_version,
         "thread_id": thread_id,
+        "requested_reasoning_effort": requested_reasoning_effort,
+        "reported_reasoning_effort": reported_effort,
         "source_sha_before": source_sha_before,
         "source_sha_after": source_sha_after,
+        "source_manifest_sha256_before": source_manifest_sha256_before,
+        "source_manifest_sha256_after": source_manifest_sha256_after,
+        "source_clean": bool(source_clean),
+        "exit_code": int(exit_code),
+        "github_repository": github_repository,
+        "github_workflow_ref": github_workflow_ref,
+        "github_workflow_sha": github_workflow_sha,
+        "github_run_id": github_run_id,
+        "github_run_attempt": github_run_attempt,
+        "artifact_name": artifact_name,
     }
     if set(artifact) != ARTIFACT_FIELDS:
         raise AssertionError("strict trial artifact schema drifted")
@@ -379,7 +501,10 @@ def _artifact_command(args: argparse.Namespace) -> int:
         expected_source_sha=args.expected_source_sha,
         source_sha_before=args.source_sha_before,
         source_sha_after=args.source_sha_after,
+        source_manifest_sha256_before=args.source_manifest_sha256_before,
+        source_manifest_sha256_after=args.source_manifest_sha256_after,
         requested_model=args.requested_model,
+        requested_reasoning_effort=args.requested_reasoning_effort,
         runner_version=args.runner_version,
         cli_version=args.cli_version,
         session_stream=Path(args.session_stream),
@@ -387,6 +512,12 @@ def _artifact_command(args: argparse.Namespace) -> int:
         final_message=Path(args.final_message),
         exit_code=args.exit_code,
         source_clean=args.source_clean == "true",
+        github_repository=args.github_repository,
+        github_workflow_ref=args.github_workflow_ref,
+        github_workflow_sha=args.github_workflow_sha,
+        github_run_id=args.github_run_id,
+        github_run_attempt=args.github_run_attempt,
+        artifact_name=args.artifact_name,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -397,6 +528,7 @@ def _artifact_command(args: argparse.Namespace) -> int:
             "fallback-reason": artifact["fallback_reason"] or "",
             "thread-id": artifact["thread_id"] or "",
             "reported-model": artifact["reported_model"] or "",
+            "artifact-name": artifact["artifact_name"],
         }
     )
     return 0
@@ -416,6 +548,15 @@ def _bound_stream_command(args: argparse.Namespace) -> int:
                 retained = chunk[:remaining]
                 handle.write(retained)
                 remaining -= len(retained)
+    return 0
+
+
+def _source_manifest_command(args: argparse.Namespace) -> int:
+    manifest = source_manifest(Path(args.root))
+    output = Path(args.output)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_github_output({"aggregate-sha256": manifest["aggregate_sha256"]})
     return 0
 
 
@@ -441,13 +582,22 @@ def _parser() -> argparse.ArgumentParser:
         "expected-source-sha",
         "source-sha-before",
         "source-sha-after",
+        "source-manifest-sha256-before",
+        "source-manifest-sha256-after",
         "requested-model",
+        "requested-reasoning-effort",
         "runner-version",
         "cli-version",
         "session-stream",
         "codex-home",
         "final-message",
         "source-clean",
+        "github-repository",
+        "github-workflow-ref",
+        "github-workflow-sha",
+        "github-run-id",
+        "github-run-attempt",
+        "artifact-name",
         "output",
     ):
         artifact.add_argument(f"--{name}", required=True)
@@ -459,6 +609,10 @@ def _parser() -> argparse.ArgumentParser:
     bound_stream.add_argument("--output", required=True)
     bound_stream.add_argument("--max-bytes", type=int, default=65536)
     bound_stream.set_defaults(func=_bound_stream_command)
+    manifest = subparsers.add_parser("source-manifest")
+    manifest.add_argument("--root", required=True)
+    manifest.add_argument("--output", required=True)
+    manifest.set_defaults(func=_source_manifest_command)
     return parser
 
 
