@@ -35,16 +35,31 @@ from __future__ import annotations
 
 import argparse
 import csv
+import http.client
 import io
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
+
+# Transient network faults worth retrying (busy repos return large, sometimes
+# truncated, run pages — IncompleteRead is the common Windows symptom).
+_TRANSIENT_ERRORS = (
+    http.client.IncompleteRead,
+    urllib.error.URLError,
+    ConnectionError,
+    TimeoutError,
+    socket.timeout,
+)
+_HTTP_TIMEOUT = 30
+_MAX_ATTEMPTS = 4
 
 API_ROOT = "https://api.github.com"
 WORK_LOG_MARKER = "<!-- keepalive-work-log -->"
@@ -116,14 +131,31 @@ def _request(url: str, token: str) -> tuple[object, dict[str, str]]:
     req.add_header("Accept", "application/vnd.github+json")
     req.add_header("X-GitHub-Api-Version", "2022-11-28")
     req.add_header("User-Agent", "agent-eval-pull")
-    try:
-        with urllib.request.urlopen(req) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return data, dict(resp.headers)
-    except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", "replace")[:300]
-        _log(f"HTTP {exc.code} for {url}: {body}")
-        sys.exit(1)
+    last_error: Exception | None = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+                raw = resp.read()
+                return json.loads(raw.decode("utf-8")), dict(resp.headers)
+        except urllib.error.HTTPError as exc:
+            # 5xx and secondary rate limits are worth a retry; 4xx are not.
+            if exc.code in (429, 500, 502, 503, 504) and attempt < _MAX_ATTEMPTS:
+                last_error = exc
+            else:
+                body = exc.read().decode("utf-8", "replace")[:300]
+                _log(f"HTTP {exc.code} for {url}: {body}")
+                sys.exit(1)
+        except _TRANSIENT_ERRORS as exc:
+            last_error = exc
+        if attempt < _MAX_ATTEMPTS:
+            backoff = 2**attempt
+            _log(
+                f"transient error ({type(last_error).__name__}); "
+                f"retry {attempt}/{_MAX_ATTEMPTS - 1} in {backoff}s"
+            )
+            time.sleep(backoff)
+    _log(f"Giving up on {url} after {_MAX_ATTEMPTS} attempts: {last_error}")
+    sys.exit(1)
 
 
 def api_get(path: str, token: str, params: dict | None = None) -> object:
@@ -136,25 +168,36 @@ def api_get(path: str, token: str, params: dict | None = None) -> object:
 
 
 def api_paginate(
-    path: str, token: str, params: dict | None = None, items_key: str | None = None
-) -> list:
-    """Follow Link-header pagination; return a flat list of items.
+    path: str,
+    token: str,
+    params: dict | None = None,
+    items_key: str | None = None,
+    max_items: int | None = None,
+) -> tuple[list, bool]:
+    """Follow Link-header pagination; return (items, truncated).
 
     items_key handles endpoints that wrap the array in an object
-    (e.g. /actions/runs -> {"workflow_runs": [...]}).
+    (e.g. /actions/runs -> {"workflow_runs": [...]}). max_items caps the total
+    fetched so a branch with thousands of runs doesn't pull megabytes; when the
+    cap is hit, truncated is True.
     """
     params = dict(params or {})
     params.setdefault("per_page", 100)
     query = "&".join(f"{k}={v}" for k, v in params.items())
     url = f"{API_ROOT}/{path.lstrip('/')}?{query}"
     items: list = []
+    truncated = False
     while url:
         data, headers = _request(url, token)
         page = data.get(items_key, []) if items_key else data
         if isinstance(page, list):
             items.extend(page)
+        if max_items is not None and len(items) >= max_items:
+            items = items[:max_items]
+            truncated = _next_link(headers.get("Link", "")) is not None
+            break
         url = _next_link(headers.get("Link", ""))
-    return items
+    return items, truncated
 
 
 def _next_link(link_header: str) -> str | None:
@@ -363,18 +406,27 @@ def count_nonbot_comments(comments: list[dict]) -> int:
 
 
 # --------------------------------------------------------------------------
-def collect(pr: int, repo: str, token: str) -> dict:
+def collect(pr: int, repo: str, token: str, max_runs: int = 500) -> dict:
     owner, name = repo.split("/", 1)
     pr_data = api_get(f"repos/{owner}/{name}/pulls/{pr}", token)
     head_ref = (pr_data.get("head") or {}).get("ref", "")
 
-    comments = api_paginate(f"repos/{owner}/{name}/issues/{pr}/comments", token)
-    runs = api_paginate(
+    comments, _ = api_paginate(f"repos/{owner}/{name}/issues/{pr}/comments", token)
+    run_params = {"exclude_pull_requests": "true"}
+    if head_ref:
+        run_params["branch"] = head_ref
+    runs, runs_truncated = api_paginate(
         f"repos/{owner}/{name}/actions/runs",
         token,
-        params={"branch": head_ref} if head_ref else None,
+        params=run_params,
         items_key="workflow_runs",
+        max_items=max_runs,
     )
+    if runs_truncated:
+        _log(
+            f"run history capped at {max_runs} (branch has more); "
+            f"wall_clock_min/run_count are a lower bound. Raise with --max-runs."
+        )
 
     rounds, failures = parse_worklog(comments)
     verify = parse_verify(comments)
@@ -412,10 +464,16 @@ def main() -> int:
     parser.add_argument(
         "--out", help="Append a CSV row to this file (writes header if new)"
     )
+    parser.add_argument(
+        "--max-runs",
+        type=int,
+        default=500,
+        help="Cap Actions runs fetched for wall-clock (default 500)",
+    )
     args = parser.parse_args()
 
     token = get_token()
-    row = collect(args.pr, args.repo, token)
+    row = collect(args.pr, args.repo, token, max_runs=args.max_runs)
 
     if args.json:
         print(json.dumps(row, indent=2))
