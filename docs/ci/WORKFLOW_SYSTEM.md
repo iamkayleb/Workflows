@@ -663,8 +663,10 @@ Keep this table handy when you are triaging automation: it confirms which workfl
 - **Reusable Agents** – `reusable-16-agents.yml` powers orchestrated dispatch.
 - **Reusable Autofix** – `reusable-18-autofix.yml` centralizes fixers for Gate summary job.
 - **Reusable Model Profile Trial** – `reusable-model-profile-trial.yml` runs one
-  immutable read-only Sol/Terra/Luna plumbing arm and emits quarantine-only
-  identity telemetry; `agents-model-profile-trial.yml` is its manual shim.
+  immutable read-only Sol/Terra/Luna plumbing arm from a separately pinned
+  helper checkout. It requires current remote `main` before auth and emits v2
+  quarantine telemetry with GitHub provenance and bounded source manifests;
+  `agents-model-profile-trial.yml` is its manual shim.
 - **Selftest: Reusables** – `selftest-reusable-ci.yml` is the consolidated entry
   point. It runs nightly via cron (06:30 UTC) to rehearse the reusable matrix
   and accepts manual dispatches for summary/comment publication. Inputs:

@@ -262,6 +262,12 @@ function resolveExecutionProfile(profileId, options = {}) {
     );
   }
   validateExecutionProfile(id, profile, registry);
+  if (String(profile.lifecycle || '').trim() !== 'active') {
+    throw new Error(
+      `Execution profile ${id} has lifecycle ${profile.lifecycle || '(empty)'}; ` +
+        'ordinary agent execution accepts active profiles only',
+    );
+  }
   return {
     id,
     ...profile,

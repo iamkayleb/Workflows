@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 from scripts import model_profile_trial_contract as contract
 
-PINNED_REF = "stranske/Workflows/.github/workflows/" "reusable-model-profile-trial.yml@" + "1" * 40
+PINNED_REF = (
+    "stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@"
+    + ("1" * 40)
+)
 
 
 def _registries():
@@ -15,6 +18,7 @@ def _registries():
             "mode": "read-only",
             "artifact_schema": contract.ARTIFACT_SCHEMA,
             "identity_authority": contract.IDENTITY_AUTHORITY,
+            "collector_identity_authority": contract.COLLECTOR_IDENTITY_AUTHORITY,
             "runner_ref": PINNED_REF,
             "cli_version": contract.EXPECTED_CLI_VERSION,
             "runtime_fallback_allowed": False,
@@ -96,7 +100,10 @@ def _artifact(tmp_path: Path, **overrides):
         "expected_source_sha": source_sha,
         "source_sha_before": source_sha,
         "source_sha_after": source_sha,
+        "source_manifest_sha256_before": "sha256:" + "d" * 64,
+        "source_manifest_sha256_after": "sha256:" + "d" * 64,
         "requested_model": "gpt-5.6-sol",
+        "requested_reasoning_effort": "high",
         "runner_version": PINNED_REF,
         "cli_version": "codex-cli 0.144.1",
         "session_stream": stream,
@@ -104,6 +111,12 @@ def _artifact(tmp_path: Path, **overrides):
         "final_message": final_message,
         "exit_code": 0,
         "source_clean": True,
+        "github_repository": contract.EXPECTED_REPOSITORY,
+        "github_workflow_ref": contract.EXPECTED_WORKFLOW_REF,
+        "github_workflow_sha": source_sha,
+        "github_run_id": 12345,
+        "github_run_attempt": 2,
+        "artifact_name": "model-trial-12345-2",
     }
     values.update(overrides)
     return contract.build_artifact(**values)
@@ -137,7 +150,12 @@ def test_success_artifact_uses_session_turn_context_and_keeps_provider_null(tmp_
     assert artifact["fallback_reason"] is None
     assert artifact["thread_id"] == "019f-trial-thread"
     assert artifact["source_sha_before"] == artifact["source_sha_after"]
+    assert artifact["source_manifest_sha256_before"] == artifact["source_manifest_sha256_after"]
     assert artifact["launch_ordinal"] == 2
+    assert artifact["version"] == 2
+    assert artifact["requested_reasoning_effort"] == "high"
+    assert artifact["reported_reasoning_effort"] == "high"
+    assert artifact["github_workflow_ref"] == contract.EXPECTED_WORKFLOW_REF
 
 
 def test_artifact_fails_closed_on_model_effort_or_source_drift(tmp_path):
@@ -152,6 +170,13 @@ def test_artifact_fails_closed_on_model_effort_or_source_drift(tmp_path):
     source = _artifact(tmp_path / "source", source_sha_after="d" * 40)
     assert source["status"] == "failed"
     assert source["fallback_reason"] == "source_sha_changed"
+
+    manifest = _artifact(
+        tmp_path / "manifest",
+        source_manifest_sha256_after="sha256:" + "e" * 64,
+    )
+    assert manifest["status"] == "failed"
+    assert manifest["fallback_reason"] == "source_manifest_changed"
 
 
 def test_thread_identity_must_come_from_exact_matching_rollout(tmp_path):
@@ -180,7 +205,10 @@ def test_thread_identity_must_come_from_exact_matching_rollout(tmp_path):
         expected_source_sha=source_sha,
         source_sha_before=source_sha,
         source_sha_after=source_sha,
+        source_manifest_sha256_before="sha256:" + "d" * 64,
+        source_manifest_sha256_after="sha256:" + "d" * 64,
         requested_model="gpt-5.6-sol",
+        requested_reasoning_effort="high",
         runner_version=PINNED_REF,
         cli_version="codex-cli 0.144.1",
         session_stream=tmp_path / "stream.jsonl",
@@ -188,6 +216,12 @@ def test_thread_identity_must_come_from_exact_matching_rollout(tmp_path):
         final_message=final_message,
         exit_code=0,
         source_clean=True,
+        github_repository=contract.EXPECTED_REPOSITORY,
+        github_workflow_ref=contract.EXPECTED_WORKFLOW_REF,
+        github_workflow_sha=source_sha,
+        github_run_id=12345,
+        github_run_attempt=1,
+        artifact_name="model-trial-12345-1",
     )
     assert broken["reported_model"] is None
     assert broken["fallback_reason"] == "reported_model_missing"
@@ -211,7 +245,10 @@ def test_failed_cli_with_malformed_stream_still_emits_failure_artifact(tmp_path)
         expected_source_sha=source_sha,
         source_sha_before=source_sha,
         source_sha_after=source_sha,
+        source_manifest_sha256_before="sha256:" + "d" * 64,
+        source_manifest_sha256_after="sha256:" + "d" * 64,
         requested_model="gpt-5.6-sol",
+        requested_reasoning_effort="high",
         runner_version=PINNED_REF,
         cli_version="codex-cli 0.144.1",
         session_stream=stream,
@@ -219,7 +256,39 @@ def test_failed_cli_with_malformed_stream_still_emits_failure_artifact(tmp_path)
         final_message=final_message,
         exit_code=1,
         source_clean=True,
+        github_repository=contract.EXPECTED_REPOSITORY,
+        github_workflow_ref=contract.EXPECTED_WORKFLOW_REF,
+        github_workflow_sha=source_sha,
+        github_run_id=12345,
+        github_run_attempt=1,
+        artifact_name="model-trial-12345-1",
     )
     assert artifact["status"] == "failed"
     assert artifact["fallback_reason"] == "codex_cli_failed"
     assert set(artifact) == contract.ARTIFACT_FIELDS
+
+
+def test_artifact_rejects_non_authoritative_github_provenance(tmp_path):
+    with pytest.raises(contract.ContractError, match="github_workflow_ref"):
+        _artifact(
+            tmp_path,
+            github_workflow_ref=(
+                "stranske/Workflows/.github/workflows/agents-model-profile-trial.yml@refs/pull/1/merge"
+            ),
+        )
+
+
+def test_source_manifest_is_stable_and_detects_ignored_file_changes(tmp_path):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    (checkout / "tracked.txt").write_text("tracked\n", encoding="utf-8")
+    ignored = checkout / ".trial-local"
+    ignored.write_text("before\n", encoding="utf-8")
+
+    before = contract.source_manifest(checkout)
+    assert before["file_count"] == 2
+    assert before == contract.source_manifest(checkout)
+
+    ignored.write_text("after\n", encoding="utf-8")
+    after = contract.source_manifest(checkout)
+    assert before["aggregate_sha256"] != after["aggregate_sha256"]

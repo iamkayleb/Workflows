@@ -91,7 +91,8 @@ _Inline Gate helper_
   instrumentation-only Sol/Terra/Luna plumbing trial. It forwards only frozen
   trial/request/profile/hash/source inputs and subscription auth to the
   immutable `reusable-model-profile-trial.yml` ref recorded in the registry.
-  It is not a keepalive, evaluator, merge, or learning lane.
+  It is not a keepalive, evaluator, merge, or learning lane; ordinary agent
+  and Keepalive resolution reject all `lifecycle: trial` profiles.
 - **Consumer default entry points** — New consumer repos should install the template-managed pair `agents-80-pr-event-hub.yml` + `agents-81-gate-followups.yml` (along with `agents-verifier.yml`, `pr-00-gate.yml`, `AGENTS.md`, and `CLAUDE.md`). Treat `agents-pr-meta-v4.yml` as Workflows-local infrastructure, not a default consumer setup file.
 - **`agents-63-issue-intake.yml`** — Canonical front door for Codex issues. It normalizes ChatGPT export blobs / topic lists, dedupes and validates the resulting queue, optionally re-formats the new issues via LangChain, and drives the label-enforced issue bridge when `agent_bridge` mode is selected. The workflow now relies solely on the installation token + the shared API client (no ad-hoc GitHub App token mints), so manual reruns and workflow_call invocations stay lightweight while still enforcing the single-agent label contract before dispatching work to the belt.
 - **`agents-64-verify-agent-assignment.yml`** — Workflow-call validator that enforces the single `agent:*` label contract and confirms the assignee belongs to the approved automation roster. It now runs entirely on the default workflow token with the shared retry helper (no bespoke GitHub App mint), so verification hooks stay lightweight for orchestrator and issue-bridge callers.
@@ -158,11 +159,13 @@ _Inline Gate helper_
 - **`reusable-bot-comment-handler.yml`** — Collects unresolved bot review comments, generates a per-agent prompt, and dispatches the appropriate runner. Prefers GitHub App client ID auth, records the selected App auth mode, keeps a warning-only legacy App ID fallback, and still falls back to `service_bot_pat` or `GITHUB_TOKEN` so consumer repos don’t have to configure extra secrets.
 - **`reusable-codex-run.yml`** — Codex execution wrapper that checks out the target PR branch, installs the pinned Codex CLI, runs the prompt, and pushes commits when the GitHub App token is available (otherwise drops to read-only mode using `GITHUB_TOKEN`).
 - **`reusable-model-profile-trial.yml`** — Dedicated read-only Codex trial
-  worker. It validates the registry profile and immutable source SHA, installs
-  exactly Codex CLI 0.144.1, requests high reasoning once with no fallback,
-  reads the CLI-reported model from the matching persisted `turn_context`, and
-  uploads one strict `workflows.model-profile-trial-result/v1` artifact.
-  Provider-resolved identity remains null and the artifact is quarantine-only.
+  worker. It executes an immutable helper checkout separately from the target,
+  requires the target SHA to equal current remote `main` before auth, installs
+  exactly Codex CLI 0.144.1, and requests high reasoning once with no fallback.
+  Its strict `workflows.model-profile-trial-result/v2` artifact retains requested
+  and CLI-reported reasoning, GitHub provenance, and bounded before/after source
+  manifests. Provider-resolved identity remains null and the artifact is
+  quarantine-only; the collector verifies it with a separate API authority.
 - **`reusable-claude-run.yml`** — Claude CLI wrapper for keepalive/autofix scenarios. It mints the Workflows GitHub App token when available so branch pushes can mirror Codex parity, reuses the shared setup-api-client checkout, hardens the Workflows scripts checkout (detecting blobless-clone ghost dirs and reinstalling @octokit deps), and exposes inputs for prompt files, sandbox/safety flags, runtime caps, and appendices. Use it anywhere Claude needs to run the same branch-update loop as Codex.
 - **`reusable-agents-issue-bridge.yml`** — Shared issue→PR bridge used by `agents-63-issue-intake.yml`; reads `.github/agents/registry.yml` to honor each agent’s branch prefix + assignee list, applies invite/create modes, and now relies solely on the shared token chain (service bot / owner PAT / default token) without minting extra App tokens.
 - **`reusable-agents-verifier.yml`** — Post-merge verifier reusable that waits for CI (tracking every configured workflow until each has both started and completed), builds PR context, runs checkbox/evaluate/compare modes via the agent verifier stack, and opens follow-up issues when acceptance criteria fail. It mints the Workflows GitHub App token up front so both the caller repo and the Workflows scripts checkout succeed for private/same-repo callers, then falls back to `GITHUB_TOKEN` automatically when App secrets are absent.

@@ -49,7 +49,7 @@ permissions:
 
 jobs:
   trial:
-    uses: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@d497362bc4b409895c3ddf7b5dd33e587a0414d2
+    uses: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@822e323eefba3edb640e0bd9c922caec6fffee65
     permissions:
       contents: read
     with:
@@ -61,5 +61,6 @@ jobs:
       packet_hash: ${{ inputs.packet_hash }}
       launch_ordinal: ${{ fromJSON(inputs.launch_ordinal) }}
       expected_source_sha: ${{ inputs.expected_source_sha }}
+      runner_sha: 822e323eefba3edb640e0bd9c922caec6fffee65
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}

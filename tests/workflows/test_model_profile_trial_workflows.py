@@ -8,6 +8,7 @@ import yaml
 SHIM = Path(".github/workflows/agents-model-profile-trial.yml")
 RUNNER = Path(".github/workflows/reusable-model-profile-trial.yml")
 REGISTRY = Path(".github/agents/registry.yml")
+TEMPLATE_REGISTRY = Path("templates/consumer-repo/.github/agents/registry.yml")
 
 
 def _workflow(path: Path):
@@ -41,9 +42,13 @@ def test_dispatch_shim_is_single_arm_and_calls_only_pinned_reusable_runner():
     assert list(workflow["jobs"]) == ["trial"]
     runner_ref = workflow["jobs"]["trial"]["uses"]
     assert re.fullmatch(
-        r"stranske/Workflows/\.github/workflows/" r"reusable-model-profile-trial\.yml@[0-9a-f]{40}",
+        r"stranske/Workflows/\.github/workflows/"
+        r"reusable-model-profile-trial\.yml@[0-9a-f]{40}",
         runner_ref,
     )
+    runner_sha = workflow["jobs"]["trial"]["with"]["runner_sha"]
+    assert re.fullmatch(r"[0-9a-f]{40}", runner_sha)
+    assert runner_ref.endswith("@" + runner_sha)
     assert workflow["permissions"] == {"contents": "read"}
     assert "inherit" not in str(workflow["jobs"]["trial"].get("secrets"))
 
@@ -60,6 +65,9 @@ def test_reusable_runner_is_read_only_exact_cli_and_has_no_write_lane():
     assert 'model_reasoning_effort="high"' in source
     assert "--ignore-user-config" in source
     assert "persist-credentials: false" in source
+    assert "expected_source_sha must equal current remote main before auth" in source
+    assert "git ls-remote https://github.com/stranske/Workflows.git refs/heads/main" in source
+    assert "target-src/scripts/" not in source
     assert "provider_resolved" not in source
     forbidden = (
         "git commit",
@@ -81,21 +89,52 @@ def test_runner_uploads_one_unique_attempt_and_enforces_source_integrity():
         step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")
     ]
     assert len(uploads) == 1
-    name = uploads[0]["with"]["name"]
-    assert "github.run_id" in name and "github.run_attempt" in name
+    assert uploads[0]["with"]["name"] == "${{ steps.artifact.outputs.artifact-name }}"
     source = RUNNER.read_text(encoding="utf-8")
+    assert 'artifact_name="model-profile-trial-${PROFILE_ID}-${GITHUB_RUN_ID_VALUE}"' in source
+    assert 'artifact_name+="-${GITHUB_RUN_ATTEMPT_VALUE}-${LAUNCH_ORDINAL}"' in source
     assert "source-sha-before" in source
     assert "source-sha-after" in source
-    assert "git status --porcelain --untracked-files=all" in source
+    assert "source-manifest-sha256-before" in source
+    assert "source-manifest-sha256-after" in source
+    assert "git -C target-src status --porcelain --untracked-files=all" in source
+    assert "Unable to determine target checkout status" in source
     assert "model_profile_trial_contract.py artifact" in source
+
+
+def test_runner_uses_separate_pinned_helper_checkout_and_full_action_shas():
+    workflow = _workflow(RUNNER)
+    steps = workflow["jobs"]["run-single-arm"]["steps"]
+    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
+    assert len(checkouts) == 2
+    assert checkouts[0]["with"] == {
+        "repository": "stranske/Workflows",
+        "ref": "${{ inputs.runner_sha }}",
+        "path": "runner-src",
+        "persist-credentials": False,
+    }
+    assert checkouts[1]["with"]["path"] == "target-src"
+    for step in steps:
+        uses = str(step.get("uses", ""))
+        if uses.startswith(("actions/checkout@", "actions/setup-python@", "actions/upload-artifact@")):
+            assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", uses)
+
+    source = RUNNER.read_text(encoding="utf-8")
+    auth_offset = source.index("Configure isolated Codex subscription auth")
+    assert "python target-src/" not in source[auth_offset:]
+    assert "runner-src/scripts/model_profile_trial_contract.py" in source[auth_offset:]
 
 
 def test_registry_trial_profiles_share_exact_pinned_read_only_contract():
     registry = yaml.safe_load(REGISTRY.read_text(encoding="utf-8"))
     trial = registry["model_profile_trial_contract"]
     assert trial["mode"] == "read-only"
-    assert trial["artifact_schema"] == "workflows.model-profile-trial-result/v1"
-    assert trial["identity_authority"] == "workflows-read-only-trial-artifact/v1"
+    assert trial["artifact_schema"] == "workflows.model-profile-trial-result/v2"
+    assert trial["identity_authority"] == "workflows-read-only-trial-artifact/v2"
+    assert (
+        trial["collector_identity_authority"]
+        == "github-actions-api/workflows-read-only-trial-artifact/v2"
+    )
     assert trial["cli_version"] == "0.144.1"
     assert trial["runtime_fallback_allowed"] is False
     assert trial["auxiliary_evaluator_allowed"] is False
@@ -111,3 +150,7 @@ def test_registry_trial_profiles_share_exact_pinned_read_only_contract():
         assert profile["reasoning_effort"] == "high"
         assert profile["permission_mode"] == "read-only"
         assert profile["safety"] == "read-only"
+
+
+def test_consumer_template_registry_matches_authoritative_registry():
+    assert TEMPLATE_REGISTRY.read_text(encoding="utf-8") == REGISTRY.read_text(encoding="utf-8")
