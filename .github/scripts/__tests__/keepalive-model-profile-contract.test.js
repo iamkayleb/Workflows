@@ -44,6 +44,20 @@ test('workflow dispatch profile input is honored when PR body omits a profile', 
   );
 });
 
+test('ordinary keepalive execution rejects lifecycle trial profiles', () => {
+  const registry = readWorkflow('.github/scripts/agent_registry.js');
+  assert.match(
+    registry,
+    /String\(profile\.lifecycle \|\| ''\)\.trim\(\) !== 'active'/,
+    'expected the shared resolver to fail closed before Keepalive can use a trial profile',
+  );
+  assert.match(
+    registry,
+    /ordinary agent execution accepts active profiles only/,
+    'expected an explicit lifecycle rejection rather than a normal runner fallback',
+  );
+});
+
 test('profile validation is limited to codex execution actions', () => {
   const keepaliveLoop = readWorkflow('.github/scripts/keepalive_loop.js');
   assert.match(

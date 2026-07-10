@@ -17,7 +17,10 @@ except ImportError:
     sys.exit(1)
 
 
-LINE_LENGTH_EXEMPTIONS = ("stranske/Workflows/.github/actions/setup-api-client@",)
+LINE_LENGTH_EXEMPTIONS = (
+    "stranske/Workflows/.github/actions/setup-api-client@",
+    "stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@",
+)
 
 
 def check_line_length(file_path: Path, max_length: int = 100) -> list[tuple[int, str]]:
