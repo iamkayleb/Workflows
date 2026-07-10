@@ -222,6 +222,7 @@ def test_workflow_display_names_are_unique():
 
 
 EXPECTED_NAMES = {
+    "agents-model-profile-trial.yml": "Agents Model Profile Trial",
     "agents-autofix-loop.yml": "Agents Autofix Loop",
     "agents-autofix-dispatcher.yml": "Agents Autofix Dispatch",
     "agents-auto-label.yml": "Auto-Label Issues",
@@ -319,6 +320,7 @@ EXPECTED_NAMES = {
     "reusable-cursor-run.yml": "Reusable Cursor Run",
     "reusable-gemini-run.yml": "Reusable Gemini Run",
     "reusable-codex-run.yml": "Reusable Codex Run",
+    "reusable-model-profile-trial.yml": "Reusable Model Profile Trial",
     "reusable-20-pr-meta.yml": "Reusable 20 PR Meta",
     "reusable-70-orchestrator-init.yml": "Agents 70 Init (Reusable)",
     "reusable-70-orchestrator-main.yml": "Agents 70 Main (Reusable)",

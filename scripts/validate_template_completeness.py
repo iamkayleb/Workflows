@@ -36,6 +36,7 @@ WORKFLOWS_ONLY = {
     "health-76-codex-cli-freshness.yml",
     # Debug/testing workflows
     "agents-debug-issue-event.yml",
+    "agents-model-profile-trial.yml",  # Workflows-owned remote trial transport
     # Internal dispatch handlers
     "agents-keepalive-branch-sync.yml",
     "agents-keepalive-dispatch-handler.yml",

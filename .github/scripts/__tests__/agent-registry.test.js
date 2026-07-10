@@ -238,9 +238,11 @@ test('resolveExecutionProfile exposes the explicit Sol Terra Luna trial profiles
     assert.equal(profile.agent, 'codex');
     assert.equal(profile.model, model);
     assert.equal(profile.fallback_model, fallback);
-    assert.equal(profile.runner, 'reusable-codex-run');
+    assert.equal(profile.runner, 'reusable-model-profile-trial');
     assert.equal(profile.capacity_pool, 'codex-standard');
     assert.equal(profile.lifecycle, 'trial');
+    assert.equal(profile.reasoning_effort, 'high');
+    assert.equal(profile.permission_mode, 'read-only');
   }
 });
 

@@ -1,0 +1,65 @@
+name: Agents Model Profile Trial
+
+on:
+  workflow_dispatch:
+    inputs:
+      trial_id:
+        description: Frozen Orchestrator trial identifier.
+        required: true
+        type: string
+      request_id:
+        description: Replay-stable request identifier from the trial bridge.
+        required: true
+        type: string
+      request_hash:
+        description: Replay hash of the exact bridge request.
+        required: true
+        type: string
+      trial_run_id:
+        description: Unique worker run identifier for this arm.
+        required: true
+        type: string
+      profile_id:
+        description: Exact Sol, Terra, or Luna execution profile ID.
+        required: true
+        type: choice
+        options:
+          - codex-5.6-sol-high
+          - codex-5.6-terra-high
+          - codex-5.6-luna-high
+      packet_hash:
+        description: SHA-256 identity of the frozen common task packet.
+        required: true
+        type: string
+      launch_ordinal:
+        description: Randomized arm launch position, from 1 through 3.
+        required: true
+        type: choice
+        options:
+          - "1"
+          - "2"
+          - "3"
+      expected_source_sha:
+        description: Full immutable Workflows source SHA for this arm.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  trial:
+    uses: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@9a76665fa59afbbd0464259f91371d5704e44b1b
+    permissions:
+      contents: read
+    with:
+      trial_id: ${{ inputs.trial_id }}
+      request_id: ${{ inputs.request_id }}
+      request_hash: ${{ inputs.request_hash }}
+      trial_run_id: ${{ inputs.trial_run_id }}
+      profile_id: ${{ inputs.profile_id }}
+      packet_hash: ${{ inputs.packet_hash }}
+      launch_ordinal: ${{ fromJSON(inputs.launch_ordinal) }}
+      expected_source_sha: ${{ inputs.expected_source_sha }}
+    secrets:
+      CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
