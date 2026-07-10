@@ -133,9 +133,11 @@ jobs:
 
             // Find verification comment(s) - both evaluate and compare
             const verifyComments = comments.filter(c =>
+              c.body.includes('## Provider Comparison Report') ||
               c.body.includes('## PR Verification Report') ||
               c.body.includes('## PR Verification Comparison') ||
               c.body.includes('### Concerns') ||
+              c.body.includes('### Unique Insights') ||
               c.body.includes('Verdict:') ||
               c.body.includes('### ⚠️ Issues Detected')
             );
@@ -233,7 +235,15 @@ jobs:
 
       - name: Fallback to simple extraction
         id: fallback
-        if: steps.generate.outcome == 'failure' && steps.check-merged.outputs.merged == 'true'
+        # Fire not only on a hard failure but also when generation "succeeds"
+        # yet yields an empty title/body (e.g. the no-LLM path produced
+        # nothing usable). Without this the create step dies on empty output
+        # and no follow-up issue is created.
+        if: >-
+          steps.check-merged.outputs.merged == 'true' &&
+          (steps.generate.outcome == 'failure' ||
+           steps.generate.outputs.issue_title == '' ||
+           steps.generate.outputs.issue_body == '')
         uses: actions/github-script@v8
         with:
           github-token: ${{ steps.select-token.outputs.token }}
