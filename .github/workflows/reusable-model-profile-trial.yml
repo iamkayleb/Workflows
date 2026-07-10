@@ -129,6 +129,8 @@ jobs:
         id: cli
         run: |
           set -euo pipefail
+          # zizmor: ignore[adhoc-install] The subscription CLI has no supported lockfile runner;
+          # this canary pins one immutable npm version and fails unless codex reports it exactly.
           npm install -g "@openai/codex@0.144.1"
           cli_version="$(codex --version | tr '\n' ' ' | sed -e 's/[[:space:]]*$//')"
           if ! printf '%s' "$cli_version" | grep -Eq '(^|[[:space:]])0\.144\.1($|[[:space:]])'; then
