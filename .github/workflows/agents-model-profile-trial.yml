@@ -49,7 +49,7 @@ permissions:
 
 jobs:
   trial:
-    uses: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@9a76665fa59afbbd0464259f91371d5704e44b1b
+    uses: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@d497362bc4b409895c3ddf7b5dd33e587a0414d2
     permissions:
       contents: read
     with:
