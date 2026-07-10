@@ -1,0 +1,297 @@
+name: Reusable Model Profile Trial
+
+on:
+  workflow_call:
+    inputs:
+      trial_id:
+        description: Frozen Orchestrator trial identifier.
+        required: true
+        type: string
+      request_id:
+        description: Replay-stable request identifier from the trial bridge.
+        required: true
+        type: string
+      request_hash:
+        description: Replay hash of the exact bridge request.
+        required: true
+        type: string
+      trial_run_id:
+        description: Unique worker run identifier for this arm.
+        required: true
+        type: string
+      profile_id:
+        description: Exact Sol, Terra, or Luna execution profile ID.
+        required: true
+        type: string
+      packet_hash:
+        description: SHA-256 identity of the frozen common task packet.
+        required: true
+        type: string
+      launch_ordinal:
+        description: Randomized arm launch position, from 1 through 3.
+        required: true
+        type: number
+      expected_source_sha:
+        description: Full immutable Workflows source SHA for this arm.
+        required: true
+        type: string
+    secrets:
+      CODEX_AUTH_JSON:
+        description: JSON contents of Codex subscription auth.
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-profile-trial-${{ inputs.trial_id }}-${{ inputs.trial_run_id }}
+  cancel-in-progress: false
+
+jobs:
+  run-single-arm:
+    name: Read-only ${{ inputs.profile_id }} arm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.expected_source_sha }}
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "24"
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Validate frozen inputs and registry profile
+        id: profile
+        env:
+          PROFILE_ID: ${{ inputs.profile_id }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          TRIAL_ID: ${{ inputs.trial_id }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_HASH: ${{ inputs.request_hash }}
+          TRIAL_RUN_ID: ${{ inputs.trial_run_id }}
+          PACKET_HASH: ${{ inputs.packet_hash }}
+          LAUNCH_ORDINAL: ${{ inputs.launch_ordinal }}
+        run: |
+          set -euo pipefail
+          source_sha="$(git rev-parse HEAD)"
+          if [ "$source_sha" != "$EXPECTED_SOURCE_SHA" ]; then
+            echo "::error::Checkout SHA does not match expected_source_sha."
+            exit 1
+          fi
+          if ! printf '%s' "$EXPECTED_SOURCE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::expected_source_sha must be a full lowercase Git SHA."
+            exit 1
+          fi
+          if ! printf '%s' "$REQUEST_HASH" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::request_hash is not a canonical SHA-256 identity."
+            exit 1
+          fi
+          if ! printf '%s' "$PACKET_HASH" | grep -Eq '^sha256:[0-9a-f]{64}$'; then
+            echo "::error::packet_hash is not a canonical SHA-256 identity."
+            exit 1
+          fi
+          case "$LAUNCH_ORDINAL" in
+            1|2|3) ;;
+            *) echo "::error::launch_ordinal must be 1, 2, or 3."; exit 1 ;;
+          esac
+          for value in "$TRIAL_ID" "$REQUEST_ID" "$TRIAL_RUN_ID" "$PROFILE_ID"; do
+            if ! printf '%s' "$value" | grep -Eq '^[A-Za-z0-9._:/-]{1,200}$'; then
+              echo "::error::Trial identifiers must be bounded stable identifiers."
+              exit 1
+            fi
+          done
+
+          # Ruby's standard-library YAML parser avoids an unpinned Python
+          # dependency solely to read the authoritative agent registry.
+          ruby -ryaml -rjson -e \
+            'puts JSON.generate(YAML.safe_load(File.read(ARGV[0]), aliases: false))' \
+            .github/agents/registry.yml > "$RUNNER_TEMP/agent-registry.json"
+
+          python scripts/model_profile_trial_contract.py resolve \
+            --registry-json "$RUNNER_TEMP/agent-registry.json" \
+            --model-registry config/model_registry.json \
+            --profile-id "$PROFILE_ID" \
+            --output "$RUNNER_TEMP/resolved-profile.json"
+          echo "source-sha-before=$source_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Install exact Codex CLI
+        id: cli
+        run: |
+          set -euo pipefail
+          npm install -g "@openai/codex@0.144.1"
+          cli_version="$(codex --version | tr '\n' ' ' | sed -e 's/[[:space:]]*$//')"
+          if ! printf '%s' "$cli_version" | grep -Eq '(^|[[:space:]])0\.144\.1($|[[:space:]])'; then
+            echo "::error::Installed Codex CLI is not exactly 0.144.1."
+            exit 1
+          fi
+          echo "cli-version=$cli_version" >> "$GITHUB_OUTPUT"
+
+      - name: Configure isolated Codex subscription auth
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CODEX_AUTH_JSON" ]; then
+            echo "::error::CODEX_AUTH_JSON is required; this runner never refreshes auth."
+            exit 1
+          fi
+          install -d -m 700 "$RUNNER_TEMP/codex-trial-home"
+          printf '%s' "$CODEX_AUTH_JSON" > "$RUNNER_TEMP/codex-trial-home/auth.json"
+          chmod 600 "$RUNNER_TEMP/codex-trial-home/auth.json"
+
+      - name: Prepare fixed read-only canary packet
+        env:
+          PACKET_HASH: ${{ inputs.packet_hash }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+          TRIAL_RUN_ID: ${{ inputs.trial_run_id }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo "You are one arm of a frozen read-only model-profile plumbing canary."
+            echo "Inspect this checkout only enough to confirm that it is readable."
+            echo "Do not edit, create, commit, push, comment, or refresh auth."
+            echo "Do not invoke another evaluator."
+            echo "The source checkout must remain byte-for-byte clean."
+            echo "Return one concise line containing all four exact values below:"
+            echo "packet_hash=$PACKET_HASH"
+            echo "source_sha=$EXPECTED_SOURCE_SHA"
+            echo "profile_id=$PROFILE_ID"
+            echo "trial_run_id=$TRIAL_RUN_ID"
+          } > "$RUNNER_TEMP/model-profile-trial-prompt.txt"
+
+      - name: Run one Codex arm in read-only mode
+        id: codex
+        continue-on-error: true
+        env:
+          CODEX_HOME: ${{ runner.temp }}/codex-trial-home
+          REQUESTED_MODEL: ${{ steps.profile.outputs.model }}
+        run: |
+          set -uo pipefail
+          session_stream="$RUNNER_TEMP/codex-trial-session.jsonl"
+          stderr_log="$RUNNER_TEMP/codex-trial-stderr.log"
+          stderr_pipe="$RUNNER_TEMP/codex-trial-stderr.pipe"
+          final_message="$RUNNER_TEMP/codex-trial-final.txt"
+          : > "$session_stream"
+          : > "$stderr_log"
+          : > "$final_message"
+          rm -f "$stderr_pipe"
+          mkfifo "$stderr_pipe"
+          python scripts/model_profile_trial_contract.py bound-stream \
+            --output "$stderr_log" --max-bytes 65536 \
+            < "$stderr_pipe" &
+          stderr_capture_pid=$!
+
+          codex exec \
+            --json \
+            --ignore-user-config \
+            --strict-config \
+            --skip-git-repo-check \
+            --sandbox read-only \
+            --model "$REQUESTED_MODEL" \
+            -c 'model_reasoning_effort="high"' \
+            --output-last-message "$final_message" \
+            "$(cat "$RUNNER_TEMP/model-profile-trial-prompt.txt")" \
+            > "$session_stream" \
+            2> "$stderr_pipe"
+          exit_code=$?
+          wait "$stderr_capture_pid"
+          rm -f "$stderr_pipe"
+          echo "exit-code=$exit_code" >> "$GITHUB_OUTPUT"
+          exit "$exit_code"
+
+      - name: Verify source integrity
+        id: source_after
+        if: ${{ always() }}
+        env:
+          SOURCE_SHA_BEFORE: ${{ steps.profile.outputs.source-sha-before }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -euo pipefail
+          source_sha_after="$(git rev-parse HEAD)"
+          source_clean=true
+          if [ "$SOURCE_SHA_BEFORE" != "$EXPECTED_SOURCE_SHA" ] || \
+             [ "$source_sha_after" != "$EXPECTED_SOURCE_SHA" ] || \
+             [ -n "$(git status --porcelain --untracked-files=all)" ]; then
+            source_clean=false
+          fi
+          echo "source-sha-after=$source_sha_after" >> "$GITHUB_OUTPUT"
+          echo "source-clean=$source_clean" >> "$GITHUB_OUTPUT"
+
+      - name: Emit strict quarantine artifact
+        id: artifact
+        if: ${{ always() }}
+        env:
+          CODEX_HOME: ${{ runner.temp }}/codex-trial-home
+          CODEX_EXIT_CODE: ${{ steps.codex.outputs.exit-code || '1' }}
+          SOURCE_SHA_BEFORE: >-
+            ${{ steps.profile.outputs.source-sha-before || inputs.expected_source_sha }}
+          SOURCE_SHA_AFTER: >-
+            ${{ steps.source_after.outputs.source-sha-after || inputs.expected_source_sha }}
+          SOURCE_CLEAN: ${{ steps.source_after.outputs.source-clean || 'false' }}
+          REQUESTED_MODEL: ${{ steps.profile.outputs.model }}
+          RUNNER_VERSION: ${{ steps.profile.outputs.runner-ref }}
+          CLI_VERSION: ${{ steps.cli.outputs.cli-version || 'unknown' }}
+          TRIAL_ID: ${{ inputs.trial_id }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          REQUEST_HASH: ${{ inputs.request_hash }}
+          TRIAL_RUN_ID: ${{ inputs.trial_run_id }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+          LAUNCH_ORDINAL: ${{ inputs.launch_ordinal }}
+          PACKET_HASH: ${{ inputs.packet_hash }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        run: |
+          set -euo pipefail
+          python scripts/model_profile_trial_contract.py artifact \
+            --trial-id "$TRIAL_ID" \
+            --request-id "$REQUEST_ID" \
+            --request-hash "$REQUEST_HASH" \
+            --trial-run-id "$TRIAL_RUN_ID" \
+            --profile-id "$PROFILE_ID" \
+            --launch-ordinal "$LAUNCH_ORDINAL" \
+            --packet-hash "$PACKET_HASH" \
+            --expected-source-sha "$EXPECTED_SOURCE_SHA" \
+            --source-sha-before "$SOURCE_SHA_BEFORE" \
+            --source-sha-after "$SOURCE_SHA_AFTER" \
+            --requested-model "$REQUESTED_MODEL" \
+            --runner-version "$RUNNER_VERSION" \
+            --cli-version "$CLI_VERSION" \
+            --session-stream "$RUNNER_TEMP/codex-trial-session.jsonl" \
+            --codex-home "$CODEX_HOME" \
+            --final-message "$RUNNER_TEMP/codex-trial-final.txt" \
+            --exit-code "$CODEX_EXIT_CODE" \
+            --source-clean "$SOURCE_CLEAN" \
+            --output "$RUNNER_TEMP/model-profile-trial-attempt.json"
+
+      - name: Upload unique trial attempt
+        if: ${{ always() && steps.artifact.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: model-trial-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/model-profile-trial-attempt.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce successful no-fallback identity canary
+        if: ${{ always() }}
+        env:
+          ARTIFACT_STATUS: ${{ steps.artifact.outputs.status }}
+          FALLBACK_REASON: ${{ steps.artifact.outputs.fallback-reason }}
+          CODEX_OUTCOME: ${{ steps.codex.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$CODEX_OUTCOME" != "success" ] || [ "$ARTIFACT_STATUS" != "success" ]; then
+            echo "::error::Trial arm failed closed: ${FALLBACK_REASON:-codex_cli_failed}"
+            exit 1
+          fi
