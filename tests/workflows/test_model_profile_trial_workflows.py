@@ -5,7 +5,6 @@ from pathlib import Path
 
 import yaml
 
-
 SHIM = Path(".github/workflows/agents-model-profile-trial.yml")
 RUNNER = Path(".github/workflows/reusable-model-profile-trial.yml")
 REGISTRY = Path(".github/agents/registry.yml")
@@ -42,8 +41,7 @@ def test_dispatch_shim_is_single_arm_and_calls_only_pinned_reusable_runner():
     assert list(workflow["jobs"]) == ["trial"]
     runner_ref = workflow["jobs"]["trial"]["uses"]
     assert re.fullmatch(
-        r"stranske/Workflows/\.github/workflows/"
-        r"reusable-model-profile-trial\.yml@[0-9a-f]{40}",
+        r"stranske/Workflows/\.github/workflows/" r"reusable-model-profile-trial\.yml@[0-9a-f]{40}",
         runner_ref,
     )
     assert workflow["permissions"] == {"contents": "read"}
@@ -57,9 +55,9 @@ def test_reusable_runner_is_read_only_exact_cli_and_has_no_write_lane():
     job = workflow["jobs"]["run-single-arm"]
     assert job["permissions"] == {"contents": "read"}
     source = RUNNER.read_text(encoding="utf-8")
-    assert '@openai/codex@0.144.1' in source
+    assert "@openai/codex@0.144.1" in source
     assert "--sandbox read-only" in source
-    assert "model_reasoning_effort=\"high\"" in source
+    assert 'model_reasoning_effort="high"' in source
     assert "--ignore-user-config" in source
     assert "persist-credentials: false" in source
     assert "provider_resolved" not in source
@@ -79,7 +77,9 @@ def test_reusable_runner_is_read_only_exact_cli_and_has_no_write_lane():
 def test_runner_uploads_one_unique_attempt_and_enforces_source_integrity():
     workflow = _workflow(RUNNER)
     steps = workflow["jobs"]["run-single-arm"]["steps"]
-    uploads = [step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")]
+    uploads = [
+        step for step in steps if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
     assert len(uploads) == 1
     name = uploads[0]["with"]["name"]
     assert "github.run_id" in name and "github.run_attempt" in name

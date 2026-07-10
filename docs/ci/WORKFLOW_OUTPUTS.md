@@ -166,6 +166,7 @@ The workflows below do not expose `workflow_call` outputs. They publish artifact
 - `reusable-agents-issue-bridge.yml`
 - `reusable-agents-pr-health.yml`
 - `reusable-agents-verifier.yml`
+- `reusable-model-profile-trial.yml`
 <!-- OUTPUT-NONE-END -->
 
 ## Example usage in dependent jobs

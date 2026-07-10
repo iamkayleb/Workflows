@@ -7,11 +7,7 @@ import pytest
 
 from scripts import model_profile_trial_contract as contract
 
-
-PINNED_REF = (
-    "stranske/Workflows/.github/workflows/"
-    "reusable-model-profile-trial.yml@" + "1" * 40
-)
+PINNED_REF = "stranske/Workflows/.github/workflows/" "reusable-model-profile-trial.yml@" + "1" * 40
 
 
 def _registries():
@@ -127,9 +123,7 @@ def test_resolve_profile_requires_exact_read_only_pinned_contract():
         "identity_authority": contract.IDENTITY_AUTHORITY,
     }
 
-    registry["execution_profiles"]["codex-5.6-terra-high"]["permission_mode"] = (
-        "workspace-write"
-    )
+    registry["execution_profiles"]["codex-5.6-terra-high"]["permission_mode"] = "workspace-write"
     with pytest.raises(contract.ContractError, match="permission_mode mismatch"):
         contract.resolve_profile(registry, models, "codex-5.6-terra-high")
 

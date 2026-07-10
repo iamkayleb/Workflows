@@ -18,7 +18,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 ARTIFACT_SCHEMA = "workflows.model-profile-trial-result/v1"
 IDENTITY_AUTHORITY = "workflows-read-only-trial-artifact/v1"
 EXPECTED_CLI_VERSION = "0.144.1"
@@ -30,8 +29,7 @@ EXPECTED_PROFILES = {
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PINNED_RUNNER_RE = re.compile(
-    r"^stranske/Workflows/\.github/workflows/"
-    r"reusable-model-profile-trial\.yml@[0-9a-f]{40}$"
+    r"^stranske/Workflows/\.github/workflows/" r"reusable-model-profile-trial\.yml@[0-9a-f]{40}$"
 )
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
 
@@ -127,8 +125,7 @@ def resolve_profile(
     for field, expected in expected_profile.items():
         if profile.get(field) != expected:
             raise ContractError(
-                f"execution profile {profile_id} {field} mismatch: "
-                f"expected {expected!r}"
+                f"execution profile {profile_id} {field} mismatch: " f"expected {expected!r}"
             )
 
     expected_contract = {
@@ -152,7 +149,9 @@ def resolve_profile(
     models = model_registry.get("models")
     if not isinstance(models, list):
         raise ContractError("model registry missing models array")
-    matches = [row for row in models if isinstance(row, dict) and row.get("model_id") == expected_model]
+    matches = [
+        row for row in models if isinstance(row, dict) and row.get("model_id") == expected_model
+    ]
     if len(matches) != 1:
         raise ContractError(f"model registry must contain one exact row for {expected_model}")
     model = matches[0]
@@ -197,7 +196,9 @@ def extract_thread_id(session_stream: Path) -> str | None:
     return next(iter(values), None)
 
 
-def extract_reported_identity(codex_home: Path, thread_id: str | None) -> tuple[str | None, str | None]:
+def extract_reported_identity(
+    codex_home: Path, thread_id: str | None
+) -> tuple[str | None, str | None]:
     """Read model and effort only from the matching persisted turn_context."""
     if not thread_id:
         return None, None
@@ -221,7 +222,7 @@ def extract_reported_identity(codex_home: Path, thread_id: str | None) -> tuple[
             models.add(str(payload["model"]))
         effort = payload.get("effort")
         if not effort:
-            settings = ((payload.get("collaboration_mode") or {}).get("settings") or {})
+            settings = (payload.get("collaboration_mode") or {}).get("settings") or {}
             effort = settings.get("reasoning_effort")
         if effort:
             efforts.add(str(effort))
