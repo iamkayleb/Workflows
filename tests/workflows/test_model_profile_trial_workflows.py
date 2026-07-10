@@ -42,8 +42,7 @@ def test_dispatch_shim_is_single_arm_and_calls_only_pinned_reusable_runner():
     assert list(workflow["jobs"]) == ["trial"]
     runner_ref = workflow["jobs"]["trial"]["uses"]
     assert re.fullmatch(
-        r"stranske/Workflows/\.github/workflows/"
-        r"reusable-model-profile-trial\.yml@[0-9a-f]{40}",
+        r"stranske/Workflows/\.github/workflows/" r"reusable-model-profile-trial\.yml@[0-9a-f]{40}",
         runner_ref,
     )
     runner_sha = workflow["jobs"]["trial"]["with"]["runner_sha"]
@@ -105,7 +104,9 @@ def test_runner_uploads_one_unique_attempt_and_enforces_source_integrity():
 def test_runner_uses_separate_pinned_helper_checkout_and_full_action_shas():
     workflow = _workflow(RUNNER)
     steps = workflow["jobs"]["run-single-arm"]["steps"]
-    checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
+    checkouts = [
+        step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")
+    ]
     assert len(checkouts) == 2
     assert checkouts[0]["with"] == {
         "repository": "stranske/Workflows",
@@ -116,7 +117,9 @@ def test_runner_uses_separate_pinned_helper_checkout_and_full_action_shas():
     assert checkouts[1]["with"]["path"] == "target-src"
     for step in steps:
         uses = str(step.get("uses", ""))
-        if uses.startswith(("actions/checkout@", "actions/setup-python@", "actions/upload-artifact@")):
+        if uses.startswith(
+            ("actions/checkout@", "actions/setup-python@", "actions/upload-artifact@")
+        ):
             assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", uses)
 
     source = RUNNER.read_text(encoding="utf-8")

@@ -6,10 +6,7 @@ from pathlib import Path
 import pytest
 from scripts import model_profile_trial_contract as contract
 
-PINNED_REF = (
-    "stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@"
-    + ("1" * 40)
-)
+PINNED_REF = "stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@" + ("1" * 40)
 
 
 def _registries():

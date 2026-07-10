@@ -37,8 +37,7 @@ EXPECTED_PROFILES = {
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 SOURCE_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PINNED_RUNNER_RE = re.compile(
-    r"^stranske/Workflows/\.github/workflows/"
-    r"reusable-model-profile-trial\.yml@[0-9a-f]{40}$"
+    r"^stranske/Workflows/\.github/workflows/" r"reusable-model-profile-trial\.yml@[0-9a-f]{40}$"
 )
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,200}$")
 
