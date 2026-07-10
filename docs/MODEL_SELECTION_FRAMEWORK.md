@@ -761,6 +761,15 @@ latency budget for the task tier.
           "model_id": { "type": "string" },
           "provider": { "enum": ["openai", "anthropic", "github-models"] },
           "api": { "enum": ["chat", "responses"], "default": "chat" },
+          "worker_profile": {
+            "type": "boolean",
+            "default": false,
+            "description": "True when the entry exists only to validate a coding-worker execution profile"
+          },
+          "lifecycle": {
+            "enum": ["trial", "active", "retired"],
+            "description": "Optional coding-worker profile lifecycle; omitted for evaluator-only entries"
+          },
           "quality": {
             "type": "object",
             "properties": {
@@ -781,3 +790,5 @@ latency budget for the task tier.
   }
 }
 ```
+
+Worker-only validation entries may set `worker_profile: true` and a lifecycle while omitting quality, cost, and speed scores. Their presence proves that an execution-profile model ID is allowed; it is not evaluator evidence and must not be used to rank models.
