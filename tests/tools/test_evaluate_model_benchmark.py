@@ -105,6 +105,25 @@ def test_invalid_confidence_level_is_rejected():
         evaluator.evaluate_benchmark(_payload(), policy)
 
 
+def test_near_one_confidence_level_has_finite_interval():
+    policy = _policy()
+    policy["profiles"]["verifier-balanced"]["approval_stage"]["confidence_level"] = math.nextafter(
+        1.0, 0.0
+    )
+    report = evaluator.evaluate_benchmark(_payload(), policy)
+    wilson_metrics = (
+        "task_success_rate_wilson_lower_bound",
+        "false_pass_rate_wilson_upper_bound",
+        "false_fail_rate_wilson_upper_bound",
+        "schema_error_rate_wilson_upper_bound",
+    )
+    assert all(
+        math.isfinite(result["metrics"][metric])
+        for result in report["results"]
+        for metric in wilson_metrics
+    )
+
+
 def test_passing_models_rank_by_cost_after_quality_gates():
     report = evaluator.evaluate_benchmark(_payload(), _policy())
     assert all(result["status"] == "passed" for result in report["results"])
