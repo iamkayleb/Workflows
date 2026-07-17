@@ -17,3 +17,15 @@ def test_dev_version_sync_pr_body_matches_changed_files():
     ]
     assert "generated dev-tool pin files" in text
     assert "This PR updates dev tool versions in \\`pyproject.toml\\` to match" not in text
+
+
+def test_wave_hash_includes_the_sync_implementation():
+    text = WORKFLOW.read_text(encoding="utf-8")
+    hash_start = text.index("hash=$(\n")
+    hash_block = text[hash_start : text.index("\n          )", hash_start)]
+
+    assert "Compute wave hash" in text
+    assert ".github/workflows/autofix-versions.env" in hash_block
+    assert "scripts/sync_dev_dependencies.py" in hash_block
+    assert "| sha256sum" in hash_block
+    assert "| cut -d' ' -f1" in hash_block
