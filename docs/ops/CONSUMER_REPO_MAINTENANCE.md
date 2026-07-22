@@ -166,6 +166,36 @@ Maint 68 is manifest-driven:
 
 Custom Gate repos are a special-case skip: their `pr-00-gate.yml` stays local.
 
+### Agent Registry Is Consumer-Owned (`create_only`)
+
+`.github/agents/registry.yml` is synced with `sync_mode: create_only`: the sync
+seeds it into a new consumer once, then never overwrites it. This is deliberate —
+the registry holds repo-specific routing that legitimately differs per consumer:
+which agents are enabled, their bot logins / required secrets, and the optional
+per-agent `base_branch`.
+
+**`base_branch`** (optional, per agent): the branch an agent's work branches from
+and its PRs target. Unset → the repository default branch (previous behavior).
+Set it to a long-lived per-agent integration branch to stack that agent's work
+there instead of the default branch — e.g. an evaluation build:
+
+```yaml
+agents:
+  codex:  { base_branch: eval/codex }
+  claude: { base_branch: eval/claude }
+```
+
+The branch **must already exist on origin** (`git branch eval/codex main && git push -u origin eval/codex`);
+the issue bridge fails fast with an actionable error if it does not. Because the
+registry is `create_only`, a `base_branch` set in a consumer survives future syncs.
+
+**Tradeoff to remember:** since the registry is no longer overwritten, changes to
+the *source* registry (new agents, renamed `runner_workflow` paths) do **not**
+auto-propagate to existing consumers. When the registry schema or agent set
+changes in Workflows, align consumer registries manually (or re-seed after
+removing the local copy). See `docs/evaluations/AGENT_EVAL_RUNBOOK.md` for the
+evaluation workflow that uses `base_branch`.
+
 ### Reusable Workflow Versioning
 
 First-party consumer repos currently call reusable workflows via `@main`.

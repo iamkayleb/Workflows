@@ -198,6 +198,44 @@ def test_issue_bridge_keepalive_dispatch_disabled():
     ), "Issue bridge should document that keepalive dispatch is disabled"
 
 
+def test_issue_bridge_honors_registry_base_branch():
+    text = (WORKFLOWS_DIR / "reusable-agents-issue-bridge.yml").read_text(encoding="utf-8")
+    # Base is resolved from the registry's optional base_branch, falling back to
+    # the repository default branch when unset.
+    assert "cfg.base_branch" in text, "Issue bridge must read base_branch from the agent registry"
+    assert (
+        "let base = defaultBranch;" in text
+    ), "Issue bridge must default the base to the repository default branch"
+    assert (
+        "core.setOutput('default_base', defaultBranch);" in text
+    ), "Issue bridge must expose the repository default branch as an output"
+    # A configured base branch that is missing on origin must fail with guidance,
+    # not a bare git error.
+    assert (
+        "does not exist on origin" in text
+    ), "Issue bridge must fail fast when a configured base branch is absent on origin"
+
+
+def test_agent_registry_documents_base_branch():
+    text = Path(".github/agents/registry.yml").read_text(encoding="utf-8")
+    assert "base_branch" in text, "Registry should document the optional base_branch field"
+
+
+def test_agent_registry_is_create_only_in_sync_manifest():
+    manifest = yaml.safe_load(Path(".github/sync-manifest.yml").read_text(encoding="utf-8"))
+    entries = [
+        entry
+        for section in manifest.values()
+        if isinstance(section, list)
+        for entry in section
+        if isinstance(entry, dict) and entry.get("source") == ".github/agents/registry.yml"
+    ]
+    assert entries, "Sync manifest must declare the agent registry"
+    assert all(
+        entry.get("sync_mode") == "create_only" for entry in entries
+    ), "Agent registry must be create_only so consumer-owned base_branch survives syncs"
+
+
 def test_keepalive_job_present():
     reusable = WORKFLOWS_DIR / "reusable-16-agents.yml"
     text = reusable.read_text(encoding="utf-8")
