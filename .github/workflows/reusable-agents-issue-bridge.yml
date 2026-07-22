@@ -301,28 +301,41 @@ jobs:
                 repo,
               }),
             );
-            const base = data.default_branch;
-            if (!base) {
+            const defaultBranch = data.default_branch;
+            if (!defaultBranch) {
               core.setFailed('Repository default branch not available');
               return;
             }
             const issue = Number('${{ steps.ctx.outputs.issue }}');
 
             let branchPrefix = 'codex/issue-';
+            // Base branch the agent's work branches from and the PR targets.
+            // Defaults to the repository default branch. An agent may override
+            // it via `base_branch` in the registry (e.g. a long-lived per-agent
+            // integration branch such as eval/claude or eval/codex) so its work
+            // stacks on that branch instead of the default branch. The branch
+            // must already exist on origin (see "Checkout target base").
+            let base = defaultBranch;
             if (agentKey) {
               try {
                 const { getAgentConfig } = require('./.github/scripts/agent_registry.js');
                 const cfg = getAgentConfig(agentKey);
                 branchPrefix = String(cfg.branch_prefix || branchPrefix);
+                const configuredBase = String(cfg.base_branch || '').trim();
+                if (configuredBase) {
+                  base = configuredBase;
+                }
               } catch (error) {
                 core.warning(
-                  `Could not load agent registry; defaulting branch prefix: ${error.message}`,
+                  `Could not load agent registry; defaulting branch prefix/base: ${error.message}`,
                 );
               }
             }
 
+            core.info(`Resolved base branch: ${base} (repo default: ${defaultBranch})`);
             const head = issue ? `${branchPrefix}${issue}` : '';
             core.setOutput('base', base);
+            core.setOutput('default_base', defaultBranch);
             if (head) {
               core.setOutput('head', head);
             }
@@ -342,11 +355,18 @@ jobs:
       - name: Checkout target base
         run: |
           TARGET_BASE="${{ steps.refs.outputs.base }}"
+          DEFAULT_BASE="${{ steps.refs.outputs.default_base }}"
           CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
           if [ "$TARGET_BASE" != "$CURRENT_BRANCH" ]; then
             git fetch origin "$TARGET_BASE" --depth=0 || true
-            if ! git checkout "$TARGET_BASE"; then
-              git checkout -b "$TARGET_BASE" "origin/$TARGET_BASE"
+            if ! git checkout "$TARGET_BASE" 2>/dev/null; then
+              if git ls-remote --exit-code --heads origin "$TARGET_BASE" >/dev/null 2>&1; then
+                git checkout -b "$TARGET_BASE" "origin/$TARGET_BASE"
+              else
+                echo "::error::Configured base branch '$TARGET_BASE' does not exist on origin."
+                echo "::error::Create it first (e.g. 'git branch $TARGET_BASE $DEFAULT_BASE && git push -u origin $TARGET_BASE'), or remove 'base_branch' from the agent registry to fall back to the default branch."
+                exit 1
+              fi
             fi
           fi
           echo "Scripts available:"

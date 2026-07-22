@@ -18,6 +18,45 @@ consumer repo, and how to record the result. Written after the issues in
 4. **Trust cross-verdicts, not self-verdicts.** A model judging its own family's
    work is biased — weight the neutral judge (OpenAI `gpt-5.5`) most.
 
+## Automatic per-agent base branch (registry `base_branch`)
+
+The issue bridge routes each agent's initial issue→PR to the repository default
+branch **unless** the agent declares a `base_branch` in
+`.github/agents/registry.yml`:
+
+```yaml
+agents:
+  codex:  { base_branch: eval/codex }
+  claude: { base_branch: eval/claude }
+```
+
+With this set, an `agent:codex` issue produces `codex/issue-N` branched from
+`eval/codex` with its PR targeting `eval/codex` (same for Claude). This makes the
+`codex/issue-A → eval/codex` flow below automatic instead of manual. The eval
+branch **must already exist on origin** or the bridge fails fast with an
+actionable error. The registry is `create_only`, so this survives consumer syncs
+(see `../ops/CONSUMER_REPO_MAINTENANCE.md`).
+
+### Two evaluation modes — pick deliberately
+
+- **Independent-task comparison (this runbook's default).** Reset the eval
+  branches to `main` between comparisons (step 1). Each task is a clean, fair,
+  isolated test. This is what Principle #2 protects.
+- **Cumulative project build.** Issues are dependency-ordered and each is meant
+  to build on the previous (e.g. scaffold → auth → dashboard). Here accumulation
+  on `eval/<agent>` is the goal, not a bug — do **not** reset between issues.
+
+⚠️ **The Principle #2 hazard still applies to cumulative builds.** The PR #61
+merge failure came from *competing scaffolds* landing on a shared eval branch.
+To avoid it in cumulative mode, obey one rule:
+
+> **Run issues sequentially in dependency order. Merge issue N's PR into
+> `eval/<agent>` before filing issue N+1.** Then N+1 branches from an eval branch
+> that already contains N's work — no competing scaffolds, no merge collision.
+
+Parallelize only issues that touch disjoint files; anything that might overlap
+should run sequentially (or from `main` as an independent comparison).
+
 ## Preflight (one-time / when infra changed)
 
 Confirm the agent runtime is healthy before spending an evaluation on it. A

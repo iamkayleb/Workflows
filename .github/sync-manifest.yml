@@ -281,6 +281,7 @@ scripts:
 
   - source: .github/agents/registry.yml
     description: "Agent registry - source of truth for agent keys and runner workflow mapping"
+    sync_mode: create_only  # Consumer-owned routing: base_branch (e.g. eval branches), enabled agents, and bot logins differ per repo. Seed once; do not clobber. See docs/ops/CONSUMER_REPO_MAINTENANCE.md.
 
   - source: .github/scripts/agent_registry.js
     description: "Agent registry helper - loads registry and resolves agent key from labels"
