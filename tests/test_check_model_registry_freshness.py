@@ -166,24 +166,41 @@ def test_explicit_pin_without_profile_is_advisory():
     assert "selection_override" not in _kinds(findings)
 
 
-def test_unknown_legacy_pin_is_rejected():
+def test_unknown_legacy_pin_is_advisory():
     findings = gate.evaluate(
         _registry(),
         {"slots": [{"name": "slot1", "provider": "openai", "model": "absent"}]},
         today=TODAY,
         policy=_policy(),
     )
-    assert "unknown_pin" in _kinds(findings)
+    assert not {"unknown_pin", "selection_override"} & set(_kinds(findings))
 
 
-def test_blocked_legacy_pin_is_rejected():
+def test_blocked_legacy_pin_is_advisory():
     findings = gate.evaluate(
         _registry(),
         {"slots": [{"name": "slot1", "provider": "openai", "model": "model-blocked"}]},
         today=TODAY,
         policy=_policy(),
     )
-    assert "blocked_pin" in _kinds(findings)
+    assert not {"blocked_pin", "selection_override"} & set(_kinds(findings))
+
+
+def test_non_string_selection_evidence_ids_are_rejected():
+    registry = _registry()
+    registry["evidence"].append(
+        {
+            "evidence_id": "7",
+            "kind": "provider-catalog-review",
+            "status": "catalog-only",
+            "source_ids": ["models-1"],
+        }
+    )
+    registry["selections"][0]["evidence_ids"] = [7]
+
+    findings = gate.evaluate(registry, _slots(), today=TODAY, policy=_policy())
+
+    assert "missing_evidence" in _kinds(findings)
 
 
 def test_legacy_pin_requires_default_selection():

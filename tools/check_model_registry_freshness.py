@@ -247,8 +247,13 @@ def evaluate(
                 )
             )
 
-        evidence_ids = raw.get("evidence_ids")
-        if not isinstance(evidence_ids, list) or not evidence_ids:
+        raw_evidence_ids = raw.get("evidence_ids")
+        evidence_ids = (
+            [item.strip() for item in raw_evidence_ids if isinstance(item, str) and item.strip()]
+            if isinstance(raw_evidence_ids, list)
+            else []
+        )
+        if not evidence_ids:
             findings.append(
                 _finding(
                     "missing_evidence",
@@ -327,9 +332,6 @@ def evaluate(
             continue
         if explicit_model:
             model = model_by_key.get((provider, explicit_model))
-            # A legacy pin without a profile may be honored only while it
-            # points at a current, unblocked model. Otherwise runtime falls
-            # back to the reviewed default selection.
             effective_profile = profile or DEFAULT_SELECTION_PROFILE
             selected = selection_by_key.get((effective_profile, provider))
             if not selected:
@@ -339,6 +341,11 @@ def evaluate(
                         f"slot {name!r} has no selection for {effective_profile}/{provider}.",
                     )
                 )
+                continue
+            # Unprofiled pins predate the reviewed-selection contract. They are
+            # advisory while consumers migrate to profiles, so runtime uses the
+            # reviewed default selection regardless of the legacy pin value.
+            if not profile:
                 continue
             if model is None:
                 findings.append(
@@ -355,27 +362,11 @@ def evaluate(
                     )
                 )
             if selected.get("model_id") != explicit_model:
-                if not profile:
-                    continue
                 findings.append(
                     _finding(
                         "selection_override",
                         f"slot {name!r} pins {provider}/{explicit_model} instead of reviewed "
                         f"selection {selected.get('model_id')} for {effective_profile}.",
-                    )
-                )
-            if profile and model is None:
-                findings.append(
-                    _finding(
-                        "unknown_pin",
-                        f"slot {name!r} pins absent model {provider}/{explicit_model}.",
-                    )
-                )
-            elif profile and model.get("blocked"):
-                findings.append(
-                    _finding(
-                        "blocked_pin",
-                        f"slot {name!r} pins blocked model {provider}/{explicit_model}.",
                     )
                 )
             continue
