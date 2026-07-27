@@ -111,6 +111,9 @@ workflows:
   - source: .github/workflows/agents-auto-label.yml
     description: "Auto-label - suggests/applies labels based on semantic matching (Phase 5A)"
 
+  - source: .github/workflows/health-47-pat-check.yml
+    description: "Bot PAT health check - probes OWNER_PR_PAT/SERVICE_BOT_PAT validity and opens an issue when a PAT is invalid/revoked (prevents silent 401 bridge failures)"
+
   - source: .github/workflows/agents-capability-check.yml
     description: "Capability check - pre-flight agent feasibility gate (Phase 3A)"
 
@@ -361,6 +364,9 @@ scripts:
 
   - source: .github/scripts/github-api-with-retry.js
     description: "GitHub API retry wrapper with exponential backoff and pagination support - required by agents-auto-pilot.yml"
+
+  - source: .github/scripts/resolve_working_token.js
+    description: "Resolves the first bot PAT that actually authenticates (falls through an expired PAT instead of 401ing) - required by reusable-agents-issue-bridge.yml"
 
   - source: .github/scripts/github-rate-limited-wrapper.js
     description: "Transparent rate-limit proxy - wraps all github.rest.* calls with automatic retry and token switching"

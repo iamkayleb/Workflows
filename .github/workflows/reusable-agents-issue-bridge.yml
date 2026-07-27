@@ -107,6 +107,18 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
 
+      # Pick the first bot PAT that actually authenticates. A present-but-
+      # expired PAT would otherwise be selected by the `||` chain below and
+      # hard-fail PR creation with 401; this falls through to the next
+      # credential instead. Exposes BRIDGE_TOKEN for the PR-creation steps.
+      - name: Resolve working bridge token
+        id: bridge_token
+        env:
+          CAND_OWNER_PR_PAT: ${{ secrets.owner_pr_pat }}
+          CAND_SERVICE_BOT_PAT: ${{ secrets.service_bot_pat }}
+          CAND_GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/scripts/resolve_working_token.js
+
       - name: Resolve issue number
         id: ctx
         uses: actions/github-script@v8
@@ -220,33 +232,53 @@ jobs:
             const withBase = Array.from(candidates.values()).filter(
               (entry) => entry.labels.size > 0,
             );
-            if (withBase.length === 0) {
-              const inviteOnly = Array.from(candidates.values())
-                .flatMap((entry) => Array.from(entry.inviteLabels))
-                .join(', ');
-              if (inviteOnly) {
-                  core.setFailed(
-                    [
-                      `Invite labels (${inviteOnly}) require a matching base agent:<name>.`,
-                      'Add agent:<name>.',
-                    ].join(' '),
-                  );
-              } else {
-                core.setFailed('Exactly one agent:* label is required to run the bridge.');
-              }
-              return;
-            }
-            if (withBase.length > 1) {
+            let entry;
+            if (withBase.length === 1) {
+              entry = withBase[0];
+            } else if (withBase.length > 1) {
               const names = withBase
-                .map((entry) => Array.from(entry.labels)[0] || `agent:${entry.base}`)
+                .map((e) => Array.from(e.labels)[0] || `agent:${e.base}`)
                 .join(', ');
               core.setFailed(
                 `Expected exactly one agent:* label but found multiple: ${names}`,
               );
               return;
+            } else {
+              // No agent:* label on the issue. Honor an explicit dispatch input
+              // (bridge_agent -> inputs.agent) so a manually-dispatched bridge
+              // works without the label already being present — otherwise
+              // setting bridge_agent in the form is silently ignored. The
+              // label-triggered path always carries a label, so this fallback
+              // only affects explicit workflow_dispatch runs.
+              const explicitAgent = ('${{ inputs.agent }}' || '').trim().toLowerCase();
+              const inviteOnly = Array.from(candidates.values())
+                .flatMap((e) => Array.from(e.inviteLabels))
+                .join(', ');
+              if (explicitAgent) {
+                core.info(
+                  `No agent:* label on the issue; using the explicit dispatch ` +
+                  `agent input "${explicitAgent}".`,
+                );
+                entry = {
+                  base: explicitAgent,
+                  labels: new Set([`agent:${explicitAgent}`]),
+                };
+              } else if (inviteOnly) {
+                core.setFailed(
+                  [
+                    `Invite labels (${inviteOnly}) require a matching base agent:<name>.`,
+                    'Add agent:<name>.',
+                  ].join(' '),
+                );
+                return;
+              } else {
+                core.setFailed(
+                  'Exactly one agent:* label is required to run the bridge ' +
+                  '(or pass bridge_agent when dispatching manually).',
+                );
+                return;
+              }
             }
-
-            const entry = withBase[0];
             const original = Array.from(entry.labels)[0] || `agent:${entry.base}`;
             const suffix = entry.base;
             const slugify = (value) =>
@@ -985,7 +1017,7 @@ jobs:
           KEEPALIVE_MODE: ${{ steps.keepalive.outputs.mode || 'OFF' }}
           AGENT: ${{ steps.agent_label.outputs.agent || inputs.agent }}
         with:
-          github-token: ${{ secrets.owner_pr_pat || secrets.service_bot_pat || github.token }}
+          github-token: ${{ env.BRIDGE_TOKEN || github.token }}
           script: |
             const {owner, repo} = context.repo;
             const issue_number = Number('${{ steps.ctx.outputs.issue }}');
@@ -1272,7 +1304,7 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         with:
-          github-token: ${{ secrets.owner_pr_pat || secrets.service_bot_pat || github.token }}
+          github-token: ${{ env.BRIDGE_TOKEN || github.token }}
           script: |
             const fs = require('fs');
             const prNumber = Number(process.env.PR_NUMBER || 0);
