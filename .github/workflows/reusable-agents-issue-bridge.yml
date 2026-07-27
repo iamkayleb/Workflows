@@ -107,6 +107,18 @@ jobs:
           secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
 
+      # Pick the first bot PAT that actually authenticates. A present-but-
+      # expired PAT would otherwise be selected by the `||` chain below and
+      # hard-fail PR creation with 401; this falls through to the next
+      # credential instead. Exposes BRIDGE_TOKEN for the PR-creation steps.
+      - name: Resolve working bridge token
+        id: bridge_token
+        env:
+          CAND_OWNER_PR_PAT: ${{ secrets.owner_pr_pat }}
+          CAND_SERVICE_BOT_PAT: ${{ secrets.service_bot_pat }}
+          CAND_GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/scripts/resolve_working_token.js
+
       - name: Resolve issue number
         id: ctx
         uses: actions/github-script@v8
@@ -965,7 +977,7 @@ jobs:
           KEEPALIVE_MODE: ${{ steps.keepalive.outputs.mode || 'OFF' }}
           AGENT: ${{ steps.agent_label.outputs.agent || inputs.agent }}
         with:
-          github-token: ${{ secrets.owner_pr_pat || secrets.service_bot_pat || github.token }}
+          github-token: ${{ env.BRIDGE_TOKEN || github.token }}
           script: |
             const {owner, repo} = context.repo;
             const issue_number = Number('${{ steps.ctx.outputs.issue }}');
@@ -1252,7 +1264,7 @@ jobs:
         env:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         with:
-          github-token: ${{ secrets.owner_pr_pat || secrets.service_bot_pat || github.token }}
+          github-token: ${{ env.BRIDGE_TOKEN || github.token }}
           script: |
             const fs = require('fs');
             const prNumber = Number(process.env.PR_NUMBER || 0);
