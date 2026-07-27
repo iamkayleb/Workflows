@@ -1088,9 +1088,72 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          # Use extend-exclude to add to ruff's defaults (which include .venv)
-          # Exclude .workflows-lib since it's synced from source repo with different ruff config
-          ruff check --output-format github --extend-exclude .workflows-lib .
+          # Keep the pre-0.16 default rule family stable for consumers that do
+          # not declare their own Ruff selection. A consumer's explicit
+          # selection remains authoritative. Exclude .workflows-lib since it
+          # is synced from the source repo with different Ruff configuration.
+          if python - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          try:
+              import tomllib
+          except ModuleNotFoundError:  # Python < 3.11
+              try:
+                  import tomli as tomllib
+              except ModuleNotFoundError:
+                  tomllib = None
+
+          SELECT_KEYS = ("select", "extend-select")
+          SELECT_LINE = re.compile(r"(?m)^\s*(?:extend-)?select\s*=")
+
+          def has_explicit_selection(config):
+              lint = config.get("lint", {}) if isinstance(config, dict) else {}
+              return any(key in lint or key in config for key in SELECT_KEYS)
+
+          def text_has_selection(text, *, pyproject):
+              if not pyproject:
+                  return bool(SELECT_LINE.search(text))
+              for part in re.split(r"(?m)^\[", text):
+                  header, _, body = part.partition("]")
+                  header = header.strip()
+                  if header == "tool.ruff" or header.startswith("tool.ruff."):
+                      if SELECT_LINE.search(body):
+                          return True
+              return False
+
+          def pyproject_has_ruff_config(text):
+              return bool(re.search(r"(?m)^\[tool\.ruff(?:\.|\])", text))
+
+          # Ruff discovers the nearest configuration from the directory of the
+          # files being linted. Stop at the first usable config so a parent
+          # selection is not incorrectly inherited through a child config.
+          for directory in (Path.cwd(), *Path.cwd().parents):
+              for name in (".ruff.toml", "ruff.toml", "pyproject.toml"):
+                  path = directory / name
+                  if not path.is_file():
+                      continue
+                  text = path.read_text(encoding="utf-8")
+                  if name == "pyproject.toml" and not pyproject_has_ruff_config(text):
+                      continue
+                  if tomllib is None:
+                      sys.exit(
+                          0
+                          if text_has_selection(text, pyproject=(name == "pyproject.toml"))
+                          else 1
+                      )
+                  with path.open("rb") as handle:
+                      data = tomllib.load(handle)
+                  config = data.get("tool", {}).get("ruff", {}) if name == "pyproject.toml" else data
+                  sys.exit(0 if has_explicit_selection(config) else 1)
+          sys.exit(1)
+          PY
+          then
+            ruff check --output-format github --extend-exclude .workflows-lib .
+          else
+            ruff check --select E4,E7,E9,F --output-format github --extend-exclude .workflows-lib .
+          fi
 
       - name: Finalize lint
         id: finalize
