@@ -15,6 +15,7 @@ WORKFLOWS_DIR = Path(".github/workflows")
 AUTO_PILOT = WORKFLOWS_DIR / "agents-auto-pilot.yml"
 ISSUE_OPTIMIZER = WORKFLOWS_DIR / "agents-issue-optimizer.yml"
 VERIFIER = WORKFLOWS_DIR / "reusable-agents-verifier.yml"
+VERIFY_TO_ISSUE = WORKFLOWS_DIR / "agents-verify-to-issue-v2.yml"
 REUSABLE_CODEX_RUN = WORKFLOWS_DIR / "reusable-codex-run.yml"
 REUSABLE_CLAUDE_RUN = WORKFLOWS_DIR / "reusable-claude-run.yml"
 NEEDS_HUMAN_COMMENT = Path("agents/codex-1447.md")
@@ -26,6 +27,11 @@ MIN_CODEX_CLI_BY_RUN_MODEL = {
     "gpt-5.4": (0, 125, 0),
 }
 ACTIONS_CACHE_V6_REF = "actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9"
+LLM_REGISTRY_MODULE = "tools/llm_registry.py"
+LLM_CONFIG_PATHS = (Path("config/llm_slots.json"), Path("config/model_registry.json"))
+LANGCHAIN_ENTRYPOINT_DIR = "scripts/langchain"
+VERIFY_TO_NEW_PR = WORKFLOWS_DIR / "agents-verify-to-new-pr.yml"
+KNOWN_LLM_CLIENT_WORKFLOWS = (VERIFIER, VERIFY_TO_ISSUE, VERIFY_TO_NEW_PR)
 
 
 def _load_text(path: Path) -> str:
@@ -88,6 +94,42 @@ def _iter_steps(workflow: dict) -> list[dict]:
         if isinstance(job_steps, list):
             steps.extend(step for step in job_steps if isinstance(step, dict))
     return steps
+
+
+def _sparse_checkout_paths(step: dict) -> list[str]:
+    raw = str((step.get("with") or {}).get("sparse-checkout", ""))
+    return [line.strip() for line in raw.splitlines() if line.strip()]
+
+
+def _workflows_library_checkout_steps(workflow: dict) -> list[dict]:
+    steps = []
+    for step in _iter_steps(workflow):
+        with_block = step.get("with") or {}
+        if with_block.get("repository") == "stranske/Workflows" and "sparse-checkout" in with_block:
+            steps.append(step)
+    return steps
+
+
+def _discover_llm_client_workflows() -> list[Path]:
+    """Workflows that vendor `tools` and then run the LangChain client from it.
+
+    Discovery rather than an explicit list: any future workflow that vendors the
+    client inherits the config-vendoring requirement automatically.
+    """
+    matches = []
+    for path in sorted(WORKFLOWS_DIR.glob("*.yml")) + sorted(WORKFLOWS_DIR.glob("*.yaml")):
+        text = path.read_text(encoding="utf-8")
+        if LANGCHAIN_ENTRYPOINT_DIR not in text:
+            continue
+        workflow = yaml.safe_load(text)
+        if not isinstance(workflow, dict):
+            continue
+        if any(
+            "tools" in _sparse_checkout_paths(step)
+            for step in _workflows_library_checkout_steps(workflow)
+        ):
+            matches.append(path)
+    return matches
 
 
 def _find_step_by_name(workflow: dict, step_name: str) -> dict:
@@ -239,6 +281,63 @@ def test_reusable_agents_verifier_pip_cache_is_configured() -> None:
         pytest.skip("needs-human: workflow updates require agent-high-privilege")
     workflow = _load_workflow(VERIFIER)
     _assert_pip_cache(workflow, ".workflows-lib/tools/requirements-llm.txt", VERIFIER.name)
+
+
+def test_llm_client_workflow_discovery_covers_the_known_verifier_surfaces() -> None:
+    discovered = set(_discover_llm_client_workflows())
+    missing = [path.name for path in KNOWN_LLM_CLIENT_WORKFLOWS if path not in discovered]
+    assert not missing, (
+        f"Discovery no longer sees {missing}; the config-vendoring guard below would "
+        "silently stop covering them."
+    )
+
+
+@pytest.mark.parametrize(
+    "workflow_path", _discover_llm_client_workflows(), ids=lambda path: path.name
+)
+def test_llm_workflows_vendor_the_model_registry_config(workflow_path: Path) -> None:
+    workflow = _load_workflow(workflow_path)
+    checkouts = _workflows_library_checkout_steps(workflow)
+    assert checkouts, f"{workflow_path.name} must sparse-checkout stranske/Workflows"
+
+    vendors_tools = False
+    for step in checkouts:
+        paths = _sparse_checkout_paths(step)
+        if "tools" not in paths:
+            continue
+        vendors_tools = True
+        missing = [entry for entry in ("config",) if entry not in paths]
+        assert not missing, (
+            f"{workflow_path.name} vendors `tools` but not {missing}; "
+            f"{LLM_REGISTRY_MODULE} resolves {', '.join(str(p) for p in LLM_CONFIG_PATHS)} "
+            "relative to the vendored tree, so every judge slot resolves to no model and "
+            'compare mode reports "available families: none".'
+        )
+
+    assert vendors_tools, f"{workflow_path.name} must vendor `tools` for the LLM client"
+
+
+def test_bundled_llm_config_resolves_two_cross_family_judges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slots_path, registry_path = LLM_CONFIG_PATHS
+    for config_path in LLM_CONFIG_PATHS:
+        assert config_path.is_file(), f"Vendored LLM config {config_path} must exist"
+
+    from tools import llm_registry
+    from tools.llm_registry import load_slot_config
+
+    # Pin resolution to the bundled files so an ambient override cannot make this pass.
+    monkeypatch.delenv(llm_registry.ENV_SLOT_CONFIG, raising=False)
+    monkeypatch.delenv(llm_registry.ENV_MODEL_REGISTRY_CONFIG, raising=False)
+    monkeypatch.setattr(llm_registry, "DEFAULT_SLOT_CONFIG_PATH", slots_path.resolve())
+    monkeypatch.setattr(llm_registry, "DEFAULT_MODEL_REGISTRY_CONFIG_PATH", registry_path.resolve())
+
+    families = {slot.provider for slot in load_slot_config() if slot.model}
+    assert len(families) >= 2, (
+        "Compare mode needs two cross-family judges; the bundled config resolved "
+        f"models for {sorted(families) or 'no provider'}."
+    )
 
 
 def test_reusable_codex_run_persists_refreshed_auth_bundle_with_app_token() -> None:
