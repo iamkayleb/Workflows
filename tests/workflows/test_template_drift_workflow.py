@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -19,5 +20,15 @@ def test_template_drift_workflow_installs_pyyaml_before_checker() -> None:
     )
     prior_steps = steps[:checker_index]
 
-    assert any(step.get("uses") == "actions/setup-python@v6" for step in prior_steps)
+    setup_python_steps = [
+        step
+        for step in prior_steps
+        if re.fullmatch(r"actions/setup-python@v\d+", str(step.get("uses", "")))
+    ]
+
+    assert len(setup_python_steps) == 1
+    assert any(
+        re.fullmatch(r"actions/setup-python@v\d+", str(step.get("uses", "")))
+        for step in prior_steps
+    )
     assert any("pip install pyyaml" in step.get("run", "").lower() for step in prior_steps)
