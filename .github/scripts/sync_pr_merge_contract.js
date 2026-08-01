@@ -2,6 +2,7 @@
 
 const REPORT_SCHEMA = 'workflows-sync-pr-merge/v1';
 const SYNC_BRANCH_PREFIX = 'sync/workflows-';
+const { parseDeliveryRecord, mergeEligibility } = require('./sync_pr_lease_contract');
 
 function normalizeSyncHash(value) {
   const raw = String(value || '').trim();
@@ -179,6 +180,19 @@ function selectActiveSyncPr(prs, syncHash = '') {
   };
 }
 
+function selectMergeEligibleSyncPr(
+  prs,
+  { syncHash = '', now, planId = '', repository = '', desiredTreeHash = '' } = {},
+) {
+  const selection = selectActiveSyncPr(prs, syncHash);
+  if (!selection.active) return { ...selection, eligibility: null };
+  const record = parseDeliveryRecord(selection.active.body || '');
+  const eligibility = record
+    ? mergeEligibility(record, { now, planId, repository, desiredTreeHash })
+    : { eligible: false, reason: 'missing_delivery_record' };
+  return { ...selection, deliveryRecord: record, eligibility };
+}
+
 function summarizeResults(results) {
   const counts = {
     no_prs: 0,
@@ -194,6 +208,7 @@ function summarizeResults(results) {
     merge_blocked_runtime_ac: 0,
     merged: 0,
     merge_failed: 0,
+    delivery_contract_blocked: 0,
     error: 0,
   };
   for (const result of results || []) {
@@ -274,6 +289,7 @@ module.exports = {
   selectSyncPrGatingChecks,
   sortSyncPrs,
   selectActiveSyncPr,
+  selectMergeEligibleSyncPr,
   summarizeResults,
   buildMergeReport,
   buildMarkdownSummary,
