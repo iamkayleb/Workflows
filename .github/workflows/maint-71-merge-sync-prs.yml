@@ -122,6 +122,7 @@ jobs:
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
           SYNC_HASH_INPUT: ${{ inputs.sync_hash || '' }}
           CLEANUP_BRANCHES_INPUT: ${{ inputs.cleanup_branches }}
+          TRUSTED_SYNC_ACTORS: stranske,stranske-automation-bot,github-actions[bot]
           SYNC_PR_MERGE_REPORT_JSON: artifacts/sync-pr-merge-report.json
         with:
           github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
@@ -137,6 +138,7 @@ jobs:
               collectDeletableSyncBranches,
               normalizeSyncHash,
               parseBooleanInput,
+              isTrustedSyncPr,
               selectActiveSyncPr,
               selectSyncPrGatingChecks,
             } = require('./.github/scripts/sync_pr_merge_contract.js');
@@ -250,8 +252,11 @@ jobs:
             const requestedSyncHash = normalizeSyncHash(
               process.env.SYNC_HASH_INPUT ||
                 (context.payload.client_payload && context.payload.client_payload.sync_hash) ||
-                '',
+              '',
             );
+            const trustedSyncActors = process.env.TRUSTED_SYNC_ACTORS.split(',')
+              .map((actor) => actor.trim())
+              .filter(Boolean);
 
             console.log(`Registered consumer repos: ${registeredRepos.join(', ')}`);
             console.log(`Processing repos: ${targetRepos.join(', ')}`);
@@ -262,6 +267,50 @@ jobs:
             }
 
             const results = [];
+            const canaryEvidence = [];
+
+            function syncMetadata(pr) {
+              const match = String(pr.body || '').match(
+                /<!-- workflows-consumer-sync:v1 ([\s\S]*?) -->/,
+              );
+              if (!match) return null;
+              try {
+                return JSON.parse(match[1]);
+              } catch (_) {
+                return null;
+              }
+            }
+
+            async function activeReviewThreadCount(owner, repo, number) {
+              try {
+                const data = await github.graphql(
+                  `query($owner: String!, $repo: String!, $number: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $number) {
+                        reviewThreads(first: 100) {
+                          pageInfo { hasNextPage }
+                          nodes { isResolved isOutdated }
+                        }
+                      }
+                    }
+                  }`,
+                  { owner, repo, number },
+                );
+                const reviewThreads = data.repository.pullRequest.reviewThreads;
+                if (reviewThreads.pageInfo.hasNextPage) {
+                  core.warning(
+                    `Review-thread pagination exceeded the safe evidence window for ${owner}/${repo}#${number}`,
+                  );
+                  return -1;
+                }
+                return reviewThreads.nodes.filter(
+                  (thread) => !thread.isResolved && !thread.isOutdated,
+                ).length;
+              } catch (error) {
+                core.warning(`Unable to read active review threads for ${owner}/${repo}#${number}: ${error}`);
+                return -1;
+              }
+            }
 
             for (const repoEntry of targetRepos) {
               const [entryOwner, entryRepo] = repoEntry.includes('/')
@@ -281,7 +330,7 @@ jobs:
                   per_page: 20
                 }));
 
-                const syncPRs = prs.filter(pr => pr.head.ref.startsWith('sync/workflows-'));
+                const syncPRs = prs.filter((pr) => isTrustedSyncPr(pr, trustedSyncActors));
 
                 if (cleanupBranches) {
                   try {
@@ -448,6 +497,7 @@ jobs:
 
                 // Process the selected active PR
                 const pr = selection.active;
+                const metadata = syncMetadata(pr);
                 console.log(`\nProcessing active PR #${pr.number}: ${pr.title}`);
                 console.log(`Branch: ${pr.head.ref}`);
                 console.log(`Created: ${pr.created_at}`);
@@ -488,6 +538,17 @@ jobs:
                   requiredContexts.size > 0 ? 'required-contexts' : 'denylist-fallback';
                 const failedChecks = classification.failed;
                 const pendingChecks = classification.pending;
+
+                if (metadata?.sync_phase === 'canary' && metadata?.plan_id) {
+                  canaryEvidence.push({
+                    repo: `${owner}/${repo}`,
+                    plan_id: metadata.plan_id,
+                    pr: pr.number,
+                    required_check_state:
+                      classification.status === 'ready' ? 'success' : classification.status,
+                    active_review_thread_count: await activeReviewThreadCount(owner, repo, pr.number),
+                  });
+                }
 
                 console.log(
                   `Checks (${checkGateMode}): ${gatingChecks.length} gating, ` +
@@ -686,6 +747,15 @@ jobs:
             const reportPath = process.env.SYNC_PR_MERGE_REPORT_JSON;
             fs.mkdirSync(path.dirname(reportPath), { recursive: true });
             fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+            fs.writeFileSync(
+              'artifacts/sync-canary-evidence.json',
+              `${JSON.stringify({
+                schema: 'workflows.consumer-sync-canary-evidence/v1',
+                version: 1,
+                results: canaryEvidence,
+              }, null, 2)}\n`,
+              'utf8',
+            );
             await core.summary.addRaw(buildMarkdownSummary(report)).write();
 
             const merged = report.summary.merged;
@@ -735,6 +805,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: sync-pr-merge-report
-          path: artifacts/sync-pr-merge-report.json
+          name: sync-pr-merge-and-canary-evidence
+          path: |
+            artifacts/sync-pr-merge-report.json
+            artifacts/sync-canary-evidence.json
           if-no-files-found: warn
