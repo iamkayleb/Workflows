@@ -66,27 +66,41 @@ COVERAGE_VERSION=7.12.0
 ### 4. Version Check (`maint-50-tool-version-check.yml`)
 - Runs weekly on Mondays at 8:00 AM UTC
 - Checks PyPI for latest versions of all tools
-- Creates/updates issue when updates are available
-- Manual dispatch available with `force_issue` option
+- Publishes read-only freshness evidence; it never opens or comments on a
+  competing update issue or PR
+
+### 5. Canonical Source Proposal (`maint-auto-update-pypi-versions.yml`)
+- Runs Mondays at 03:00 UTC, before consumer propagation
+- Is the only routine workflow allowed to open or refresh a Workflows dev-tool
+  source PR
+- Uses one mutable `auto/weekly-dev-tool-update-YYYY-Www` PR per weekly window
+- An operator may use the explicit `security_override` dispatch input for an
+  urgent security update outside that window
 
 ## Update Process
 
 ### Automated Monitoring
 
-The `maint-50-tool-version-check.yml` workflow automatically:
-1. Checks PyPI weekly for new tool versions
-2. Compares with current pinned versions
-3. Creates an issue titled "🔧 CI/Autofix Tool Updates Available"
-4. Lists all available updates in the issue
-5. Updates the issue if already exists (doesn't spam with duplicates)
+The source lane is deliberately single-writer:
 
-### Manual Update Steps
+1. `maint-50-tool-version-check.yml` reports PyPI freshness only.
+2. `maint-auto-update-pypi-versions.yml` checks the canonical pin file in the
+   Monday batch window and opens or refreshes one source PR for all routine
+   updates found together.
+3. After that source PR merges and its normal validation succeeds, the
+   `maint-52-sync-dev-versions.yml` push trigger propagates the exact settled
+   source commit to consumers. Its delivery marker and PR body record that SHA.
+4. A security-sensitive update may be manually dispatched with
+   `security_override=true`; it remains on the same source lane and still runs
+   the normal source validation before propagation.
 
-When an update issue is created:
+### Operator Review Steps
 
-1. **Review the update issue** to see which tools have new versions
+When the canonical source lane opens a PR:
 
-2. **Update the version file**:
+1. **Review the canonical source PR** to see which tools have new versions
+
+2. **Inspect the proposed pin set** when local reproduction is useful:
    ```bash
    # Edit .github/workflows/autofix-versions.env
    vim .github/workflows/autofix-versions.env
@@ -109,28 +123,14 @@ When an update issue is created:
    mypy src tests
    ```
 
-4. **Create a PR**:
-   ```bash
-   git checkout -b chore/update-tool-versions
-   git add .github/workflows/autofix-versions.env
-   git commit -m "chore(ci): update tool versions
-
-   - Black: X.X.X → Y.Y.Y
-   - Ruff: X.X.X → Y.Y.Y
-   - MyPy: X.X.X → Y.Y.Y
-   
-   Addresses: issue #NNNN"
-   git push -u origin chore/update-tool-versions
-   ```
-
-5. **Verify CI passes**:
+4. **Verify CI passes** on that canonical source PR:
    - All Gate checks should pass
    - Autofix should use new versions if it runs
    - No formatting conflicts should occur
 
-6. **Merge and close issue**:
-   - Merge the PR
-   - Close the version update issue
+5. **Merge the canonical source PR**. Its settled commit is then the only
+   input to the Maint 52 consumer-propagation wave; do not create a parallel
+   update issue or competing source PR.
 
 ## Why Version Pinning?
 
@@ -178,14 +178,14 @@ When an update issue is created:
 
 ### Weekly Check Not Running
 
-**Symptom**: No version update issues being created
+**Symptom**: No canonical source PR is being created when a routine update is due
 
 **Cause**: Workflow may be disabled or scheduled incorrectly
 
 **Solution**:
-1. Check workflow is enabled in Actions UI
-2. Verify cron schedule is correct (`0 8 * * 1`)
-3. Manually trigger with workflow_dispatch to test
+1. Check `maint-auto-update-pypi-versions.yml` is enabled in Actions UI
+2. Verify the source-lane cron schedule is correct (`0 3 * * 1`, Mondays 03:00 UTC)
+3. Manually trigger that workflow with workflow_dispatch to test
 
 ## Architecture Decisions
 
@@ -241,6 +241,8 @@ drift. Full ownership table:
 
 ## Maintenance Schedule
 
-- **Weekly**: Automated version check (Mondays 8:00 AM UTC)
-- **As Needed**: Manual updates when security issues arise
+- **Weekly**: One source proposal window (Mondays 03:00 UTC) and read-only
+  freshness report (Mondays 08:00 UTC)
+- **As Needed**: Explicit `security_override` source-lane dispatch for reviewed
+  security updates
 - **Quarterly**: Review and update this documentation
