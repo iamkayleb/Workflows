@@ -648,7 +648,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="append",
         help=(
             "Status check context to require. May be passed multiple times. Defaults to"
-            " 'Gate / gate'."
+            " 'summary' (see DEFAULT_CONTEXTS); 'Gate / gate' is deliberately not required."
         ),
     )
     parser.add_argument(
@@ -804,7 +804,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         if snapshot is not None:
             snapshot["error"] = str(exc)
-            snapshot.setdefault("desired", {"strict": True, "contexts": list(desired_contexts)})
+            snapshot.setdefault(
+                "desired", {"strict": desired_strict, "contexts": list(desired_contexts)}
+            )
             snapshot.setdefault("to_add", list(desired_contexts))
             snapshot.setdefault("to_remove", [])
             _write_snapshot(args.snapshot, snapshot)
@@ -819,9 +821,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     to_add, to_remove = diff_contexts(current_state.contexts, target_contexts)
     strict_is_unknown = current_state.strict is None
     strict_change = desired_strict and current_state.strict is False
+    # --allow-non-strict accepts a non-strict floor; an already-strict policy is
+    # still in sync. Keep that accepted current value as the effective target for
+    # both the snapshot and any --apply update so context drift cannot disable
+    # strict enforcement while the snapshot claims a strict target.
+    target_strict = desired_strict
+    if args.allow_non_strict and current_state.strict is True:
+        target_strict = True
 
     if snapshot is not None:
-        snapshot["desired"] = {"strict": True, "contexts": list(target_contexts)}
+        snapshot["desired"] = {"strict": target_strict, "contexts": list(target_contexts)}
         snapshot["strict_unknown"] = strict_is_unknown
         snapshot["require_strict"] = bool(args.require_strict)
         snapshot["to_add"] = list(to_add)
@@ -889,7 +898,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.repo,
             args.branch,
             contexts=target_contexts,
-            strict=desired_strict,
+            strict=target_strict,
             api_root=api_root,
         )
     except BranchProtectionError as exc:
