@@ -85,7 +85,54 @@ test('generated delivery classification gives sync and dev-tool lanes identical 
     assert.equal(classifyGeneratedPr({ pr: candidate, activeReviewThreadCount: 1, now: '2026-08-01T00:00:00Z' }).disposition, 'review-blocked');
     assert.equal(classifyGeneratedPr({ pr: candidate, activeReviewThreadCount: -1, now: '2026-08-01T00:00:00Z' }).next_command, 'retry-review-thread-query');
     assert.equal(classifyGeneratedPr({ pr: candidate, checkState: { status: 'checks_failed' }, now: '2026-08-01T00:00:00Z' }).disposition, 'repo-local-failure');
+    assert.equal(
+      classifyGeneratedPr({
+        pr: candidate,
+        checkState: { status: 'checks_failed', failure_scope: 'shared-source' },
+        now: '2026-08-01T00:00:00Z',
+      }).disposition,
+      'shared-source-failure',
+    );
   }
+
+  const sharedHealth = classifySyncPrChecks({
+    checkRuns: [checkRun({ name: 'Health 40 Sweep', conclusion: 'failure' })],
+    requiredContexts: ['Health 40 Sweep'],
+  });
+  assert.equal(sharedHealth.status, 'checks_failed');
+  assert.equal(sharedHealth.failure_scope, 'shared-source');
+  assert.equal(
+    classifyGeneratedPr({ pr: sync, checkState: sharedHealth, now: '2026-08-01T00:00:00Z' }).disposition,
+    'shared-source-failure',
+  );
+
+  const aggregateGate = classifySyncPrChecks({
+    checkRuns: [checkRun({ name: 'Gate / gate', conclusion: 'failure' })],
+    requiredContexts: ['Gate / gate'],
+  });
+  assert.equal(aggregateGate.failure_scope, 'repo-local');
+
+  const localWorkflowCheck = classifySyncPrChecks({
+    checkRuns: [checkRun({ name: 'workflow integration tests', conclusion: 'failure' })],
+    requiredContexts: ['workflow integration tests'],
+  });
+  assert.equal(localWorkflowCheck.failure_scope, 'repo-local');
+
+  const explicitlyShared = classifySyncPrChecks({
+    checkRuns: [{ ...checkRun({ name: 'Gate / gate', conclusion: 'failure' }), shared_source: true }],
+    requiredContexts: ['Gate / gate'],
+  });
+  assert.equal(explicitlyShared.failure_scope, 'shared-source');
+
+  const localFail = classifySyncPrChecks({
+    checkRuns: [checkRun({ name: 'unit-tests', conclusion: 'failure' })],
+    requiredContexts: ['unit-tests'],
+  });
+  assert.equal(localFail.failure_scope, 'repo-local');
+  assert.equal(
+    classifyGeneratedPr({ pr: sync, checkState: localFail, now: '2026-08-01T00:00:00Z' }).disposition,
+    'repo-local-failure',
+  );
 });
 
 test('selectActiveSyncPr honors target hash instead of newest PR', () => {

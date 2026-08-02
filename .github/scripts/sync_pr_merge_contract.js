@@ -84,6 +84,14 @@ function classifyGeneratedPr({ pr = {}, checkState = {}, activeReviewThreadCount
     return { disposition: 'awaiting-checks', blocker_owner: 'ci', next_command: 'await-required-checks' };
   }
   if (checkState.status === 'checks_failed') {
+    const failureScope = String(checkState.failure_scope || '').trim().toLowerCase();
+    if (failureScope === 'shared-source' || checkState.shared_source === true) {
+      return {
+        disposition: 'shared-source-failure',
+        blocker_owner: 'source',
+        next_command: 'repair-shared-source-and-redeliver',
+      };
+    }
     return { disposition: 'repo-local-failure', blocker_owner: 'repo', next_command: 'repair-required-checks' };
   }
   return { disposition: 'current', blocker_owner: 'maint-71', next_command: 'merge-current-delivery' };
@@ -178,6 +186,20 @@ function selectSyncPrGatingChecks({
       );
 }
 
+// Workflows-owned / template-propagated gates. Consumer app test names stay repo-local.
+// Keep these identities deliberately narrow: an aggregate Gate only reports that a
+// consumer required context failed; it does not identify the failed Gate leg.
+const SHARED_SOURCE_CHECK_RE =
+  /^(?:health\s+\d+(?:\s|$)|consumer\s+sync(?:\s|$)|sync\s+templates?(?:\s|$))/i;
+
+function isSharedSourceFailedCheck(check = {}) {
+  const name = String(check?.name || check?.context || '').trim();
+  const explicitScope = String(check?.failure_scope || check?.source || '').trim().toLowerCase();
+  return check?.shared_source === true ||
+    explicitScope === 'shared-source' ||
+    (Boolean(name) && SHARED_SOURCE_CHECK_RE.test(name));
+}
+
 function classifySyncPrChecks({
   checkRuns = [],
   requiredContexts = [],
@@ -198,7 +220,8 @@ function classifySyncPrChecks({
   const pending = gatingChecks.filter((check) => check?.status !== 'completed');
 
   if (failed.length > 0) {
-    return { status: 'checks_failed', failed, pending: [] };
+    const failure_scope = failed.some(isSharedSourceFailedCheck) ? 'shared-source' : 'repo-local';
+    return { status: 'checks_failed', failure_scope, failed, pending: [] };
   }
   if (pending.length > 0) {
     return { status: 'checks_pending', failed: [], pending };
