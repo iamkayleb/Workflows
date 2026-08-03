@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -21,10 +22,16 @@ def _parse_version_tuple(value: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in match.groups())
 
 
-def _extract_codex_cli_pin(run_script: str) -> tuple[int, int, int]:
-    match = re.search(r'@openai/codex@([0-9]+\.[0-9]+\.[0-9]+)"', run_script)
-    assert match, "Install Codex CLI step must pin @openai/codex to an explicit version"
-    return _parse_version_tuple(match.group(1))
+def _extract_codex_cli_pin() -> tuple[int, int, int]:
+    package_root = ROOT / ".github/actions/verifier-codex-cli"
+    package = json.loads((package_root / "package.json").read_text(encoding="utf-8"))
+    lockfile = json.loads((package_root / "package-lock.json").read_text(encoding="utf-8"))
+    declared = package["dependencies"]["@openai/codex"]
+    locked = lockfile["packages"]["node_modules/@openai/codex"]["version"]
+    assert (
+        declared == locked
+    ), "package.json and package-lock.json must agree on the Codex CLI version"
+    return _parse_version_tuple(declared)
 
 
 def _model_candidates(resolve_step: dict) -> list[str]:
@@ -41,6 +48,9 @@ def test_reusable_verifier_uploads_terminal_disposition_artifact() -> None:
         step for step in steps if step.get("name") == "Resolve Codex verifier model"
     )
     install_step = next(step for step in steps if step.get("name") == "Install Codex CLI")
+    parse_step = next(
+        step for step in steps if step.get("name") == "Parse verifier verdict (checkbox mode)"
+    )
     run_step = next(step for step in steps if step.get("name") == "Run verifier (checkbox mode)")
     collect_step = next(step for step in steps if step.get("name") == "Collect verifier metrics")
     write_step = next(
@@ -56,7 +66,35 @@ def test_reusable_verifier_uploads_terminal_disposition_artifact() -> None:
         resolve_step.get("if")
         == "steps.context.outputs.should_run == 'true' && inputs.mode != 'evaluate'"
     )
-    assert 'npm install -g "@openai/codex@0.144.1"' in install_step["run"]
+    assert install_step["env"]["CODEX_CLI_PACKAGE"] == "@openai/codex@0.144.1"
+    assert (
+        'npm ci --prefix "$codex_cli_prefix" --ignore-scripts' in install_step["run"]
+        or "npm ci --prefix .workflows-lib/.github/actions/verifier-codex-cli --ignore-scripts"
+        in install_step["run"]
+    )
+    assert ".workflows-lib/.github/actions/verifier-codex-cli" in install_step["run"]
+    assert 'echo "$codex_bin_dir" >> "$GITHUB_PATH"' in install_step["run"]
+    assert 'codex_bin_dir="${codex_cli_prefix}/node_modules/.bin"' in install_step["run"]
+    assert 'codex_cli="${codex_bin_dir}/codex"' in install_step["run"]
+    assert 'echo "CODEX_CLI=${codex_cli}" >> "$GITHUB_ENV"' in install_step["run"]
+    assert "CODEX_CLI_PACKAGE" in install_step["run"]  # env used, not dead
+    # Run verifier must invoke the pinned local binary, not bare `codex`.
+    assert '"$CODEX_CLI" exec' in run_step["run"]
+    assert "node_modules/.bin/codex" in run_step["run"]
+    assert '[ -z "${CODEX_CLI:-}" ] || [ ! -x "${CODEX_CLI}" ]' in run_step["run"]
+    assert re.search(r"(?m)^(?:\s*)codex exec\b", run_step["run"]) is None
+    checkout_step = next(
+        step
+        for step in steps
+        if step.get("name") == "Checkout Workflows scripts"
+        or (
+            isinstance(step.get("with"), dict)
+            and step["with"].get("repository") == "stranske/Workflows"
+            and "sparse-checkout" in step["with"]
+        )
+    )
+    sparse = str((checkout_step.get("with") or {}).get("sparse-checkout", ""))
+    assert ".github/actions/verifier-codex-cli" in sparse
     assert resolve_step["env"]["DEFAULT_CODEX_MODEL"] == "gpt-5.6-terra"
     assert resolve_step["env"]["FALLBACK_CODEX_MODELS"] == "gpt-5.5"
     assert resolve_step["env"]["VERIFIER_MODE"] == "${{ inputs.mode }}"
@@ -66,6 +104,8 @@ def test_reusable_verifier_uploads_terminal_disposition_artifact() -> None:
     assert 'candidates="$DEFAULT_CODEX_MODEL $FALLBACK_CODEX_MODELS"' in resolve_step["run"]
     assert "Candidate order" in resolve_step["run"]
     assert '[ "${VERIFIER_MODE:-}" = "checkbox" ]' in resolve_step["run"]
+    assert "json.load(open(sys.argv[1]))" in parse_step["run"]
+    assert "from pathlib import Path" not in parse_step["run"]
     assert "CODEX_MODEL_CANDIDATES" in run_step["env"]
     assert 'for codex_model in "${codex_models[@]}"; do' in run_step["run"]
     assert '--model "$codex_model"' in run_step["run"]
@@ -122,7 +162,10 @@ def test_reusable_verifier_codex_model_cli_compatibility_contract() -> None:
     )
     install_step = next(step for step in steps if step.get("name") == "Install Codex CLI")
 
-    installed_cli = _extract_codex_cli_pin(install_step["run"])
+    installed_cli = _extract_codex_cli_pin()
+    assert install_step["env"]["CODEX_CLI_PACKAGE"] == (
+        "@openai/codex@" + ".".join(map(str, installed_cli))
+    )
     candidates = _model_candidates(resolve_step)
     unreviewed_models = [model for model in candidates if model not in MIN_CODEX_CLI_BY_MODEL]
     assert not unreviewed_models, (
