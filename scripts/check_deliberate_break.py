@@ -33,7 +33,7 @@ ASSERTION_DIFF_RE = re.compile(
     r"\b(assert|expect\(|pytest\.raises\(|assert\.)\b",
 )
 DEFAULT_TIMEOUT_SECONDS = 120
-# Keep this bootstrap pin aligned with the canonical PyYAML pin in requirements.lock.
+# Keep this pin aligned with the PyYAML entry in requirements.lock.
 PYYAML_VERSION = "6.0.3"
 PYTEST_RUNTIME_DEPENDENCIES = (f"pyyaml=={PYYAML_VERSION}",)
 
@@ -135,7 +135,7 @@ def _pytest_command(test_id: str) -> tuple[str, ...]:
 
 
 def _ensure_pytest_runtime_deps() -> None:
-    """Install lightweight deps that Gate test-quality may not preinstall.
+    """Install lightweight dependencies that Gate test-quality may not preinstall.
 
     Gate's test-quality job installs only ``pytest``. Deliberate-break may still
     collect tests that import PyYAML (for example via ``sync_manifest_compiler``).
@@ -151,6 +151,8 @@ def _ensure_pytest_runtime_deps() -> None:
         try:
             import_module("yaml")
         except Exception:
+            # Any ordinary import-time failure means the installed distribution
+            # is unusable. Reinstall the locked wheel before collecting tests.
             pass
         else:
             import_works = True

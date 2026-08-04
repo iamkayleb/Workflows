@@ -266,6 +266,15 @@ def test_text_from_response_content_does_not_copy_blocks_to_check_whitespace() -
     assert pr_verifier._text_from_response_content(blocks) == "large response"
 
 
+def test_text_from_response_content_accepts_strings_and_object_blocks() -> None:
+    class TextBlock:
+        text = 'ponse"}'
+
+    blocks = ['{"summary":"res', TextBlock()]
+
+    assert pr_verifier._text_from_response_content(blocks) == '{"summary":"response"}'
+
+
 def test_evaluate_pr_valid_output_no_repair(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _valid_payload()
     good = json.dumps(payload)

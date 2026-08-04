@@ -319,12 +319,14 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
     assert calls == []
 
 
-@pytest.mark.parametrize("error_type", [ImportError, OSError, AttributeError, SyntaxError])
-def test_runtime_dependency_installer_repairs_broken_pyyaml_import(monkeypatch, error_type) -> None:
+@pytest.mark.parametrize("import_error", [ImportError, OSError, AttributeError, SyntaxError])
+def test_runtime_dependency_installer_repairs_broken_pyyaml_import(
+    monkeypatch, import_error
+) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
 
     def broken_import(_name):
-        raise error_type("broken PyYAML install")
+        raise import_error("broken PyYAML install")
 
     monkeypatch.setattr(
         deliberate_break.metadata,
@@ -382,14 +384,14 @@ def test_dependency_install_timeout_is_broken(tmp_path, monkeypatch) -> None:
     }
 
 
-def test_dependency_install_failure_is_broken_with_diagnostics(tmp_path, monkeypatch) -> None:
+def test_dependency_install_failure_preserves_subprocess_context(tmp_path, monkeypatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_repo(repo)
     base, spec = _sound_spec(repo)
     error = subprocess.CalledProcessError(
-        1,
-        ["python", "-m", "pip", "install", "pyyaml==6.0.3"],
+        17,
+        ["pip", "install", "pyyaml==6.0.3"],
         output="resolver output",
         stderr="pip denied",
     )
@@ -404,8 +406,8 @@ def test_dependency_install_failure_is_broken_with_diagnostics(tmp_path, monkeyp
     assert result == {
         "verdict": VERDICT_BROKEN,
         "reason": "dependency-install-failed",
-        "command": ["python", "-m", "pip", "install", "pyyaml==6.0.3"],
-        "returncode": 1,
+        "command": ["pip", "install", "pyyaml==6.0.3"],
+        "returncode": 17,
         "stdout": "resolver output",
         "stderr": "pip denied",
     }
