@@ -338,6 +338,8 @@ def _uv_module_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None
 
 
 PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
+PYTHON_TERMINATING_OPTIONS = frozenset({"-", "--", "-?", "-V", "-VV", "-h", "--help", "--version"})
+PYTHON_COMPACT_PREFIX_RE = re.compile(r"^-(?:[bBdEIOPqRsSuvx]|O)+m$")
 
 
 def _python_module_pytest_probe(
@@ -352,7 +354,16 @@ def _python_module_pytest_probe(
             if index + 1 < len(command) and command[index + 1] == "pytest":
                 return (*command[:index], "-c", "import yaml")
             return None
-        if option in {"-c", "-"} or not option.startswith("-"):
+        if PYTHON_COMPACT_PREFIX_RE.fullmatch(option):
+            if index + 1 < len(command) and command[index + 1] == "pytest":
+                return (*command[:index], option[:-1], "-c", "import yaml")
+            return None
+        if (
+            option == "-c"
+            or option in PYTHON_TERMINATING_OPTIONS
+            or option.startswith("--help-")
+            or not option.startswith("-")
+        ):
             return None
         index += 2 if option in PYTHON_VALUE_OPTIONS else 1
     return None
