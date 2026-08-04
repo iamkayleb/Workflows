@@ -529,9 +529,21 @@ def _run_with_runtime_deps(
             missing_pyyaml = _pyyaml_runtime_needs_repair()
         elif probe_command := _pyyaml_probe_command(command, cwd):
             try:
-                missing_pyyaml = _run(probe_command, cwd).returncode != 0
+                probe = _run(probe_command, cwd)
             except OSError as exc:
                 raise CommandUnavailableError(exc) from exc
+            probe_output = f"{probe.stdout}\n{probe.stderr}".lower()
+            missing_pyyaml = probe.returncode != 0 or any(
+                marker in probe_output
+                for marker in (
+                    "traceback (most recent call last)",
+                    "attributeerror:",
+                    "importerror:",
+                    "modulenotfounderror:",
+                    "oserror:",
+                    "syntaxerror:",
+                )
+            )
     if not missing_pyyaml:
         return completed
 

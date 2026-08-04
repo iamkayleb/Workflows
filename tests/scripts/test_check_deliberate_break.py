@@ -640,6 +640,37 @@ def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
     assert attempts == []
 
 
+def test_interactive_probe_traceback_is_dependency_failure_despite_zero_exit(
+    tmp_path, monkeypatch
+) -> None:
+    command = ("uv", "run", "python", "-im", "pytest")
+    attempts = [
+        subprocess.CompletedProcess(
+            command,
+            1,
+            "",
+            'File "/venv/lib/site-packages/yaml/__init__.py", line 1\n' "SyntaxError: broken wheel",
+        ),
+        subprocess.CompletedProcess(
+            ["probe"],
+            0,
+            "",
+            "Traceback (most recent call last):\nSyntaxError: broken wheel\n>>> ",
+        ),
+    ]
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
+
+    with pytest.raises(deliberate_break.RuntimeDependencyError):
+        deliberate_break._run_with_runtime_deps(command, tmp_path)
+
+    assert attempts == []
+
+
 def test_uv_pyyaml_probe_uses_resolved_pytest_shebang_interpreter(tmp_path, monkeypatch) -> None:
     pytest_launcher = tmp_path / "global" / "bin" / "pytest"
     pytest_launcher.parent.mkdir(parents=True)
