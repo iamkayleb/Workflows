@@ -273,6 +273,7 @@ def test_runtime_dependency_installer_uses_locked_pyyaml(monkeypatch, installed_
         return subprocess.CompletedProcess(args[0], 0, "", "")
 
     monkeypatch.setattr(deliberate_break.metadata, "version", package_version)
+    monkeypatch.setattr(deliberate_break, "import_module", lambda _name: object())
     monkeypatch.setattr(deliberate_break.subprocess, "run", record_install)
 
     deliberate_break._ensure_pytest_runtime_deps()
@@ -324,9 +325,14 @@ def test_runtime_dependency_installer_repairs_broken_pyyaml_import(
     monkeypatch, import_error
 ) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
+    imports = 0
 
     def broken_import(_name):
-        raise import_error("broken PyYAML install")
+        nonlocal imports
+        imports += 1
+        if imports == 1:
+            raise import_error("broken PyYAML install")
+        return object()
 
     monkeypatch.setattr(
         deliberate_break.metadata,
@@ -344,6 +350,40 @@ def test_runtime_dependency_installer_repairs_broken_pyyaml_import(
 
     assert len(calls) == 1
     assert calls[0][0][0][-1] == f"pyyaml=={deliberate_break.PYYAML_VERSION}"
+    assert "--force-reinstall" in calls[0][0][0]
+    assert imports == 2
+
+
+def test_runtime_dependency_installer_preserves_initial_import_failure(
+    monkeypatch,
+) -> None:
+    initial_error = OSError("broken PyYAML install")
+    imports = 0
+
+    def broken_import(_name):
+        nonlocal imports
+        imports += 1
+        if imports == 1:
+            raise initial_error
+        raise AttributeError("still broken after reinstall")
+
+    monkeypatch.setattr(
+        deliberate_break.metadata,
+        "version",
+        lambda _name: deliberate_break.PYYAML_VERSION,
+    )
+    monkeypatch.setattr(deliberate_break, "import_module", broken_import)
+    monkeypatch.setattr(
+        deliberate_break.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, "", ""),
+    )
+
+    with pytest.raises(ImportError, match="still broken after reinstall") as caught:
+        deliberate_break._ensure_pytest_runtime_deps()
+
+    assert caught.value.__cause__ is initial_error
+    assert imports == 2
 
 
 def _sound_spec(repo: Path) -> tuple[str, object]:
@@ -430,4 +470,26 @@ def test_dependency_install_unavailable_is_broken(tmp_path, monkeypatch) -> None
         "verdict": VERDICT_BROKEN,
         "reason": "dependency-install-unavailable",
         "detail": "pip unavailable",
+    }
+
+
+def test_dependency_import_failure_is_broken(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    base, spec = _sound_spec(repo)
+    original = OSError("original import failed")
+
+    def failed() -> None:
+        raise ImportError("retry failed") from original
+
+    monkeypatch.setattr(deliberate_break, "_ensure_pytest_runtime_deps", failed)
+
+    result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
+
+    assert result == {
+        "verdict": VERDICT_BROKEN,
+        "reason": "dependency-import-failed",
+        "detail": "retry failed",
+        "cause": "original import failed",
     }
