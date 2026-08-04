@@ -322,6 +322,24 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
     assert calls == []
 
 
+@pytest.mark.parametrize(
+    ("installed_version", "supported"),
+    [
+        (None, False),
+        ("6.0.2", False),
+        ("6.0.3", True),
+        ("6.0.3.0", True),
+        ("6.0.3+local.1", True),
+        ("6.0.4", True),
+        ("99.0.0", True),
+        ("6.0.3rc1", False),
+        ("not-a-version", False),
+    ],
+)
+def test_supported_pyyaml_version_uses_stdlib_only(installed_version, supported) -> None:
+    assert deliberate_break._supported_pyyaml_version(installed_version) is supported
+
+
 def test_runtime_dependency_installer_accepts_newer_compatible_pyyaml(monkeypatch) -> None:
     calls: list[object] = []
     monkeypatch.setattr(deliberate_break.metadata, "version", lambda _name: "99.0.0")

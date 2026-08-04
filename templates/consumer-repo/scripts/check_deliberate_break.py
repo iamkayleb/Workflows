@@ -19,8 +19,6 @@ from importlib import import_module, metadata
 from io import BytesIO
 from pathlib import Path
 
-from packaging.version import InvalidVersion, Version
-
 VERDICT_PASS = "PASS"
 VERDICT_HOLLOW = "FAIL_HOLLOW"
 VERDICT_BROKEN = "FAIL_BROKEN"
@@ -165,10 +163,16 @@ def _supported_pyyaml_version(installed_version: str | None) -> bool:
     """Return whether an installed PyYAML version satisfies the bootstrap floor."""
     if installed_version is None:
         return False
-    try:
-        return Version(installed_version) >= Version(PYYAML_VERSION)
-    except InvalidVersion:
+    installed_match = re.fullmatch(r"(\d+(?:\.\d+)*)(?:\+[\w.-]+)?", installed_version)
+    floor_match = re.fullmatch(r"(\d+(?:\.\d+)*)", PYYAML_VERSION)
+    if installed_match is None or floor_match is None:
         return False
+    installed_release = tuple(int(part) for part in installed_match.group(1).split("."))
+    floor_release = tuple(int(part) for part in floor_match.group(1).split("."))
+    width = max(len(installed_release), len(floor_release))
+    return installed_release + (0,) * (width - len(installed_release)) >= floor_release + (0,) * (
+        width - len(floor_release)
+    )
 
 
 def _ensure_pytest_runtime_deps() -> None:
