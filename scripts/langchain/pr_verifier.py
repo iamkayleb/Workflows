@@ -682,7 +682,12 @@ def _text_from_response_content(content: object) -> str | None:
     if isinstance(content, list):
         text_blocks: list[str] = []
         for block in content:
-            text = block.get("text") if isinstance(block, dict) else getattr(block, "text", None)
+            if isinstance(block, str):
+                text = block
+            elif isinstance(block, dict):
+                text = block.get("text")
+            else:
+                text = getattr(block, "text", None)
             if isinstance(text, str):
                 text_blocks.append(text)
         if any(block and not block.isspace() for block in text_blocks):

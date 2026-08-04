@@ -33,7 +33,7 @@ ASSERTION_DIFF_RE = re.compile(
     r"\b(assert|expect\(|pytest\.raises\(|assert\.)\b",
 )
 DEFAULT_TIMEOUT_SECONDS = 120
-# Keep this bootstrap pin aligned with the canonical PyYAML pin in requirements.lock.
+# Keep this pin aligned with the PyYAML entry in requirements.lock.
 PYYAML_VERSION = "6.0.3"
 PYTEST_RUNTIME_DEPENDENCIES = (f"pyyaml=={PYYAML_VERSION}",)
 
@@ -135,7 +135,7 @@ def _pytest_command(test_id: str) -> tuple[str, ...]:
 
 
 def _ensure_pytest_runtime_deps() -> None:
-    """Install lightweight deps that Gate test-quality may not preinstall.
+    """Install lightweight dependencies that Gate test-quality may not preinstall.
 
     Gate's test-quality job installs only ``pytest``. Deliberate-break may still
     collect tests that import PyYAML (for example via ``sync_manifest_compiler``).
@@ -146,29 +146,39 @@ def _ensure_pytest_runtime_deps() -> None:
         installed_version = metadata.version("PyYAML")
     except metadata.PackageNotFoundError:
         installed_version = None
-    import_works = False
+    import_error: Exception | None = None
     if installed_version == PYYAML_VERSION:
         try:
             import_module("yaml")
-        except Exception:
-            pass
+        except Exception as exc:
+            # Any ordinary import-time failure means the installed distribution
+            # is unusable. Reinstall the locked wheel before collecting tests.
+            import_error = exc
         else:
-            import_works = True
-    if installed_version != PYYAML_VERSION or not import_works:
+            return
+    if installed_version != PYYAML_VERSION or import_error is not None:
+        command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "--upgrade",
+        ]
+        if import_error is not None:
+            command.append("--force-reinstall")
+        command.extend(PYTEST_RUNTIME_DEPENDENCIES)
         subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                *PYTEST_RUNTIME_DEPENDENCIES,
-            ],
+            command,
             check=True,
             text=True,
             capture_output=True,
             timeout=DEFAULT_TIMEOUT_SECONDS,
         )
+        try:
+            import_module("yaml")
+        except Exception as retry_error:
+            error = ImportError(f"PyYAML remained unimportable after reinstall: {retry_error}")
+            raise error from (import_error or retry_error)
 
 
 def _run(
@@ -319,6 +329,13 @@ def verify_spec(
             returncode=exc.returncode,
             stdout=exc.stdout,
             stderr=exc.stderr,
+        )
+    except ImportError as exc:
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="dependency-import-failed",
+            detail=str(exc),
+            cause=str(exc.__cause__) if exc.__cause__ is not None else None,
         )
     except OSError as exc:
         return _json_result(
