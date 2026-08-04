@@ -322,6 +322,22 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
     assert calls == []
 
 
+def test_runtime_dependency_installer_accepts_newer_compatible_pyyaml(monkeypatch) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(deliberate_break.metadata, "version", lambda _name: "99.0.0")
+    monkeypatch.setattr(deliberate_break, "import_module", lambda _name: object())
+    monkeypatch.setattr(
+        deliberate_break.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    deliberate_break._ensure_pytest_runtime_deps()
+
+    assert calls == []
+    assert not deliberate_break._pyyaml_runtime_needs_repair()
+
+
 @pytest.mark.parametrize("import_error", [ImportError, OSError, AttributeError, SyntaxError])
 def test_runtime_dependency_installer_repairs_broken_pyyaml_import(
     monkeypatch, import_error
@@ -468,6 +484,7 @@ def test_runtime_dependencies_retry_pyyaml_import_failure(tmp_path, monkeypatch)
         "_pyyaml_runtime_needs_repair",
         lambda: False,
     )
+    monkeypatch.setattr(deliberate_break, "_pyyaml_probe_succeeds", lambda *_args: True)
     monkeypatch.setattr(
         deliberate_break,
         "_ensure_pytest_runtime_deps",
@@ -499,6 +516,7 @@ def test_runtime_dependencies_retry_broken_pyyaml_traceback(tmp_path, monkeypatc
         "_pyyaml_runtime_needs_repair",
         lambda: next(repair_checks),
     )
+    monkeypatch.setattr(deliberate_break, "_pyyaml_probe_succeeds", lambda *_args: True)
     monkeypatch.setattr(
         deliberate_break,
         "import_module",
@@ -526,6 +544,7 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
         lambda *_args: events.append("run") or completed,
     )
     monkeypatch.setattr(deliberate_break.metadata, "version", lambda _name: "0.0.0")
+    monkeypatch.setattr(deliberate_break, "_pyyaml_probe_succeeds", lambda *_args: True)
     monkeypatch.setattr(
         deliberate_break,
         "_ensure_pytest_runtime_deps",
@@ -536,6 +555,26 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
 
     assert result is completed
     assert events == ["repair", "run"]
+
+
+def test_managed_runtime_rejects_unrepairable_command_import_context(tmp_path, monkeypatch) -> None:
+    repairs: list[bool] = []
+    monkeypatch.setattr(deliberate_break, "_pyyaml_runtime_needs_repair", lambda: False)
+    monkeypatch.setattr(deliberate_break, "_pyyaml_probe_succeeds", lambda *_args: False)
+    monkeypatch.setattr(
+        deliberate_break,
+        "_ensure_pytest_runtime_deps",
+        lambda: repairs.append(True),
+    )
+
+    with pytest.raises(deliberate_break.RuntimeDependencyError) as caught:
+        deliberate_break._run_with_runtime_deps(
+            (sys.executable, "-m", "pytest"),
+            tmp_path,
+        )
+
+    assert repairs == [True]
+    assert "managed pytest command environment" in str(caught.value.error)
 
 
 def test_import_context_changed_active_python_is_not_repaired(tmp_path, monkeypatch) -> None:

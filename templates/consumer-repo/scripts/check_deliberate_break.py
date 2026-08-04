@@ -19,6 +19,8 @@ from importlib import import_module, metadata
 from io import BytesIO
 from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
+
 VERDICT_PASS = "PASS"
 VERDICT_HOLLOW = "FAIL_HOLLOW"
 VERDICT_BROKEN = "FAIL_BROKEN"
@@ -159,6 +161,16 @@ def _pytest_command(test_id: str) -> tuple[str, ...]:
     return (sys.executable, "-m", "pytest", test_id, "-q")
 
 
+def _supported_pyyaml_version(installed_version: str | None) -> bool:
+    """Return whether an installed PyYAML version satisfies the bootstrap floor."""
+    if installed_version is None:
+        return False
+    try:
+        return Version(installed_version) >= Version(PYYAML_VERSION)
+    except InvalidVersion:
+        return False
+
+
 def _ensure_pytest_runtime_deps() -> None:
     """Install lightweight dependencies that Gate test-quality may not preinstall.
 
@@ -172,7 +184,7 @@ def _ensure_pytest_runtime_deps() -> None:
     except metadata.PackageNotFoundError:
         installed_version = None
     import_error: Exception | None = None
-    if installed_version == PYYAML_VERSION:
+    if _supported_pyyaml_version(installed_version):
         try:
             import_module("yaml")
         except Exception as exc:
@@ -181,12 +193,12 @@ def _ensure_pytest_runtime_deps() -> None:
             import_error = exc
         else:
             return
-    if installed_version != PYYAML_VERSION or import_error is not None:
+    if not _supported_pyyaml_version(installed_version) or import_error is not None:
         # Local and custom environments are user-owned; dependency repair may
         # mutate the active interpreter only in GitHub Actions.
         if os.environ.get("GITHUB_ACTIONS") != "true":
             error = ImportError(
-                f"PyYAML {PYYAML_VERSION} is required; install "
+                f"PyYAML >= {PYYAML_VERSION} is required; install "
                 f"{PYTEST_RUNTIME_DEPENDENCIES[0]} in the active environment"
             )
             raise error from import_error
@@ -220,7 +232,7 @@ def _pyyaml_runtime_needs_repair() -> bool:
         installed_version = metadata.version("PyYAML")
     except metadata.PackageNotFoundError:
         return True
-    if installed_version != PYYAML_VERSION:
+    if not _supported_pyyaml_version(installed_version):
         return True
     try:
         import_module("yaml")
@@ -559,13 +571,30 @@ def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...
     return None
 
 
+def _pyyaml_probe_succeeds(command: tuple[str, ...], cwd: Path) -> bool:
+    """Check PyYAML in the same subprocess context as the pytest command."""
+    probe_command = _pyyaml_probe_command(command, cwd)
+    if probe_command is None:
+        return False
+    probe = _run(probe_command, cwd)
+    return probe.returncode == 0 and PYYAML_PROBE_SENTINEL in probe.stdout
+
+
 def _run_with_runtime_deps(
     command: tuple[str, ...],
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
     """Preflight PyYAML in managed pytest runtimes and repair YAML-triggered failures."""
     managed_runtime = _uses_pytest_runtime(command)
-    if managed_runtime and _pyyaml_runtime_needs_repair():
+    managed_runtime_needs_repair = False
+    if managed_runtime:
+        try:
+            managed_runtime_needs_repair = (
+                _pyyaml_runtime_needs_repair() or not _pyyaml_probe_succeeds(command, cwd)
+            )
+        except OSError as exc:
+            raise CommandUnavailableError(exc) from exc
+    if managed_runtime_needs_repair:
         try:
             _ensure_pytest_runtime_deps()
         except (
@@ -575,6 +604,13 @@ def _run_with_runtime_deps(
             OSError,
         ) as exc:
             raise RuntimeDependencyError(exc) from exc
+        try:
+            probe_succeeded = _pyyaml_probe_succeeds(command, cwd)
+        except OSError as exc:
+            raise CommandUnavailableError(exc) from exc
+        if not probe_succeeded:
+            error = ImportError("PyYAML is unavailable in the managed pytest command environment")
+            raise RuntimeDependencyError(error) from error
     try:
         completed = _run(command, cwd)
     except OSError as exc:
@@ -595,7 +631,12 @@ def _run_with_runtime_deps(
     yaml_traceback = bool(re.search(r"(?:^|[/\\])yaml[/\\][^\n]*", output, re.MULTILINE))
     if yaml_traceback and not missing_pyyaml:
         if managed_runtime:
-            missing_pyyaml = _pyyaml_runtime_needs_repair()
+            try:
+                missing_pyyaml = _pyyaml_runtime_needs_repair() or not _pyyaml_probe_succeeds(
+                    command, cwd
+                )
+            except OSError as exc:
+                raise CommandUnavailableError(exc) from exc
         elif probe_command := _pyyaml_probe_command(command, cwd):
             try:
                 probe = _run(probe_command, cwd)
@@ -617,6 +658,13 @@ def _run_with_runtime_deps(
         _ensure_pytest_runtime_deps()
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ImportError, OSError) as exc:
         raise RuntimeDependencyError(exc) from exc
+    try:
+        probe_succeeded = _pyyaml_probe_succeeds(command, cwd)
+    except OSError as exc:
+        raise CommandUnavailableError(exc) from exc
+    if not probe_succeeded:
+        error = ImportError("PyYAML remained unavailable in the managed pytest command environment")
+        raise RuntimeDependencyError(error) from error
     try:
         return _run(command, cwd)
     except OSError as exc:
