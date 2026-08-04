@@ -528,10 +528,13 @@ def test_dependency_install_timeout_is_broken(tmp_path, monkeypatch) -> None:
     base, spec = _sound_spec(repo)
     command = [sys.executable, "-m", "pip", "install", *PYTEST_RUNTIME_DEPENDENCIES]
 
-    def timed_out() -> None:
-        raise subprocess.TimeoutExpired(command, 17)
-
-    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", lambda *_args: timed_out())
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run_with_runtime_deps",
+        lambda *_args: (_ for _ in ()).throw(
+            deliberate_break.RuntimeDependencyError(subprocess.TimeoutExpired(command, 17))
+        ),
+    )
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 
@@ -555,10 +558,11 @@ def test_dependency_install_failure_preserves_subprocess_context(tmp_path, monke
         stderr="pip denied",
     )
 
-    def failed() -> None:
-        raise error
-
-    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", lambda *_args: failed())
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run_with_runtime_deps",
+        lambda *_args: (_ for _ in ()).throw(deliberate_break.RuntimeDependencyError(error)),
+    )
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 
@@ -578,10 +582,13 @@ def test_dependency_install_unavailable_is_broken(tmp_path, monkeypatch) -> None
     _init_repo(repo)
     base, spec = _sound_spec(repo)
 
-    def failed() -> None:
-        raise OSError("pip unavailable")
-
-    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", lambda *_args: failed())
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run_with_runtime_deps",
+        lambda *_args: (_ for _ in ()).throw(
+            deliberate_break.RuntimeDependencyError(OSError("pip unavailable"))
+        ),
+    )
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 
@@ -600,9 +607,16 @@ def test_dependency_import_failure_is_broken(tmp_path, monkeypatch) -> None:
     original = OSError("original import failed")
 
     def failed() -> None:
-        raise ImportError("retry failed") from original
+        try:
+            raise ImportError("retry failed") from original
+        except ImportError as exc:
+            raise deliberate_break.RuntimeDependencyError(exc) from exc
 
-    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", lambda *_args: failed())
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run_with_runtime_deps",
+        lambda *_args: failed(),
+    )
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 
@@ -611,4 +625,53 @@ def test_dependency_import_failure_is_broken(tmp_path, monkeypatch) -> None:
         "reason": "dependency-import-failed",
         "detail": "retry failed",
         "cause": "original import failed",
+    }
+
+
+def test_base_archive_command_failure_is_not_dependency_failure(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    base, spec = _sound_spec(repo)
+    error = subprocess.CalledProcessError(
+        17,
+        ["git", "archive", base],
+        output="archive output",
+        stderr="bad ref",
+    )
+    monkeypatch.setattr(
+        deliberate_break,
+        "_archive_ref",
+        lambda *_args: (_ for _ in ()).throw(error),
+    )
+
+    result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
+
+    assert result == {
+        "verdict": VERDICT_BROKEN,
+        "reason": "archive-command-failed",
+        "command": ["git", "archive", base],
+        "returncode": 17,
+        "stdout": "archive output",
+        "stderr": "bad ref",
+    }
+
+
+def test_base_setup_failure_is_not_dependency_failure(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    base, spec = _sound_spec(repo)
+    monkeypatch.setattr(
+        deliberate_break,
+        "_archive_ref",
+        lambda *_args: (_ for _ in ()).throw(OSError("disk unavailable")),
+    )
+
+    result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
+
+    assert result == {
+        "verdict": VERDICT_BROKEN,
+        "reason": "base-setup-failed",
+        "detail": "disk unavailable",
     }
