@@ -705,10 +705,14 @@ def _coerce_response_content(content: object) -> str:
         return text
     try:
         return json.dumps(content, default=str)
-    except (TypeError, ValueError, OverflowError, RecursionError, RuntimeError):
+    except MemoryError:
+        raise
+    except Exception:
         try:
             return str(content)
-        except (TypeError, ValueError, OverflowError, RecursionError, RuntimeError):
+        except MemoryError:
+            raise
+        except Exception:
             return f"<unserializable {type(content).__name__}>"
 
 
