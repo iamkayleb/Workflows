@@ -705,9 +705,13 @@ def _coerce_response_content(content: object) -> str:
         return text
     try:
         return json.dumps(content, default=str)
+    except MemoryError:
+        raise
     except Exception:
         try:
             return str(content)
+        except MemoryError:
+            raise
         except Exception:
             return f"<unserializable {type(content).__name__}>"
 
