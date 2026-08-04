@@ -228,15 +228,6 @@ def _uses_pytest_runtime(command: tuple[str, ...]) -> bool:
     return Path(executable).resolve() == Path(sys.executable).resolve()
 
 
-def _pyyaml_probe_command(command: tuple[str, ...]) -> tuple[str, ...] | None:
-    """Return a read-only PyYAML import probe for a recognized pytest runtime."""
-    if len(command) >= 3 and command[1:3] == ("-m", "pytest"):
-        return (command[0], "-c", "import yaml")
-    if len(command) >= 3 and Path(command[0]).name == "uv" and command[1:3] == ("run", "pytest"):
-        return (command[0], "run", "python", "-c", "import yaml")
-    return None
-
-
 def _run(
     command: tuple[str, ...],
     cwd: Path,
@@ -256,6 +247,46 @@ def _run(
         env=env,
         timeout=timeout,
     )
+
+
+def _uv_pytest_interpreter(uv_command: str, cwd: Path) -> str | None:
+    """Resolve the shebang interpreter used by ``uv run pytest``."""
+    located = _run((uv_command, "run", "which", "pytest"), cwd)
+    if located.returncode != 0 or not located.stdout.strip():
+        return None
+    pytest_path = Path(located.stdout.strip().splitlines()[-1])
+    try:
+        shebang = pytest_path.read_text(encoding="utf-8").splitlines()[0]
+    except (OSError, UnicodeError, IndexError):
+        return None
+    if not shebang.startswith("#!"):
+        return None
+    try:
+        launcher = shlex.split(shebang[2:].strip())
+    except ValueError:
+        return None
+    if not launcher:
+        return None
+    if Path(launcher[0]).name == "env" and len(launcher) > 1:
+        resolved = _run((uv_command, "run", "which", launcher[1]), cwd)
+        if resolved.returncode != 0 or not resolved.stdout.strip():
+            return None
+        return resolved.stdout.strip().splitlines()[-1]
+    return launcher[0]
+
+
+def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
+    """Return a read-only PyYAML import probe for the pytest launcher's runtime."""
+    if len(command) >= 3 and command[1:3] == ("-m", "pytest"):
+        return (command[0], "-c", "import yaml")
+    if (
+        len(command) >= 3
+        and Path(command[0]).name == "uv"
+        and command[1:3] == ("run", "pytest")
+        and (interpreter := _uv_pytest_interpreter(command[0], cwd))
+    ):
+        return (interpreter, "-c", "import yaml")
+    return None
 
 
 def _run_with_runtime_deps(
@@ -295,7 +326,7 @@ def _run_with_runtime_deps(
     if yaml_traceback and not missing_pyyaml:
         if managed_runtime:
             missing_pyyaml = _pyyaml_runtime_needs_repair()
-        elif probe_command := _pyyaml_probe_command(command):
+        elif probe_command := _pyyaml_probe_command(command, cwd):
             try:
                 missing_pyyaml = _run(probe_command, cwd).returncode != 0
             except OSError as exc:

@@ -575,6 +575,11 @@ def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
     )
     monkeypatch.setattr(
         deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
+    monkeypatch.setattr(
+        deliberate_break,
         "_ensure_pytest_runtime_deps",
         lambda: pytest.fail("wrapper-owned environment must not be mutated"),
     )
@@ -599,6 +604,11 @@ def test_unmanaged_yaml_test_failure_is_not_misclassified_as_dependency_error(
     )
     attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
     monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
 
     result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
 
@@ -618,11 +628,59 @@ def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
     )
     attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
     monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
 
     result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
 
     assert result is completed
     assert attempts == []
+
+
+def test_uv_pyyaml_probe_uses_resolved_pytest_shebang_interpreter(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "global" / "bin" / "pytest"
+    pytest_launcher.parent.mkdir(parents=True)
+    pytest_launcher.write_text("#!/global/python\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run",
+        lambda *_args: subprocess.CompletedProcess(
+            ["uv", "run", "which", "pytest"],
+            0,
+            f"{pytest_launcher}\n",
+            "",
+        ),
+    )
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
+        "/global/python",
+        "-c",
+        "import yaml",
+    )
+
+
+def test_uv_pyyaml_probe_resolves_env_shebang_inside_uv_path(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "bin" / "pytest"
+    pytest_launcher.parent.mkdir()
+    pytest_launcher.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    results = iter(
+        (
+            subprocess.CompletedProcess(["which", "pytest"], 0, f"{pytest_launcher}\n", ""),
+            subprocess.CompletedProcess(
+                ["which", "python3"], 0, "/project/.venv/bin/python3\n", ""
+            ),
+        )
+    )
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: next(results))
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
+        "/project/.venv/bin/python3",
+        "-c",
+        "import yaml",
+    )
 
 
 def _sound_spec(repo: Path) -> tuple[str, object]:
