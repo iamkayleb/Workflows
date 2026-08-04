@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.19.17](https://github.com/stranske/Workflows/compare/v1.19.16...v1.19.17) (2026-08-04)
+
+
+### Bug Fixes
+
+* separate launcher probe typing ([718539e](https://github.com/stranske/Workflows/commit/718539efed7230a4d922aa0ab33d9df4c5402da4))
+* separate launcher probe typing ([669d1da](https://github.com/stranske/Workflows/commit/669d1dadfc3f0c82b3074bba47ad94fb19d60b38))
+
 ## [1.19.16](https://github.com/stranske/Workflows/compare/v1.19.15...v1.19.16) (2026-08-04)
 
 
