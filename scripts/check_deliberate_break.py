@@ -354,6 +354,8 @@ def _python_module_pytest_probe(
             if index + 1 < len(command) and command[index + 1] == "pytest":
                 return (*command[:index], "-c", "import yaml")
             return None
+        if option.startswith(("-c", "-m")):
+            return None
         if PYTHON_COMPACT_PREFIX_RE.fullmatch(option):
             if index + 1 < len(command) and command[index + 1] == "pytest":
                 return (*command[:index], option[:-1], "-c", "import yaml")

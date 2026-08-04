@@ -807,6 +807,10 @@ def test_active_python_with_flags_is_managed_pytest_runtime() -> None:
     )
 
 
+def test_empty_command_is_not_managed_pytest_runtime() -> None:
+    assert not deliberate_break._uses_pytest_runtime(())
+
+
 def test_active_python_with_compact_flags_is_managed_pytest_runtime() -> None:
     command = (sys.executable, "-Im", "pytest", "-q")
 
@@ -819,7 +823,10 @@ def test_active_python_with_compact_flags_is_managed_pytest_runtime() -> None:
     )
 
 
-@pytest.mark.parametrize("terminator", ["--", "-V", "-VV", "--version", "-h", "--help"])
+@pytest.mark.parametrize(
+    "terminator",
+    ["--", "-V", "-VV", "--version", "-h", "--help", "-cprint(1)", "-mthis"],
+)
 def test_python_terminator_prevents_managed_pytest_classification(terminator) -> None:
     assert not deliberate_break._uses_pytest_runtime((sys.executable, terminator, "-m", "pytest"))
 
