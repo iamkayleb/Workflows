@@ -579,6 +579,23 @@ def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
     assert "wrapped or custom" in str(caught.value.error)
 
 
+def test_unmanaged_yaml_test_failure_is_not_misclassified_as_dependency_error(
+    tmp_path, monkeypatch
+) -> None:
+    completed = subprocess.CompletedProcess(
+        ["uv", "run", "pytest"],
+        1,
+        "",
+        'File "/other/venv/lib/site-packages/yaml/parser.py", line 98\n'
+        "yaml.parser.ParserError: malformed fixture",
+    )
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
+
+    result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
+
+    assert result is completed
+
+
 def _sound_spec(repo: Path) -> tuple[str, object]:
     _write_app(repo, 0)
     base = _commit(repo, "base behavior")

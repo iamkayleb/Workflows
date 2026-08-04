@@ -173,6 +173,8 @@ def _ensure_pytest_runtime_deps() -> None:
         else:
             return
     if installed_version != PYYAML_VERSION or import_error is not None:
+        # Local and custom environments are user-owned; only Actions may mutate
+        # its active interpreter to repair the managed Gate runtime.
         if os.environ.get("GITHUB_ACTIONS") != "true":
             error = ImportError(
                 f"PyYAML {PYYAML_VERSION} is required; install "
@@ -281,8 +283,17 @@ def _run_with_runtime_deps(
         )
     )
     yaml_traceback = bool(re.search(r"(?:^|[/\\])yaml[/\\][^\n]*", output, re.MULTILINE))
+    yaml_import_failure = bool(
+        re.search(
+            r"^(?:attributeerror|importerror|modulenotfounderror|oserror|syntaxerror):",
+            output,
+            re.MULTILINE,
+        )
+    )
     if yaml_traceback and not missing_pyyaml:
-        missing_pyyaml = True if not managed_runtime else _pyyaml_runtime_needs_repair()
+        missing_pyyaml = (
+            yaml_import_failure if not managed_runtime else _pyyaml_runtime_needs_repair()
+        )
     if not missing_pyyaml:
         return completed
 
