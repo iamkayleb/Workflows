@@ -182,6 +182,26 @@ def test_tamper_git_failure_is_broken(tmp_path, monkeypatch) -> None:
     }
 
 
+def test_tamper_os_error_is_broken(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    base, spec = _sound_spec(repo)
+    monkeypatch.setattr(
+        deliberate_break,
+        "_changed_assertions",
+        lambda *_args: (_ for _ in ()).throw(FileNotFoundError("git unavailable")),
+    )
+
+    result = verify_spec(spec, base=base, cwd=repo)
+
+    assert result == {
+        "verdict": VERDICT_BROKEN,
+        "reason": "tamper-check-unavailable",
+        "detail": "git unavailable",
+    }
+
+
 def test_new_assertion_in_existing_test_file_is_not_tamper(tmp_path, monkeypatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

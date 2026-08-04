@@ -793,6 +793,12 @@ def verify_spec(
             stdout=exc.stdout,
             stderr=exc.stderr,
         )
+    except OSError as exc:
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="tamper-check-unavailable",
+            detail=str(exc),
+        )
 
     try:
         head_run = _run_with_runtime_deps(spec.command, repo)
