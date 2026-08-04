@@ -258,10 +258,10 @@ def _uses_pytest_runtime(command: tuple[str, ...]) -> bool:
         launcher = _python_shebang_launcher(Path(pytest_path), shutil.which)
         if launcher is None:
             return False
-        probe = (*launcher, "-c", PYYAML_PROBE_CODE)
+        launcher_probe = (*launcher, "-c", PYYAML_PROBE_CODE)
         return Path(launcher[0]).resolve() == Path(
             sys.executable
-        ).resolve() and not _python_probe_changes_import_context(probe)
+        ).resolve() and not _python_probe_changes_import_context(launcher_probe)
     executable = shutil.which(command[0]) or command[0]
     probe = _python_module_pytest_probe(command, 0)
     return (
