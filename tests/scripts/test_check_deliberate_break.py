@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import subprocess
@@ -340,6 +341,38 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
     deliberate_break._ensure_pytest_runtime_deps()
 
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("installed_version", "supported"),
+    [
+        (None, False),
+        ("6.0.2", False),
+        ("6.0.3", True),
+        ("6.0.3.0", True),
+        ("6.0.3.post1", True),
+        ("6.0.2.post1", False),
+        ("6.0.3+local.1", True),
+        ("6.0.4", True),
+        ("99.0.0", True),
+        ("6.0.3rc1", False),
+        ("not-a-version", False),
+    ],
+)
+def test_supported_pyyaml_version_uses_stdlib_only(installed_version, supported) -> None:
+    assert deliberate_break._supported_pyyaml_version(installed_version) is supported
+
+
+def test_pyyaml_version_check_does_not_import_packaging() -> None:
+    module = ast.parse(Path(deliberate_break.__file__).read_text(encoding="utf-8"))
+    imported_modules: set[str] = set()
+    for node in ast.walk(module):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_modules.add(node.module.split(".", 1)[0])
+
+    assert "packaging" not in imported_modules
 
 
 def test_runtime_dependency_installer_accepts_newer_compatible_pyyaml(monkeypatch) -> None:
