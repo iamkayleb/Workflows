@@ -809,6 +809,34 @@ def test_uv_module_pytest_probe_uses_uv_selected_python(tmp_path, module_option)
     ) == ("uv", "run", "--frozen", "python", "-c", "import yaml")
 
 
+def test_uv_nested_python_module_probe_preserves_uv_and_python_options(tmp_path) -> None:
+    assert deliberate_break._pyyaml_probe_command(
+        (
+            "uv",
+            "run",
+            "--no-project",
+            "--python",
+            "3.13",
+            "python",
+            "-I",
+            "-m",
+            "pytest",
+            "-q",
+        ),
+        tmp_path,
+    ) == (
+        "uv",
+        "run",
+        "--no-project",
+        "--python",
+        "3.13",
+        "python",
+        "-I",
+        "-c",
+        "import yaml",
+    )
+
+
 def _sound_spec(repo: Path) -> tuple[str, object]:
     _write_app(repo, 0)
     base = _commit(repo, "base behavior")
