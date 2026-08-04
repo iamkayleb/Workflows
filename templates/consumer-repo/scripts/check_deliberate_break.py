@@ -163,7 +163,9 @@ def _supported_pyyaml_version(installed_version: str | None) -> bool:
     """Return whether an installed PyYAML version satisfies the bootstrap floor."""
     if installed_version is None:
         return False
-    installed_match = re.fullmatch(r"(\d+(?:\.\d+)*)(?:\+[\w.-]+)?", installed_version)
+    installed_match = re.fullmatch(
+        r"(\d+(?:\.\d+)*)(?:\.post\d+)?(?:\+[\w.-]+)?", installed_version
+    )
     floor_match = re.fullmatch(r"(\d+(?:\.\d+)*)", PYYAML_VERSION)
     if installed_match is None or floor_match is None:
         return False

@@ -329,6 +329,8 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
         ("6.0.2", False),
         ("6.0.3", True),
         ("6.0.3.0", True),
+        ("6.0.3.post1", True),
+        ("6.0.2.post1", False),
         ("6.0.3+local.1", True),
         ("6.0.4", True),
         ("99.0.0", True),
