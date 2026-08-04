@@ -173,8 +173,8 @@ def _ensure_pytest_runtime_deps() -> None:
         else:
             return
     if installed_version != PYYAML_VERSION or import_error is not None:
-        # Local and custom environments are user-owned; only Actions may mutate
-        # its active interpreter to repair the managed Gate runtime.
+        # Local and custom environments are user-owned; dependency repair may
+        # mutate the active interpreter only in GitHub Actions.
         if os.environ.get("GITHUB_ACTIONS") != "true":
             error = ImportError(
                 f"PyYAML {PYYAML_VERSION} is required; install "
