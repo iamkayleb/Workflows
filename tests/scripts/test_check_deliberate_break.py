@@ -473,7 +473,7 @@ def test_runtime_dependencies_retry_pyyaml_import_failure(tmp_path, monkeypatch)
         lambda: repairs.append(True),
     )
 
-    completed = deliberate_break._run_with_runtime_deps(("pytest",), tmp_path)
+    completed = deliberate_break._run_with_runtime_deps((sys.executable, "-m", "pytest"), tmp_path)
 
     assert completed.returncode == 0
     assert repairs == [True]
@@ -509,7 +509,7 @@ def test_runtime_dependencies_retry_broken_pyyaml_traceback(tmp_path, monkeypatc
         lambda: repairs.append(True),
     )
 
-    completed = deliberate_break._run_with_runtime_deps(("pytest",), tmp_path)
+    completed = deliberate_break._run_with_runtime_deps((sys.executable, "-m", "pytest"), tmp_path)
 
     assert completed.returncode == 0
     assert repairs == [True]
@@ -531,16 +531,22 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
         lambda: events.append("repair"),
     )
 
-    result = deliberate_break._run_with_runtime_deps(("pytest",), tmp_path)
+    result = deliberate_break._run_with_runtime_deps((sys.executable, "-m", "pytest"), tmp_path)
 
     assert result is completed
     assert events == ["repair", "run"]
 
 
-def test_runtime_dependencies_do_not_repair_wrapped_command_environment(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("uv", "run", "pytest"),
+        ("/other/venv/bin/python", "-m", "pytest"),
+    ],
+)
+def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
+    tmp_path, monkeypatch, command
 ) -> None:
-    command = ("uv", "run", "pytest")
     completed = subprocess.CompletedProcess(
         command,
         1,

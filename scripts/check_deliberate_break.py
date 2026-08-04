@@ -220,10 +220,10 @@ def _pyyaml_runtime_needs_repair() -> bool:
 
 def _uses_pytest_runtime(command: tuple[str, ...]) -> bool:
     """Return whether a command runs pytest in the active Python environment."""
-    executable = Path(command[0]).name if command else ""
-    return executable in {"pytest", "py.test"} or (
-        len(command) >= 3 and command[1:3] == ("-m", "pytest")
-    )
+    if len(command) < 3 or command[1:3] != ("-m", "pytest"):
+        return False
+    executable = shutil.which(command[0]) or command[0]
+    return Path(executable).resolve() == Path(sys.executable).resolve()
 
 
 def _run(
