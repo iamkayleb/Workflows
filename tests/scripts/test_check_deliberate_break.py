@@ -537,27 +537,32 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
     assert events == ["repair", "run"]
 
 
-def test_runtime_dependencies_normalize_before_wrapped_gate_command(tmp_path, monkeypatch) -> None:
-    events: list[str] = []
+def test_runtime_dependencies_do_not_repair_wrapped_command_environment(
+    tmp_path, monkeypatch
+) -> None:
     command = ("uv", "run", "pytest")
-    completed = subprocess.CompletedProcess(command, 0, "passed", "")
-    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    completed = subprocess.CompletedProcess(
+        command,
+        1,
+        "",
+        "ModuleNotFoundError: No module named 'yaml'",
+    )
     monkeypatch.setattr(
         deliberate_break,
         "_run",
-        lambda *_args: events.append("run") or completed,
+        lambda *_args: completed,
     )
-    monkeypatch.setattr(deliberate_break.metadata, "version", lambda _name: "0.0.0")
     monkeypatch.setattr(
         deliberate_break,
         "_ensure_pytest_runtime_deps",
-        lambda: events.append("repair"),
+        lambda: pytest.fail("wrapper-owned environment must not be mutated"),
     )
 
-    result = deliberate_break._run_with_runtime_deps(command, tmp_path)
+    with pytest.raises(deliberate_break.RuntimeDependencyError) as caught:
+        deliberate_break._run_with_runtime_deps(command, tmp_path)
 
-    assert result is completed
-    assert events == ["repair", "run"]
+    assert isinstance(caught.value.error, ImportError)
+    assert "wrapped or custom" in str(caught.value.error)
 
 
 def _sound_spec(repo: Path) -> tuple[str, object]:
