@@ -283,7 +283,7 @@ def _run_with_runtime_deps(
         )
     )
     yaml_traceback = bool(re.search(r"(?:^|[/\\])yaml[/\\][^\n]*", output, re.MULTILINE))
-    yaml_import_failure = bool(
+    yaml_import_exception = bool(
         re.search(
             r"^(?:e\s+)?"
             r"(?:attributeerror|importerror|modulenotfounderror|oserror|syntaxerror):",
@@ -291,6 +291,15 @@ def _run_with_runtime_deps(
             re.MULTILINE,
         )
     )
+    yaml_import_context = bool(
+        re.search(
+            r"(?:error collecting|while importing test module|"
+            r"importlib|import_module|^\s*(?:from yaml|import yaml)\b)",
+            output,
+            re.MULTILINE,
+        )
+    )
+    yaml_import_failure = yaml_import_exception and yaml_import_context
     if yaml_traceback and not missing_pyyaml:
         missing_pyyaml = (
             yaml_import_failure if not managed_runtime else _pyyaml_runtime_needs_repair()

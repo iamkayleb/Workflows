@@ -548,8 +548,10 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
     "stderr",
     [
         "ModuleNotFoundError: No module named 'yaml'",
+        "ERROR collecting tests/test_manifest.py\n"
         'File "/other/venv/lib/site-packages/yaml/__init__.py", line 1\n'
         "SyntaxError: broken wheel",
+        "ERROR collecting tests/test_manifest.py\n"
         'File "/other/venv/lib/site-packages/yaml/__init__.py", line 1\n'
         "E   SyntaxError: broken wheel",
     ],
@@ -590,6 +592,23 @@ def test_unmanaged_yaml_test_failure_is_not_misclassified_as_dependency_error(
         "",
         'File "/other/venv/lib/site-packages/yaml/parser.py", line 98\n'
         "yaml.parser.ParserError: malformed fixture",
+    )
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
+
+    result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
+
+    assert result is completed
+
+
+def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
+    tmp_path, monkeypatch
+) -> None:
+    completed = subprocess.CompletedProcess(
+        ["uv", "run", "pytest"],
+        1,
+        "",
+        'File "/other/venv/lib/site-packages/yaml/__init__.py", line 125, in safe_load\n'
+        "E   AttributeError: 'NoneType' object has no attribute 'read'",
     )
     monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
 
