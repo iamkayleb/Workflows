@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.19.14](https://github.com/stranske/Workflows/compare/v1.19.13...v1.19.14) (2026-08-04)
+
+
+### Bug Fixes
+
+* defer PyYAML repair until needed ([c684142](https://github.com/stranske/Workflows/commit/c684142ab6b8c692a843584ec508fc913b8a19f3))
+* defer PyYAML repair until needed ([019b17b](https://github.com/stranske/Workflows/commit/019b17b29fb16b52ee289951ff1e0eed32db7026))
+* **gate:** accept PyYAML post releases ([a403abb](https://github.com/stranske/Workflows/commit/a403abb95a94b20b349cfa86c6eaf346969fa0f5))
+* mirror deferred runtime repair template ([c7c1072](https://github.com/stranske/Workflows/commit/c7c1072924cacabf21437a5f11a70e5c4e531acc))
+* remove checker packaging dependency ([fa35a93](https://github.com/stranske/Workflows/commit/fa35a93d9d28997a016f3745426338284ab113c9))
+* remove checker packaging dependency ([0b61c07](https://github.com/stranske/Workflows/commit/0b61c07ecc3b3770269c6d487b095e1850fae2b0))
+
 ## [1.19.13](https://github.com/stranske/Workflows/compare/v1.19.12...v1.19.13) (2026-08-04)
 
 
