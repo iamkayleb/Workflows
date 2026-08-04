@@ -427,9 +427,7 @@ def _python_module_pytest_probe(
                         preserved = (f"-{prefix}",) if prefix else ()
                         return (
                             *command[: python_index + 1],
-                            *_drop_interactive_python_flags(
-                                command[python_index + 1 : index]
-                            ),
+                            *_drop_interactive_python_flags(command[python_index + 1 : index]),
                             *preserved,
                             "-c",
                             "import yaml",
