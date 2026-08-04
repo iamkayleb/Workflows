@@ -252,7 +252,8 @@ def _run_with_runtime_deps(
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
     """Retry a command after repairing PyYAML only when its output requires it."""
-    if _uses_pytest_runtime(command) and _pyyaml_runtime_needs_repair():
+    normalize_runtime = os.environ.get("GITHUB_ACTIONS") == "true" or _uses_pytest_runtime(command)
+    if normalize_runtime and _pyyaml_runtime_needs_repair():
         try:
             _ensure_pytest_runtime_deps()
         except (
