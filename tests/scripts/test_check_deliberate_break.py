@@ -307,6 +307,7 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
         "version",
         lambda _name: deliberate_break.PYYAML_VERSION,
     )
+    monkeypatch.setattr(deliberate_break, "import_module", lambda _name: object())
     monkeypatch.setattr(
         deliberate_break.subprocess,
         "run",
@@ -316,6 +317,30 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
     deliberate_break._ensure_pytest_runtime_deps()
 
     assert calls == []
+
+
+def test_runtime_dependency_installer_repairs_broken_pyyaml_import(monkeypatch) -> None:
+    calls: list[tuple[object, dict[str, object]]] = []
+
+    def broken_import(_name):
+        raise ImportError("broken PyYAML install")
+
+    monkeypatch.setattr(
+        deliberate_break.metadata,
+        "version",
+        lambda _name: deliberate_break.PYYAML_VERSION,
+    )
+    monkeypatch.setattr(deliberate_break, "import_module", broken_import)
+    monkeypatch.setattr(
+        deliberate_break.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    deliberate_break._ensure_pytest_runtime_deps()
+
+    assert len(calls) == 1
+    assert calls[0][0][0][-1] == f"pyyaml=={deliberate_break.PYYAML_VERSION}"
 
 
 def _sound_spec(repo: Path) -> tuple[str, object]:
