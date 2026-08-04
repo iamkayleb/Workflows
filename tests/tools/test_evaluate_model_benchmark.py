@@ -310,7 +310,10 @@ def test_override_for_unknown_category_is_rejected():
         "minimum_cases_per_category_overrides"
     ] = {"not-a-category": 1}
 
-    with pytest.raises(ValueError, match="not.*required"):
+    with pytest.raises(
+        ValueError,
+        match=r"approval_stage\.minimum_cases_per_category_overrides.*not.*required",
+    ):
         evaluator.evaluate_benchmark(_thin_payload(), policy)
 
 
