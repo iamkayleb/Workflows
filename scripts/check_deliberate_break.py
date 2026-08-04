@@ -228,6 +228,15 @@ def _uses_pytest_runtime(command: tuple[str, ...]) -> bool:
     return Path(executable).resolve() == Path(sys.executable).resolve()
 
 
+def _pyyaml_probe_command(command: tuple[str, ...]) -> tuple[str, ...] | None:
+    """Return a read-only PyYAML import probe for a recognized pytest runtime."""
+    if len(command) >= 3 and command[1:3] == ("-m", "pytest"):
+        return (command[0], "-c", "import yaml")
+    if len(command) >= 3 and Path(command[0]).name == "uv" and command[1:3] == ("run", "pytest"):
+        return (command[0], "run", "python", "-c", "import yaml")
+    return None
+
+
 def _run(
     command: tuple[str, ...],
     cwd: Path,
@@ -283,27 +292,14 @@ def _run_with_runtime_deps(
         )
     )
     yaml_traceback = bool(re.search(r"(?:^|[/\\])yaml[/\\][^\n]*", output, re.MULTILINE))
-    yaml_import_exception = bool(
-        re.search(
-            r"^(?:e\s+)?"
-            r"(?:attributeerror|importerror|modulenotfounderror|oserror|syntaxerror):",
-            output,
-            re.MULTILINE,
-        )
-    )
-    yaml_import_context = bool(
-        re.search(
-            r"(?:error collecting|while importing test module|"
-            r"importlib|import_module|^\s*(?:from yaml|import yaml)\b)",
-            output,
-            re.MULTILINE,
-        )
-    )
-    yaml_import_failure = yaml_import_exception and yaml_import_context
     if yaml_traceback and not missing_pyyaml:
-        missing_pyyaml = (
-            yaml_import_failure if not managed_runtime else _pyyaml_runtime_needs_repair()
-        )
+        if managed_runtime:
+            missing_pyyaml = _pyyaml_runtime_needs_repair()
+        elif probe_command := _pyyaml_probe_command(command):
+            try:
+                missing_pyyaml = _run(probe_command, cwd).returncode != 0
+            except OSError as exc:
+                raise CommandUnavailableError(exc) from exc
     if not missing_pyyaml:
         return completed
 

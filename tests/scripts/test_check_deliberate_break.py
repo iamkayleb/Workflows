@@ -565,10 +565,13 @@ def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
         "",
         stderr,
     )
+    attempts = [completed]
+    if "No module named" not in stderr:
+        attempts.append(subprocess.CompletedProcess(["probe"], 1, "", "broken import"))
     monkeypatch.setattr(
         deliberate_break,
         "_run",
-        lambda *_args: completed,
+        lambda *_args: attempts.pop(0),
     )
     monkeypatch.setattr(
         deliberate_break,
@@ -581,6 +584,7 @@ def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
 
     assert isinstance(caught.value.error, ImportError)
     assert "wrapped or custom" in str(caught.value.error)
+    assert attempts == []
 
 
 def test_unmanaged_yaml_test_failure_is_not_misclassified_as_dependency_error(
@@ -593,11 +597,13 @@ def test_unmanaged_yaml_test_failure_is_not_misclassified_as_dependency_error(
         'File "/other/venv/lib/site-packages/yaml/parser.py", line 98\n'
         "yaml.parser.ParserError: malformed fixture",
     )
-    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
+    attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
 
     result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
 
     assert result is completed
+    assert attempts == []
 
 
 def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
@@ -610,11 +616,13 @@ def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
         'File "/other/venv/lib/site-packages/yaml/__init__.py", line 125, in safe_load\n'
         "E   AttributeError: 'NoneType' object has no attribute 'read'",
     )
-    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
+    attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
 
     result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
 
     assert result is completed
+    assert attempts == []
 
 
 def _sound_spec(repo: Path) -> tuple[str, object]:
