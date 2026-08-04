@@ -230,6 +230,15 @@ def test_coerce_response_content_survives_failing_string_conversion() -> None:
     )
 
 
+def test_coerce_response_content_does_not_swallow_memory_exhaustion() -> None:
+    class Exhausted:
+        def __str__(self) -> str:
+            raise MemoryError("out of memory")
+
+    with pytest.raises(MemoryError, match="out of memory"):
+        pr_verifier._coerce_response_content(Exhausted())
+
+
 def test_text_from_response_content_concatenates_split_text_blocks_without_separator() -> None:
     payload = _valid_payload()
     encoded = json.dumps(payload)
