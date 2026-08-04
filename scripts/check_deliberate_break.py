@@ -68,6 +68,13 @@ def _json_result(verdict: str, **fields: object) -> dict[str, object]:
     return {"verdict": verdict, **fields}
 
 
+def _subprocess_output_text(value: str | bytes | None) -> str | None:
+    """Normalize captured subprocess output for JSON result payloads."""
+    if isinstance(value, bytes):
+        return value.decode(errors="replace")
+    return value
+
+
 def _write_github_output(**fields: str) -> None:
     output_path = os.environ.get("GITHUB_OUTPUT")
     if not output_path:
@@ -823,8 +830,8 @@ def verify_spec(
             reason="archive-command-failed",
             command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
             returncode=exc.returncode,
-            stdout=exc.stdout,
-            stderr=exc.stderr,
+            stdout=_subprocess_output_text(exc.stdout),
+            stderr=_subprocess_output_text(exc.stderr),
         )
     except OSError as exc:
         return _json_result(

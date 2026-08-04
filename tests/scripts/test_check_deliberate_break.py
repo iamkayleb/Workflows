@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -1286,8 +1287,8 @@ def test_base_archive_command_failure_is_not_dependency_failure(tmp_path, monkey
     error = subprocess.CalledProcessError(
         17,
         ["git", "archive", base],
-        output="archive output",
-        stderr="bad ref",
+        output=b"archive output",
+        stderr=b"bad ref",
     )
     monkeypatch.setattr(
         deliberate_break,
@@ -1305,6 +1306,7 @@ def test_base_archive_command_failure_is_not_dependency_failure(tmp_path, monkey
         "stdout": "archive output",
         "stderr": "bad ref",
     }
+    json.dumps(result)
 
 
 def test_base_setup_failure_is_not_dependency_failure(tmp_path, monkeypatch) -> None:
