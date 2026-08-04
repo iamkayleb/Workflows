@@ -209,6 +209,15 @@ def test_prepare_checkout_includes_manifest_owned_github_roots() -> None:
     }
 
 
+def test_consumer_gitattributes_preserves_windows_launcher_crlf() -> None:
+    """The template-owned git config must retain native Windows line endings."""
+    consumer_gitattributes = (
+        REPO_ROOT / "templates" / "consumer-repo" / ".gitattributes"
+    ).read_text(encoding="utf-8")
+
+    assert "*.cmd text eol=crlf" in consumer_gitattributes.splitlines()
+
+
 def test_sync_fanout_is_canary_gated_and_promotion_is_plan_bound() -> None:
     workflow = yaml.safe_load(SYNC_WORKFLOW_PATH.read_text(encoding="utf-8"))
     dispatch_inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
