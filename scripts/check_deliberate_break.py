@@ -199,7 +199,7 @@ def _ensure_pytest_runtime_deps() -> None:
         if os.environ.get("GITHUB_ACTIONS") != "true":
             error = ImportError(
                 f"PyYAML >= {PYYAML_VERSION} is required; install "
-                f"{PYTEST_RUNTIME_DEPENDENCIES[0]} in the active environment"
+                f"'PyYAML>={PYYAML_VERSION}' in the active environment"
             )
             raise error from import_error
         command = [
@@ -584,33 +584,8 @@ def _run_with_runtime_deps(
     command: tuple[str, ...],
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
-    """Preflight PyYAML in managed pytest runtimes and repair YAML-triggered failures."""
+    """Run the check, repairing PyYAML only after a YAML-triggered failure."""
     managed_runtime = _uses_pytest_runtime(command)
-    managed_runtime_needs_repair = False
-    if managed_runtime:
-        try:
-            managed_runtime_needs_repair = (
-                _pyyaml_runtime_needs_repair() or not _pyyaml_probe_succeeds(command, cwd)
-            )
-        except OSError as exc:
-            raise CommandUnavailableError(exc) from exc
-    if managed_runtime_needs_repair:
-        try:
-            _ensure_pytest_runtime_deps()
-        except (
-            subprocess.TimeoutExpired,
-            subprocess.CalledProcessError,
-            ImportError,
-            OSError,
-        ) as exc:
-            raise RuntimeDependencyError(exc) from exc
-        try:
-            probe_succeeded = _pyyaml_probe_succeeds(command, cwd)
-        except OSError as exc:
-            raise CommandUnavailableError(exc) from exc
-        if not probe_succeeded:
-            error = ImportError("PyYAML is unavailable in the managed pytest command environment")
-            raise RuntimeDependencyError(error) from error
     try:
         completed = _run(command, cwd)
     except OSError as exc:
@@ -676,7 +651,7 @@ def _runtime_dependency_error_result(error: Exception) -> dict[str, object]:
     if isinstance(error, subprocess.TimeoutExpired):
         return _json_result(
             VERDICT_BROKEN,
-            reason="command-timeout",
+            reason="dependency-install-timeout",
             command=list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd),
             timeout=error.timeout,
         )
