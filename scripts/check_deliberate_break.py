@@ -54,6 +54,14 @@ class RuntimeDependencyError(Exception):
         self.error = error
 
 
+class CommandUnavailableError(Exception):
+    """Wrap OS failures raised while launching the deliberate-break command."""
+
+    def __init__(self, error: OSError) -> None:
+        super().__init__(str(error))
+        self.error = error
+
+
 def _json_result(verdict: str, **fields: object) -> dict[str, object]:
     return {"verdict": verdict, **fields}
 
@@ -221,7 +229,10 @@ def _run_with_runtime_deps(
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
     """Retry a command after repairing PyYAML only when its output requires it."""
-    completed = _run(command, cwd)
+    try:
+        completed = _run(command, cwd)
+    except OSError as exc:
+        raise CommandUnavailableError(exc) from exc
     if completed.returncode == 0:
         return completed
 
@@ -248,7 +259,10 @@ def _run_with_runtime_deps(
         _ensure_pytest_runtime_deps()
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ImportError, OSError) as exc:
         raise RuntimeDependencyError(exc) from exc
-    return _run(command, cwd)
+    try:
+        return _run(command, cwd)
+    except OSError as exc:
+        raise CommandUnavailableError(exc) from exc
 
 
 def _git(
@@ -371,41 +385,45 @@ def verify_spec(
             timeout=exc.timeout,
         )
     except RuntimeDependencyError as wrapped:
-        exc = wrapped.error
-        if isinstance(exc, subprocess.TimeoutExpired):
+        error = wrapped.error
+        if isinstance(error, subprocess.TimeoutExpired):
             return _json_result(
                 VERDICT_BROKEN,
                 reason="command-timeout",
-                command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
-                timeout=exc.timeout,
+                command=(
+                    list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd)
+                ),
+                timeout=error.timeout,
             )
-        if isinstance(exc, subprocess.CalledProcessError):
+        if isinstance(error, subprocess.CalledProcessError):
             return _json_result(
                 VERDICT_BROKEN,
                 reason="dependency-install-failed",
-                command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
-                returncode=exc.returncode,
-                stdout=exc.stdout,
-                stderr=exc.stderr,
+                command=(
+                    list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd)
+                ),
+                returncode=error.returncode,
+                stdout=error.stdout,
+                stderr=error.stderr,
             )
-        if isinstance(exc, ImportError):
+        if isinstance(error, ImportError):
             return _json_result(
                 VERDICT_BROKEN,
                 reason="dependency-import-failed",
-                detail=str(exc),
-                cause=str(exc.__cause__) if exc.__cause__ is not None else None,
+                detail=str(error),
+                cause=str(error.__cause__) if error.__cause__ is not None else None,
             )
         return _json_result(
             VERDICT_BROKEN,
             reason="dependency-install-unavailable",
-            detail=str(exc),
+            detail=str(error),
         )
-    except OSError as exc:
+    except CommandUnavailableError as wrapped:
         return _json_result(
             VERDICT_BROKEN,
             reason="command-unavailable",
             command=list(spec.command),
-            detail=str(exc),
+            detail=str(wrapped.error),
         )
 
     if head_run.returncode != 0:
@@ -440,34 +458,45 @@ def verify_spec(
             detail=str(exc),
         )
     except RuntimeDependencyError as wrapped:
-        exc = wrapped.error
-        if isinstance(exc, subprocess.TimeoutExpired):
+        error = wrapped.error
+        if isinstance(error, subprocess.TimeoutExpired):
             return _json_result(
                 VERDICT_BROKEN,
                 reason="command-timeout",
-                command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
-                timeout=exc.timeout,
+                command=(
+                    list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd)
+                ),
+                timeout=error.timeout,
             )
-        if isinstance(exc, subprocess.CalledProcessError):
+        if isinstance(error, subprocess.CalledProcessError):
             return _json_result(
                 VERDICT_BROKEN,
                 reason="dependency-install-failed",
-                command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
-                returncode=exc.returncode,
-                stdout=exc.stdout,
-                stderr=exc.stderr,
+                command=(
+                    list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd)
+                ),
+                returncode=error.returncode,
+                stdout=error.stdout,
+                stderr=error.stderr,
             )
-        if isinstance(exc, ImportError):
+        if isinstance(error, ImportError):
             return _json_result(
                 VERDICT_BROKEN,
                 reason="dependency-import-failed",
-                detail=str(exc),
-                cause=str(exc.__cause__) if exc.__cause__ is not None else None,
+                detail=str(error),
+                cause=str(error.__cause__) if error.__cause__ is not None else None,
             )
         return _json_result(
             VERDICT_BROKEN,
             reason="dependency-install-unavailable",
-            detail=str(exc),
+            detail=str(error),
+        )
+    except CommandUnavailableError as wrapped:
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="command-unavailable",
+            command=list(spec.command),
+            detail=str(wrapped.error),
         )
     except subprocess.CalledProcessError as exc:
         return _json_result(
