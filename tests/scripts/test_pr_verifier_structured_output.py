@@ -246,6 +246,16 @@ def test_text_from_response_content_ignores_blank_text_blocks() -> None:
     assert pr_verifier._coerce_response_content(blocks) == json.dumps(blocks, default=str)
 
 
+def test_text_from_response_content_does_not_copy_blocks_to_check_whitespace() -> None:
+    class NoStripText(str):
+        def strip(self, *args, **kwargs):
+            raise AssertionError("whitespace detection must not copy the text block")
+
+    blocks = [{"type": "text", "text": NoStripText("large response")}]
+
+    assert pr_verifier._text_from_response_content(blocks) == "large response"
+
+
 def test_evaluate_pr_valid_output_no_repair(monkeypatch: pytest.MonkeyPatch) -> None:
     payload = _valid_payload()
     good = json.dumps(payload)
