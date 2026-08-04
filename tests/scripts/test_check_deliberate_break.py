@@ -675,3 +675,32 @@ def test_base_setup_failure_is_not_dependency_failure(tmp_path, monkeypatch) -> 
         "reason": "base-setup-failed",
         "detail": "disk unavailable",
     }
+
+
+def test_base_command_launch_failure_is_reported_as_command_unavailable(
+    tmp_path, monkeypatch
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    base, spec = _sound_spec(repo)
+    calls = 0
+
+    def run_command(*_args):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return subprocess.CompletedProcess(spec.command, 0, "", "")
+        error = FileNotFoundError("base-only command is unavailable")
+        raise deliberate_break.CommandUnavailableError(error) from error
+
+    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", run_command)
+
+    result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
+
+    assert result == {
+        "verdict": VERDICT_BROKEN,
+        "reason": "command-unavailable",
+        "command": list(spec.command),
+        "detail": "base-only command is unavailable",
+    }

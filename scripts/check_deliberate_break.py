@@ -54,6 +54,14 @@ class RuntimeDependencyError(Exception):
         self.error = error
 
 
+class CommandUnavailableError(Exception):
+    """Wrap OS failures raised while launching the deliberate-break command."""
+
+    def __init__(self, error: OSError) -> None:
+        super().__init__(str(error))
+        self.error = error
+
+
 def _json_result(verdict: str, **fields: object) -> dict[str, object]:
     return {"verdict": verdict, **fields}
 
@@ -221,7 +229,10 @@ def _run_with_runtime_deps(
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
     """Retry a command after repairing PyYAML only when its output requires it."""
-    completed = _run(command, cwd)
+    try:
+        completed = _run(command, cwd)
+    except OSError as exc:
+        raise CommandUnavailableError(exc) from exc
     if completed.returncode == 0:
         return completed
 
@@ -248,7 +259,10 @@ def _run_with_runtime_deps(
         _ensure_pytest_runtime_deps()
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ImportError, OSError) as exc:
         raise RuntimeDependencyError(exc) from exc
-    return _run(command, cwd)
+    try:
+        return _run(command, cwd)
+    except OSError as exc:
+        raise CommandUnavailableError(exc) from exc
 
 
 def _git(
@@ -400,12 +414,12 @@ def verify_spec(
             reason="dependency-install-unavailable",
             detail=str(exc),
         )
-    except OSError as exc:
+    except CommandUnavailableError as wrapped:
         return _json_result(
             VERDICT_BROKEN,
             reason="command-unavailable",
             command=list(spec.command),
-            detail=str(exc),
+            detail=str(wrapped.error),
         )
 
     if head_run.returncode != 0:
@@ -468,6 +482,13 @@ def verify_spec(
             VERDICT_BROKEN,
             reason="dependency-install-unavailable",
             detail=str(exc),
+        )
+    except CommandUnavailableError as wrapped:
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="command-unavailable",
+            command=list(spec.command),
+            detail=str(wrapped.error),
         )
     except subprocess.CalledProcessError as exc:
         return _json_result(
