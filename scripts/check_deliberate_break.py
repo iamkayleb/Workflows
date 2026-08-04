@@ -225,9 +225,14 @@ def _run_with_runtime_deps(
             'no module named "yaml"',
             "modulenotfounderror: yaml",
             "importerror: yaml",
-            "pyyaml",
         )
     )
+    yaml_traceback = bool(re.search(r"(?:^|[/\\])yaml[/\\][^\n]*", output, re.MULTILINE))
+    if yaml_traceback and not missing_pyyaml:
+        try:
+            import_module("yaml")
+        except Exception:
+            missing_pyyaml = True
     if not missing_pyyaml:
         return completed
 
