@@ -220,6 +220,16 @@ def test_coerce_response_content_falls_back_to_string_when_json_serialization_fa
     assert pr_verifier._coerce_response_content(payload) == str(payload)
 
 
+def test_coerce_response_content_survives_failing_string_conversion() -> None:
+    class Unserializable:
+        def __str__(self) -> str:
+            raise RuntimeError("broken string conversion")
+
+    assert (
+        pr_verifier._coerce_response_content(Unserializable()) == "<unserializable Unserializable>"
+    )
+
+
 def test_text_from_response_content_concatenates_split_text_blocks_without_separator() -> None:
     payload = _valid_payload()
     encoded = json.dumps(payload)
