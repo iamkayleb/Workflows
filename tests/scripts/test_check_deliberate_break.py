@@ -260,9 +260,7 @@ def test_cli_skips_without_marker(tmp_path) -> None:
 
 
 @pytest.mark.parametrize("installed_version", [None, "6.0.2"])
-def test_runtime_dependency_installer_uses_locked_pyyaml(
-    monkeypatch, installed_version
-) -> None:
+def test_runtime_dependency_installer_uses_locked_pyyaml(monkeypatch, installed_version) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
 
     def package_version(_name):
