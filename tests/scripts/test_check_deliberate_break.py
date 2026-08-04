@@ -202,6 +202,28 @@ def test_tamper_os_error_is_broken(tmp_path, monkeypatch) -> None:
     }
 
 
+def test_tamper_timeout_has_distinct_reason(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    base, spec = _sound_spec(repo)
+    command = ["git", "diff", f"{base}...HEAD"]
+    monkeypatch.setattr(
+        deliberate_break,
+        "_changed_assertions",
+        lambda *_args: (_ for _ in ()).throw(subprocess.TimeoutExpired(command, 17)),
+    )
+
+    result = verify_spec(spec, base=base, cwd=repo)
+
+    assert result == {
+        "verdict": VERDICT_BROKEN,
+        "reason": "tamper-check-timeout",
+        "command": command,
+        "timeout": 17,
+    }
+
+
 def test_new_assertion_in_existing_test_file_is_not_tamper(tmp_path, monkeypatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -996,6 +1018,30 @@ def test_active_python_with_flags_is_managed_pytest_runtime() -> None:
     assert deliberate_break._uses_pytest_runtime(
         (sys.executable, "-X", "dev", "-O", "-m", "pytest", "-q")
     )
+
+
+def test_plain_pytest_with_active_python_shebang_is_managed(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "pytest"
+    pytest_launcher.write_text(f"#!{sys.executable}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deliberate_break.shutil,
+        "which",
+        lambda name: str(pytest_launcher) if name == "pytest" else None,
+    )
+
+    assert deliberate_break._uses_pytest_runtime(("pytest", "-q"))
+
+
+def test_plain_pytest_with_changed_import_context_is_not_managed(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "pytest"
+    pytest_launcher.write_text(f"#!{sys.executable} -I\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deliberate_break.shutil,
+        "which",
+        lambda name: str(pytest_launcher) if name == "pytest" else None,
+    )
+
+    assert not deliberate_break._uses_pytest_runtime(("pytest", "-q"))
 
 
 def test_active_python_with_hash_policy_is_managed_pytest_runtime() -> None:
