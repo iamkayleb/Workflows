@@ -362,6 +362,11 @@ def _python_module_pytest_probe(
         ):
             return None
         if option in PYTHON_VALUE_OPTIONS:
+            if option == "--check-hash-based-pycs" and (
+                index + 1 >= len(command)
+                or command[index + 1] not in {"always", "default", "never"}
+            ):
+                return None
             index += 2
             continue
         if option.startswith("--"):

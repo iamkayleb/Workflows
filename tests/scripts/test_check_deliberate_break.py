@@ -819,6 +819,22 @@ def test_active_python_with_hash_policy_is_managed_pytest_runtime() -> None:
     )
 
 
+def test_invalid_hash_policy_is_not_managed_pytest_runtime() -> None:
+    assert not deliberate_break._uses_pytest_runtime(
+        (
+            sys.executable,
+            "--check-hash-based-pycs",
+            "bogus",
+            "-m",
+            "pytest",
+        )
+    )
+
+
+def test_unsupported_lowercase_r_is_not_managed_pytest_runtime() -> None:
+    assert not deliberate_break._uses_pytest_runtime((sys.executable, "-r", "-m", "pytest"))
+
+
 def test_empty_command_is_not_managed_pytest_runtime() -> None:
     assert not deliberate_break._uses_pytest_runtime(())
 
