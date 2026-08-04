@@ -662,10 +662,33 @@ def test_uv_pyyaml_probe_uses_resolved_pytest_shebang_interpreter(tmp_path, monk
     )
 
 
+def test_uv_pyyaml_probe_preserves_python_shebang_flags(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "global" / "bin" / "pytest"
+    pytest_launcher.parent.mkdir(parents=True)
+    pytest_launcher.write_text("#!/usr/bin/python3 -I\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run",
+        lambda *_args: subprocess.CompletedProcess(
+            ["uv", "run", "which", "pytest"],
+            0,
+            f"{pytest_launcher}\n",
+            "",
+        ),
+    )
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
+        "/usr/bin/python3",
+        "-I",
+        "-c",
+        "import yaml",
+    )
+
+
 def test_uv_pyyaml_probe_resolves_env_shebang_inside_uv_path(tmp_path, monkeypatch) -> None:
     pytest_launcher = tmp_path / "bin" / "pytest"
     pytest_launcher.parent.mkdir()
-    pytest_launcher.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    pytest_launcher.write_text("#!/usr/bin/env -S python3 -I\n", encoding="utf-8")
     results = iter(
         (
             subprocess.CompletedProcess(["which", "pytest"], 0, f"{pytest_launcher}\n", ""),
@@ -678,6 +701,7 @@ def test_uv_pyyaml_probe_resolves_env_shebang_inside_uv_path(tmp_path, monkeypat
 
     assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
         "/project/.venv/bin/python3",
+        "-I",
         "-c",
         "import yaml",
     )

@@ -249,8 +249,8 @@ def _run(
     )
 
 
-def _uv_pytest_interpreter(uv_command: str, cwd: Path) -> str | None:
-    """Resolve the shebang interpreter used by ``uv run pytest``."""
+def _uv_pytest_python_launcher(uv_command: str, cwd: Path) -> tuple[str, ...] | None:
+    """Resolve the Python shebang launcher used by ``uv run pytest``."""
     located = _run((uv_command, "run", "which", "pytest"), cwd)
     if located.returncode != 0 or not located.stdout.strip():
         return None
@@ -267,15 +267,18 @@ def _uv_pytest_interpreter(uv_command: str, cwd: Path) -> str | None:
         return None
     if not launcher:
         return None
-    if Path(launcher[0]).name == "env" and len(launcher) > 1:
-        if not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(launcher[1]).name):
+    if Path(launcher[0]).name == "env":
+        env_args = launcher[1:]
+        if env_args[:1] == ["-S"]:
+            env_args = env_args[1:]
+        if not env_args or not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(env_args[0]).name):
             return None
-        resolved = _run((uv_command, "run", "which", launcher[1]), cwd)
+        resolved = _run((uv_command, "run", "which", env_args[0]), cwd)
         if resolved.returncode != 0 or not resolved.stdout.strip():
             return None
-        return resolved.stdout.strip().splitlines()[-1]
+        return (resolved.stdout.strip().splitlines()[-1], *env_args[1:])
     if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(launcher[0]).name):
-        return launcher[0]
+        return tuple(launcher)
     return None
 
 
@@ -287,9 +290,9 @@ def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...
         len(command) >= 3
         and Path(command[0]).name == "uv"
         and command[1:3] == ("run", "pytest")
-        and (interpreter := _uv_pytest_interpreter(command[0], cwd))
+        and (launcher := _uv_pytest_python_launcher(command[0], cwd))
     ):
-        return (interpreter, "-c", "import yaml")
+        return (*launcher, "-c", "import yaml")
     return None
 
 
