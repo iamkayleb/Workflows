@@ -505,6 +505,32 @@ def test_runtime_dependencies_retry_broken_pyyaml_traceback(tmp_path, monkeypatc
     assert attempts == []
 
 
+def test_runtime_dependencies_retry_stale_pyyaml_traceback(tmp_path, monkeypatch) -> None:
+    attempts = [
+        subprocess.CompletedProcess(
+            ["pytest"],
+            1,
+            "",
+            'File "/venv/lib/site-packages/yaml/__init__.py", line 1\nRuntimeError: stale',
+        ),
+        subprocess.CompletedProcess(["pytest"], 0, "passed", ""),
+    ]
+    repairs: list[bool] = []
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(deliberate_break.metadata, "version", lambda _name: "6.0.2")
+    monkeypatch.setattr(
+        deliberate_break,
+        "_ensure_pytest_runtime_deps",
+        lambda: repairs.append(True),
+    )
+
+    completed = deliberate_break._run_with_runtime_deps(("pytest",), tmp_path)
+
+    assert completed.returncode == 0
+    assert repairs == [True]
+    assert attempts == []
+
+
 def _sound_spec(repo: Path) -> tuple[str, object]:
     _write_app(repo, 0)
     base = _commit(repo, "base behavior")

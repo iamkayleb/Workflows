@@ -203,6 +203,21 @@ def _ensure_pytest_runtime_deps() -> None:
             raise error from (import_error or retry_error)
 
 
+def _pyyaml_runtime_needs_repair() -> bool:
+    """Return whether the active PyYAML runtime is missing, stale, or unusable."""
+    try:
+        installed_version = metadata.version("PyYAML")
+    except metadata.PackageNotFoundError:
+        return True
+    if installed_version != PYYAML_VERSION:
+        return True
+    try:
+        import_module("yaml")
+    except Exception:
+        return True
+    return False
+
+
 def _run(
     command: tuple[str, ...],
     cwd: Path,
@@ -248,10 +263,7 @@ def _run_with_runtime_deps(
     )
     yaml_traceback = bool(re.search(r"(?:^|[/\\])yaml[/\\][^\n]*", output, re.MULTILINE))
     if yaml_traceback and not missing_pyyaml:
-        try:
-            import_module("yaml")
-        except Exception:
-            missing_pyyaml = True
+        missing_pyyaml = _pyyaml_runtime_needs_repair()
     if not missing_pyyaml:
         return completed
 
@@ -263,6 +275,38 @@ def _run_with_runtime_deps(
         return _run(command, cwd)
     except OSError as exc:
         raise CommandUnavailableError(exc) from exc
+
+
+def _runtime_dependency_error_result(error: Exception) -> dict[str, object]:
+    """Map dependency-repair failures consistently for head and base runs."""
+    if isinstance(error, subprocess.TimeoutExpired):
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="command-timeout",
+            command=list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd),
+            timeout=error.timeout,
+        )
+    if isinstance(error, subprocess.CalledProcessError):
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="dependency-install-failed",
+            command=list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd),
+            returncode=error.returncode,
+            stdout=error.stdout,
+            stderr=error.stderr,
+        )
+    if isinstance(error, ImportError):
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="dependency-import-failed",
+            detail=str(error),
+            cause=str(error.__cause__) if error.__cause__ is not None else None,
+        )
+    return _json_result(
+        VERDICT_BROKEN,
+        reason="dependency-install-unavailable",
+        detail=str(error),
+    )
 
 
 def _git(
@@ -385,39 +429,7 @@ def verify_spec(
             timeout=exc.timeout,
         )
     except RuntimeDependencyError as wrapped:
-        error = wrapped.error
-        if isinstance(error, subprocess.TimeoutExpired):
-            return _json_result(
-                VERDICT_BROKEN,
-                reason="command-timeout",
-                command=(
-                    list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd)
-                ),
-                timeout=error.timeout,
-            )
-        if isinstance(error, subprocess.CalledProcessError):
-            return _json_result(
-                VERDICT_BROKEN,
-                reason="dependency-install-failed",
-                command=(
-                    list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd)
-                ),
-                returncode=error.returncode,
-                stdout=error.stdout,
-                stderr=error.stderr,
-            )
-        if isinstance(error, ImportError):
-            return _json_result(
-                VERDICT_BROKEN,
-                reason="dependency-import-failed",
-                detail=str(error),
-                cause=str(error.__cause__) if error.__cause__ is not None else None,
-            )
-        return _json_result(
-            VERDICT_BROKEN,
-            reason="dependency-install-unavailable",
-            detail=str(error),
-        )
+        return _runtime_dependency_error_result(wrapped.error)
     except CommandUnavailableError as wrapped:
         return _json_result(
             VERDICT_BROKEN,
@@ -458,39 +470,7 @@ def verify_spec(
             detail=str(exc),
         )
     except RuntimeDependencyError as wrapped:
-        error = wrapped.error
-        if isinstance(error, subprocess.TimeoutExpired):
-            return _json_result(
-                VERDICT_BROKEN,
-                reason="command-timeout",
-                command=(
-                    list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd)
-                ),
-                timeout=error.timeout,
-            )
-        if isinstance(error, subprocess.CalledProcessError):
-            return _json_result(
-                VERDICT_BROKEN,
-                reason="dependency-install-failed",
-                command=(
-                    list(error.cmd) if isinstance(error.cmd, (tuple, list)) else str(error.cmd)
-                ),
-                returncode=error.returncode,
-                stdout=error.stdout,
-                stderr=error.stderr,
-            )
-        if isinstance(error, ImportError):
-            return _json_result(
-                VERDICT_BROKEN,
-                reason="dependency-import-failed",
-                detail=str(error),
-                cause=str(error.__cause__) if error.__cause__ is not None else None,
-            )
-        return _json_result(
-            VERDICT_BROKEN,
-            reason="dependency-install-unavailable",
-            detail=str(error),
-        )
+        return _runtime_dependency_error_result(wrapped.error)
     except CommandUnavailableError as wrapped:
         return _json_result(
             VERDICT_BROKEN,

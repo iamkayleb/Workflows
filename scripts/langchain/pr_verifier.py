@@ -705,8 +705,11 @@ def _coerce_response_content(content: object) -> str:
         return text
     try:
         return json.dumps(content, default=str)
-    except (TypeError, ValueError):
-        return str(content)
+    except Exception:
+        try:
+            return str(content)
+        except Exception:
+            return f"<unserializable {type(content).__name__}>"
 
 
 def _parse_llm_response(
