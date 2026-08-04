@@ -33,7 +33,8 @@ ASSERTION_DIFF_RE = re.compile(
     r"\b(assert|expect\(|pytest\.raises\(|assert\.)\b",
 )
 DEFAULT_TIMEOUT_SECONDS = 120
-# This bootstrap pin is maintained in Workflows; consumers receive the resolved value.
+# Compatible installed versions may exceed this Workflows-owned bootstrap floor;
+# automatic repair remains reproducibly pinned by PYTEST_RUNTIME_DEPENDENCIES.
 PYYAML_VERSION = "6.0.3"
 PYTEST_RUNTIME_DEPENDENCIES = (f"pyyaml=={PYYAML_VERSION}",)
 PYYAML_PROBE_SENTINEL = "__gate_pyyaml_import_ok__"
