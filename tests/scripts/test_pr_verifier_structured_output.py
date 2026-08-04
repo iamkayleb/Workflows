@@ -214,6 +214,12 @@ def test_coerce_response_content_falls_back_to_json_for_unblocked_payloads() -> 
     assert pr_verifier._text_from_response_content(payload) is None
 
 
+def test_coerce_response_content_falls_back_to_string_when_json_serialization_fails() -> None:
+    payload = {(1, 2): "unsupported JSON key"}
+
+    assert pr_verifier._coerce_response_content(payload) == str(payload)
+
+
 def test_text_from_response_content_concatenates_split_text_blocks_without_separator() -> None:
     payload = _valid_payload()
     encoded = json.dumps(payload)
