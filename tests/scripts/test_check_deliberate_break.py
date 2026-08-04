@@ -839,7 +839,7 @@ def test_empty_command_is_not_managed_pytest_runtime() -> None:
     assert not deliberate_break._uses_pytest_runtime(())
 
 
-@pytest.mark.parametrize("compact_option", ["-Im", "-im", "-OOm"])
+@pytest.mark.parametrize("compact_option", ["-Im", "-im", "-OOm", "-tm"])
 def test_active_python_with_compact_flags_is_managed_pytest_runtime(compact_option) -> None:
     command = (sys.executable, compact_option, "pytest", "-q")
 
