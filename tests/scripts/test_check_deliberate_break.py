@@ -942,6 +942,14 @@ def test_import_context_changed_python_is_not_managed_pytest_runtime(context_fla
     assert not deliberate_break._uses_pytest_runtime((sys.executable, context_flag, "-m", "pytest"))
 
 
+@pytest.mark.parametrize(
+    "compact_option",
+    ["-Empytest", "-Impytest", "-Pmpytest", "-smpytest"],
+)
+def test_compact_import_context_changed_python_is_not_managed(compact_option) -> None:
+    assert not deliberate_break._uses_pytest_runtime((sys.executable, compact_option))
+
+
 def test_empty_command_is_not_managed_pytest_runtime() -> None:
     assert not deliberate_break._uses_pytest_runtime(())
 
