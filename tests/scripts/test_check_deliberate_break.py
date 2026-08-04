@@ -548,8 +548,12 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
     "stderr",
     [
         "ModuleNotFoundError: No module named 'yaml'",
+        "ERROR collecting tests/test_manifest.py\n"
         'File "/other/venv/lib/site-packages/yaml/__init__.py", line 1\n'
         "SyntaxError: broken wheel",
+        "ERROR collecting tests/test_manifest.py\n"
+        'File "/other/venv/lib/site-packages/yaml/__init__.py", line 1\n'
+        "E   SyntaxError: broken wheel",
     ],
 )
 def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
@@ -561,10 +565,18 @@ def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
         "",
         stderr,
     )
+    attempts = [completed]
+    if "No module named" not in stderr:
+        attempts.append(subprocess.CompletedProcess(["probe"], 1, "", "broken import"))
     monkeypatch.setattr(
         deliberate_break,
         "_run",
-        lambda *_args: completed,
+        lambda *_args: attempts.pop(0),
+    )
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
     )
     monkeypatch.setattr(
         deliberate_break,
@@ -577,6 +589,264 @@ def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
 
     assert isinstance(caught.value.error, ImportError)
     assert "wrapped or custom" in str(caught.value.error)
+    assert attempts == []
+
+
+def test_unmanaged_yaml_test_failure_is_not_misclassified_as_dependency_error(
+    tmp_path, monkeypatch
+) -> None:
+    completed = subprocess.CompletedProcess(
+        ["uv", "run", "pytest"],
+        1,
+        "",
+        'File "/other/venv/lib/site-packages/yaml/parser.py", line 98\n'
+        "yaml.parser.ParserError: malformed fixture",
+    )
+    attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
+
+    result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
+
+    assert result is completed
+    assert attempts == []
+
+
+def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
+    tmp_path, monkeypatch
+) -> None:
+    completed = subprocess.CompletedProcess(
+        ["uv", "run", "pytest"],
+        1,
+        "",
+        'File "/other/venv/lib/site-packages/yaml/__init__.py", line 125, in safe_load\n'
+        "E   AttributeError: 'NoneType' object has no attribute 'read'",
+    )
+    attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
+
+    result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
+
+    assert result is completed
+    assert attempts == []
+
+
+def test_uv_pyyaml_probe_uses_resolved_pytest_shebang_interpreter(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "global" / "bin" / "pytest"
+    pytest_launcher.parent.mkdir(parents=True)
+    pytest_launcher.write_text("#!/global/python\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run",
+        lambda *_args: subprocess.CompletedProcess(
+            ["uv", "run", "which", "pytest"],
+            0,
+            f"{pytest_launcher}\n",
+            "",
+        ),
+    )
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
+        "/global/python",
+        "-c",
+        "import yaml",
+    )
+
+
+def test_uv_pyyaml_probe_preserves_uv_run_options(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "bin" / "pytest"
+    pytest_launcher.parent.mkdir()
+    pytest_launcher.write_text("#!/project/.venv/bin/python\n", encoding="utf-8")
+    calls: list[tuple[str, ...]] = []
+
+    def run(command, _cwd):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, f"{pytest_launcher}\n", "")
+
+    monkeypatch.setattr(deliberate_break, "_run", run)
+    command = (
+        "uv",
+        "run",
+        "--frozen",
+        "--group",
+        "test",
+        "-w",
+        "pytest-xdist",
+        "-p",
+        "3.13",
+        "--config-file",
+        "uv.toml",
+        "--isolated",
+        "pytest",
+        "-q",
+    )
+
+    assert deliberate_break._pyyaml_probe_command(command, tmp_path) == (
+        "/project/.venv/bin/python",
+        "-c",
+        "import yaml",
+    )
+    assert calls == [
+        (
+            "uv",
+            "run",
+            "--frozen",
+            "--group",
+            "test",
+            "-w",
+            "pytest-xdist",
+            "-p",
+            "3.13",
+            "--config-file",
+            "uv.toml",
+            "--isolated",
+            "which",
+            "pytest",
+        )
+    ]
+
+
+def test_uv_pyyaml_probe_preserves_python_shebang_flags(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "global" / "bin" / "pytest"
+    pytest_launcher.parent.mkdir(parents=True)
+    pytest_launcher.write_text("#!/usr/bin/python3 -I\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run",
+        lambda *_args: subprocess.CompletedProcess(
+            ["uv", "run", "which", "pytest"],
+            0,
+            f"{pytest_launcher}\n",
+            "",
+        ),
+    )
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
+        "/usr/bin/python3",
+        "-I",
+        "-c",
+        "import yaml",
+    )
+
+
+def test_uv_pyyaml_probe_resolves_env_shebang_inside_uv_path(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "bin" / "pytest"
+    pytest_launcher.parent.mkdir()
+    pytest_launcher.write_text("#!/usr/bin/env -S python3 -I\n", encoding="utf-8")
+    results = iter(
+        (
+            subprocess.CompletedProcess(["which", "pytest"], 0, f"{pytest_launcher}\n", ""),
+            subprocess.CompletedProcess(
+                ["which", "python3"], 0, "/project/.venv/bin/python3\n", ""
+            ),
+        )
+    )
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: next(results))
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
+        "/project/.venv/bin/python3",
+        "-I",
+        "-c",
+        "import yaml",
+    )
+
+
+def test_uv_pyyaml_probe_rejects_shell_shim_launcher(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "bin" / "pytest"
+    pytest_launcher.parent.mkdir()
+    pytest_launcher.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    calls: list[tuple[str, ...]] = []
+
+    def run(command, _cwd):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, f"{pytest_launcher}\n", "")
+
+    monkeypatch.setattr(deliberate_break, "_run", run)
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) is None
+    assert calls == [("uv", "run", "which", "pytest")]
+
+
+def test_bare_pytest_probe_uses_launcher_shebang(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "bin" / "pytest"
+    pytest_launcher.parent.mkdir()
+    pytest_launcher.write_text("#!/usr/bin/env -S python3 -I\n", encoding="utf-8")
+
+    def which(name):
+        return str(pytest_launcher) if name == "pytest" else "/venv/bin/python3"
+
+    monkeypatch.setattr(deliberate_break.shutil, "which", which)
+
+    assert deliberate_break._pyyaml_probe_command(("pytest", "-q"), tmp_path) == (
+        "/venv/bin/python3",
+        "-I",
+        "-c",
+        "import yaml",
+    )
+
+
+def test_python_module_probe_preserves_interpreter_flags(tmp_path) -> None:
+    assert deliberate_break._pyyaml_probe_command(
+        ("/venv/bin/python", "-I", "-m", "pytest", "-q"),
+        tmp_path,
+    ) == ("/venv/bin/python", "-I", "-c", "import yaml")
+
+
+@pytest.mark.parametrize("module_option", ["-m", "--module"])
+def test_uv_module_pytest_probe_uses_uv_selected_python(tmp_path, module_option) -> None:
+    assert deliberate_break._pyyaml_probe_command(
+        ("uv", "run", "--frozen", module_option, "pytest", "-q"),
+        tmp_path,
+    ) == ("uv", "run", "--frozen", "python", "-c", "import yaml")
+
+
+def test_uv_nested_python_module_probe_preserves_uv_and_python_options(tmp_path) -> None:
+    assert deliberate_break._pyyaml_probe_command(
+        (
+            "uv",
+            "run",
+            "--no-project",
+            "--python",
+            "3.13",
+            "python",
+            "-I",
+            "-m",
+            "pytest",
+            "-q",
+        ),
+        tmp_path,
+    ) == (
+        "uv",
+        "run",
+        "--no-project",
+        "--python",
+        "3.13",
+        "python",
+        "-I",
+        "-c",
+        "import yaml",
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("uv", "run", "python", "scripts/run_tests.py", "-m", "pytest"),
+        ("uv", "run", "python", "-c", "run_tests()", "-m", "pytest"),
+        ("python", "scripts/run_tests.py", "-m", "pytest"),
+    ],
+)
+def test_python_probe_stops_after_first_program_selector(tmp_path, command) -> None:
+    assert deliberate_break._pyyaml_probe_command(command, tmp_path) is None
 
 
 def _sound_spec(repo: Path) -> tuple[str, object]:
