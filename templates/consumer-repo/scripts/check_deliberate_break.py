@@ -36,6 +36,8 @@ DEFAULT_TIMEOUT_SECONDS = 120
 # This bootstrap pin is maintained in Workflows; consumers receive the resolved value.
 PYYAML_VERSION = "6.0.3"
 PYTEST_RUNTIME_DEPENDENCIES = (f"pyyaml=={PYYAML_VERSION}",)
+PYYAML_PROBE_SENTINEL = "__gate_pyyaml_import_ok__"
+PYYAML_PROBE_CODE = f"import yaml; print({PYYAML_PROBE_SENTINEL!r})"
 
 
 @dataclass(frozen=True)
@@ -222,10 +224,15 @@ def _pyyaml_runtime_needs_repair() -> bool:
 
 def _uses_pytest_runtime(command: tuple[str, ...]) -> bool:
     """Return whether a command runs pytest in the active Python environment."""
-    if len(command) < 3 or command[1:3] != ("-m", "pytest"):
+    if not command:
         return False
     executable = shutil.which(command[0]) or command[0]
-    return Path(executable).resolve() == Path(sys.executable).resolve()
+    probe = _python_module_pytest_probe(command, 0)
+    return (
+        Path(executable).resolve() == Path(sys.executable).resolve()
+        and probe is not None
+        and not _python_probe_changes_import_context(probe)
+    )
 
 
 def _run(
@@ -335,6 +342,55 @@ def _uv_module_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None
 
 
 PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
+PYTHON_TERMINATING_OPTIONS = frozenset({"-", "--", "-?", "-V", "-VV", "-h", "--help", "--version"})
+PYTHON_COMPACT_FLAGS = frozenset("bBdEIiOPqRstuvx")
+PYTHON_IMPORT_CONTEXT_FLAGS = frozenset("EIPsS")
+
+
+def _python_probe_changes_import_context(probe: tuple[str, ...]) -> bool:
+    """Return whether a probe uses flags that can change module visibility."""
+    for option in probe[1:]:
+        if option == "-c":
+            break
+        if not option.startswith("-") or option.startswith("--"):
+            continue
+        for character in option[1:]:
+            if character in PYTHON_IMPORT_CONTEXT_FLAGS:
+                return True
+            if character in {"W", "X"}:
+                break
+    return False
+
+
+def _drop_interactive_python_flags(options: tuple[str, ...]) -> tuple[str, ...]:
+    """Omit lowercase ``-i`` from probe argv.
+
+    Interactive mode forces a prompt after ``-c`` scripts. An import-time
+    traceback followed by EOF then exits 0, so PyYAML probe return codes
+    become unreliable when ``i`` is preserved from the original launcher.
+    Uppercase ``-I`` (isolated mode) is kept.
+    """
+    cleaned: list[str] = []
+    for option in options:
+        if option == "-i":
+            continue
+        if option.startswith("-") and not option.startswith("--") and len(option) > 1:
+            body = option[1:]
+            kept: list[str] = []
+            for position, character in enumerate(body):
+                if character == "i":
+                    continue
+                kept.append(character)
+                if character in {"W", "X"}:
+                    kept.append(body[position + 1 :])
+                    break
+            cleaned_body = "".join(kept)
+            if not cleaned_body:
+                continue
+            cleaned.append(f"-{cleaned_body}")
+            continue
+        cleaned.append(option)
+    return tuple(cleaned)
 
 
 def _python_module_pytest_probe(
@@ -347,17 +403,71 @@ def _python_module_pytest_probe(
         option = command[index]
         if option == "-m":
             if index + 1 < len(command) and command[index + 1] == "pytest":
-                return (*command[:index], "-c", "import yaml")
+                return (
+                    *command[: python_index + 1],
+                    *_drop_interactive_python_flags(command[python_index + 1 : index]),
+                    "-c",
+                    PYYAML_PROBE_CODE,
+                )
             return None
-        if option in {"-c", "-"} or not option.startswith("-"):
+        if (
+            option == "-c"
+            or option in PYTHON_TERMINATING_OPTIONS
+            or option.startswith("--help-")
+            or not option.startswith("-")
+        ):
             return None
-        index += 2 if option in PYTHON_VALUE_OPTIONS else 1
+        if option in PYTHON_VALUE_OPTIONS:
+            if option == "--check-hash-based-pycs" and (
+                index + 1 >= len(command)
+                or command[index + 1] not in {"always", "default", "never"}
+            ):
+                return None
+            index += 2
+            continue
+        if option.startswith("--"):
+            return None
+        if option.startswith("-") and not option.startswith("--"):
+            compact = option[1:]
+            for position, character in enumerate(compact):
+                if character in PYTHON_COMPACT_FLAGS:
+                    continue
+                if character in {"V", "h", "?"}:
+                    return None
+                if character in {"W", "X"}:
+                    index += 2 if position + 1 == len(compact) else 1
+                    break
+                if character in {"c", "m"}:
+                    selector_value = compact[position + 1 :]
+                    if character == "m" and (
+                        selector_value == "pytest"
+                        or (
+                            not selector_value
+                            and index + 1 < len(command)
+                            and command[index + 1] == "pytest"
+                        )
+                    ):
+                        prefix = compact[:position].replace("i", "")
+                        preserved = (f"-{prefix}",) if prefix else ()
+                        return (
+                            *command[: python_index + 1],
+                            *_drop_interactive_python_flags(command[python_index + 1 : index]),
+                            *preserved,
+                            "-c",
+                            PYYAML_PROBE_CODE,
+                        )
+                    return None
+                return None
+            else:
+                index += 1
+            continue
+        index += 1
     return None
 
 
 def _uv_python_module_probe(command: tuple[str, ...]) -> tuple[str, ...] | None:
     """Build a probe for ``uv run [options] python [flags] -m pytest``."""
-    if len(command) < 5 or Path(command[0]).name != "uv" or command[1] != "run":
+    if len(command) < 4 or Path(command[0]).name != "uv" or command[1] != "run":
         return None
     index = 2
     while index < len(command) and command[index].startswith("-"):
@@ -426,7 +536,7 @@ def _uv_pytest_python_launcher(uv_run_prefix: tuple[str, ...], cwd: Path) -> tup
 def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
     """Return a read-only PyYAML import probe for the pytest launcher's runtime."""
     if uv_prefix := _uv_module_pytest_prefix(command):
-        return (*uv_prefix, "python", "-c", "import yaml")
+        return (*uv_prefix, "python", "-c", PYYAML_PROBE_CODE)
     if probe := _uv_python_module_probe(command):
         return probe
     if command and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(command[0]).name):
@@ -434,11 +544,11 @@ def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...
     if (uv_prefix := _uv_run_pytest_prefix(command)) and (
         launcher := _uv_pytest_python_launcher(uv_prefix, cwd)
     ):
-        return (*launcher, "-c", "import yaml")
+        return (*launcher, "-c", PYYAML_PROBE_CODE)
     if command and Path(command[0]).name == "pytest":
         pytest_path = shutil.which(command[0])
         if pytest_path and (launcher := _python_shebang_launcher(Path(pytest_path), shutil.which)):
-            return (*launcher, "-c", "import yaml")
+            return (*launcher, "-c", PYYAML_PROBE_CODE)
     return None
 
 
@@ -481,9 +591,10 @@ def _run_with_runtime_deps(
             missing_pyyaml = _pyyaml_runtime_needs_repair()
         elif probe_command := _pyyaml_probe_command(command, cwd):
             try:
-                missing_pyyaml = _run(probe_command, cwd).returncode != 0
+                probe = _run(probe_command, cwd)
             except OSError as exc:
                 raise CommandUnavailableError(exc) from exc
+            missing_pyyaml = probe.returncode != 0 or PYYAML_PROBE_SENTINEL not in probe.stdout
     if not missing_pyyaml:
         return completed
 

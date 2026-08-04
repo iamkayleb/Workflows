@@ -537,6 +537,28 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
     assert events == ["repair", "run"]
 
 
+def test_import_context_changed_active_python_is_not_repaired(tmp_path, monkeypatch) -> None:
+    command = (sys.executable, "-s", "-m", "pytest")
+    completed = subprocess.CompletedProcess(
+        command,
+        1,
+        "",
+        "ModuleNotFoundError: No module named 'yaml'",
+    )
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
+    monkeypatch.setattr(
+        deliberate_break,
+        "_ensure_pytest_runtime_deps",
+        lambda: pytest.fail("flagged import context must not mutate the active environment"),
+    )
+
+    with pytest.raises(deliberate_break.RuntimeDependencyError) as caught:
+        deliberate_break._run_with_runtime_deps(command, tmp_path)
+
+    assert isinstance(caught.value.error, ImportError)
+    assert "wrapped or custom" in str(caught.value.error)
+
+
 @pytest.mark.parametrize(
     "command",
     [
@@ -602,7 +624,10 @@ def test_unmanaged_yaml_test_failure_is_not_misclassified_as_dependency_error(
         'File "/other/venv/lib/site-packages/yaml/parser.py", line 98\n'
         "yaml.parser.ParserError: malformed fixture",
     )
-    attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
+    attempts = [
+        completed,
+        subprocess.CompletedProcess(["probe"], 0, deliberate_break.PYYAML_PROBE_SENTINEL, ""),
+    ]
     monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
     monkeypatch.setattr(
         deliberate_break,
@@ -626,7 +651,10 @@ def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
         'File "/other/venv/lib/site-packages/yaml/__init__.py", line 125, in safe_load\n'
         "E   AttributeError: 'NoneType' object has no attribute 'read'",
     )
-    attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
+    attempts = [
+        completed,
+        subprocess.CompletedProcess(["probe"], 0, deliberate_break.PYYAML_PROBE_SENTINEL, ""),
+    ]
     monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
     monkeypatch.setattr(
         deliberate_break,
@@ -635,6 +663,68 @@ def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
     )
 
     result = deliberate_break._run_with_runtime_deps(("uv", "run", "pytest"), tmp_path)
+
+    assert result is completed
+    assert attempts == []
+
+
+def test_interactive_probe_traceback_is_dependency_failure_despite_zero_exit(
+    tmp_path, monkeypatch
+) -> None:
+    command = ("uv", "run", "python", "-im", "pytest")
+    attempts = [
+        subprocess.CompletedProcess(
+            command,
+            1,
+            "",
+            'File "/venv/lib/site-packages/yaml/__init__.py", line 1\n' "SyntaxError: broken wheel",
+        ),
+        subprocess.CompletedProcess(
+            ["probe"],
+            0,
+            "",
+            "Traceback (most recent call last):\nSyntaxError: broken wheel\n>>> ",
+        ),
+    ]
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
+
+    with pytest.raises(deliberate_break.RuntimeDependencyError):
+        deliberate_break._run_with_runtime_deps(command, tmp_path)
+
+    assert attempts == []
+
+
+def test_probe_sentinel_ignores_unrelated_startup_traceback(tmp_path, monkeypatch) -> None:
+    command = ("uv", "run", "python", "-im", "pytest")
+    completed = subprocess.CompletedProcess(
+        command,
+        1,
+        "",
+        'File "/venv/lib/site-packages/yaml/parser.py", line 98\n'
+        "yaml.parser.ParserError: malformed fixture",
+    )
+    attempts = [
+        completed,
+        subprocess.CompletedProcess(
+            ["probe"],
+            0,
+            deliberate_break.PYYAML_PROBE_SENTINEL,
+            "Traceback from unrelated .pth startup error",
+        ),
+    ]
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
+
+    result = deliberate_break._run_with_runtime_deps(command, tmp_path)
 
     assert result is completed
     assert attempts == []
@@ -658,7 +748,7 @@ def test_uv_pyyaml_probe_uses_resolved_pytest_shebang_interpreter(tmp_path, monk
     assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
         "/global/python",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -693,7 +783,7 @@ def test_uv_pyyaml_probe_preserves_uv_run_options(tmp_path, monkeypatch) -> None
     assert deliberate_break._pyyaml_probe_command(command, tmp_path) == (
         "/project/.venv/bin/python",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
     assert calls == [
         (
@@ -734,7 +824,7 @@ def test_uv_pyyaml_probe_preserves_python_shebang_flags(tmp_path, monkeypatch) -
         "/usr/bin/python3",
         "-I",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -756,7 +846,7 @@ def test_uv_pyyaml_probe_resolves_env_shebang_inside_uv_path(tmp_path, monkeypat
         "/project/.venv/bin/python3",
         "-I",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -790,7 +880,7 @@ def test_bare_pytest_probe_uses_launcher_shebang(tmp_path, monkeypatch) -> None:
         "/venv/bin/python3",
         "-I",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -798,7 +888,196 @@ def test_python_module_probe_preserves_interpreter_flags(tmp_path) -> None:
     assert deliberate_break._pyyaml_probe_command(
         ("/venv/bin/python", "-I", "-m", "pytest", "-q"),
         tmp_path,
-    ) == ("/venv/bin/python", "-I", "-c", "import yaml")
+    ) == ("/venv/bin/python", "-I", "-c", deliberate_break.PYYAML_PROBE_CODE)
+
+
+def test_active_python_with_flags_is_managed_pytest_runtime() -> None:
+    assert deliberate_break._uses_pytest_runtime(
+        (sys.executable, "-X", "dev", "-O", "-m", "pytest", "-q")
+    )
+
+
+def test_active_python_with_hash_policy_is_managed_pytest_runtime() -> None:
+    assert deliberate_break._uses_pytest_runtime(
+        (
+            sys.executable,
+            "--check-hash-based-pycs",
+            "default",
+            "-m",
+            "pytest",
+        )
+    )
+
+
+def test_invalid_hash_policy_is_not_managed_pytest_runtime() -> None:
+    assert not deliberate_break._uses_pytest_runtime(
+        (
+            sys.executable,
+            "--check-hash-based-pycs",
+            "bogus",
+            "-m",
+            "pytest",
+        )
+    )
+
+
+def test_unsupported_lowercase_r_is_not_managed_pytest_runtime() -> None:
+    assert not deliberate_break._uses_pytest_runtime((sys.executable, "-r", "-m", "pytest"))
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ("-S", "-m", "pytest"),
+        ("-OSm", "pytest"),
+        ("-OSmpytest",),
+    ],
+)
+def test_site_disabled_python_is_not_managed_pytest_runtime(options) -> None:
+    assert not deliberate_break._uses_pytest_runtime((sys.executable, *options))
+
+
+@pytest.mark.parametrize("context_flag", ["-E", "-I", "-P", "-s"])
+def test_import_context_changed_python_is_not_managed_pytest_runtime(context_flag) -> None:
+    assert not deliberate_break._uses_pytest_runtime((sys.executable, context_flag, "-m", "pytest"))
+
+
+@pytest.mark.parametrize(
+    "compact_option",
+    ["-Empytest", "-Impytest", "-Pmpytest", "-smpytest"],
+)
+def test_compact_import_context_changed_python_is_not_managed(compact_option) -> None:
+    assert not deliberate_break._uses_pytest_runtime((sys.executable, compact_option))
+
+
+def test_empty_command_is_not_managed_pytest_runtime() -> None:
+    assert not deliberate_break._uses_pytest_runtime(())
+
+
+@pytest.mark.parametrize(
+    ("compact_option", "preserved"),
+    [
+        ("-im", ()),  # lowercase -i must not reach the import probe
+        ("-OOm", ("-OO",)),
+        ("-tm", ("-t",)),
+        ("-Oim", ("-O",)),
+    ],
+)
+def test_active_python_with_compact_flags_is_managed_pytest_runtime(
+    compact_option, preserved
+) -> None:
+    command = (sys.executable, compact_option, "pytest", "-q")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
+        *preserved,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
+
+
+def test_active_python_separate_interactive_flag_omitted_from_probe() -> None:
+    command = (sys.executable, "-i", "-m", "pytest", "-q")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
+
+
+@pytest.mark.parametrize(
+    ("compact_option", "preserved"),
+    [("-mpytest", ()), ("-Ompytest", ("-O",)), ("-impytest", ())],
+)
+def test_active_python_with_attached_pytest_module_is_managed_runtime(
+    compact_option, preserved
+) -> None:
+    command = (sys.executable, compact_option, "-q")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
+        *preserved,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ("-OW", "ignore"),
+        ("-OX", "dev"),
+        ("-OWignore",),
+        ("-OXdev",),
+    ],
+)
+def test_active_python_with_compact_value_option_is_managed_runtime(options) -> None:
+    command = (sys.executable, *options, "-m", "pytest", "-q")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
+        *options,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
+
+
+@pytest.mark.parametrize(
+    ("interactive_option", "preserved"),
+    [
+        ("-iWerror", "-Werror"),
+        ("-iXdev", "-Xdev"),
+        ("-OiWerror", "-OWerror"),
+        ("-OiXdev", "-OXdev"),
+    ],
+)
+def test_compact_interactive_value_option_is_removed_from_probe(
+    interactive_option, preserved
+) -> None:
+    command = (sys.executable, interactive_option, "-m", "pytest")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
+        preserved,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
+
+
+@pytest.mark.parametrize(
+    "terminator",
+    [
+        "--",
+        "-",
+        "-V",
+        "-VV",
+        "--version",
+        "-h",
+        "--help",
+        "-cprint(1)",
+        "-mthis",
+        "-Icprint(1)",
+        "-Imthis",
+        "-IV",
+        "-Ih",
+        "-I?",
+        "--bogus",
+    ],
+)
+def test_python_terminator_prevents_managed_pytest_classification(terminator) -> None:
+    assert not deliberate_break._uses_pytest_runtime((sys.executable, terminator, "-m", "pytest"))
+
+
+def test_active_python_script_with_pytest_arguments_is_not_managed_runtime() -> None:
+    assert not deliberate_break._uses_pytest_runtime(
+        (sys.executable, "scripts/run_tests.py", "-m", "pytest")
+    )
 
 
 @pytest.mark.parametrize("module_option", ["-m", "--module"])
@@ -806,7 +1085,14 @@ def test_uv_module_pytest_probe_uses_uv_selected_python(tmp_path, module_option)
     assert deliberate_break._pyyaml_probe_command(
         ("uv", "run", "--frozen", module_option, "pytest", "-q"),
         tmp_path,
-    ) == ("uv", "run", "--frozen", "python", "-c", "import yaml")
+    ) == (
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
 
 
 def test_uv_nested_python_module_probe_preserves_uv_and_python_options(tmp_path) -> None:
@@ -833,7 +1119,27 @@ def test_uv_nested_python_module_probe_preserves_uv_and_python_options(tmp_path)
         "python",
         "-I",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
+
+
+@pytest.mark.parametrize(
+    ("compact_option", "preserved"),
+    [("-mpytest", ()), ("-Impytest", ("-I",))],
+)
+def test_minimal_uv_nested_attached_pytest_module_probe(
+    tmp_path, compact_option, preserved
+) -> None:
+    assert deliberate_break._pyyaml_probe_command(
+        ("uv", "run", "python", compact_option),
+        tmp_path,
+    ) == (
+        "uv",
+        "run",
+        "python",
+        *preserved,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
