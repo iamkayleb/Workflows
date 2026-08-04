@@ -36,6 +36,8 @@ DEFAULT_TIMEOUT_SECONDS = 120
 # This bootstrap pin is maintained in Workflows; consumers receive the resolved value.
 PYYAML_VERSION = "6.0.3"
 PYTEST_RUNTIME_DEPENDENCIES = (f"pyyaml=={PYYAML_VERSION}",)
+PYYAML_PROBE_SENTINEL = "__gate_pyyaml_import_ok__"
+PYYAML_PROBE_CODE = f"import yaml; print({PYYAML_PROBE_SENTINEL!r})"
 
 
 @dataclass(frozen=True)
@@ -383,7 +385,7 @@ def _python_module_pytest_probe(
                     *command[: python_index + 1],
                     *_drop_interactive_python_flags(command[python_index + 1 : index]),
                     "-c",
-                    "import yaml",
+                    PYYAML_PROBE_CODE,
                 )
             return None
         if (
@@ -430,7 +432,7 @@ def _python_module_pytest_probe(
                             *_drop_interactive_python_flags(command[python_index + 1 : index]),
                             *preserved,
                             "-c",
-                            "import yaml",
+                            PYYAML_PROBE_CODE,
                         )
                     return None
                 return None
@@ -512,7 +514,7 @@ def _uv_pytest_python_launcher(uv_run_prefix: tuple[str, ...], cwd: Path) -> tup
 def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
     """Return a read-only PyYAML import probe for the pytest launcher's runtime."""
     if uv_prefix := _uv_module_pytest_prefix(command):
-        return (*uv_prefix, "python", "-c", "import yaml")
+        return (*uv_prefix, "python", "-c", PYYAML_PROBE_CODE)
     if probe := _uv_python_module_probe(command):
         return probe
     if command and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(command[0]).name):
@@ -520,11 +522,11 @@ def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...
     if (uv_prefix := _uv_run_pytest_prefix(command)) and (
         launcher := _uv_pytest_python_launcher(uv_prefix, cwd)
     ):
-        return (*launcher, "-c", "import yaml")
+        return (*launcher, "-c", PYYAML_PROBE_CODE)
     if command and Path(command[0]).name == "pytest":
         pytest_path = shutil.which(command[0])
         if pytest_path and (launcher := _python_shebang_launcher(Path(pytest_path), shutil.which)):
-            return (*launcher, "-c", "import yaml")
+            return (*launcher, "-c", PYYAML_PROBE_CODE)
     return None
 
 
@@ -570,18 +572,7 @@ def _run_with_runtime_deps(
                 probe = _run(probe_command, cwd)
             except OSError as exc:
                 raise CommandUnavailableError(exc) from exc
-            probe_output = f"{probe.stdout}\n{probe.stderr}".lower()
-            missing_pyyaml = probe.returncode != 0 or any(
-                marker in probe_output
-                for marker in (
-                    "traceback (most recent call last)",
-                    "attributeerror:",
-                    "importerror:",
-                    "modulenotfounderror:",
-                    "oserror:",
-                    "syntaxerror:",
-                )
-            )
+            missing_pyyaml = probe.returncode != 0 or PYYAML_PROBE_SENTINEL not in probe.stdout
     if not missing_pyyaml:
         return completed
 

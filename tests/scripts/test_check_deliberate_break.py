@@ -602,7 +602,10 @@ def test_unmanaged_yaml_test_failure_is_not_misclassified_as_dependency_error(
         'File "/other/venv/lib/site-packages/yaml/parser.py", line 98\n'
         "yaml.parser.ParserError: malformed fixture",
     )
-    attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
+    attempts = [
+        completed,
+        subprocess.CompletedProcess(["probe"], 0, deliberate_break.PYYAML_PROBE_SENTINEL, ""),
+    ]
     monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
     monkeypatch.setattr(
         deliberate_break,
@@ -626,7 +629,10 @@ def test_unmanaged_yaml_attribute_error_is_not_misclassified_as_import_failure(
         'File "/other/venv/lib/site-packages/yaml/__init__.py", line 125, in safe_load\n'
         "E   AttributeError: 'NoneType' object has no attribute 'read'",
     )
-    attempts = [completed, subprocess.CompletedProcess(["probe"], 0, "", "")]
+    attempts = [
+        completed,
+        subprocess.CompletedProcess(["probe"], 0, deliberate_break.PYYAML_PROBE_SENTINEL, ""),
+    ]
     monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
     monkeypatch.setattr(
         deliberate_break,
@@ -671,6 +677,37 @@ def test_interactive_probe_traceback_is_dependency_failure_despite_zero_exit(
     assert attempts == []
 
 
+def test_probe_sentinel_ignores_unrelated_startup_traceback(tmp_path, monkeypatch) -> None:
+    command = ("uv", "run", "python", "-im", "pytest")
+    completed = subprocess.CompletedProcess(
+        command,
+        1,
+        "",
+        'File "/venv/lib/site-packages/yaml/parser.py", line 98\n'
+        "yaml.parser.ParserError: malformed fixture",
+    )
+    attempts = [
+        completed,
+        subprocess.CompletedProcess(
+            ["probe"],
+            0,
+            deliberate_break.PYYAML_PROBE_SENTINEL,
+            "Traceback from unrelated .pth startup error",
+        ),
+    ]
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_pyyaml_probe_command",
+        lambda _command, _cwd: ("probe",),
+    )
+
+    result = deliberate_break._run_with_runtime_deps(command, tmp_path)
+
+    assert result is completed
+    assert attempts == []
+
+
 def test_uv_pyyaml_probe_uses_resolved_pytest_shebang_interpreter(tmp_path, monkeypatch) -> None:
     pytest_launcher = tmp_path / "global" / "bin" / "pytest"
     pytest_launcher.parent.mkdir(parents=True)
@@ -689,7 +726,7 @@ def test_uv_pyyaml_probe_uses_resolved_pytest_shebang_interpreter(tmp_path, monk
     assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
         "/global/python",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -724,7 +761,7 @@ def test_uv_pyyaml_probe_preserves_uv_run_options(tmp_path, monkeypatch) -> None
     assert deliberate_break._pyyaml_probe_command(command, tmp_path) == (
         "/project/.venv/bin/python",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
     assert calls == [
         (
@@ -765,7 +802,7 @@ def test_uv_pyyaml_probe_preserves_python_shebang_flags(tmp_path, monkeypatch) -
         "/usr/bin/python3",
         "-I",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -787,7 +824,7 @@ def test_uv_pyyaml_probe_resolves_env_shebang_inside_uv_path(tmp_path, monkeypat
         "/project/.venv/bin/python3",
         "-I",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -821,7 +858,7 @@ def test_bare_pytest_probe_uses_launcher_shebang(tmp_path, monkeypatch) -> None:
         "/venv/bin/python3",
         "-I",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -829,7 +866,7 @@ def test_python_module_probe_preserves_interpreter_flags(tmp_path) -> None:
     assert deliberate_break._pyyaml_probe_command(
         ("/venv/bin/python", "-I", "-m", "pytest", "-q"),
         tmp_path,
-    ) == ("/venv/bin/python", "-I", "-c", "import yaml")
+    ) == ("/venv/bin/python", "-I", "-c", deliberate_break.PYYAML_PROBE_CODE)
 
 
 def test_active_python_with_flags_is_managed_pytest_runtime() -> None:
@@ -890,7 +927,7 @@ def test_active_python_with_compact_flags_is_managed_pytest_runtime(
         sys.executable,
         *preserved,
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -901,7 +938,7 @@ def test_active_python_separate_interactive_flag_omitted_from_probe() -> None:
     assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
         sys.executable,
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -919,7 +956,7 @@ def test_active_python_with_attached_pytest_module_is_managed_runtime(
         sys.executable,
         *preserved,
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -940,7 +977,7 @@ def test_active_python_with_compact_value_option_is_managed_runtime(options) -> 
         sys.executable,
         *options,
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -979,7 +1016,14 @@ def test_uv_module_pytest_probe_uses_uv_selected_python(tmp_path, module_option)
     assert deliberate_break._pyyaml_probe_command(
         ("uv", "run", "--frozen", module_option, "pytest", "-q"),
         tmp_path,
-    ) == ("uv", "run", "--frozen", "python", "-c", "import yaml")
+    ) == (
+        "uv",
+        "run",
+        "--frozen",
+        "python",
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
 
 
 def test_uv_nested_python_module_probe_preserves_uv_and_python_options(tmp_path) -> None:
@@ -1006,7 +1050,7 @@ def test_uv_nested_python_module_probe_preserves_uv_and_python_options(tmp_path)
         "python",
         "-I",
         "-c",
-        "import yaml",
+        deliberate_break.PYYAML_PROBE_CODE,
     )
 
 
@@ -1020,7 +1064,14 @@ def test_minimal_uv_nested_attached_pytest_module_probe(
     assert deliberate_break._pyyaml_probe_command(
         ("uv", "run", "python", compact_option),
         tmp_path,
-    ) == ("uv", "run", "python", *preserved, "-c", "import yaml")
+    ) == (
+        "uv",
+        "run",
+        "python",
+        *preserved,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
 
 
 @pytest.mark.parametrize(
