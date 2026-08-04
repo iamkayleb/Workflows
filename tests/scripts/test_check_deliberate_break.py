@@ -801,6 +801,18 @@ def test_python_module_probe_preserves_interpreter_flags(tmp_path) -> None:
     ) == ("/venv/bin/python", "-I", "-c", "import yaml")
 
 
+def test_active_python_with_flags_is_managed_pytest_runtime() -> None:
+    assert deliberate_break._uses_pytest_runtime(
+        (sys.executable, "-X", "dev", "-I", "-m", "pytest", "-q")
+    )
+
+
+def test_active_python_script_with_pytest_arguments_is_not_managed_runtime() -> None:
+    assert not deliberate_break._uses_pytest_runtime(
+        (sys.executable, "scripts/run_tests.py", "-m", "pytest")
+    )
+
+
 @pytest.mark.parametrize("module_option", ["-m", "--module"])
 def test_uv_module_pytest_probe_uses_uv_selected_python(tmp_path, module_option) -> None:
     assert deliberate_break._pyyaml_probe_command(
