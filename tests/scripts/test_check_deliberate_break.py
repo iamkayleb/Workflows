@@ -544,14 +544,22 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
         ("/other/venv/bin/python", "-m", "pytest"),
     ],
 )
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "ModuleNotFoundError: No module named 'yaml'",
+        'File "/other/venv/lib/site-packages/yaml/__init__.py", line 1\n'
+        "SyntaxError: broken wheel",
+    ],
+)
 def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
-    tmp_path, monkeypatch, command
+    tmp_path, monkeypatch, command, stderr
 ) -> None:
     completed = subprocess.CompletedProcess(
         command,
         1,
         "",
-        "ModuleNotFoundError: No module named 'yaml'",
+        stderr,
     )
     monkeypatch.setattr(
         deliberate_break,

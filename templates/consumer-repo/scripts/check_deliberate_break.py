@@ -282,7 +282,7 @@ def _run_with_runtime_deps(
     )
     yaml_traceback = bool(re.search(r"(?:^|[/\\])yaml[/\\][^\n]*", output, re.MULTILINE))
     if yaml_traceback and not missing_pyyaml:
-        missing_pyyaml = _pyyaml_runtime_needs_repair()
+        missing_pyyaml = True if not managed_runtime else _pyyaml_runtime_needs_repair()
     if not missing_pyyaml:
         return completed
 
