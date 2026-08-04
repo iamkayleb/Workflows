@@ -15,7 +15,7 @@ import tarfile
 import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
-from importlib import metadata
+from importlib import import_module, metadata
 from io import BytesIO
 from pathlib import Path
 
@@ -145,7 +145,15 @@ def _ensure_pytest_runtime_deps() -> None:
         installed_version = metadata.version("PyYAML")
     except metadata.PackageNotFoundError:
         installed_version = None
-    if installed_version != PYYAML_VERSION:
+    import_works = False
+    if installed_version == PYYAML_VERSION:
+        try:
+            import_module("yaml")
+        except ImportError:
+            pass
+        else:
+            import_works = True
+    if installed_version != PYYAML_VERSION or not import_works:
         subprocess.run(
             [
                 sys.executable,
