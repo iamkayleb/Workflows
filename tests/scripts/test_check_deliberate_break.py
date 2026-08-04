@@ -825,6 +825,24 @@ def test_active_python_with_compact_flags_is_managed_pytest_runtime(compact_opti
 
 
 @pytest.mark.parametrize(
+    ("compact_option", "preserved"),
+    [("-mpytest", ()), ("-Impytest", ("-I",))],
+)
+def test_active_python_with_attached_pytest_module_is_managed_runtime(
+    compact_option, preserved
+) -> None:
+    command = (sys.executable, compact_option, "-q")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
+        *preserved,
+        "-c",
+        "import yaml",
+    )
+
+
+@pytest.mark.parametrize(
     "options",
     [
         ("-IW", "ignore"),

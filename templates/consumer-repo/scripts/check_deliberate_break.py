@@ -373,11 +373,13 @@ def _python_module_pytest_probe(
                     break
                 if character in {"c", "m"}:
                     selector_value = compact[position + 1 :]
-                    if (
-                        character == "m"
-                        and not selector_value
-                        and index + 1 < len(command)
-                        and command[index + 1] == "pytest"
+                    if character == "m" and (
+                        selector_value == "pytest"
+                        or (
+                            not selector_value
+                            and index + 1 < len(command)
+                            and command[index + 1] == "pytest"
+                        )
                     ):
                         prefix = compact[:position]
                         preserved = (f"-{prefix}",) if prefix else ()
