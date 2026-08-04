@@ -677,8 +677,14 @@ def test_uv_pyyaml_probe_preserves_uv_run_options(tmp_path, monkeypatch) -> None
         "uv",
         "run",
         "--frozen",
-        "--with",
+        "--group",
+        "test",
+        "-w",
         "pytest-xdist",
+        "-p",
+        "3.13",
+        "--config-file",
+        "uv.toml",
         "--isolated",
         "pytest",
         "-q",
@@ -694,8 +700,14 @@ def test_uv_pyyaml_probe_preserves_uv_run_options(tmp_path, monkeypatch) -> None
             "uv",
             "run",
             "--frozen",
-            "--with",
+            "--group",
+            "test",
+            "-w",
             "pytest-xdist",
+            "-p",
+            "3.13",
+            "--config-file",
+            "uv.toml",
             "--isolated",
             "which",
             "pytest",
@@ -762,6 +774,31 @@ def test_uv_pyyaml_probe_rejects_shell_shim_launcher(tmp_path, monkeypatch) -> N
 
     assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) is None
     assert calls == [("uv", "run", "which", "pytest")]
+
+
+def test_bare_pytest_probe_uses_launcher_shebang(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "bin" / "pytest"
+    pytest_launcher.parent.mkdir()
+    pytest_launcher.write_text("#!/usr/bin/env -S python3 -I\n", encoding="utf-8")
+
+    def which(name):
+        return str(pytest_launcher) if name == "pytest" else "/venv/bin/python3"
+
+    monkeypatch.setattr(deliberate_break.shutil, "which", which)
+
+    assert deliberate_break._pyyaml_probe_command(("pytest", "-q"), tmp_path) == (
+        "/venv/bin/python3",
+        "-I",
+        "-c",
+        "import yaml",
+    )
+
+
+def test_python_module_probe_preserves_interpreter_flags(tmp_path) -> None:
+    assert deliberate_break._pyyaml_probe_command(
+        ("/venv/bin/python", "-I", "-m", "pytest", "-q"),
+        tmp_path,
+    ) == ("/venv/bin/python", "-I", "-c", "import yaml")
 
 
 def _sound_spec(repo: Path) -> tuple[str, object]:

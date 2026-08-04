@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from importlib import import_module, metadata
 from io import BytesIO
@@ -251,11 +251,49 @@ def _run(
 
 UV_RUN_VALUE_OPTIONS = frozenset(
     {
+        "-C",
+        "-P",
+        "-f",
+        "-i",
+        "-p",
+        "-w",
+        "--allow-insecure-host",
+        "--cache-dir",
+        "--color",
+        "--config-file",
+        "--config-setting",
+        "--config-settings-package",
+        "--default-index",
         "--directory",
         "--env-file",
+        "--exclude-newer",
+        "--exclude-newer-package",
+        "--extra",
+        "--extra-index-url",
+        "--find-links",
+        "--fork-strategy",
+        "--group",
+        "--index",
+        "--index-strategy",
+        "--index-url",
+        "--keyring-provider",
+        "--link-mode",
+        "--no-binary-package",
+        "--no-build-isolation-package",
+        "--no-build-package",
+        "--no-extra",
+        "--no-group",
+        "--no-sources-package",
+        "--only-group",
         "--package",
+        "--prerelease",
         "--project",
         "--python",
+        "--python-platform",
+        "--refresh-package",
+        "--reinstall-package",
+        "--resolution",
+        "--upgrade-package",
         "--with",
         "--with-editable",
         "--with-requirements",
@@ -279,14 +317,13 @@ def _uv_run_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None:
     return command[:index]
 
 
-def _uv_pytest_python_launcher(uv_run_prefix: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
-    """Resolve the Python shebang launcher used by ``uv run pytest``."""
-    located = _run((*uv_run_prefix, "which", "pytest"), cwd)
-    if located.returncode != 0 or not located.stdout.strip():
-        return None
-    pytest_path = Path(located.stdout.strip().splitlines()[-1])
+def _python_shebang_launcher(
+    executable: Path,
+    resolve_name: Callable[[str], str | None],
+) -> tuple[str, ...] | None:
+    """Return a verified Python shebang launcher, preserving interpreter flags."""
     try:
-        shebang = pytest_path.read_text(encoding="utf-8").splitlines()[0]
+        shebang = executable.read_text(encoding="utf-8").splitlines()[0]
     except (OSError, UnicodeError, IndexError):
         return None
     if not shebang.startswith("#!"):
@@ -303,23 +340,44 @@ def _uv_pytest_python_launcher(uv_run_prefix: tuple[str, ...], cwd: Path) -> tup
             env_args = env_args[1:]
         if not env_args or not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(env_args[0]).name):
             return None
-        resolved = _run((*uv_run_prefix, "which", env_args[0]), cwd)
-        if resolved.returncode != 0 or not resolved.stdout.strip():
+        resolved = resolve_name(env_args[0])
+        if not resolved:
             return None
-        return (resolved.stdout.strip().splitlines()[-1], *env_args[1:])
+        return (resolved, *env_args[1:])
     if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(launcher[0]).name):
         return tuple(launcher)
     return None
 
 
+def _uv_pytest_python_launcher(uv_run_prefix: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
+    """Resolve the Python shebang launcher used by ``uv run pytest``."""
+    located = _run((*uv_run_prefix, "which", "pytest"), cwd)
+    if located.returncode != 0 or not located.stdout.strip():
+        return None
+
+    def resolve_name(name: str) -> str | None:
+        resolved = _run((*uv_run_prefix, "which", name), cwd)
+        if resolved.returncode != 0 or not resolved.stdout.strip():
+            return None
+        return resolved.stdout.strip().splitlines()[-1]
+
+    pytest_path = Path(located.stdout.strip().splitlines()[-1])
+    return _python_shebang_launcher(pytest_path, resolve_name)
+
+
 def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
     """Return a read-only PyYAML import probe for the pytest launcher's runtime."""
-    if len(command) >= 3 and command[1:3] == ("-m", "pytest"):
-        return (command[0], "-c", "import yaml")
+    for index in range(1, len(command) - 1):
+        if command[index : index + 2] == ("-m", "pytest"):
+            return (*command[:index], "-c", "import yaml")
     if (uv_prefix := _uv_run_pytest_prefix(command)) and (
         launcher := _uv_pytest_python_launcher(uv_prefix, cwd)
     ):
         return (*launcher, "-c", "import yaml")
+    if command and Path(command[0]).name == "pytest":
+        pytest_path = shutil.which(command[0])
+        if pytest_path and (launcher := _python_shebang_launcher(Path(pytest_path), shutil.which)):
+            return (*launcher, "-c", "import yaml")
     return None
 
 
