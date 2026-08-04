@@ -33,8 +33,8 @@ ASSERTION_DIFF_RE = re.compile(
     r"\b(assert|expect\(|pytest\.raises\(|assert\.)\b",
 )
 DEFAULT_TIMEOUT_SECONDS = 120
-PYTEST_RUNTIME_VERSION = "6.0.3"
-PYTEST_RUNTIME_DEPENDENCIES = (f"pyyaml=={PYTEST_RUNTIME_VERSION}",)
+PYYAML_VERSION = "6.0.3"
+PYTEST_RUNTIME_DEPENDENCIES = (f"pyyaml=={PYYAML_VERSION}",)
 
 
 @dataclass(frozen=True)
@@ -145,7 +145,7 @@ def _ensure_pytest_runtime_deps() -> None:
         installed_version = metadata.version("PyYAML")
     except metadata.PackageNotFoundError:
         installed_version = None
-    if installed_version != PYTEST_RUNTIME_VERSION:
+    if installed_version != PYYAML_VERSION:
         subprocess.run(
             [
                 sys.executable,
