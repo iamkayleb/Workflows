@@ -825,6 +825,27 @@ def test_active_python_with_compact_flags_is_managed_pytest_runtime(compact_opti
 
 
 @pytest.mark.parametrize(
+    "options",
+    [
+        ("-IW", "ignore"),
+        ("-IX", "dev"),
+        ("-IWignore",),
+        ("-IXdev",),
+    ],
+)
+def test_active_python_with_compact_value_option_is_managed_runtime(options) -> None:
+    command = (sys.executable, *options, "-m", "pytest", "-q")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
+        *options,
+        "-c",
+        "import yaml",
+    )
+
+
+@pytest.mark.parametrize(
     "terminator",
     [
         "--",
@@ -837,6 +858,9 @@ def test_active_python_with_compact_flags_is_managed_pytest_runtime(compact_opti
         "-mthis",
         "-Icprint(1)",
         "-Imthis",
+        "-IV",
+        "-Ih",
+        "-I?",
     ],
 )
 def test_python_terminator_prevents_managed_pytest_classification(terminator) -> None:

@@ -356,25 +356,30 @@ def _python_module_pytest_probe(
             return None
         if option.startswith("-") and not option.startswith("--"):
             compact = option[1:]
-            selector_index = next(
-                (position for position, character in enumerate(compact) if character in {"c", "m"}),
-                None,
-            )
-            if selector_index is not None and all(
-                character in PYTHON_COMPACT_FLAGS for character in compact[:selector_index]
-            ):
-                selector = compact[selector_index]
-                selector_value = compact[selector_index + 1 :]
-                if (
-                    selector == "m"
-                    and not selector_value
-                    and index + 1 < len(command)
-                    and command[index + 1] == "pytest"
-                ):
-                    prefix = compact[:selector_index]
-                    preserved = (f"-{prefix}",) if prefix else ()
-                    return (*command[:index], *preserved, "-c", "import yaml")
+            for position, character in enumerate(compact):
+                if character in PYTHON_COMPACT_FLAGS:
+                    continue
+                if character in {"V", "h", "?"}:
+                    return None
+                if character in {"W", "X"}:
+                    index += 2 if position + 1 == len(compact) else 1
+                    break
+                if character in {"c", "m"}:
+                    selector_value = compact[position + 1 :]
+                    if (
+                        character == "m"
+                        and not selector_value
+                        and index + 1 < len(command)
+                        and command[index + 1] == "pytest"
+                    ):
+                        prefix = compact[:position]
+                        preserved = (f"-{prefix}",) if prefix else ()
+                        return (*command[:index], *preserved, "-c", "import yaml")
+                    return None
                 return None
+            else:
+                index += 1
+            continue
         if (
             option == "-c"
             or option in PYTHON_TERMINATING_OPTIONS
