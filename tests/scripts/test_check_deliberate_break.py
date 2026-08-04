@@ -1,4 +1,3 @@
-import builtins
 import os
 import subprocess
 import sys
@@ -260,20 +259,20 @@ def test_cli_skips_without_marker(tmp_path) -> None:
     assert "skipped: no deliberate-break marker" in completed.stdout
 
 
-def test_runtime_dependency_installer_uses_locked_pyyaml(monkeypatch) -> None:
-    real_import = builtins.__import__
+@pytest.mark.parametrize("installed_version", [None, "6.0.2"])
+def test_runtime_dependency_installer_uses_locked_pyyaml(monkeypatch, installed_version) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
 
-    def missing_yaml(name, *args, **kwargs):
-        if name == "yaml":
-            raise ImportError("PyYAML missing")
-        return real_import(name, *args, **kwargs)
+    def package_version(_name):
+        if installed_version is None:
+            raise deliberate_break.metadata.PackageNotFoundError
+        return installed_version
 
     def record_install(*args, **kwargs):
         calls.append((args, kwargs))
         return subprocess.CompletedProcess(args[0], 0, "", "")
 
-    monkeypatch.setattr(builtins, "__import__", missing_yaml)
+    monkeypatch.setattr(deliberate_break.metadata, "version", package_version)
     monkeypatch.setattr(deliberate_break.subprocess, "run", record_install)
 
     deliberate_break._ensure_pytest_runtime_deps()
@@ -298,6 +297,25 @@ def test_runtime_dependency_installer_uses_locked_pyyaml(monkeypatch) -> None:
             },
         )
     ]
+
+
+def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -> None:
+    calls: list[object] = []
+
+    monkeypatch.setattr(
+        deliberate_break.metadata,
+        "version",
+        lambda _name: deliberate_break.PYTEST_RUNTIME_VERSION,
+    )
+    monkeypatch.setattr(
+        deliberate_break.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    deliberate_break._ensure_pytest_runtime_deps()
+
+    assert calls == []
 
 
 def _sound_spec(repo: Path) -> tuple[str, object]:
