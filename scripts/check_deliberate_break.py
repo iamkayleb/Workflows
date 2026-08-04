@@ -251,6 +251,17 @@ def _uses_pytest_runtime(command: tuple[str, ...]) -> bool:
     """Return whether a command runs pytest in the active Python environment."""
     if not command:
         return False
+    if Path(command[0]).name == "pytest":
+        pytest_path = shutil.which(command[0])
+        if not pytest_path:
+            return False
+        launcher = _python_shebang_launcher(Path(pytest_path), shutil.which)
+        if launcher is None:
+            return False
+        probe = (*launcher, "-c", PYYAML_PROBE_CODE)
+        return Path(launcher[0]).resolve() == Path(
+            sys.executable
+        ).resolve() and not _python_probe_changes_import_context(probe)
     executable = shutil.which(command[0]) or command[0]
     probe = _python_module_pytest_probe(command, 0)
     return (
@@ -780,7 +791,7 @@ def verify_spec(
     except subprocess.TimeoutExpired as exc:
         return _json_result(
             VERDICT_BROKEN,
-            reason="command-timeout",
+            reason="tamper-check-timeout",
             command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
             timeout=exc.timeout,
         )
