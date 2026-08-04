@@ -683,6 +683,22 @@ def test_uv_pyyaml_probe_resolves_env_shebang_inside_uv_path(tmp_path, monkeypat
     )
 
 
+def test_uv_pyyaml_probe_rejects_shell_shim_launcher(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "bin" / "pytest"
+    pytest_launcher.parent.mkdir()
+    pytest_launcher.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    calls: list[tuple[str, ...]] = []
+
+    def run(command, _cwd):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, f"{pytest_launcher}\n", "")
+
+    monkeypatch.setattr(deliberate_break, "_run", run)
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) is None
+    assert calls == [("uv", "run", "which", "pytest")]
+
+
 def _sound_spec(repo: Path) -> tuple[str, object]:
     _write_app(repo, 0)
     base = _commit(repo, "base behavior")

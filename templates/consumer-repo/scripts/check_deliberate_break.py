@@ -268,11 +268,15 @@ def _uv_pytest_interpreter(uv_command: str, cwd: Path) -> str | None:
     if not launcher:
         return None
     if Path(launcher[0]).name == "env" and len(launcher) > 1:
+        if not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(launcher[1]).name):
+            return None
         resolved = _run((uv_command, "run", "which", launcher[1]), cwd)
         if resolved.returncode != 0 or not resolved.stdout.strip():
             return None
         return resolved.stdout.strip().splitlines()[-1]
-    return launcher[0]
+    if re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(launcher[0]).name):
+        return launcher[0]
+    return None
 
 
 def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
