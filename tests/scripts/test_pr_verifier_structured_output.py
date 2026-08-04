@@ -226,8 +226,7 @@ def test_coerce_response_content_survives_failing_string_conversion() -> None:
             raise RuntimeError("broken string conversion")
 
     assert (
-        pr_verifier._coerce_response_content(Unserializable())
-        == "<unserializable Unserializable>"
+        pr_verifier._coerce_response_content(Unserializable()) == "<unserializable Unserializable>"
     )
 
 
