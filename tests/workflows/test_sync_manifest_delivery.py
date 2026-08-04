@@ -210,7 +210,7 @@ def test_prepare_checkout_includes_manifest_owned_github_roots() -> None:
 
 
 def test_consumer_gitattributes_preserves_windows_launcher_crlf() -> None:
-    """The template-owned git config must retain native Windows line endings."""
+    """The template-owned attributes must retain native Windows line endings."""
     consumer_gitattributes = (
         REPO_ROOT / "templates" / "consumer-repo" / ".gitattributes"
     ).read_text(encoding="utf-8")

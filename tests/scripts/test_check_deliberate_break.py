@@ -305,7 +305,7 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
     monkeypatch.setattr(
         deliberate_break.metadata,
         "version",
-        lambda _name: deliberate_break.PYTEST_RUNTIME_VERSION,
+        lambda _name: deliberate_break.PYYAML_VERSION,
     )
     monkeypatch.setattr(
         deliberate_break.subprocess,
