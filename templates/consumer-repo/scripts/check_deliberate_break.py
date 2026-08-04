@@ -227,9 +227,11 @@ def _uses_pytest_runtime(command: tuple[str, ...]) -> bool:
     if not command:
         return False
     executable = shutil.which(command[0]) or command[0]
+    probe = _python_module_pytest_probe(command, 0)
     return (
         Path(executable).resolve() == Path(sys.executable).resolve()
-        and _python_module_pytest_probe(command, 0) is not None
+        and probe is not None
+        and not _python_probe_changes_import_context(probe)
     )
 
 
@@ -342,6 +344,22 @@ def _uv_module_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None
 PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
 PYTHON_TERMINATING_OPTIONS = frozenset({"-", "--", "-?", "-V", "-VV", "-h", "--help", "--version"})
 PYTHON_COMPACT_FLAGS = frozenset("bBdEIiOPqRstuvx")
+PYTHON_IMPORT_CONTEXT_FLAGS = frozenset("EIPsS")
+
+
+def _python_probe_changes_import_context(probe: tuple[str, ...]) -> bool:
+    """Return whether a probe uses flags that can change module visibility."""
+    for option in probe[1:]:
+        if option == "-c":
+            break
+        if not option.startswith("-") or option.startswith("--"):
+            continue
+        for character in option[1:]:
+            if character in PYTHON_IMPORT_CONTEXT_FLAGS:
+                return True
+            if character in {"W", "X"}:
+                break
+    return False
 
 
 def _drop_interactive_python_flags(options: tuple[str, ...]) -> tuple[str, ...]:
@@ -356,16 +374,20 @@ def _drop_interactive_python_flags(options: tuple[str, ...]) -> tuple[str, ...]:
     for option in options:
         if option == "-i":
             continue
-        if (
-            option.startswith("-")
-            and not option.startswith("--")
-            and len(option) > 1
-            and all(character in PYTHON_COMPACT_FLAGS for character in option[1:])
-        ):
-            body = option[1:].replace("i", "")
-            if not body:
+        if option.startswith("-") and not option.startswith("--") and len(option) > 1:
+            body = option[1:]
+            kept: list[str] = []
+            for position, character in enumerate(body):
+                if character == "i":
+                    continue
+                kept.append(character)
+                if character in {"W", "X"}:
+                    kept.append(body[position + 1 :])
+                    break
+            cleaned_body = "".join(kept)
+            if not cleaned_body:
                 continue
-            cleaned.append(f"-{body}")
+            cleaned.append(f"-{cleaned_body}")
             continue
         cleaned.append(option)
     return tuple(cleaned)

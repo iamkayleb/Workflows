@@ -537,6 +537,28 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
     assert events == ["repair", "run"]
 
 
+def test_import_context_changed_active_python_is_not_repaired(tmp_path, monkeypatch) -> None:
+    command = (sys.executable, "-s", "-m", "pytest")
+    completed = subprocess.CompletedProcess(
+        command,
+        1,
+        "",
+        "ModuleNotFoundError: No module named 'yaml'",
+    )
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
+    monkeypatch.setattr(
+        deliberate_break,
+        "_ensure_pytest_runtime_deps",
+        lambda: pytest.fail("flagged import context must not mutate the active environment"),
+    )
+
+    with pytest.raises(deliberate_break.RuntimeDependencyError) as caught:
+        deliberate_break._run_with_runtime_deps(command, tmp_path)
+
+    assert isinstance(caught.value.error, ImportError)
+    assert "wrapped or custom" in str(caught.value.error)
+
+
 @pytest.mark.parametrize(
     "command",
     [
@@ -871,7 +893,7 @@ def test_python_module_probe_preserves_interpreter_flags(tmp_path) -> None:
 
 def test_active_python_with_flags_is_managed_pytest_runtime() -> None:
     assert deliberate_break._uses_pytest_runtime(
-        (sys.executable, "-X", "dev", "-I", "-m", "pytest", "-q")
+        (sys.executable, "-X", "dev", "-O", "-m", "pytest", "-q")
     )
 
 
@@ -915,8 +937,9 @@ def test_site_disabled_python_is_not_managed_pytest_runtime(options) -> None:
     assert not deliberate_break._uses_pytest_runtime((sys.executable, *options))
 
 
-def test_user_site_disabled_python_is_managed_pytest_runtime() -> None:
-    assert deliberate_break._uses_pytest_runtime((sys.executable, "-s", "-m", "pytest"))
+@pytest.mark.parametrize("context_flag", ["-E", "-I", "-P", "-s"])
+def test_import_context_changed_python_is_not_managed_pytest_runtime(context_flag) -> None:
+    assert not deliberate_break._uses_pytest_runtime((sys.executable, context_flag, "-m", "pytest"))
 
 
 def test_empty_command_is_not_managed_pytest_runtime() -> None:
@@ -926,7 +949,6 @@ def test_empty_command_is_not_managed_pytest_runtime() -> None:
 @pytest.mark.parametrize(
     ("compact_option", "preserved"),
     [
-        ("-Im", ("-I",)),
         ("-im", ()),  # lowercase -i must not reach the import probe
         ("-OOm", ("-OO",)),
         ("-tm", ("-t",)),
@@ -960,7 +982,7 @@ def test_active_python_separate_interactive_flag_omitted_from_probe() -> None:
 
 @pytest.mark.parametrize(
     ("compact_option", "preserved"),
-    [("-mpytest", ()), ("-Impytest", ("-I",)), ("-impytest", ())],
+    [("-mpytest", ()), ("-Ompytest", ("-O",)), ("-impytest", ())],
 )
 def test_active_python_with_attached_pytest_module_is_managed_runtime(
     compact_option, preserved
@@ -979,10 +1001,10 @@ def test_active_python_with_attached_pytest_module_is_managed_runtime(
 @pytest.mark.parametrize(
     "options",
     [
-        ("-IW", "ignore"),
-        ("-IX", "dev"),
-        ("-IWignore",),
-        ("-IXdev",),
+        ("-OW", "ignore"),
+        ("-OX", "dev"),
+        ("-OWignore",),
+        ("-OXdev",),
     ],
 )
 def test_active_python_with_compact_value_option_is_managed_runtime(options) -> None:
@@ -992,6 +1014,29 @@ def test_active_python_with_compact_value_option_is_managed_runtime(options) -> 
     assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
         sys.executable,
         *options,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
+
+
+@pytest.mark.parametrize(
+    ("interactive_option", "preserved"),
+    [
+        ("-iWerror", "-Werror"),
+        ("-iXdev", "-Xdev"),
+        ("-OiWerror", "-OWerror"),
+        ("-OiXdev", "-OXdev"),
+    ],
+)
+def test_compact_interactive_value_option_is_removed_from_probe(
+    interactive_option, preserved
+) -> None:
+    command = (sys.executable, interactive_option, "-m", "pytest")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
+        preserved,
         "-c",
         deliberate_break.PYYAML_PROBE_CODE,
     )
