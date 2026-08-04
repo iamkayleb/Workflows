@@ -285,7 +285,8 @@ def _run_with_runtime_deps(
     yaml_traceback = bool(re.search(r"(?:^|[/\\])yaml[/\\][^\n]*", output, re.MULTILINE))
     yaml_import_failure = bool(
         re.search(
-            r"^(?:attributeerror|importerror|modulenotfounderror|oserror|syntaxerror):",
+            r"^(?:e\s+)?"
+            r"(?:attributeerror|importerror|modulenotfounderror|oserror|syntaxerror):",
             output,
             re.MULTILINE,
         )

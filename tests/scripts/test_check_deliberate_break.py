@@ -550,6 +550,8 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
         "ModuleNotFoundError: No module named 'yaml'",
         'File "/other/venv/lib/site-packages/yaml/__init__.py", line 1\n'
         "SyntaxError: broken wheel",
+        'File "/other/venv/lib/site-packages/yaml/__init__.py", line 1\n'
+        "E   SyntaxError: broken wheel",
     ],
 )
 def test_runtime_dependencies_do_not_repair_unmanaged_command_environment(
