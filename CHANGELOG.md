@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.19.12](https://github.com/stranske/Workflows/compare/v1.19.11...v1.19.12) (2026-08-04)
+
+
+### Bug Fixes
+
+* **verifier:** narrow response coercion errors ([82a3684](https://github.com/stranske/Workflows/commit/82a3684d1a29127df10018502dba43fd8ef2b4df))
+* **verifier:** narrow response coercion errors ([5d56c56](https://github.com/stranske/Workflows/commit/5d56c56c367c31eeb00ca4b2dfe5836ecaebb357))
+* **verifier:** preserve ordinary coercion fallback ([3c22c3e](https://github.com/stranske/Workflows/commit/3c22c3ec022e002253ffdd817b713de010290a31))
+
 ## [1.19.11](https://github.com/stranske/Workflows/compare/v1.19.10...v1.19.11) (2026-08-04)
 
 
