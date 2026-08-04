@@ -386,6 +386,59 @@ def test_runtime_dependency_installer_preserves_initial_import_failure(
     assert imports == 2
 
 
+def test_runtime_dependencies_are_not_installed_for_successful_custom_command(
+    tmp_path, monkeypatch
+) -> None:
+    completed = subprocess.CompletedProcess(["custom-check"], 0, "ok", "")
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
+    monkeypatch.setattr(
+        deliberate_break,
+        "_ensure_pytest_runtime_deps",
+        lambda: pytest.fail("dependency repair should not run"),
+    )
+
+    assert deliberate_break._run_with_runtime_deps(("custom-check",), tmp_path) is completed
+
+
+def test_runtime_dependencies_are_not_installed_for_unrelated_failure(
+    tmp_path, monkeypatch
+) -> None:
+    completed = subprocess.CompletedProcess(["custom-check"], 1, "", "assertion failed")
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
+    monkeypatch.setattr(
+        deliberate_break,
+        "_ensure_pytest_runtime_deps",
+        lambda: pytest.fail("dependency repair should not run"),
+    )
+
+    assert deliberate_break._run_with_runtime_deps(("custom-check",), tmp_path) is completed
+
+
+def test_runtime_dependencies_retry_pyyaml_import_failure(tmp_path, monkeypatch) -> None:
+    attempts = [
+        subprocess.CompletedProcess(
+            ["pytest"],
+            1,
+            "",
+            "ModuleNotFoundError: No module named 'yaml'",
+        ),
+        subprocess.CompletedProcess(["pytest"], 0, "passed", ""),
+    ]
+    repairs: list[bool] = []
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
+    monkeypatch.setattr(
+        deliberate_break,
+        "_ensure_pytest_runtime_deps",
+        lambda: repairs.append(True),
+    )
+
+    completed = deliberate_break._run_with_runtime_deps(("pytest",), tmp_path)
+
+    assert completed.returncode == 0
+    assert repairs == [True]
+    assert attempts == []
+
+
 def _sound_spec(repo: Path) -> tuple[str, object]:
     _write_app(repo, 0)
     base = _commit(repo, "base behavior")
@@ -412,7 +465,7 @@ def test_dependency_install_timeout_is_broken(tmp_path, monkeypatch) -> None:
     def timed_out() -> None:
         raise subprocess.TimeoutExpired(command, 17)
 
-    monkeypatch.setattr(deliberate_break, "_ensure_pytest_runtime_deps", timed_out)
+    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", lambda *_args: timed_out())
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 
@@ -439,7 +492,7 @@ def test_dependency_install_failure_preserves_subprocess_context(tmp_path, monke
     def failed() -> None:
         raise error
 
-    monkeypatch.setattr(deliberate_break, "_ensure_pytest_runtime_deps", failed)
+    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", lambda *_args: failed())
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 
@@ -462,7 +515,7 @@ def test_dependency_install_unavailable_is_broken(tmp_path, monkeypatch) -> None
     def failed() -> None:
         raise OSError("pip unavailable")
 
-    monkeypatch.setattr(deliberate_break, "_ensure_pytest_runtime_deps", failed)
+    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", lambda *_args: failed())
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 
@@ -483,7 +536,7 @@ def test_dependency_import_failure_is_broken(tmp_path, monkeypatch) -> None:
     def failed() -> None:
         raise ImportError("retry failed") from original
 
-    monkeypatch.setattr(deliberate_break, "_ensure_pytest_runtime_deps", failed)
+    monkeypatch.setattr(deliberate_break, "_run_with_runtime_deps", lambda *_args: failed())
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 

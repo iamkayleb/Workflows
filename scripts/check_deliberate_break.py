@@ -202,6 +202,33 @@ def _run(
     )
 
 
+def _run_with_runtime_deps(
+    command: tuple[str, ...],
+    cwd: Path,
+) -> subprocess.CompletedProcess[str]:
+    """Retry a command after repairing PyYAML only when its output requires it."""
+    completed = _run(command, cwd)
+    if completed.returncode == 0:
+        return completed
+
+    output = f"{completed.stdout}\n{completed.stderr}".lower()
+    missing_pyyaml = any(
+        marker in output
+        for marker in (
+            "no module named 'yaml'",
+            'no module named "yaml"',
+            "modulenotfounderror: yaml",
+            "importerror: yaml",
+            "pyyaml",
+        )
+    )
+    if not missing_pyyaml:
+        return completed
+
+    _ensure_pytest_runtime_deps()
+    return _run(command, cwd)
+
+
 def _git(
     args: list[str],
     cwd: Path,
@@ -313,7 +340,7 @@ def verify_spec(
         )
 
     try:
-        _ensure_pytest_runtime_deps()
+        head_run = _run_with_runtime_deps(spec.command, repo)
     except subprocess.TimeoutExpired as exc:
         return _json_result(
             VERDICT_BROKEN,
@@ -344,16 +371,6 @@ def verify_spec(
             detail=str(exc),
         )
 
-    try:
-        head_run = _run(spec.command, repo)
-    except subprocess.TimeoutExpired as exc:
-        return _json_result(
-            VERDICT_BROKEN,
-            reason="command-timeout",
-            command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
-            timeout=exc.timeout,
-        )
-
     if head_run.returncode != 0:
         return _json_result(
             VERDICT_BROKEN,
@@ -371,7 +388,7 @@ def verify_spec(
             base_test = base_dir / spec.test_file
             base_test.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(test_path, base_test)
-            base_run = _run(spec.command, base_dir)
+            base_run = _run_with_runtime_deps(spec.command, base_dir)
     except subprocess.TimeoutExpired as exc:
         return _json_result(
             VERDICT_BROKEN,
@@ -383,6 +400,28 @@ def verify_spec(
         return _json_result(
             VERDICT_BROKEN,
             reason="archive-extract-failed",
+            detail=str(exc),
+        )
+    except subprocess.CalledProcessError as exc:
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="dependency-install-failed",
+            command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
+            returncode=exc.returncode,
+            stdout=exc.stdout,
+            stderr=exc.stderr,
+        )
+    except ImportError as exc:
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="dependency-import-failed",
+            detail=str(exc),
+            cause=str(exc.__cause__) if exc.__cause__ is not None else None,
+        )
+    except OSError as exc:
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="dependency-install-unavailable",
             detail=str(exc),
         )
 
