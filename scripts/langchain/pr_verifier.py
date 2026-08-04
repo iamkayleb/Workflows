@@ -683,7 +683,11 @@ def _text_from_response_content(content: object) -> str | None:
         text_blocks = [
             block["text"]
             for block in content
-            if isinstance(block, dict) and isinstance(block.get("text"), str)
+            if (
+                isinstance(block, dict)
+                and isinstance(block.get("text"), str)
+                and block["text"].strip()
+            )
         ]
         if text_blocks:
             # Concatenate without a separator: a provider may split one JSON
