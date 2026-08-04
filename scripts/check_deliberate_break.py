@@ -361,6 +361,11 @@ def _python_module_pytest_probe(
             or not option.startswith("-")
         ):
             return None
+        if option in PYTHON_VALUE_OPTIONS:
+            index += 2
+            continue
+        if option.startswith("--"):
+            return None
         if option.startswith("-") and not option.startswith("--"):
             compact = option[1:]
             for position, character in enumerate(compact):
@@ -389,7 +394,7 @@ def _python_module_pytest_probe(
             else:
                 index += 1
             continue
-        index += 2 if option in PYTHON_VALUE_OPTIONS else 1
+        index += 1
     return None
 
 

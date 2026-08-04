@@ -807,6 +807,18 @@ def test_active_python_with_flags_is_managed_pytest_runtime() -> None:
     )
 
 
+def test_active_python_with_hash_policy_is_managed_pytest_runtime() -> None:
+    assert deliberate_break._uses_pytest_runtime(
+        (
+            sys.executable,
+            "--check-hash-based-pycs",
+            "default",
+            "-m",
+            "pytest",
+        )
+    )
+
+
 def test_empty_command_is_not_managed_pytest_runtime() -> None:
     assert not deliberate_break._uses_pytest_runtime(())
 
@@ -880,6 +892,7 @@ def test_active_python_with_compact_value_option_is_managed_runtime(options) -> 
         "-IV",
         "-Ih",
         "-I?",
+        "--bogus",
     ],
 )
 def test_python_terminator_prevents_managed_pytest_classification(terminator) -> None:
