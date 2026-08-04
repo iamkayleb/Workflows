@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.19.13](https://github.com/stranske/Workflows/compare/v1.19.12...v1.19.13) (2026-08-04)
+
+
+### Bug Fixes
+
+* **gate:** align PyYAML runtime checks ([cb0bc5a](https://github.com/stranske/Workflows/commit/cb0bc5a45756c3908a88cf8d86ed3a417ce8024b))
+* **gate:** align PyYAML runtime checks ([3b3c951](https://github.com/stranske/Workflows/commit/3b3c951b30b1f401a3ecd14b5670fc76b88d11de))
+
 ## [1.19.12](https://github.com/stranske/Workflows/compare/v1.19.11...v1.19.12) (2026-08-04)
 
 
