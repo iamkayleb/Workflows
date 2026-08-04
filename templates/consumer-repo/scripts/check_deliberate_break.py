@@ -218,6 +218,14 @@ def _pyyaml_runtime_needs_repair() -> bool:
     return False
 
 
+def _uses_pytest_runtime(command: tuple[str, ...]) -> bool:
+    """Return whether a command runs pytest in the active Python environment."""
+    executable = Path(command[0]).name if command else ""
+    return executable in {"pytest", "py.test"} or (
+        len(command) >= 3 and command[1:3] == ("-m", "pytest")
+    )
+
+
 def _run(
     command: tuple[str, ...],
     cwd: Path,
@@ -244,6 +252,16 @@ def _run_with_runtime_deps(
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
     """Retry a command after repairing PyYAML only when its output requires it."""
+    if _uses_pytest_runtime(command) and _pyyaml_runtime_needs_repair():
+        try:
+            _ensure_pytest_runtime_deps()
+        except (
+            subprocess.TimeoutExpired,
+            subprocess.CalledProcessError,
+            ImportError,
+            OSError,
+        ) as exc:
+            raise RuntimeDependencyError(exc) from exc
     try:
         completed = _run(command, cwd)
     except OSError as exc:
