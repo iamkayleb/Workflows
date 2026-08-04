@@ -951,6 +951,28 @@ def test_uv_pyyaml_probe_preserves_python_shebang_flags(tmp_path, monkeypatch) -
     )
 
 
+def test_uv_pyyaml_probe_omits_interactive_python_shebang_flag(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "global" / "bin" / "pytest"
+    pytest_launcher.parent.mkdir(parents=True)
+    pytest_launcher.write_text("#!/usr/bin/python3 -i\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deliberate_break,
+        "_run",
+        lambda *_args: subprocess.CompletedProcess(
+            ["uv", "run", "which", "pytest"],
+            0,
+            f"{pytest_launcher}\n",
+            "",
+        ),
+    )
+
+    assert deliberate_break._pyyaml_probe_command(("uv", "run", "pytest"), tmp_path) == (
+        "/usr/bin/python3",
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
+
+
 def test_uv_pyyaml_probe_resolves_env_shebang_inside_uv_path(tmp_path, monkeypatch) -> None:
     pytest_launcher = tmp_path / "bin" / "pytest"
     pytest_launcher.parent.mkdir()
@@ -1030,6 +1052,23 @@ def test_plain_pytest_with_active_python_shebang_is_managed(tmp_path, monkeypatc
     )
 
     assert deliberate_break._uses_pytest_runtime(("pytest", "-q"))
+
+
+def test_plain_pytest_with_interactive_shebang_is_managed(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "pytest"
+    pytest_launcher.write_text(f"#!{sys.executable} -i\n", encoding="utf-8")
+    monkeypatch.setattr(
+        deliberate_break.shutil,
+        "which",
+        lambda name: str(pytest_launcher) if name == "pytest" else None,
+    )
+
+    assert deliberate_break._uses_pytest_runtime(("pytest", "-q"))
+    assert deliberate_break._pyyaml_probe_command(("pytest", "-q"), tmp_path) == (
+        sys.executable,
+        "-c",
+        deliberate_break.PYYAML_PROBE_CODE,
+    )
 
 
 def test_plain_pytest_with_changed_import_context_is_not_managed(tmp_path, monkeypatch) -> None:

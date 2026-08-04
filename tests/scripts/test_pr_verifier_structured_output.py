@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import UserDict
 from types import SimpleNamespace
 from unittest import mock
 
@@ -308,6 +309,33 @@ def test_text_from_response_content_accepts_strings_and_object_blocks() -> None:
     blocks = ['{"summary":"res', TextBlock()]
 
     assert pr_verifier._text_from_response_content(blocks) == '{"summary":"response"}'
+
+
+@pytest.mark.parametrize("key", ("text", "content"))
+def test_text_from_response_content_supports_mapping_payloads(key: str) -> None:
+    payload = UserDict({key: '{"summary":"safe"}'})
+
+    assert pr_verifier._text_from_response_content(payload) == '{"summary":"safe"}'
+    assert pr_verifier._coerce_response_content(payload) == '{"summary":"safe"}'
+
+
+def test_text_from_response_content_supports_content_blocks() -> None:
+    blocks = [
+        {"type": "output_text", "content": '{"summary":"'},
+        SimpleNamespace(content='safe"}'),
+    ]
+
+    assert pr_verifier._text_from_response_content(blocks) == '{"summary":"safe"}'
+
+
+def test_text_from_response_content_ignores_non_text_content_blocks() -> None:
+    blocks = [
+        {"type": "thinking", "content": "internal analysis"},
+        {"type": "output_text", "content": '{"summary":"safe"}'},
+        SimpleNamespace(type="metadata", content="request-id"),
+    ]
+
+    assert pr_verifier._text_from_response_content(blocks) == '{"summary":"safe"}'
 
 
 def test_evaluate_pr_valid_output_no_repair(monkeypatch: pytest.MonkeyPatch) -> None:
