@@ -395,7 +395,7 @@ def _python_module_pytest_probe(
 
 def _uv_python_module_probe(command: tuple[str, ...]) -> tuple[str, ...] | None:
     """Build a probe for ``uv run [options] python [flags] -m pytest``."""
-    if len(command) < 5 or Path(command[0]).name != "uv" or command[1] != "run":
+    if len(command) < 4 or Path(command[0]).name != "uv" or command[1] != "run":
         return None
     index = 2
     while index < len(command) and command[index].startswith("-"):

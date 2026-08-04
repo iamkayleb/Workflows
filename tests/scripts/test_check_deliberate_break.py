@@ -929,6 +929,19 @@ def test_uv_nested_python_module_probe_preserves_uv_and_python_options(tmp_path)
 
 
 @pytest.mark.parametrize(
+    ("compact_option", "preserved"),
+    [("-mpytest", ()), ("-Impytest", ("-I",))],
+)
+def test_minimal_uv_nested_attached_pytest_module_probe(
+    tmp_path, compact_option, preserved
+) -> None:
+    assert deliberate_break._pyyaml_probe_command(
+        ("uv", "run", "python", compact_option),
+        tmp_path,
+    ) == ("uv", "run", "python", *preserved, "-c", "import yaml")
+
+
+@pytest.mark.parametrize(
     "command",
     [
         ("uv", "run", "python", "scripts/run_tests.py", "-m", "pytest"),
