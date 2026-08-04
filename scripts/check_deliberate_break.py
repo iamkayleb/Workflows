@@ -157,6 +157,12 @@ def _ensure_pytest_runtime_deps() -> None:
         else:
             return
     if installed_version != PYYAML_VERSION or import_error is not None:
+        if os.environ.get("GITHUB_ACTIONS") != "true":
+            error = ImportError(
+                f"PyYAML {PYYAML_VERSION} is required; install "
+                f"{PYTEST_RUNTIME_DEPENDENCIES[0]} in the active environment"
+            )
+            raise error from import_error
         command = [
             sys.executable,
             "-m",

@@ -262,6 +262,7 @@ def test_cli_skips_without_marker(tmp_path) -> None:
 @pytest.mark.parametrize("installed_version", [None, "6.0.2"])
 def test_runtime_dependency_installer_uses_locked_pyyaml(monkeypatch, installed_version) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
 
     def package_version(_name):
         if installed_version is None:
@@ -326,6 +327,7 @@ def test_runtime_dependency_installer_repairs_broken_pyyaml_import(
 ) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
     imports = 0
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
 
     def broken_import(_name):
         nonlocal imports
@@ -359,6 +361,7 @@ def test_runtime_dependency_installer_preserves_initial_import_failure(
 ) -> None:
     initial_error = OSError("broken PyYAML install")
     imports = 0
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
 
     def broken_import(_name):
         nonlocal imports
@@ -384,6 +387,23 @@ def test_runtime_dependency_installer_preserves_initial_import_failure(
 
     assert caught.value.__cause__ is initial_error
     assert imports == 2
+
+
+def test_runtime_dependency_installer_does_not_modify_local_environment(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.setattr(
+        deliberate_break.metadata,
+        "version",
+        lambda _name: (_ for _ in ()).throw(deliberate_break.metadata.PackageNotFoundError),
+    )
+    monkeypatch.setattr(
+        deliberate_break.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("local dependency install should not run"),
+    )
+
+    with pytest.raises(ImportError, match="install pyyaml=="):
+        deliberate_break._ensure_pytest_runtime_deps()
 
 
 def test_runtime_dependencies_are_not_installed_for_successful_custom_command(
