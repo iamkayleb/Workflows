@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import subprocess
@@ -340,6 +341,18 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
 )
 def test_supported_pyyaml_version_uses_stdlib_only(installed_version, supported) -> None:
     assert deliberate_break._supported_pyyaml_version(installed_version) is supported
+
+
+def test_pyyaml_version_check_does_not_import_packaging() -> None:
+    module = ast.parse(Path(deliberate_break.__file__).read_text(encoding="utf-8"))
+    imported_modules: set[str] = set()
+    for node in ast.walk(module):
+        if isinstance(node, ast.Import):
+            imported_modules.update(alias.name.split(".", 1)[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported_modules.add(node.module.split(".", 1)[0])
+
+    assert "packaging" not in imported_modules
 
 
 def test_runtime_dependency_installer_accepts_newer_compatible_pyyaml(monkeypatch) -> None:
