@@ -915,6 +915,10 @@ def test_site_disabled_python_is_not_managed_pytest_runtime(options) -> None:
     assert not deliberate_break._uses_pytest_runtime((sys.executable, *options))
 
 
+def test_user_site_disabled_python_is_managed_pytest_runtime() -> None:
+    assert deliberate_break._uses_pytest_runtime((sys.executable, "-s", "-m", "pytest"))
+
+
 def test_empty_command_is_not_managed_pytest_runtime() -> None:
     assert not deliberate_break._uses_pytest_runtime(())
 
