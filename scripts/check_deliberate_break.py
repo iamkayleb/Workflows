@@ -354,6 +354,13 @@ def _python_module_pytest_probe(
             if index + 1 < len(command) and command[index + 1] == "pytest":
                 return (*command[:index], "-c", "import yaml")
             return None
+        if (
+            option == "-c"
+            or option in PYTHON_TERMINATING_OPTIONS
+            or option.startswith("--help-")
+            or not option.startswith("-")
+        ):
+            return None
         if option.startswith("-") and not option.startswith("--"):
             compact = option[1:]
             for position, character in enumerate(compact):
@@ -380,13 +387,6 @@ def _python_module_pytest_probe(
             else:
                 index += 1
             continue
-        if (
-            option == "-c"
-            or option in PYTHON_TERMINATING_OPTIONS
-            or option.startswith("--help-")
-            or not option.startswith("-")
-        ):
-            return None
         index += 2 if option in PYTHON_VALUE_OPTIONS else 1
     return None
 

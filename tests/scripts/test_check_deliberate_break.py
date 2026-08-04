@@ -849,6 +849,7 @@ def test_active_python_with_compact_value_option_is_managed_runtime(options) -> 
     "terminator",
     [
         "--",
+        "-",
         "-V",
         "-VV",
         "--version",
