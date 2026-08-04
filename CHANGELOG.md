@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.19.11](https://github.com/stranske/Workflows/compare/v1.19.10...v1.19.11) (2026-08-04)
+
+
+### Bug Fixes
+
+* **gate:** serialize archive command failures ([76033f4](https://github.com/stranske/Workflows/commit/76033f452c9b2316de7b00a4d7ec8d1c96bc3ab2))
+* **gate:** serialize archive command failures ([1bfdeba](https://github.com/stranske/Workflows/commit/1bfdebae5d5f123fcf3c4fc22d641c214d1e112d))
+
 ## [1.19.10](https://github.com/stranske/Workflows/compare/v1.19.9...v1.19.10) (2026-08-04)
 
 
