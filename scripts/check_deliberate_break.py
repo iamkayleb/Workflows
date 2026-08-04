@@ -249,9 +249,39 @@ def _run(
     )
 
 
-def _uv_pytest_python_launcher(uv_command: str, cwd: Path) -> tuple[str, ...] | None:
+UV_RUN_VALUE_OPTIONS = frozenset(
+    {
+        "--directory",
+        "--env-file",
+        "--package",
+        "--project",
+        "--python",
+        "--with",
+        "--with-editable",
+        "--with-requirements",
+    }
+)
+
+
+def _uv_run_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None:
+    """Return ``uv run`` plus options when its command operand is pytest."""
+    if len(command) < 3 or Path(command[0]).name != "uv" or command[1] != "run":
+        return None
+    index = 2
+    while index < len(command) and command[index].startswith("-"):
+        option = command[index]
+        if option == "--":
+            index += 1
+            break
+        index += 2 if option in UV_RUN_VALUE_OPTIONS else 1
+    if index >= len(command) or Path(command[index]).name != "pytest":
+        return None
+    return command[:index]
+
+
+def _uv_pytest_python_launcher(uv_run_prefix: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
     """Resolve the Python shebang launcher used by ``uv run pytest``."""
-    located = _run((uv_command, "run", "which", "pytest"), cwd)
+    located = _run((*uv_run_prefix, "which", "pytest"), cwd)
     if located.returncode != 0 or not located.stdout.strip():
         return None
     pytest_path = Path(located.stdout.strip().splitlines()[-1])
@@ -273,7 +303,7 @@ def _uv_pytest_python_launcher(uv_command: str, cwd: Path) -> tuple[str, ...] | 
             env_args = env_args[1:]
         if not env_args or not re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(env_args[0]).name):
             return None
-        resolved = _run((uv_command, "run", "which", env_args[0]), cwd)
+        resolved = _run((*uv_run_prefix, "which", env_args[0]), cwd)
         if resolved.returncode != 0 or not resolved.stdout.strip():
             return None
         return (resolved.stdout.strip().splitlines()[-1], *env_args[1:])
@@ -286,11 +316,8 @@ def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...
     """Return a read-only PyYAML import probe for the pytest launcher's runtime."""
     if len(command) >= 3 and command[1:3] == ("-m", "pytest"):
         return (command[0], "-c", "import yaml")
-    if (
-        len(command) >= 3
-        and Path(command[0]).name == "uv"
-        and command[1:3] == ("run", "pytest")
-        and (launcher := _uv_pytest_python_launcher(command[0], cwd))
+    if (uv_prefix := _uv_run_pytest_prefix(command)) and (
+        launcher := _uv_pytest_python_launcher(uv_prefix, cwd)
     ):
         return (*launcher, "-c", "import yaml")
     return None

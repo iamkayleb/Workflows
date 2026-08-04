@@ -662,6 +662,47 @@ def test_uv_pyyaml_probe_uses_resolved_pytest_shebang_interpreter(tmp_path, monk
     )
 
 
+def test_uv_pyyaml_probe_preserves_uv_run_options(tmp_path, monkeypatch) -> None:
+    pytest_launcher = tmp_path / "bin" / "pytest"
+    pytest_launcher.parent.mkdir()
+    pytest_launcher.write_text("#!/project/.venv/bin/python\n", encoding="utf-8")
+    calls: list[tuple[str, ...]] = []
+
+    def run(command, _cwd):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, f"{pytest_launcher}\n", "")
+
+    monkeypatch.setattr(deliberate_break, "_run", run)
+    command = (
+        "uv",
+        "run",
+        "--frozen",
+        "--with",
+        "pytest-xdist",
+        "--isolated",
+        "pytest",
+        "-q",
+    )
+
+    assert deliberate_break._pyyaml_probe_command(command, tmp_path) == (
+        "/project/.venv/bin/python",
+        "-c",
+        "import yaml",
+    )
+    assert calls == [
+        (
+            "uv",
+            "run",
+            "--frozen",
+            "--with",
+            "pytest-xdist",
+            "--isolated",
+            "which",
+            "pytest",
+        )
+    ]
+
+
 def test_uv_pyyaml_probe_preserves_python_shebang_flags(tmp_path, monkeypatch) -> None:
     pytest_launcher = tmp_path / "global" / "bin" / "pytest"
     pytest_launcher.parent.mkdir(parents=True)
