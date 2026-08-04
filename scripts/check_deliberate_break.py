@@ -334,6 +334,27 @@ def _uv_module_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None
     return None
 
 
+PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
+
+
+def _python_module_pytest_probe(
+    command: tuple[str, ...],
+    python_index: int,
+) -> tuple[str, ...] | None:
+    """Replace Python's program selector only when it is exactly ``-m pytest``."""
+    index = python_index + 1
+    while index < len(command):
+        option = command[index]
+        if option == "-m":
+            if index + 1 < len(command) and command[index + 1] == "pytest":
+                return (*command[:index], "-c", "import yaml")
+            return None
+        if option in {"-c", "-"} or not option.startswith("-"):
+            return None
+        index += 2 if option in PYTHON_VALUE_OPTIONS else 1
+    return None
+
+
 def _uv_python_module_probe(command: tuple[str, ...]) -> tuple[str, ...] | None:
     """Build a probe for ``uv run [options] python [flags] -m pytest``."""
     if len(command) < 5 or Path(command[0]).name != "uv" or command[1] != "run":
@@ -351,10 +372,7 @@ def _uv_python_module_probe(command: tuple[str, ...]) -> tuple[str, ...] | None:
         r"python(?:\d+(?:\.\d+)*)?", Path(command[index]).name
     ):
         return None
-    for module_index in range(index + 1, len(command) - 1):
-        if command[module_index : module_index + 2] == ("-m", "pytest"):
-            return (*command[:module_index], "-c", "import yaml")
-    return None
+    return _python_module_pytest_probe(command, index)
 
 
 def _python_shebang_launcher(
@@ -412,9 +430,7 @@ def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...
     if probe := _uv_python_module_probe(command):
         return probe
     if command and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(command[0]).name):
-        for index in range(1, len(command) - 1):
-            if command[index : index + 2] == ("-m", "pytest"):
-                return (*command[:index], "-c", "import yaml")
+        return _python_module_pytest_probe(command, 0)
     if (uv_prefix := _uv_run_pytest_prefix(command)) and (
         launcher := _uv_pytest_python_launcher(uv_prefix, cwd)
     ):

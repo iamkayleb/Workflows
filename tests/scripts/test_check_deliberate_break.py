@@ -837,6 +837,18 @@ def test_uv_nested_python_module_probe_preserves_uv_and_python_options(tmp_path)
     )
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("uv", "run", "python", "scripts/run_tests.py", "-m", "pytest"),
+        ("uv", "run", "python", "-c", "run_tests()", "-m", "pytest"),
+        ("python", "scripts/run_tests.py", "-m", "pytest"),
+    ],
+)
+def test_python_probe_stops_after_first_program_selector(tmp_path, command) -> None:
+    assert deliberate_break._pyyaml_probe_command(command, tmp_path) is None
+
+
 def _sound_spec(repo: Path) -> tuple[str, object]:
     _write_app(repo, 0)
     base = _commit(repo, "base behavior")
