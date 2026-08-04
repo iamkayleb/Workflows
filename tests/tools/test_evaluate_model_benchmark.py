@@ -293,6 +293,17 @@ def test_override_floor_below_one_is_rejected(floor):
         evaluator.evaluate_benchmark(_thin_payload(), policy)
 
 
+@pytest.mark.parametrize("floor", [1.9, "2", None, True])
+def test_override_floor_must_be_an_integer(floor):
+    policy = _policy()
+    policy["profiles"]["verifier-balanced"]["approval_stage"][
+        "minimum_cases_per_category_overrides"
+    ] = {"review-thread-debt": floor}
+
+    with pytest.raises(ValueError, match="must be integers"):
+        evaluator.evaluate_benchmark(_thin_payload(), policy)
+
+
 def test_override_for_unknown_category_is_rejected():
     policy = _policy()
     policy["profiles"]["verifier-balanced"]["approval_stage"][
