@@ -339,7 +339,7 @@ def _uv_module_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None
 
 PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
 PYTHON_TERMINATING_OPTIONS = frozenset({"-", "--", "-?", "-V", "-VV", "-h", "--help", "--version"})
-PYTHON_COMPACT_PREFIX_RE = re.compile(r"^-(?:[bBdEIOPqRsSuvx]|O)+m$")
+PYTHON_COMPACT_FLAGS = frozenset("bBdEIiOPqRsSuvx")
 
 
 def _python_module_pytest_probe(
@@ -354,12 +354,27 @@ def _python_module_pytest_probe(
             if index + 1 < len(command) and command[index + 1] == "pytest":
                 return (*command[:index], "-c", "import yaml")
             return None
-        if option.startswith(("-c", "-m")):
-            return None
-        if PYTHON_COMPACT_PREFIX_RE.fullmatch(option):
-            if index + 1 < len(command) and command[index + 1] == "pytest":
-                return (*command[:index], option[:-1], "-c", "import yaml")
-            return None
+        if option.startswith("-") and not option.startswith("--"):
+            compact = option[1:]
+            selector_index = next(
+                (position for position, character in enumerate(compact) if character in {"c", "m"}),
+                None,
+            )
+            if selector_index is not None and all(
+                character in PYTHON_COMPACT_FLAGS for character in compact[:selector_index]
+            ):
+                selector = compact[selector_index]
+                selector_value = compact[selector_index + 1 :]
+                if (
+                    selector == "m"
+                    and not selector_value
+                    and index + 1 < len(command)
+                    and command[index + 1] == "pytest"
+                ):
+                    prefix = compact[:selector_index]
+                    preserved = (f"-{prefix}",) if prefix else ()
+                    return (*command[:index], *preserved, "-c", "import yaml")
+                return None
         if (
             option == "-c"
             or option in PYTHON_TERMINATING_OPTIONS
