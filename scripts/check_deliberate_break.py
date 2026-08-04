@@ -341,7 +341,7 @@ def _uv_module_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None
 
 PYTHON_VALUE_OPTIONS = frozenset({"-W", "-X", "--check-hash-based-pycs"})
 PYTHON_TERMINATING_OPTIONS = frozenset({"-", "--", "-?", "-V", "-VV", "-h", "--help", "--version"})
-PYTHON_COMPACT_FLAGS = frozenset("bBdEIiOPqRsStuvx")
+PYTHON_COMPACT_FLAGS = frozenset("bBdEIiOPqRtuvx")
 
 
 def _drop_interactive_python_flags(options: tuple[str, ...]) -> tuple[str, ...]:
