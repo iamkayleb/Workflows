@@ -563,7 +563,7 @@ def _run_with_runtime_deps(
     command: tuple[str, ...],
     cwd: Path,
 ) -> subprocess.CompletedProcess[str]:
-    """Preflight managed PyYAML runtimes and repair YAML-triggered failures."""
+    """Preflight PyYAML in managed pytest runtimes and repair YAML-triggered failures."""
     managed_runtime = _uses_pytest_runtime(command)
     if managed_runtime and _pyyaml_runtime_needs_repair():
         try:
