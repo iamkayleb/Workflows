@@ -419,7 +419,7 @@ def test_runtime_dependency_installer_does_not_modify_local_environment(monkeypa
         lambda *_args, **_kwargs: pytest.fail("local dependency install should not run"),
     )
 
-    with pytest.raises(ImportError, match="install pyyaml=="):
+    with pytest.raises(ImportError, match=r"install 'PyYAML>=6\.0\.3'"):
         deliberate_break._ensure_pytest_runtime_deps()
 
 
@@ -509,12 +509,11 @@ def test_runtime_dependencies_retry_broken_pyyaml_traceback(tmp_path, monkeypatc
         subprocess.CompletedProcess(["pytest"], 0, "passed", ""),
     ]
     repairs: list[bool] = []
-    repair_checks = iter((False, True))
     monkeypatch.setattr(deliberate_break, "_run", lambda *_args: attempts.pop(0))
     monkeypatch.setattr(
         deliberate_break,
         "_pyyaml_runtime_needs_repair",
-        lambda: next(repair_checks),
+        lambda: True,
     )
     monkeypatch.setattr(deliberate_break, "_pyyaml_probe_succeeds", lambda *_args: True)
     monkeypatch.setattr(
@@ -535,7 +534,9 @@ def test_runtime_dependencies_retry_broken_pyyaml_traceback(tmp_path, monkeypatc
     assert attempts == []
 
 
-def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, monkeypatch) -> None:
+def test_runtime_dependencies_do_not_preflight_pyyaml_for_successful_pytest(
+    tmp_path, monkeypatch
+) -> None:
     events: list[str] = []
     completed = subprocess.CompletedProcess(["pytest"], 0, "passed", "")
     monkeypatch.setattr(
@@ -554,11 +555,18 @@ def test_runtime_dependencies_normalize_stale_pyyaml_before_pytest(tmp_path, mon
     result = deliberate_break._run_with_runtime_deps((sys.executable, "-m", "pytest"), tmp_path)
 
     assert result is completed
-    assert events == ["repair", "run"]
+    assert events == ["run"]
 
 
 def test_managed_runtime_rejects_unrepairable_command_import_context(tmp_path, monkeypatch) -> None:
     repairs: list[bool] = []
+    completed = subprocess.CompletedProcess(
+        ["pytest"],
+        1,
+        "",
+        "ModuleNotFoundError: No module named 'yaml'",
+    )
+    monkeypatch.setattr(deliberate_break, "_run", lambda *_args: completed)
     monkeypatch.setattr(deliberate_break, "_pyyaml_runtime_needs_repair", lambda: False)
     monkeypatch.setattr(deliberate_break, "_pyyaml_probe_succeeds", lambda *_args: False)
     monkeypatch.setattr(
@@ -1230,7 +1238,7 @@ def test_dependency_install_timeout_is_broken(tmp_path, monkeypatch) -> None:
 
     assert result == {
         "verdict": VERDICT_BROKEN,
-        "reason": "command-timeout",
+        "reason": "dependency-install-timeout",
         "command": command,
         "timeout": 17,
     }
