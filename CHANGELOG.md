@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.19.10](https://github.com/stranske/Workflows/compare/v1.19.9...v1.19.10) (2026-08-04)
+
+
+### Bug Fixes
+
+* **gate:** avoid repairing site-disabled Python ([6966daa](https://github.com/stranske/Workflows/commit/6966daad038861e7110655b07ae9f2a01e28a124))
+* **gate:** isolate flagged runtime dependency checks ([15fcd38](https://github.com/stranske/Workflows/commit/15fcd38bbb8619f0a5c6faf8a62073b8a7ccc556))
+* **gate:** recognize flagged managed pytest ([96d6c19](https://github.com/stranske/Workflows/commit/96d6c194422022185af379beb20559ae532f5d3e))
+* **gate:** require yaml probe success sentinel ([0d34a5e](https://github.com/stranske/Workflows/commit/0d34a5ef90e19724bc9bedea0fcf46717bcdd970))
+
 ## [1.19.9](https://github.com/stranske/Workflows/compare/v1.19.8...v1.19.9) (2026-08-04)
 
 
