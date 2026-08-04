@@ -33,6 +33,7 @@ ASSERTION_DIFF_RE = re.compile(
     r"\b(assert|expect\(|pytest\.raises\(|assert\.)\b",
 )
 DEFAULT_TIMEOUT_SECONDS = 120
+# Keep this bootstrap pin aligned with the canonical PyYAML pin in requirements.lock.
 PYYAML_VERSION = "6.0.3"
 PYTEST_RUNTIME_DEPENDENCIES = (f"pyyaml=={PYYAML_VERSION}",)
 
@@ -134,7 +135,7 @@ def _pytest_command(test_id: str) -> tuple[str, ...]:
 
 
 def _ensure_pytest_runtime_deps() -> None:
-    """Install lightweight deps Gate test-quality may not preinstall.
+    """Install lightweight deps that Gate test-quality may not preinstall.
 
     Gate's test-quality job installs only ``pytest``. Deliberate-break may still
     collect tests that import PyYAML (for example via ``sync_manifest_compiler``).
@@ -149,7 +150,7 @@ def _ensure_pytest_runtime_deps() -> None:
     if installed_version == PYYAML_VERSION:
         try:
             import_module("yaml")
-        except ImportError:
+        except Exception:
             pass
         else:
             import_works = True
@@ -314,7 +315,10 @@ def verify_spec(
         return _json_result(
             VERDICT_BROKEN,
             reason="dependency-install-failed",
-            detail=exc.stderr or str(exc),
+            command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
+            returncode=exc.returncode,
+            stdout=exc.stdout,
+            stderr=exc.stderr,
         )
     except OSError as exc:
         return _json_result(

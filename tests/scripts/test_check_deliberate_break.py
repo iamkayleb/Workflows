@@ -319,11 +319,12 @@ def test_runtime_dependency_installer_accepts_exact_locked_pyyaml(monkeypatch) -
     assert calls == []
 
 
-def test_runtime_dependency_installer_repairs_broken_pyyaml_import(monkeypatch) -> None:
+@pytest.mark.parametrize("error_type", [ImportError, OSError, AttributeError, SyntaxError])
+def test_runtime_dependency_installer_repairs_broken_pyyaml_import(monkeypatch, error_type) -> None:
     calls: list[tuple[object, dict[str, object]]] = []
 
     def broken_import(_name):
-        raise ImportError("broken PyYAML install")
+        raise error_type("broken PyYAML install")
 
     monkeypatch.setattr(
         deliberate_break.metadata,
@@ -381,22 +382,17 @@ def test_dependency_install_timeout_is_broken(tmp_path, monkeypatch) -> None:
     }
 
 
-@pytest.mark.parametrize(
-    ("error", "reason", "detail"),
-    [
-        (
-            subprocess.CalledProcessError(1, ["pip"], stderr="pip denied"),
-            "dependency-install-failed",
-            "pip denied",
-        ),
-        (OSError("pip unavailable"), "dependency-install-unavailable", "pip unavailable"),
-    ],
-)
-def test_dependency_install_errors_are_broken(tmp_path, monkeypatch, error, reason, detail) -> None:
+def test_dependency_install_failure_is_broken_with_diagnostics(tmp_path, monkeypatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     _init_repo(repo)
     base, spec = _sound_spec(repo)
+    error = subprocess.CalledProcessError(
+        1,
+        ["python", "-m", "pip", "install", "pyyaml==6.0.3"],
+        output="resolver output",
+        stderr="pip denied",
+    )
 
     def failed() -> None:
         raise error
@@ -405,4 +401,31 @@ def test_dependency_install_errors_are_broken(tmp_path, monkeypatch, error, reas
 
     result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
 
-    assert result == {"verdict": VERDICT_BROKEN, "reason": reason, "detail": detail}
+    assert result == {
+        "verdict": VERDICT_BROKEN,
+        "reason": "dependency-install-failed",
+        "command": ["python", "-m", "pip", "install", "pyyaml==6.0.3"],
+        "returncode": 1,
+        "stdout": "resolver output",
+        "stderr": "pip denied",
+    }
+
+
+def test_dependency_install_unavailable_is_broken(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    base, spec = _sound_spec(repo)
+
+    def failed() -> None:
+        raise OSError("pip unavailable")
+
+    monkeypatch.setattr(deliberate_break, "_ensure_pytest_runtime_deps", failed)
+
+    result = verify_spec(spec, base=base, cwd=repo, enforce_tamper=False)
+
+    assert result == {
+        "verdict": VERDICT_BROKEN,
+        "reason": "dependency-install-unavailable",
+        "detail": "pip unavailable",
+    }

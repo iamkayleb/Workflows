@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -224,6 +225,15 @@ def test_text_from_response_content_concatenates_split_text_blocks_without_separ
 
     assert pr_verifier._text_from_response_content(blocks) == encoded
     assert pr_verifier._coerce_response_content(blocks) == encoded
+
+
+def test_text_from_response_content_supports_object_text_blocks() -> None:
+    blocks = [
+        SimpleNamespace(text='{"summary":"'),
+        SimpleNamespace(text='safe"}'),
+    ]
+
+    assert pr_verifier._text_from_response_content(blocks) == '{"summary":"safe"}'
 
 
 def test_text_from_response_content_preserves_blank_blocks_between_text() -> None:
