@@ -46,6 +46,14 @@ class DeliberateBreakSpec:
     command: tuple[str, ...]
 
 
+class RuntimeDependencyError(Exception):
+    """Wrap failures raised specifically while repairing runtime dependencies."""
+
+    def __init__(self, error: Exception) -> None:
+        super().__init__(str(error))
+        self.error = error
+
+
 def _json_result(verdict: str, **fields: object) -> dict[str, object]:
     return {"verdict": verdict, **fields}
 
@@ -236,7 +244,10 @@ def _run_with_runtime_deps(
     if not missing_pyyaml:
         return completed
 
-    _ensure_pytest_runtime_deps()
+    try:
+        _ensure_pytest_runtime_deps()
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, ImportError, OSError) as exc:
+        raise RuntimeDependencyError(exc) from exc
     return _run(command, cwd)
 
 
@@ -359,26 +370,41 @@ def verify_spec(
             command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
             timeout=exc.timeout,
         )
-    except subprocess.CalledProcessError as exc:
+    except RuntimeDependencyError as wrapped:
+        exc = wrapped.error
+        if isinstance(exc, subprocess.TimeoutExpired):
+            return _json_result(
+                VERDICT_BROKEN,
+                reason="command-timeout",
+                command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
+                timeout=exc.timeout,
+            )
+        if isinstance(exc, subprocess.CalledProcessError):
+            return _json_result(
+                VERDICT_BROKEN,
+                reason="dependency-install-failed",
+                command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
+                returncode=exc.returncode,
+                stdout=exc.stdout,
+                stderr=exc.stderr,
+            )
+        if isinstance(exc, ImportError):
+            return _json_result(
+                VERDICT_BROKEN,
+                reason="dependency-import-failed",
+                detail=str(exc),
+                cause=str(exc.__cause__) if exc.__cause__ is not None else None,
+            )
         return _json_result(
             VERDICT_BROKEN,
-            reason="dependency-install-failed",
-            command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
-            returncode=exc.returncode,
-            stdout=exc.stdout,
-            stderr=exc.stderr,
-        )
-    except ImportError as exc:
-        return _json_result(
-            VERDICT_BROKEN,
-            reason="dependency-import-failed",
+            reason="dependency-install-unavailable",
             detail=str(exc),
-            cause=str(exc.__cause__) if exc.__cause__ is not None else None,
         )
     except OSError as exc:
         return _json_result(
             VERDICT_BROKEN,
-            reason="dependency-install-unavailable",
+            reason="command-unavailable",
+            command=list(spec.command),
             detail=str(exc),
         )
 
@@ -413,26 +439,49 @@ def verify_spec(
             reason="archive-extract-failed",
             detail=str(exc),
         )
+    except RuntimeDependencyError as wrapped:
+        exc = wrapped.error
+        if isinstance(exc, subprocess.TimeoutExpired):
+            return _json_result(
+                VERDICT_BROKEN,
+                reason="command-timeout",
+                command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
+                timeout=exc.timeout,
+            )
+        if isinstance(exc, subprocess.CalledProcessError):
+            return _json_result(
+                VERDICT_BROKEN,
+                reason="dependency-install-failed",
+                command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
+                returncode=exc.returncode,
+                stdout=exc.stdout,
+                stderr=exc.stderr,
+            )
+        if isinstance(exc, ImportError):
+            return _json_result(
+                VERDICT_BROKEN,
+                reason="dependency-import-failed",
+                detail=str(exc),
+                cause=str(exc.__cause__) if exc.__cause__ is not None else None,
+            )
+        return _json_result(
+            VERDICT_BROKEN,
+            reason="dependency-install-unavailable",
+            detail=str(exc),
+        )
     except subprocess.CalledProcessError as exc:
         return _json_result(
             VERDICT_BROKEN,
-            reason="dependency-install-failed",
+            reason="archive-command-failed",
             command=list(exc.cmd) if isinstance(exc.cmd, (tuple, list)) else str(exc.cmd),
             returncode=exc.returncode,
             stdout=exc.stdout,
             stderr=exc.stderr,
         )
-    except ImportError as exc:
-        return _json_result(
-            VERDICT_BROKEN,
-            reason="dependency-import-failed",
-            detail=str(exc),
-            cause=str(exc.__cause__) if exc.__cause__ is not None else None,
-        )
     except OSError as exc:
         return _json_result(
             VERDICT_BROKEN,
-            reason="dependency-install-unavailable",
+            reason="base-setup-failed",
             detail=str(exc),
         )
 
