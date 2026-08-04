@@ -870,14 +870,36 @@ def test_empty_command_is_not_managed_pytest_runtime() -> None:
     assert not deliberate_break._uses_pytest_runtime(())
 
 
-@pytest.mark.parametrize("compact_option", ["-Im", "-im", "-OOm", "-tm"])
-def test_active_python_with_compact_flags_is_managed_pytest_runtime(compact_option) -> None:
+@pytest.mark.parametrize(
+    ("compact_option", "preserved"),
+    [
+        ("-Im", ("-I",)),
+        ("-im", ()),  # lowercase -i must not reach the import probe
+        ("-OOm", ("-OO",)),
+        ("-tm", ("-t",)),
+        ("-Oim", ("-O",)),
+    ],
+)
+def test_active_python_with_compact_flags_is_managed_pytest_runtime(
+    compact_option, preserved
+) -> None:
     command = (sys.executable, compact_option, "pytest", "-q")
 
     assert deliberate_break._uses_pytest_runtime(command)
     assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
         sys.executable,
-        compact_option[:-1],
+        *preserved,
+        "-c",
+        "import yaml",
+    )
+
+
+def test_active_python_separate_interactive_flag_omitted_from_probe() -> None:
+    command = (sys.executable, "-i", "-m", "pytest", "-q")
+
+    assert deliberate_break._uses_pytest_runtime(command)
+    assert deliberate_break._pyyaml_probe_command(command, Path.cwd()) == (
+        sys.executable,
         "-c",
         "import yaml",
     )
@@ -885,7 +907,7 @@ def test_active_python_with_compact_flags_is_managed_pytest_runtime(compact_opti
 
 @pytest.mark.parametrize(
     ("compact_option", "preserved"),
-    [("-mpytest", ()), ("-Impytest", ("-I",))],
+    [("-mpytest", ()), ("-Impytest", ("-I",)), ("-impytest", ())],
 )
 def test_active_python_with_attached_pytest_module_is_managed_runtime(
     compact_option, preserved

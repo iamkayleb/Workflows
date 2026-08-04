@@ -342,6 +342,33 @@ PYTHON_TERMINATING_OPTIONS = frozenset({"-", "--", "-?", "-V", "-VV", "-h", "--h
 PYTHON_COMPACT_FLAGS = frozenset("bBdEIiOPqRsStuvx")
 
 
+def _drop_interactive_python_flags(options: tuple[str, ...]) -> tuple[str, ...]:
+    """Omit lowercase ``-i`` from probe argv.
+
+    Interactive mode forces a prompt after ``-c`` scripts. An import-time
+    traceback followed by EOF then exits 0, so PyYAML probe return codes
+    become unreliable when ``i`` is preserved from the original launcher.
+    Uppercase ``-I`` (isolated mode) is kept.
+    """
+    cleaned: list[str] = []
+    for option in options:
+        if option == "-i":
+            continue
+        if (
+            option.startswith("-")
+            and not option.startswith("--")
+            and len(option) > 1
+            and all(character in PYTHON_COMPACT_FLAGS for character in option[1:])
+        ):
+            body = option[1:].replace("i", "")
+            if not body:
+                continue
+            cleaned.append(f"-{body}")
+            continue
+        cleaned.append(option)
+    return tuple(cleaned)
+
+
 def _python_module_pytest_probe(
     command: tuple[str, ...],
     python_index: int,
@@ -352,7 +379,12 @@ def _python_module_pytest_probe(
         option = command[index]
         if option == "-m":
             if index + 1 < len(command) and command[index + 1] == "pytest":
-                return (*command[:index], "-c", "import yaml")
+                return (
+                    *command[: python_index + 1],
+                    *_drop_interactive_python_flags(command[python_index + 1 : index]),
+                    "-c",
+                    "import yaml",
+                )
             return None
         if (
             option == "-c"
@@ -391,9 +423,17 @@ def _python_module_pytest_probe(
                             and command[index + 1] == "pytest"
                         )
                     ):
-                        prefix = compact[:position]
+                        prefix = compact[:position].replace("i", "")
                         preserved = (f"-{prefix}",) if prefix else ()
-                        return (*command[:index], *preserved, "-c", "import yaml")
+                        return (
+                            *command[: python_index + 1],
+                            *_drop_interactive_python_flags(
+                                command[python_index + 1 : index]
+                            ),
+                            *preserved,
+                            "-c",
+                            "import yaml",
+                        )
                     return None
                 return None
             else:
