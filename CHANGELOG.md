@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.19.15](https://github.com/stranske/Workflows/compare/v1.19.14...v1.19.15) (2026-08-04)
+
+
+### Bug Fixes
+
+* **gate:** handle tamper OS failures ([54ce915](https://github.com/stranske/Workflows/commit/54ce91553e5629cf8857d17c33a350342368baf7))
+
 ## [1.19.14](https://github.com/stranske/Workflows/compare/v1.19.13...v1.19.14) (2026-08-04)
 
 
