@@ -801,6 +801,14 @@ def test_python_module_probe_preserves_interpreter_flags(tmp_path) -> None:
     ) == ("/venv/bin/python", "-I", "-c", "import yaml")
 
 
+@pytest.mark.parametrize("module_option", ["-m", "--module"])
+def test_uv_module_pytest_probe_uses_uv_selected_python(tmp_path, module_option) -> None:
+    assert deliberate_break._pyyaml_probe_command(
+        ("uv", "run", "--frozen", module_option, "pytest", "-q"),
+        tmp_path,
+    ) == ("uv", "run", "--frozen", "python", "-c", "import yaml")
+
+
 def _sound_spec(repo: Path) -> tuple[str, object]:
     _write_app(repo, 0)
     base = _commit(repo, "base behavior")

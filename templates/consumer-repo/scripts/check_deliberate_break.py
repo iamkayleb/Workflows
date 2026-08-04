@@ -317,6 +317,23 @@ def _uv_run_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None:
     return command[:index]
 
 
+def _uv_module_pytest_prefix(command: tuple[str, ...]) -> tuple[str, ...] | None:
+    """Return uv options preceding ``-m pytest`` or ``--module pytest``."""
+    if len(command) < 4 or Path(command[0]).name != "uv" or command[1] != "run":
+        return None
+    index = 2
+    while index < len(command) and command[index].startswith("-"):
+        option = command[index]
+        if option in {"-m", "--module"}:
+            if index + 1 < len(command) and command[index + 1] == "pytest":
+                return command[:index]
+            return None
+        if option == "--":
+            return None
+        index += 2 if option in UV_RUN_VALUE_OPTIONS else 1
+    return None
+
+
 def _python_shebang_launcher(
     executable: Path,
     resolve_name: Callable[[str], str | None],
@@ -367,9 +384,12 @@ def _uv_pytest_python_launcher(uv_run_prefix: tuple[str, ...], cwd: Path) -> tup
 
 def _pyyaml_probe_command(command: tuple[str, ...], cwd: Path) -> tuple[str, ...] | None:
     """Return a read-only PyYAML import probe for the pytest launcher's runtime."""
-    for index in range(1, len(command) - 1):
-        if command[index : index + 2] == ("-m", "pytest"):
-            return (*command[:index], "-c", "import yaml")
+    if uv_prefix := _uv_module_pytest_prefix(command):
+        return (*uv_prefix, "python", "-c", "import yaml")
+    if command and re.fullmatch(r"python(?:\d+(?:\.\d+)*)?", Path(command[0]).name):
+        for index in range(1, len(command) - 1):
+            if command[index : index + 2] == ("-m", "pytest"):
+                return (*command[:index], "-c", "import yaml")
     if (uv_prefix := _uv_run_pytest_prefix(command)) and (
         launcher := _uv_pytest_python_launcher(uv_prefix, cwd)
     ):
