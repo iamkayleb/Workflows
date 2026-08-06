@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture startup_failure details for a workflow run via GitHub check-runs."""
+"""Diagnose zero-job workflow startup failures and approval holds."""
 
 from __future__ import annotations
 
@@ -98,6 +98,9 @@ def diagnose_startup_failure(repo: str, run_id: int) -> dict[str, Any]:
 
     jobs = jobs_payload.get("jobs", [])
     jobs_count = len(jobs) if isinstance(jobs, list) else 0
+    approval_hold = None
+    if run_payload.get("conclusion") == "action_required" and jobs_count == 0:
+        approval_hold = _classify_zero_job_approval_hold(repo, run_id, run_payload)
     return {
         "repo": repo,
         "run_id": run_id,
@@ -106,7 +109,66 @@ def diagnose_startup_failure(repo: str, run_id: int) -> dict[str, Any]:
         "run_status": run_payload.get("status", ""),
         "head_sha": head_sha,
         "jobs_count": jobs_count,
+        "approval_hold": approval_hold,
         "startup_failures": findings,
+    }
+
+
+def _head_repository_is_fork(repo: str, run_payload: dict[str, Any]) -> bool | None:
+    """Return True/False when fork status is known; None when it cannot be told."""
+    head_repo = run_payload.get("head_repository")
+    if not isinstance(head_repo, dict):
+        return None
+    if "fork" in head_repo:
+        return bool(head_repo.get("fork"))
+    head_full = str(head_repo.get("full_name") or "").strip()
+    if not head_full:
+        return None
+    return head_full.lower() != repo.lower()
+
+
+def _classify_zero_job_approval_hold(
+    repo: str, run_id: int, run_payload: dict[str, Any]
+) -> dict[str, str]:
+    """Distinguish fork-PR REST-approvable holds from unproven-workflow web holds."""
+    approval_url = f"https://github.com/{repo}/actions/runs/{run_id}"
+    event = str(run_payload.get("event") or "").strip()
+    is_fork = _head_repository_is_fork(repo, run_payload)
+
+    if event == "pull_request" and is_fork is True:
+        return {
+            "failure_phase": "pre_job_workflow_approval",
+            "suspected_root_cause": "fork_contributor_approval_hold",
+            "approval_url": approval_url,
+            "remediation": (
+                "Public-fork pull-request runs awaiting contributor approval can be "
+                "recovered with POST /repos/{owner}/{repo}/actions/runs/{run_id}/approve "
+                "(or Approve and run in the GitHub UI)."
+            ),
+        }
+
+    if event == "pull_request" and is_fork is None:
+        return {
+            "failure_phase": "pre_job_workflow_approval",
+            "suspected_root_cause": "workflow_approval_hold_unspecified",
+            "approval_url": approval_url,
+            "remediation": (
+                "Zero-job action_required on a pull_request run: inspect event and "
+                "head_repository.fork before choosing remediation. Fork contributor "
+                "holds accept the workflow-run approval REST endpoint; unproven-workflow "
+                "holds require Approve and run in an authenticated GitHub web session."
+            ),
+        }
+
+    return {
+        "failure_phase": "pre_job_workflow_approval",
+        "suspected_root_cause": "github_unproven_workflow_protection",
+        "approval_url": approval_url,
+        "remediation": (
+            "Review the workflow file, then use Approve and run from an "
+            "authenticated GitHub web session. The workflow-run approval "
+            "REST endpoint does not cover this protection."
+        ),
     }
 
 
@@ -148,11 +210,16 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(json.dumps(report, indent=2))
+    if report["approval_hold"]:
+        return 0
     if report["jobs_count"] == 0 and report["startup_failures"]:
         return 0
     if report["startup_failures"]:
         return 0
-    print("No matching startup_failure check-runs found for this run.", file=sys.stderr)
+    print(
+        "No matching startup_failure check-runs or zero-job approval hold found " "for this run.",
+        file=sys.stderr,
+    )
     return 2
 
 
