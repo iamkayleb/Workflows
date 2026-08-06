@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Validate a GitHub issue body against the fleet's AGENT_ISSUE_FORMAT contract.
 
 Synced to every consumer repo by `maint-68-sync-consumer-repos.yml`. This is the
@@ -23,9 +24,14 @@ Used at both ends:
 
 Rules mirror docs/AGENT_ISSUE_FORMAT.md rather than inventing a parallel
 standard: Tasks and Acceptance Criteria are REQUIRED; Why / Scope /
-Implementation Notes / Non-Goals are recommended; and at least one acceptance
-criterion must name a real test, runnable command, or observable verification
-gate.
+Implementation Notes / Non-Goals are reported as recommended; and at least one
+acceptance criterion must name a real test, runnable command, or observable
+verification gate.
+
+Recommended sections are advisory: their absence is reported to help authors
+improve an issue, but does not change the exit code or route an otherwise valid
+work order through the optimizer. Keeping that distinction prevents the guard
+from flagging well-formed work orders solely for an optional heading.
 
 `_headings()` skips fenced code blocks, and that is load-bearing rather than
 cosmetic. Without it a body whose ONLY "Tasks" and "Acceptance Criteria" lines
@@ -61,15 +67,15 @@ GATE = re.compile(
     r"|\bgh workflow run\b|\bgh run\b"
     r"|\bcurl\b|\bHTTP [1-5]\d\d\b"
     r"|\b(?:API|endpoint|request|response)\s+(?:returns?|responds with)\s+[1-5]\d\d(?:\s+status)?\b"
-    r"|\bsmoke\b|\bverif)",
+    r"|\bsmoke\b|\bverif\w*)",
     re.I,
 )
 BANNED_ADJECTIVES = ("clean", "nice", "good", "fast", "better", "intuitive", "polished")
 
 
-def _headings(body: str) -> list[tuple[str, int]]:
+def _headings(body: str) -> list[tuple[str, int, int]]:
     """Return markdown headings outside fenced code blocks with line indexes."""
-    out: list[tuple[str, int]] = []
+    out: list[tuple[str, int, int]] = []
     fence: tuple[str, int] | None = None
     for i, line in enumerate(body.splitlines()):
         fence_match = re.match(r"\s{0,3}(`{3,}|~{3,})", line)
@@ -84,20 +90,21 @@ def _headings(body: str) -> list[tuple[str, int]]:
             continue
         heading = re.match(r"\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$", line)
         if heading:
-            out.append((heading.group(2).strip().strip(":").lower(), i))
+            out.append((heading.group(2).strip().strip(":").lower(), i, len(heading.group(1))))
     return out
 
 
 def _find(body: str, aliases: tuple[str, ...]) -> int | None:
-    for text, idx in _headings(body):
-        if any(text == alias or text.startswith(alias) for alias in aliases):
+    for text, idx, _ in _headings(body):
+        if text in aliases:
             return idx
     return None
 
 
 def _section_text(body: str, start: int) -> str:
     lines = body.splitlines()
-    following = [idx for _, idx in _headings(body) if idx > start]
+    start_level = next(level for _, idx, level in _headings(body) if idx == start)
+    following = [idx for _, idx, level in _headings(body) if idx > start and level <= start_level]
     end = following[0] if following else len(lines)
     return "\n".join(lines[start + 1 : end])
 
