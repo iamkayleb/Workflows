@@ -4,6 +4,8 @@ import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
+import pytest
+
 
 def _validator():
     path = Path(".github/scripts/issue_format.py")
@@ -39,3 +41,36 @@ def test_runner_and_curl_are_accepted_gates() -> None:
         "## Tasks\n- [ ] Implement it\n\n## Acceptance Criteria\n- gh run watch succeeds\n- curl endpoint returns 200\n"
     )
     assert report.ok
+
+
+@pytest.mark.parametrize(
+    "criterion",
+    [
+        "API returns 400 status for invalid input",
+        "endpoint returns 400 status for invalid input",
+        "request returns 400 status for invalid input",
+        "response returns 400 status for invalid input",
+        "API responds with 400 status for invalid input",
+    ],
+)
+def test_api_status_sentence_is_an_accepted_gate(criterion: str) -> None:
+    validator = _validator()
+    report = validator.validate(
+        f"## Tasks\n- [ ] Implement it\n\n## Acceptance Criteria\n- {criterion}\n"
+    )
+    assert report.ok
+
+
+def test_missing_acceptance_criteria_is_reported_once() -> None:
+    validator = _validator()
+    report = validator.validate("## Tasks\n- [ ] Implement it\n")
+    assert report.missing_required == ["Acceptance Criteria"]
+    assert "No `Acceptance Criteria` section" not in report.as_markdown()
+
+
+def test_implementation_notes_is_a_recommended_section() -> None:
+    validator = _validator()
+    report = validator.validate(
+        "## Tasks\n- [ ] Implement it\n\n## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert "Implementation Notes" in report.missing_recommended
