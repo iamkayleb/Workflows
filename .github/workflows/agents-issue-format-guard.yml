@@ -61,7 +61,7 @@ jobs:
         id: validate
         if: steps.issue.outputs.exempt != 'true'
         run: |
-          set +e
+          set -euo pipefail
           report_file="$(mktemp)"
           error_file="$(mktemp)"
           trap 'rm -f "$report_file" "$error_file"' EXIT
@@ -70,6 +70,7 @@ jobs:
             echo "rc=skip" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          set +e
           python3 .github/scripts/issue_format.py body.md > "$report_file" 2> "$error_file"
           rc=$?
           set -e

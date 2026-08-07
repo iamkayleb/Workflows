@@ -51,6 +51,17 @@ def test_heading_with_trailing_qualifier_matches_required_section() -> None:
     assert report.ok
 
 
+@pytest.mark.parametrize("separator", ["-", "/"])
+def test_heading_with_spaced_trailing_qualifier_matches_required_section(separator: str) -> None:
+    validator = _validator()
+    report = validator.validate(
+        VALID_CONTEXT
+        + f"## Tasks {separator} in order\n- [ ] Implement it\n\n"
+        + f"## Acceptance Criteria {separator} all must hold\n- pytest tests/test_x.py passes\n"
+    )
+    assert report.ok
+
+
 def test_checkbox_and_subjective_errors_are_non_conforming() -> None:
     validator = _validator()
     report = validator.validate(
