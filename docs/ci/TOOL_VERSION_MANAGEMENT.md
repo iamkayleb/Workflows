@@ -29,18 +29,20 @@ npx --yes --package renovate@43.285.3 -- renovate-config-validator --no-global \
 
 **Location**: `.github/workflows/autofix-versions.env`
 
-This file contains pinned versions for all formatting, linting, and testing tools:
+This file contains the pinned versions for all formatting, linting, and testing
+tools. It is the canonical source; consult the file directly rather than copying
+version values into this guide:
 
 ```bash
-BLACK_VERSION=25.11.0
-RUFF_VERSION=0.14.7
-ISORT_VERSION=7.0.0
-DOCFORMATTER_VERSION=1.7.7
-MYPY_VERSION=1.19.0
-PYTEST_VERSION=9.0.1
-PYTEST_COV_VERSION=7.0.0
-PYTEST_XDIST_VERSION=3.8.0
-COVERAGE_VERSION=7.12.0
+BLACK_VERSION=<pinned-version>
+RUFF_VERSION=<pinned-version>
+ISORT_VERSION=<pinned-version>
+DOCFORMATTER_VERSION=<pinned-version>
+MYPY_VERSION=<pinned-version>
+PYTEST_VERSION=<pinned-version>
+PYTEST_COV_VERSION=<pinned-version>
+PYTEST_XDIST_VERSION=<pinned-version>
+COVERAGE_VERSION=<pinned-version>
 ```
 
 ## Workflows Using Version File
