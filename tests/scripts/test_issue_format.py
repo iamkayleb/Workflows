@@ -12,8 +12,7 @@ VALID_CONTEXT = (
 )
 
 
-def _validator():
-    path = Path(".github/scripts/issue_format.py")
+def _validator(path: Path = Path(".github/scripts/issue_format.py")):
     spec = spec_from_file_location("issue_format", path)
     assert spec and spec.loader
     module = module_from_spec(spec)
@@ -52,8 +51,17 @@ def test_heading_with_trailing_qualifier_matches_required_section() -> None:
 
 
 @pytest.mark.parametrize("separator", ["-", "/"])
-def test_heading_with_spaced_trailing_qualifier_matches_required_section(separator: str) -> None:
-    validator = _validator()
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+def test_heading_with_spaced_trailing_qualifier_matches_required_section(
+    separator: str, validator_path: Path
+) -> None:
+    validator = _validator(validator_path)
     report = validator.validate(
         VALID_CONTEXT
         + f"## Tasks {separator} in order\n- [ ] Implement it\n\n"
