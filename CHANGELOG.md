@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.20.9](https://github.com/stranske/Workflows/compare/v1.20.8...v1.20.9) (2026-08-07)
+
+
+### Bug Fixes
+
+* **gate:** preserve issue format guard setup failures ([bb2342d](https://github.com/stranske/Workflows/commit/bb2342dbf7d135a1852f5395fc897302913bdb29))
+* **gate:** preserve issue format guard setup failures ([712791f](https://github.com/stranske/Workflows/commit/712791f85fa4671dd3b602d7c41078685b6465ad))
+
 ## [1.20.8](https://github.com/stranske/Workflows/compare/v1.20.7...v1.20.8) (2026-08-07)
 
 
