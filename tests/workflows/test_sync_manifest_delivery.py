@@ -246,14 +246,18 @@ def test_sync_fanout_is_canary_gated_and_promotion_is_plan_bound() -> None:
 
 
 def test_maint_71_emits_canary_evidence_with_review_debt() -> None:
-    source = (REPO_ROOT / ".github" / "workflows" / "maint-71-merge-sync-prs.yml").read_text(
+    # Canary evidence fields live in the externalized Maint 71 executor JS;
+    # the workflow only uploads the artifact path.
+    workflow = (REPO_ROOT / ".github" / "workflows" / "maint-71-merge-sync-prs.yml").read_text(
         encoding="utf-8"
     )
-
-    assert "sync-canary-evidence.json" in source
-    assert "active_review_thread_count" in source
-    assert "required_check_state" in source
-    assert "plan_id" in source
+    executor = (REPO_ROOT / ".github" / "scripts" / "maint71_merge_sync_prs.js").read_text(
+        encoding="utf-8"
+    )
+    assert "sync-canary-evidence.json" in workflow
+    assert "active_review_thread_count" in executor
+    assert "required_check_state" in executor
+    assert "plan_id" in executor
 
 
 def test_maint68_refreshes_only_a_same_base_and_tree_delivery_attempt() -> None:
