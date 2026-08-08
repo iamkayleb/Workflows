@@ -39,6 +39,13 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          # This guard only reads issue comments with the workflow token. Do not
+          # expose the repository-wide secret bundle to the composite action.
+          github_token: ${{ github.token }}
+
       - name: Resolve issue
         id: issue
         env:
@@ -132,34 +139,65 @@ jobs:
           fi
           fingerprint="$(sha256sum body.md | cut -c1-12)"
           marker="<!-- format-guard:$fingerprint -->"
-          # Only trust exact HTML markers authored by automation bots (not user text).
-          trusted_marker=false
-          if gh issue view "$NUMBER" --repo "$GITHUB_REPOSITORY" --json comments \
-              --jq '.comments[] | select((.author.login // "") | test("\\[bot\\]$|github-actions"; "i")) | .body' \
-              | grep -qF "$marker"; then
-            trusted_marker=true
-          fi
+          # Only trust exact HTML markers authored by github-actions[bot]
+          # (immutable account id 41898282 when the REST payload includes user.id).
+          trusted_marker="$(FORMAT_GUARD_MARKER="$marker" node - <<'NODE'
+          (async () => {
+            const { Octokit } = require('@octokit/rest');
+            const { createTokenAwareRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const github = new Octokit({ auth: process.env.GH_TOKEN });
+            const core = { info: () => {}, warning: console.warn, debug: () => {} };
+            const { paginateWithRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'issue-format-guard',
+              capabilities: ['issues:read'],
+            });
+            const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+            const comments = await paginateWithRetry(
+              github.rest.issues.listComments,
+              { owner, repo, issue_number: Number(process.env.NUMBER), per_page: 100 }
+            );
+            const trusted = comments.some((comment) =>
+              comment.user?.login === 'github-actions[bot]'
+              && (comment.user?.id == null || comment.user.id === 41898282)
+              && (comment.body || '').includes(process.env.FORMAT_GUARD_MARKER)
+            );
+            process.stdout.write(trusted ? 'true' : 'false');
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+          )"
           has_format_label=false
           if jq -e '[.labels[].name] | any(. == "agents:format")' live.json >/dev/null; then
             has_format_label=true
           fi
-          # Dedup completed handoffs, but retry when a prior dispatch/optimizer run
-          # left agents:format set (marker without a finished optimizer pass).
+          # The marker is written only after dispatch succeeds.  Keep the label as
+          # the in-flight lease: a repeated guard run must not enqueue another
+          # optimizer while that lease is still present.  If the label was removed,
+          # retry the dispatch because the earlier handoff no longer owns the work.
           dispatch=true
-          if [[ "$trusted_marker" == true && "$has_format_label" != true ]]; then
-            echo "Identical invalid body was already routed; skipping duplicate dispatch."
+          if [[ "$trusted_marker" == true && "$has_format_label" == true ]]; then
+            echo "Identical invalid body is already routed and in flight; skipping duplicate dispatch."
             dispatch=false
-          elif [[ "$trusted_marker" == true && "$has_format_label" == true ]]; then
-            echo "Prior format-guard marker present but agents:format still set — retrying optimizer dispatch."
+          elif [[ "$trusted_marker" == true ]]; then
+            echo "Prior format-guard marker present but agents:format is absent — retrying optimizer dispatch."
           fi
           if jq -e '[.labels[].name] | any(. == "agents:formatted")' live.json >/dev/null; then
             gh issue edit "$NUMBER" --repo "$GITHUB_REPOSITORY" --remove-label "agents:formatted" \
               || echo "::warning::could not remove agents:formatted"
           fi
-          gh issue edit "$NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "agents:format" \
-            || echo "::warning::could not apply agents:format (label missing in this repo?)"
           if [[ "$dispatch" != true ]]; then
             exit 0
+          fi
+          # Acquiring the label is the handoff lease. Do not dispatch without it:
+          # otherwise a trusted marker alone could repeat the optimizer dispatch.
+          if ! gh issue edit "$NUMBER" --repo "$GITHUB_REPOSITORY" --add-label "agents:format"; then
+            echo "::error::could not acquire agents:format lease; refusing optimizer dispatch"
+            exit 1
           fi
           # GITHUB_TOKEN label edits do not start issues:labeled workflows; dispatch is explicit.
           # Persist the completion marker only after a successful workflow_dispatch so a

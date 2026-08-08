@@ -113,9 +113,9 @@ reason = Intentional divergence re-baselined 2026-06-30: root and consumer guard
 [pair.11]
 main = .github/workflows/agents-issue-optimizer.yml
 template = templates/consumer-repo/.github/workflows/agents-issue-optimizer.yml
-main_sha256 = d99f29c3433fa3430c68338cffe0c9ad7c6e22801303fea1916ddeab4040dc90
-template_sha256 = a4ab5b6f0039c1c20d3fb3133fed3a38902f7943cd46c951cf7695a0d3e41858
-reason = Intentional divergence re-baselined 2026-08-08: root and consumer issue-optimizer workflows keep different auth plumbing/action pin surfaces. Both validate format output before adding agents:formatted; the consumer explicitly sparse-checks out .github/scripts/issue_format.py plus config/scripts/langchain/tools from Workflows, while root runs those files in-tree. Do not align wholesale because that would strip consumer action pins/token setup.
+main_sha256 = ccf1cd3ccdba84c54743d2950367308df15c5928b95c1e7400a5d2858b7c1fa5
+template_sha256 = a4d50beb165724ff9266a18390d738105538fe0c13a5eb3a620fb8c9297fe80f
+reason = Intentional divergence re-baselined 2026-08-08b: root remains in-tree (scripts/langchain + .github/scripts/issue_format.py); consumer vendors those via Workflows sparse-checkout under workflows-scripts/. Shared behavioral contract this round: concurrency includes inputs.issue_number for workflow_dispatch dedupe, cancel-safe (failure()||cancelled()) agents:format lease release, and fixed issue_dedup Python indentation with visible non-zero exit warnings. Do not align wholesale — that would strip consumer action pins/token setup.
 
 [pair.12]
 main = .github/workflows/agents-keepalive-loop-reporter.yml
