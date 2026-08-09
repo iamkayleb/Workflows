@@ -166,6 +166,83 @@ def test_task_without_concrete_target_is_non_conforming() -> None:
 
 
 @pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+@pytest.mark.parametrize("task", ["Make the UI better", "Just fix bugs", "Go improve it"])
+def test_command_words_in_prose_are_not_concrete_targets(task: str, validator_path: Path) -> None:
+    validator = _validator(validator_path)
+    report = validator.validate(
+        VALID_CONTEXT
+        + f"## Tasks\n- [ ] {task}\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert not report.ok
+    assert "concrete file" in report.as_markdown()
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+@pytest.mark.parametrize(
+    "task",
+    [
+        # No separate path/file token — these must not pass via _TASK_COMMAND alone.
+        "Run python -m pytestfoo",
+        "Run python -m unittestfoo",
+        "Run gh run",
+        "Run gh workflow run",
+        "Run `gh run`",
+        "Run `gh workflow run`",
+    ],
+)
+def test_incomplete_command_shaped_tasks_are_rejected(task: str, validator_path: Path) -> None:
+    validator = _validator(validator_path)
+    report = validator.validate(
+        VALID_CONTEXT
+        + f"## Tasks\n- [ ] {task}\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert not report.ok
+    assert "concrete file" in report.as_markdown()
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+@pytest.mark.parametrize(
+    "task",
+    [
+        "Run python -m pytest tests/test_x.py",
+        "Run python3 -m unittest tests/test_x.py",
+        "Run gh run watch",
+        "Run gh workflow run selftest-ci.yml",
+        "Run `gh run watch`",
+        "Run `gh workflow run selftest-ci.yml`",
+    ],
+)
+def test_complete_command_shaped_tasks_are_accepted(task: str, validator_path: Path) -> None:
+    validator = _validator(validator_path)
+    report = validator.validate(
+        VALID_CONTEXT
+        + f"## Tasks\n- [ ] {task}\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert report.ok, report.as_markdown()
+
+
+@pytest.mark.parametrize(
     "task",
     [
         "Fix `bugs`",
@@ -236,3 +313,13 @@ def test_performant_is_subjective_acceptance_wording() -> None:
     )
     assert not report.ok
     assert "performant" in report.as_markdown()
+
+
+def test_backticked_make_test_is_a_concrete_target() -> None:
+    validator = _validator()
+    report = validator.validate(
+        VALID_CONTEXT
+        + "## Tasks\n- [ ] Run `make test`\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert report.ok
