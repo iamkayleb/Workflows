@@ -58,7 +58,13 @@ def _issue_format_validator() -> Any:
         raise RuntimeError(f"Cannot load canonical issue-format validator: {validator_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        # Do not leave a half-initialized validator behind: callers retry this
+        # loader after transient consumer-sync failures.
+        sys.modules.pop(spec.name, None)
+        raise
     return module
 
 
@@ -862,6 +868,7 @@ def main() -> None:
             "used_llm": result.get("used_llm", False),
             "labels": build_label_transition(),
             "needs_refinement": result.get("needs_refinement", True),
+            "validation_audit": result.get("validation_audit"),
         }
         if result.get("guard_blocked"):
             payload["guard_blocked"] = True

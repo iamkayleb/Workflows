@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import importlib.machinery
+import importlib.util
 import io
 import json
 import sys
@@ -13,6 +15,45 @@ from scripts.langchain.issue_pr_context import reuse_formatted_body
 
 def _canonical_issue_format():
     return issue_formatter._issue_format_validator()
+
+
+def test_issue_format_validator_removes_partially_loaded_module(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed validator import must not poison a later retry."""
+
+    attempts = {"count": 0}
+
+    class ValidationResult:
+        ok = True
+
+    class FailingLoader:
+        def create_module(self, spec):  # noqa: ANN001
+            return None
+
+        def exec_module(self, module):  # noqa: ANN001
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise RuntimeError("transient validator load failure")
+            module.__dict__["validate"] = lambda body: ValidationResult()
+
+    spec = importlib.machinery.ModuleSpec("_fleet_issue_format", FailingLoader())
+    monkeypatch.setattr(importlib.util, "spec_from_file_location", lambda *args: spec)
+    issue_formatter._issue_format_validator.cache_clear()
+
+    with pytest.raises(RuntimeError, match="transient validator load failure"):
+        issue_formatter._issue_format_validator()
+
+    assert "_fleet_issue_format" not in sys.modules
+    issue_formatter._issue_format_validator.cache_clear()
+
+    validator = issue_formatter._issue_format_validator()
+    assert attempts["count"] == 2
+    assert "_fleet_issue_format" in sys.modules
+    assert validator is sys.modules["_fleet_issue_format"]
+
+    sys.modules.pop("_fleet_issue_format", None)
+    issue_formatter._issue_format_validator.cache_clear()
 
 
 def _install_fake_langchain(monkeypatch: pytest.MonkeyPatch, mock_chain: mock.MagicMock) -> None:
@@ -423,6 +464,19 @@ def test_build_label_transition_matches_expected_labels() -> None:
 
 
 def test_main_emits_json_with_labels(monkeypatch, capsys) -> None:
+    expected_audit = "Task validation: 1 input → 1 output. All clean."
+    real_format_issue_body = issue_formatter.format_issue_body
+    monkeypatch.setattr(
+        issue_formatter,
+        "format_issue_body",
+        lambda raw, use_llm=True: {
+            "formatted_body": real_format_issue_body(raw, use_llm=False)["formatted_body"],
+            "provider_used": None,
+            "used_llm": False,
+            "validation_audit": expected_audit,
+            "needs_refinement": False,
+        },
+    )
     monkeypatch.setattr(
         sys,
         "argv",
@@ -439,6 +493,7 @@ def test_main_emits_json_with_labels(monkeypatch, capsys) -> None:
     }
     assert payload["used_llm"] is False
     assert "## Acceptance Criteria" in payload["formatted_body"]
+    assert payload["validation_audit"] == expected_audit
 
 
 def test_main_writes_output_file(monkeypatch, tmp_path, capsys) -> None:
