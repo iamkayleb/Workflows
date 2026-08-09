@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.20.19](https://github.com/stranske/Workflows/compare/v1.20.18...v1.20.19) (2026-08-09)
+
+
+### Bug Fixes
+
+* **agents:** address sync review debt ([#3005](https://github.com/stranske/Workflows/issues/3005)) ([4b20bd3](https://github.com/stranske/Workflows/commit/4b20bd38a52f9a78b8b632cbdaf2d16b11ff1a20))
+* **agents:** classify conventional local PR branches ([#3008](https://github.com/stranske/Workflows/issues/3008)) ([7a1347e](https://github.com/stranske/Workflows/commit/7a1347e52a420b86ba31940112802701df064f4a))
+* **agents:** stop the format guard inverting its own label checks ([#2994](https://github.com/stranske/Workflows/issues/2994)) ([d49a908](https://github.com/stranske/Workflows/commit/d49a90808881026ad7daf2ab841bb138c6a3f419))
+* **issues:** harden formatter contract handling ([#3004](https://github.com/stranske/Workflows/issues/3004)) ([102f1fb](https://github.com/stranske/Workflows/commit/102f1fb3f1a95bab7891ab7a1cdc6fc64d411b00))
+* **labels:** sync core labels with a cross-repo token and fail the job on write errors ([#3011](https://github.com/stranske/Workflows/issues/3011)) ([d77080c](https://github.com/stranske/Workflows/commit/d77080c2fd3032e4613725b0f94cc955607fe42a))
+
 ## [1.20.18](https://github.com/stranske/Workflows/compare/v1.20.17...v1.20.18) (2026-08-09)
 
 
