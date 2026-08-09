@@ -678,7 +678,7 @@ Keep this text.
 <details>
 <summary>Original Issue</summary>
 
-```text
+````text
 outer
 <details>
 <summary>Original Issue</summary>
@@ -687,7 +687,7 @@ outer
 inner
 ```
 </details>
-```
+````
 </details>
 
 ## Scope
@@ -701,6 +701,76 @@ Keep this too.
     assert "Keep this too." in stripped
     assert "Original Issue" not in stripped
     assert "</details>" not in stripped
+
+
+@pytest.mark.parametrize("marker", ["```", "~~~"])
+def test_strip_original_issue_ignores_details_when_fence_close_has_trailing_text(
+    marker: str,
+) -> None:
+    """A fence line with trailing junk must not resume HTML details counting."""
+    payload = "\n".join(
+        [
+            "## Why",
+            "",
+            "Keep this text.",
+            "",
+            "<details>",
+            "<summary>Original Issue</summary>",
+            "",
+            f"{marker}text",
+            "literal <details>",
+            f"{marker} still-inside",
+            "literal </details>",
+            marker,
+            "</details>",
+            "",
+            "## Scope",
+            "",
+            "Keep this too.",
+            "",
+        ]
+    )
+
+    stripped = issue_formatter._strip_original_issue_blocks(payload)
+
+    assert "Keep this text." in stripped
+    assert "Keep this too." in stripped
+    assert "Original Issue" not in stripped
+    assert "literal <details>" not in stripped
+    assert "</details>" not in stripped
+
+
+@pytest.mark.parametrize("marker", ["```", "~~~"])
+def test_strip_original_issue_keeps_same_line_details_inside_fence(marker: str) -> None:
+    """Same-line HTML must not turn a closing-fence candidate structural."""
+    payload = "\n".join(
+        [
+            "## Why",
+            "",
+            "Keep this text.",
+            "",
+            "<details>",
+            "<summary>Original Issue</summary>",
+            "",
+            f"{marker}text",
+            f"{marker}</details>",
+            "still inside the fenced payload",
+            marker,
+            "</details>",
+            "",
+            "## Scope",
+            "",
+            "Keep this too.",
+            "",
+        ]
+    )
+
+    stripped = issue_formatter._strip_original_issue_blocks(payload)
+
+    assert "Keep this text." in stripped
+    assert "Keep this too." in stripped
+    assert "Original Issue" not in stripped
+    assert "still inside the fenced payload" not in stripped
 
 
 def test_reuse_sets_needs_refinement_when_validator_fails() -> None:
@@ -749,4 +819,18 @@ def test_bare_curl_is_not_a_safe_verify_command() -> None:
     assert issue_formatter.SAFE_VERIFY_COMMAND_RE.match("curl") is None
     assert (
         issue_formatter.SAFE_VERIFY_COMMAND_RE.match("curl https://example.test/health") is not None
+    )
+
+
+def test_safe_verify_command_accepts_unittest_and_requires_gh_args() -> None:
+    assert (
+        issue_formatter.SAFE_VERIFY_COMMAND_RE.match("python -m unittest tests.test_x") is not None
+    )
+    assert issue_formatter.SAFE_VERIFY_COMMAND_RE.match("unittest") is not None
+    assert issue_formatter.SAFE_VERIFY_COMMAND_RE.match("gh run") is None
+    assert issue_formatter.SAFE_VERIFY_COMMAND_RE.match("gh workflow run") is None
+    assert issue_formatter.SAFE_VERIFY_COMMAND_RE.match("gh run watch") is not None
+    assert (
+        issue_formatter.SAFE_VERIFY_COMMAND_RE.match("gh workflow run agents-issue-optimizer.yml")
+        is not None
     )
