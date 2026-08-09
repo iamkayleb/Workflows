@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.20.16](https://github.com/stranske/Workflows/compare/v1.20.15...v1.20.16) (2026-08-09)
+
+
+### Bug Fixes
+
+* **agents:** exempt closed issues from the format guard ([#2997](https://github.com/stranske/Workflows/issues/2997)) ([e442592](https://github.com/stranske/Workflows/commit/e4425921e56522d728cfc1eb90895f1606cc9e99))
+* **agents:** harden format guard review findings ([#2995](https://github.com/stranske/Workflows/issues/2995)) ([b9c8ac4](https://github.com/stranske/Workflows/commit/b9c8ac4452227df48df84ac7c4e78169c77ec404))
+* **agents:** make the optimizer recursion guard actually correlate runs ([#2993](https://github.com/stranske/Workflows/issues/2993)) ([54d8b9e](https://github.com/stranske/Workflows/commit/54d8b9e39cbee72269ff865c94a783fdc989ef8f))
+
 ## [1.20.15](https://github.com/stranske/Workflows/compare/v1.20.14...v1.20.15) (2026-08-08)
 
 
