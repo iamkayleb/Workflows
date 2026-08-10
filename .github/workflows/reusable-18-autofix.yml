@@ -152,7 +152,15 @@ jobs:
     steps:
       - name: Set commit prefix env
         id: prefix
-        run: echo "AUTOFIX_COMMIT_PREFIX=${{ inputs.commit_prefix }}" >> "$GITHUB_ENV"
+        env:
+          COMMIT_PREFIX: ${{ inputs.commit_prefix }}
+        run: |
+          set -euo pipefail
+          if [[ "$COMMIT_PREFIX" == *$'\n'* || "$COMMIT_PREFIX" == *$'\r'* ]]; then
+            echo "::error::commit_prefix must be a single-line value"
+            exit 1
+          fi
+          printf 'AUTOFIX_COMMIT_PREFIX=%s\n' "$COMMIT_PREFIX" >> "$GITHUB_ENV"
       - name: Set sanitized PR head ref
         run: |
           set -euo pipefail
@@ -321,7 +329,7 @@ jobs:
           if [ "$caller" = "github-actions" ] || [ "$caller" = "github-actions[bot]" ]; then
             head_msg="$(git log -1 --pretty=%s 2>/dev/null || echo '')"
             head_msg_lc=$(printf '%s' "$head_msg" | tr '[:upper:]' '[:lower:]')
-            prefix_lc=$(printf '%s' "${{ inputs.commit_prefix }}" | tr '[:upper:]' '[:lower:]')
+            prefix_lc=$(printf '%s' "$AUTOFIX_COMMIT_PREFIX" | tr '[:upper:]' '[:lower:]')
             if [ -n "$prefix_lc" ]; then
               msg_prefix=$(printf '%.*s' "${#prefix_lc}" "$head_msg_lc")
               if [ "$msg_prefix" = "$prefix_lc" ]; then
