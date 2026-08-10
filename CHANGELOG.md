@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.20.22](https://github.com/stranske/Workflows/compare/v1.20.21...v1.20.22) (2026-08-10)
+
+
+### Bug Fixes
+
+* **agents:** address sync review debt ([#3022](https://github.com/stranske/Workflows/issues/3022)) ([5b8018c](https://github.com/stranske/Workflows/commit/5b8018cda049ee90ad1993b7097d8bbf6c112224))
+* **agents:** surface formatter errors in sync consumers ([#3019](https://github.com/stranske/Workflows/issues/3019)) ([e6b4733](https://github.com/stranske/Workflows/commit/e6b4733f0acad6f95d4ffc5fed73cd9ce1e1440b))
+* **workflows:** isolate free-text workflow inputs ([#3020](https://github.com/stranske/Workflows/issues/3020)) ([59e3312](https://github.com/stranske/Workflows/commit/59e33123713b7cb65724f642f528c9c4df5730f7)), closes [#3016](https://github.com/stranske/Workflows/issues/3016)
+
 ## [1.20.21](https://github.com/stranske/Workflows/compare/v1.20.20...v1.20.21) (2026-08-09)
 
 
