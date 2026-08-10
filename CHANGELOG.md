@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.20.25](https://github.com/stranske/Workflows/compare/v1.20.24...v1.20.25) (2026-08-10)
+
+
+### Bug Fixes
+
+* **agents:** address sync review debt ([#3024](https://github.com/stranske/Workflows/issues/3024)) ([659e0d8](https://github.com/stranske/Workflows/commit/659e0d80b7054649cb92b85e4895bec556e69ae2))
+
 ## [1.20.24](https://github.com/stranske/Workflows/compare/v1.20.23...v1.20.24) (2026-08-10)
 
 
