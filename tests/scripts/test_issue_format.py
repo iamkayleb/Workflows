@@ -100,6 +100,62 @@ def test_checkbox_and_subjective_errors_are_non_conforming() -> None:
     assert "not yet agent-processable" in report.as_markdown()
 
 
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+def test_subjective_words_in_fenced_acceptance_examples_are_ignored(validator_path: Path) -> None:
+    validator = _validator(validator_path)
+    report = validator.validate(
+        VALID_CONTEXT
+        + "## Tasks\n- [ ] Update `src/client.py`\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n\n"
+        + "```sh\necho fast\n```\n"
+    )
+    assert report.ok
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("acceptance", "expected_ok"),
+    [
+        ("- pytest tests/test_x.py passes; `fast` is a literal\n", True),
+        ("- pytest tests/test_x.py passes fast\n", False),
+    ],
+)
+def test_subjective_words_in_inline_code_are_ignored_but_prose_is_rejected(
+    validator_path: Path, acceptance: str, expected_ok: bool
+) -> None:
+    validator = _validator(validator_path)
+    report = validator.validate(
+        VALID_CONTEXT
+        + "## Tasks\n- [ ] Update `src/client.py`\n\n"
+        + "## Acceptance Criteria\n"
+        + acceptance
+    )
+    assert report.ok is expected_ok
+
+
+def test_acceptance_gate_inside_fence_and_code_path_adjective_are_valid() -> None:
+    validator = _validator()
+    report = validator.validate(
+        VALID_CONTEXT
+        + "## Tasks\n- [ ] Update `tests/fast/test_api.py`\n\n"
+        + "## Acceptance Criteria\nRun the regression suite:\n"
+        + "```sh\npython -m pytest tests/fast/test_api.py -q\n```\n"
+    )
+    assert report.ok
+
+
 def test_runner_and_curl_are_accepted_gates() -> None:
     validator = _validator()
     report = validator.validate(
