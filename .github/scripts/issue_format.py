@@ -269,10 +269,12 @@ def _task_items(body: str) -> list[str]:
     return re.findall(r"^\s*[-*]\s*\[[ xX]\]\s*(.+)$", body or "", re.M)
 
 
-def _candidate_matches(text: str) -> list[tuple[int, str]]:
+def _candidate_matches(text: str) -> list[tuple[int, int, str]]:
     """Extract candidate paths together with their position in a task."""
-    matches = [(match.start(), match.group(1)) for match in _PATH_SPAN.finditer(text)]
-    matches.extend((match.start(), match.group(1)) for match in _UNQUOTED_PATH.finditer(text))
+    matches = [(match.start(), match.end(), match.group(1)) for match in _PATH_SPAN.finditer(text)]
+    matches.extend(
+        (match.start(), match.end(), match.group(1)) for match in _UNQUOTED_PATH.finditer(text)
+    )
     return sorted(matches)
 
 
@@ -300,15 +302,28 @@ def _created_paths(body: str) -> set[str]:
     """Paths explicitly created by a task are not pre-existing evidence."""
     created: set[str] = set()
     for item in _task_items(body):
-        for start, raw in _candidate_matches(item):
+        creation_chain = False
+        previous_end = 0
+        seen_in_item: set[str] = set()
+        for start, end, raw in _candidate_matches(item):
+            candidate = _normalise_cited_path(raw)
+            if candidate is None or candidate in seen_in_item:
+                continue
+            seen_in_item.add(candidate)
             # The path must be the direct object of an explicit file-creation
             # phrase.  "Add validation to missing/a.py" modifies a cited file;
             # it does not declare that file as new.
             prefix = item[:start].rstrip("`")
-            if not _EXPLICIT_CREATE_PREFIX.search(prefix):
-                continue
-            if candidate := _normalise_cited_path(raw):
+            if _EXPLICIT_CREATE_PREFIX.search(prefix):
+                creation_chain = True
+            elif creation_chain:
+                separator = item[previous_end:start]
+                creation_chain = bool(
+                    re.fullmatch(r"\s*(?:[,;]\s*)?(?:(?:and|or)\s+)?", separator, re.I)
+                )
+            if creation_chain:
                 created.add(candidate)
+            previous_end = end
     return created
 
 

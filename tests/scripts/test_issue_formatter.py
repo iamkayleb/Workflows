@@ -58,7 +58,7 @@ def test_issue_format_validator_removes_partially_loaded_module(
 
 
 def test_formatted_output_validation_uses_current_checkout(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     seen: dict[str, Path | None] = {"repo_root": None}
 
@@ -73,9 +73,10 @@ def test_formatted_output_validation_uses_current_checkout(
             return ValidationResult()
 
     monkeypatch.setattr(issue_formatter, "_issue_format_validator", lambda: Validator())
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
 
     assert issue_formatter._formatted_output_valid("formatted issue") is True
-    assert seen["repo_root"] == Path(issue_formatter.__file__).resolve().parents[2]
+    assert seen["repo_root"] == tmp_path.resolve()
 
 
 def _install_fake_langchain(monkeypatch: pytest.MonkeyPatch, mock_chain: mock.MagicMock) -> None:

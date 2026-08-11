@@ -236,7 +236,9 @@ Tasks
     non-create paths that resolve nowhere in this repository are rejected;
     a path is create-only only when it is the direct object of an explicit
     file-creation phrase. "Add validation to path" is a modification and the
-    cited path must already resolve.
+    cited path must already resolve. One creation phrase may govern a
+    comma/conjunction-separated list of new paths until the task switches to a
+    different action.
     quoted and unquoted task paths both count, while absolute and parent-relative
     paths never count as repository evidence.
 [ ] No banned vague verb stands alone ("fix bugs", "improve X",

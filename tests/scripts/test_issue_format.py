@@ -644,6 +644,43 @@ def test_create_verbs_after_task_context_still_mark_direct_paths_new(
         Path("templates/consumer-repo/.github/scripts/issue_format.py"),
     ],
 )
+def test_one_create_phrase_governs_a_list_of_new_paths(tmp_path, validator_path: Path) -> None:
+    validator = _validator(validator_path)
+    body = (
+        VALID_CONTEXT
+        + "## Tasks\n"
+        + "- [ ] Create new/a.py, new/b.py, new/c.py, and new/d.py\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert validator._created_paths(body) == {
+        "new/a.py",
+        "new/b.py",
+        "new/c.py",
+        "new/d.py",
+    }
+    assert validator.validate(body, repo_root=tmp_path).ok
+
+
+def test_create_path_chain_stops_when_task_switches_to_modification(tmp_path) -> None:
+    validator = _validator()
+    body = (
+        VALID_CONTEXT
+        + "## Tasks\n"
+        + "- [ ] Create new/a.py, then add validation to missing/b.py, missing/c.py, "
+        + "and missing/d.py\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert validator._created_paths(body) == {"new/a.py"}
+    assert not validator.validate(body, repo_root=tmp_path).ok
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
 def test_add_behavior_to_missing_paths_is_not_file_creation(tmp_path, validator_path: Path) -> None:
     validator = _validator(validator_path)
     body = (
