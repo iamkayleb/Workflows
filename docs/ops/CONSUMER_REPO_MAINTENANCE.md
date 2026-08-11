@@ -18,8 +18,9 @@ the workflow is the source of truth.
 Scheduled Health 68 runs are triggered only after a successful Maint 71 janitor; push and
 manual runs are intentionally immediate. It classifies each
 consumer as `converged`, `covered`, `blocked`, `untracked_drift`, or `stale`. An open
-sync PR covers drift only when its `sync/workflows-<template-hash>` branch matches the
-current compiled plan and it is within the 36-hour coverage lease. Fully covered drift
+sync PR covers drift only when it matches the current compiled plan and is within the
+36-hour coverage lease. Configured canaries use the stable `sync/workflows-candidate`
+branch; promoted non-canaries use `sync/workflows-<template-hash>`. Fully covered drift
 exits zero and does not append a durable-tracker comment; stale (including expired
 coverage), blocked (including global/lookup failures), and untracked states remain
 actionable failures.
@@ -267,16 +268,25 @@ it can open sync PRs only for the 2-3 representative repositories declared in
 compiled `plan_id`, desired hash, and prospective affected paths for every
 registered repository before any consumer write.
 
-Do not wait for consumer CI in that workflow. Run Maint 71 later to publish
-`sync-canary-evidence.json`, then invoke Maint 68 with `phase=promote` and that
-artifact's JSON as `canary_evidence_json`. Promotion rejects absent, stale or
+An explicit `repos` input may narrow a canary run to a subset of those configured
+canaries, but it cannot expand a canary run into non-canary repositories. The
+selector fails closed with `canary_selection_contains_non_canary` if an operator
+tries. Canary corrections refresh the stable `sync/workflows-candidate` branch
+and its existing PR instead of opening another hash-named PR for every candidate
+plan. Hash-named `sync/workflows-<plan>` branches are reserved for promotion.
+
+Do not wait for consumer CI in that workflow. Run Maint 71 later with
+`active_sync_hash=candidate` to publish `sync-canary-evidence.json`, then invoke
+Maint 68 with `phase=promote` and that artifact's JSON as
+`canary_evidence_json`. Promotion rejects absent, stale or
 mixed-plan evidence, failed required checks, and active non-outdated review
 threads. A successful promotion targets all registered non-canary repositories
 once every configured canary has current, green, review-clear evidence for the
 same plan.
 Use `preview` to produce the plan/evidence artifact without a write matrix.
-Emergency direct promotion remains an explicit audited operator action and is
-limited to a security or production-break fix.
+There is no direct-repository promotion bypass. Security and production-break
+fixes may use an expedited canary run, but still require exact-plan evidence
+before `phase=promote` can write to non-canaries.
 
 To validate the manifest locally:
 
@@ -460,9 +470,14 @@ changes, not synced template files.
 ```bash
 gh workflow run "Maint 68 Sync Consumer Repos" \
   --repo stranske/Workflows \
+  -f phase=preview \
   -f repos="stranske/Travel-Plan-Permission" \
   -f dry_run=true
 ```
+
+Omit `repos` for the normal configured canary run. A write run targeting any
+non-canary must use `phase=promote` with Maint 71's exact-plan
+`canary_evidence_json`; `phase=canary -f repos=<fleet>` is rejected.
 
 ### Drift Detection
 

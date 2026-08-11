@@ -154,7 +154,15 @@ def select_phase(
     if phase == "preview":
         selected = []
     elif phase == "canary":
-        selected = target_repos if selected_repos is not None else canary_repos
+        if selected_repos is not None:
+            non_canaries = [repo for repo in selected_repos if repo not in canary_repos]
+            if non_canaries:
+                raise PhaseSelectionError(
+                    "canary_selection_contains_non_canary:" + ",".join(non_canaries)
+                )
+            selected = selected_repos
+        else:
+            selected = canary_repos
     else:
         reasons = _promotion_rejections(
             plan_id=plan["plan_id"],

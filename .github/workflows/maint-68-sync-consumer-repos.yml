@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       repos:
-        description: 'Comma-separated repos to sync (empty for all registered)'
+        description: 'Optional repo subset (canary phase accepts configured canaries only)'
         type: string
         required: false
       dry_run:
@@ -83,6 +83,7 @@ jobs:
       template_hash: ${{ steps.manifest.outputs.template_hash }}
       plan_id: ${{ steps.manifest.outputs.plan_id }}
       phase: ${{ steps.repos.outputs.phase }}
+      sync_branch: ${{ steps.repos.outputs.sync_branch }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -124,6 +125,7 @@ jobs:
         env:
           CANARY_EVIDENCE_JSON: ${{ inputs.canary_evidence_json || '' }}
           REPOS_INPUT: ${{ inputs.repos }}
+          TEMPLATE_HASH: ${{ steps.manifest.outputs.template_hash }}
         run: |
           if [ -n "$REPOS_INPUT" ]; then
             repos="$REPOS_INPUT"
@@ -149,7 +151,16 @@ jobs:
             --output sync-phase-selection.json
           echo "matrix=$(jq -c '.matrix' sync-phase-selection.json)" >> "$GITHUB_OUTPUT"
           echo "phase=$phase" >> "$GITHUB_OUTPUT"
+          if [ "$phase" = "canary" ]; then
+            # Candidate corrections update the same bounded PR in each canary
+            # repository. Only a plan-bound promotion gets immutable hash branches.
+            sync_branch="sync/workflows-candidate"
+          else
+            sync_branch="sync/workflows-$TEMPLATE_HASH"
+          fi
+          echo "sync_branch=$sync_branch" >> "$GITHUB_OUTPUT"
           echo "Selected phase: $phase"
+          echo "Sync branch: $sync_branch"
           jq -r '.selected_repos[]' sync-phase-selection.json
 
       - name: Upload plan and prospective-diff evidence
@@ -713,11 +724,13 @@ jobs:
         id: open_pr
         if: steps.sync.outputs.has_changes == 'true' && inputs.dry_run != true
         uses: actions/github-script@v9
+        env:
+          SYNC_BRANCH: ${{ needs.prepare.outputs.sync_branch }}
         with:
           github-token: ${{ env.REPO_TOKEN }}
           script: |
             const { isConsumerOpenPr } = require('./workflows/.github/scripts/sync_tracker_state');
-            const branchName = 'sync/workflows-${{ needs.prepare.outputs.template_hash }}';
+            const branchName = process.env.SYNC_BRANCH;
             const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const exists = await isConsumerOpenPr({
               github,
@@ -737,10 +750,11 @@ jobs:
           GH_TOKEN: ${{ env.REPO_TOKEN }}
           DELIVERY_GENERATION: ${{ needs.prepare.outputs.template_hash }}
           DELIVERY_REPOSITORY: ${{ matrix.repo }}
+          SYNC_BRANCH: ${{ needs.prepare.outputs.sync_branch }}
         run: |
           cd consumer
 
-          branch_name="sync/workflows-${{ needs.prepare.outputs.template_hash }}"
+          branch_name="$SYNC_BRANCH"
 
           # Configure git for push/fetch authentication using credential helper
           # This avoids exposing token in git remote URL or command output.
@@ -752,8 +766,10 @@ jobs:
           git config credential.helper "$credential_helper"
 
           # Keep an existing generated PR current instead of treating it as a
-          # terminal delivery attempt: rebuild its branch and refresh its lease
-          # only when the existing attempt still has a current delivery record.
+          # terminal delivery attempt. Immutable promotion branches refresh only
+          # within one generation. The stable canary branch may rotate to a new
+          # candidate plan when its existing delivery record is valid and owned
+          # by this consumer repository.
           existing_pr=$(gh pr list --head "$branch_name" --json number -q '.[0].number' || echo "")
           existing_head=""
           existing_base=""
@@ -776,6 +792,8 @@ jobs:
               DELIVERY_GENERATION="$DELIVERY_GENERATION" \
               PLAN_ID="$PLAN_ID" \
               DELIVERY_REPOSITORY="$DELIVERY_REPOSITORY" \
+              SYNC_PHASE="$SYNC_PHASE" \
+              SYNC_BRANCH="$branch_name" \
               node -e '
                 const fs = require("fs");
                 const { parseDeliveryRecord, mergeEligibility } = require("../workflows/.github/scripts/sync_pr_lease_contract");
@@ -783,6 +801,21 @@ jobs:
                 const record = parseDeliveryRecord(body);
                 if (!record) {
                   process.stdout.write("false missing_or_invalid");
+                  process.exit(0);
+                }
+                const isStableCandidate =
+                  process.env.SYNC_PHASE === "canary" &&
+                  process.env.SYNC_BRANCH === "sync/workflows-candidate";
+                if (isStableCandidate) {
+                  if (record.repository !== (process.env.DELIVERY_REPOSITORY || "")) {
+                    process.stdout.write("false repository_mismatch");
+                    process.exit(0);
+                  }
+                  if (record.terminal_disposition) {
+                    process.stdout.write(`false terminal:${record.terminal_disposition}`);
+                    process.exit(0);
+                  }
+                  process.stdout.write("true candidate_plan_rotation");
                   process.exit(0);
                 }
                 if (record.generation !== (process.env.DELIVERY_GENERATION || "")) {
@@ -983,6 +1016,7 @@ jobs:
           TEMPLATE_HASH: ${{ needs.prepare.outputs.template_hash }}
           PLAN_ID: ${{ needs.prepare.outputs.plan_id }}
           SYNC_PHASE: ${{ needs.prepare.outputs.phase }}
+          SYNC_BRANCH: ${{ needs.prepare.outputs.sync_branch }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
           FORCE: ${{ inputs.force || 'false' }}
           SYNC_OUTCOME: ${{ steps.sync.outcome || 'skipped' }}
@@ -1030,11 +1064,7 @@ jobs:
               "template_hash": os.environ.get("TEMPLATE_HASH", ""),
               "plan_id": os.environ.get("PLAN_ID", ""),
               "sync_phase": os.environ.get("SYNC_PHASE", ""),
-              "expected_branch": (
-                  f"sync/workflows-{os.environ.get('TEMPLATE_HASH', '')}"
-                  if os.environ.get("TEMPLATE_HASH", "")
-                  else ""
-              ),
+              "expected_branch": os.environ.get("SYNC_BRANCH", ""),
               "dry_run": dry_run,
               "force": os.environ.get("FORCE", "false") == "true",
               "has_changes": has_changes,
