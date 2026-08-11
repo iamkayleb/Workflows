@@ -468,6 +468,7 @@ def test_vague_task_targets_are_non_conforming(task: str) -> None:
         "Update Dockerfile",
         "Wire `IssueFormatter` into the guard",
         "Write unit tests for calculateDiscount function",
+        "Add input validation for email field in UserForm component",
         "Touch file `src/client.py`",
         "Run pytest tests/scripts/test_issue_format.py",
     ],
