@@ -269,9 +269,23 @@ def _task_items(body: str) -> list[str]:
     return re.findall(r"^\s*[-*]\s*\[[ xX]\]\s*(.+)$", body or "", re.M)
 
 
-def _candidate_spans(text: str) -> list[str]:
-    """Extract quoted and contract-accepted unquoted path candidates."""
-    return _PATH_SPAN.findall(text) + _UNQUOTED_PATH.findall(text)
+def _candidate_matches(text: str) -> list[tuple[int, str]]:
+    """Extract candidate paths together with their position in a task."""
+    matches = [(match.start(), match.group(1)) for match in _PATH_SPAN.finditer(text)]
+    matches.extend((match.start(), match.group(1)) for match in _UNQUOTED_PATH.finditer(text))
+    return sorted(matches)
+
+
+_EXPLICIT_CREATE_PREFIX = re.compile(
+    r"(?:"
+    r"\b(?:create|scaffold|generate)\s+(?:(?:a|the)\s+)?(?:new\s+)?"
+    r"(?:file\s+)?(?:at\s+|named\s+)?"
+    r"|"
+    r"\b(?:add|introduce|write)\s+(?:(?:a|the)\s+)?(?:new\s+)?"
+    r"file(?:\s+(?:at|named))?\s+"
+    r")$",
+    re.I,
+)
 
 
 def _cited_paths(body: str) -> list[str]:
@@ -291,9 +305,13 @@ def _created_paths(body: str) -> set[str]:
     """Paths explicitly created by a task are not pre-existing evidence."""
     created: set[str] = set()
     for item in _task_items(body):
-        if not re.match(r"(?:create|add|introduce|scaffold|generate|write)\b", item, re.I):
-            continue
-        for raw in _candidate_spans(item):
+        for start, raw in _candidate_matches(item):
+            # The path must be the direct object of an explicit file-creation
+            # phrase.  "Add validation to missing/a.py" modifies a cited file;
+            # it does not declare that file as new.
+            prefix = item[:start].rstrip("`")
+            if not _EXPLICIT_CREATE_PREFIX.search(prefix):
+                continue
             if candidate := _normalise_cited_path(raw):
                 created.add(candidate)
     return created

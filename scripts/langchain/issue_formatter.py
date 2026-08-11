@@ -450,7 +450,8 @@ def _formatted_output_valid(text: str) -> bool:
     if not text:
         return False
     try:
-        return bool(_issue_format_validator().validate(text).ok)
+        repo_root = Path(__file__).resolve().parents[2]
+        return bool(_issue_format_validator().validate(text, repo_root=repo_root).ok)
     except (ImportError, OSError, RuntimeError, SyntaxError):
         # Preserve the former heading-only behavior until the copy-synced
         # validator becomes available again.
