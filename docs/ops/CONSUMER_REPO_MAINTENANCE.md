@@ -283,6 +283,24 @@ mixed-plan evidence, failed required checks, and active non-outdated review
 threads. A successful promotion targets all registered non-canary repositories
 once every configured canary has current, green, review-clear evidence for the
 same plan.
+
+Maint 71 persists and validates the `sync-canary-evidence-premerge` artifact
+before its merge step is allowed to run. A GitHub pre-job approval hold, a
+cancelled evidence step, or an artifact-upload failure therefore leaves the
+candidate PRs open and recoverable. If an older operator merged the stable
+candidate PRs before evidence was durable, Maint 71 may reconstruct evidence
+only from the latest trusted, actually merged `sync/workflows-candidate` PR in
+each configured canary, rechecking that exact head's required checks and live
+review threads. Maint 68 still rejects a stale or mixed recovered plan.
+Candidate mode derives its repository scope from
+`config/consumer_sync_canaries.json`; non-canary delivery branches are excluded
+and cannot create false `target_missing` failures.
+Maint 71 enforces the seven-minute exact-head review window and performs a final
+head plus active-review-thread query immediately before each generated merge.
+Workflow-call, manual, and repository-dispatch candidate selectors normalize to
+the same gate. The executor requires same-job evidence/upload authorization, so
+scheduled or malformed paths cannot merge a candidate implicitly.
+
 Use `preview` to produce the plan/evidence artifact without a write matrix.
 There is no direct-repository promotion bypass. Security and production-break
 fixes may use an expedited canary run, but still require exact-plan evidence

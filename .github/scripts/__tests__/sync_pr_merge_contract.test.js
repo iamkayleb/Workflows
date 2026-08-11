@@ -10,18 +10,22 @@ const {
   buildMarkdownSummary,
   buildDeliveryHandoff,
   buildMergeReport,
+  candidateEvidenceAllowsMutation,
   classifyGeneratedPr,
   classifySyncPrChecks,
   collectDeletableSyncBranches,
+  evaluatePostPushReviewWindow,
   generatedDeliveryLane,
   isTrustedGeneratedDeliveryPr,
   isTrustedSyncPr,
   normalizeSyncHash,
   parseBooleanInput,
   selectActiveSyncPr,
+  selectLatestMergedCandidatePr,
   selectMergeEligibleSyncPr,
   summarizeResults,
   syncBranchForHash,
+  validateCanaryEvidence,
 } = require('../sync_pr_merge_contract');
 const { assertRuntimeAcMergeAllowed } = require('../runtime_ac_merge_guard');
 const { run } = require('../maint71_merge_sync_prs');
@@ -115,6 +119,134 @@ test('maint71 run writes reports and records a no-PR result with fake action cli
   }
 });
 
+test('maint71 recovers exact-head evidence from an already-merged candidate PR', async () => {
+  const originalCwd = process.cwd();
+  const envKeys = [
+    'REGISTERED_REPOS_INPUT',
+    'CLEANUP_BRANCHES_INPUT',
+    'DRY_RUN_INPUT',
+    'AUTO_MERGE_INPUT',
+    'EVIDENCE_ONLY_INPUT',
+    'ACTIVE_SYNC_HASH_INPUT',
+    'CONSUMER_SYNC_CANARIES_PATH',
+    'TRUSTED_SYNC_ACTORS',
+    'SYNC_PR_MERGE_REPORT_JSON',
+  ];
+  const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maint71-recovery-'));
+  const reportPath = path.join(tempDir, 'artifacts', 'merge-report.json');
+  const canaryConfigPath = path.join(tempDir, 'consumer-sync-canaries.json');
+  fs.writeFileSync(
+    canaryConfigPath,
+    JSON.stringify({ canaries: [{ repo: 'stranske/Travel-Plan-Permission' }] }),
+  );
+  const marker = '<!-- workflows-consumer-sync:v1 {"schema":"workflows-consumer-sync-pr/v1","consumer_repo":"stranske/Travel-Plan-Permission","plan_id":"plan-abc","sync_phase":"canary"} -->';
+  const delivery = '<!-- sync-pr-delivery-record:v1 {"schema":"sync-pr-delivery-record/v1","durable_issue_url":"https://github.com/stranske/Workflows/issues/1836","plan_id":"plan-abc","generation":"candidate-1","repository":"stranske/Travel-Plan-Permission","desired_tree_hash":"tree-abc","source_commit":"source-abc","lease_expires_at":"2099-08-14T00:00:00Z","predecessor_prs":[],"successor_prs":[]} -->';
+  const mergedCandidate = {
+    number: 1427,
+    title: 'chore: sync workflow templates',
+    body: `${marker}\n${delivery}`,
+    created_at: '2026-08-11T05:22:39Z',
+    updated_at: '2026-08-11T07:31:00Z',
+    merged_at: '2026-08-11T07:31:00Z',
+    base: { ref: 'main' },
+    head: { ref: 'sync/workflows-candidate', sha: 'head-abc' },
+    user: { login: 'stranske' },
+  };
+  const unrelatedOpenDelivery = {
+    ...mergedCandidate,
+    number: 1428,
+    merged_at: null,
+    head: { ref: 'deps/sync-dev-versions-other', sha: 'head-other' },
+  };
+  const github = {
+    paginate: async (_method, params) => {
+      if (params.state === 'open') return [unrelatedOpenDelivery];
+      if (params.state === 'closed') return [mergedCandidate];
+      if (params.ref === 'head-abc') {
+        return [{ name: 'Gate / gate', status: 'completed', conclusion: 'success' }];
+      }
+      return [];
+    },
+    graphql: async () => ({
+      repository: {
+        pullRequest: {
+          reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
+        },
+      },
+    }),
+    rest: {
+      pulls: {
+        list: () => {},
+        get: async () => ({ data: mergedCandidate }),
+      },
+      checks: { listForRef: () => {} },
+      git: { getCommit: async () => ({ data: { tree: { sha: 'tree-abc' } } }) },
+      repos: {
+        getBranchProtection: async () => ({
+          data: { required_status_checks: { contexts: ['Gate / gate'], checks: [] } },
+        }),
+        getCombinedStatusForRef: async () => ({ data: { statuses: [] } }),
+        createDispatchEvent: async () => ({}),
+      },
+    },
+  };
+  const failures = [];
+  const core = {
+    addRaw: () => ({ write: async () => {} }),
+    notice: () => {},
+    setFailed: (message) => failures.push(message),
+    warning: () => {},
+    summary: { addRaw: () => ({ write: async () => {} }) },
+  };
+
+  try {
+    process.chdir(tempDir);
+    process.env.REGISTERED_REPOS_INPUT =
+      'stranske/Travel-Plan-Permission,stranske/Collab-Admin';
+    process.env.CLEANUP_BRANCHES_INPUT = 'false';
+    process.env.DRY_RUN_INPUT = 'true';
+    process.env.AUTO_MERGE_INPUT = 'false';
+    process.env.ACTIVE_SYNC_HASH_INPUT = 'candidate';
+    process.env.EVIDENCE_ONLY_INPUT = 'true';
+    process.env.CONSUMER_SYNC_CANARIES_PATH = canaryConfigPath;
+    process.env.TRUSTED_SYNC_ACTORS = 'stranske';
+    process.env.SYNC_PR_MERGE_REPORT_JSON = reportPath;
+
+    await run({
+      github,
+      core,
+      context: {
+        repo: { owner: 'stranske', repo: 'Workflows' },
+        payload: {},
+        runId: 2,
+        runNumber: 2,
+        workflow: 'Maint 71',
+        ref: 'refs/heads/main',
+        sha: 'source-abc',
+      },
+    });
+
+    const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+    const evidence = JSON.parse(
+      fs.readFileSync(path.join(tempDir, 'artifacts', 'sync-canary-evidence.json'), 'utf8'),
+    );
+    assert.equal(report.summary.evidence_recovered, 1);
+    assert.deepEqual(report.inputs.repos, ['stranske/Travel-Plan-Permission']);
+    assert.equal(evidence.results[0].pr, 1427);
+    assert.equal(evidence.results[0].head_sha, 'head-abc');
+    assert.equal(evidence.results[0].evidence_source, 'merged-candidate-recovery');
+    assert.deepEqual(failures, []);
+  } finally {
+    process.chdir(originalCwd);
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('normalizeSyncHash accepts raw hashes and branch names', () => {
   assert.equal(normalizeSyncHash('5108b94a2435'), '5108b94a2435');
   assert.equal(normalizeSyncHash('sync/workflows-5108b94a2435'), '5108b94a2435');
@@ -123,12 +255,95 @@ test('normalizeSyncHash accepts raw hashes and branch names', () => {
   assert.equal(syncBranchForHash('candidate'), 'sync/workflows-candidate');
 });
 
+test('selectLatestMergedCandidatePr recovers only the newest trusted merged candidate', () => {
+  const candidate = (number, mergedAt, actor = 'stranske') => ({
+    ...pr(number, 'sync/workflows-candidate', '2026-08-11T01:00:00Z'),
+    merged_at: mergedAt,
+    head: { ref: 'sync/workflows-candidate', sha: `head-${number}` },
+    user: { login: actor },
+  });
+  const selected = selectLatestMergedCandidatePr([
+    candidate(1, '2026-08-11T02:00:00Z'),
+    candidate(2, '2026-08-11T03:00:00Z'),
+    candidate(3, '2026-08-11T04:00:00Z', 'untrusted'),
+    { ...candidate(4, null), merged_at: null },
+  ], ['stranske']);
+
+  assert.equal(selected.number, 2);
+});
+
+test('validateCanaryEvidence fails closed on missing, mixed, red, or reviewed canaries', () => {
+  const expected = ['stranske/A', 'stranske/B'];
+  const valid = [
+    { repo: 'stranske/A', plan_id: 'plan-1', required_check_state: 'success', active_review_thread_count: 0 },
+    { repo: 'stranske/B', plan_id: 'plan-1', required_check_state: 'success', active_review_thread_count: 0 },
+  ];
+  assert.deepEqual(validateCanaryEvidence(valid, expected), {
+    ok: true,
+    errors: [],
+    plan_id: 'plan-1',
+  });
+
+  const invalid = validateCanaryEvidence([
+    { ...valid[0], required_check_state: 'checks_failed' },
+    { ...valid[1], plan_id: 'plan-2', active_review_thread_count: 1 },
+  ], expected);
+  assert.equal(invalid.ok, false);
+  assert.ok(invalid.errors.includes('required_checks_not_green:stranske/A'));
+  assert.ok(invalid.errors.includes('active_review_debt:stranske/B'));
+  assert.ok(invalid.errors.includes('missing_or_mixed_canary_plan'));
+});
+
 test('parseBooleanInput preserves explicit false values', () => {
   assert.equal(parseBooleanInput('false', true), false);
   assert.equal(parseBooleanInput(false, true), false);
   assert.equal(parseBooleanInput('0', true), false);
   assert.equal(parseBooleanInput('', true), true);
   assert.equal(parseBooleanInput(undefined, false), false);
+});
+
+test('post-push review window fails closed until seven full minutes elapse', () => {
+  const prState = {
+    created_at: '2026-08-11T13:00:00Z',
+    updated_at: '2026-08-11T13:02:00Z',
+  };
+  assert.deepEqual(
+    evaluatePostPushReviewWindow(prState, '2026-08-11T13:08:59Z'),
+    {
+      ready: false,
+      reason: 'review_window_pending',
+      anchor_at: '2026-08-11T13:02:00.000Z',
+      eligible_at: '2026-08-11T13:09:00.000Z',
+    },
+  );
+  assert.equal(
+    evaluatePostPushReviewWindow(prState, '2026-08-11T13:09:00Z').ready,
+    true,
+  );
+  assert.equal(evaluatePostPushReviewWindow({}, '2026-08-11T13:09:00Z').ready, false);
+});
+
+test('candidate mutation requires the evidence pass authorization', () => {
+  assert.equal(candidateEvidenceAllowsMutation({
+    branch: 'sync/workflows-candidate',
+    evidenceOnly: false,
+    authorized: false,
+  }), false);
+  assert.equal(candidateEvidenceAllowsMutation({
+    branch: 'sync/workflows-candidate',
+    evidenceOnly: true,
+    authorized: false,
+  }), true);
+  assert.equal(candidateEvidenceAllowsMutation({
+    branch: 'sync/workflows-candidate',
+    evidenceOnly: false,
+    authorized: true,
+  }), true);
+  assert.equal(candidateEvidenceAllowsMutation({
+    branch: 'sync/workflows-deadbeef',
+    evidenceOnly: false,
+    authorized: false,
+  }), true);
 });
 
 test('selectActiveSyncPr falls back to newest sync PR without a target hash', () => {
@@ -292,6 +507,9 @@ test('buildMergeReport provides machine-readable summary counts', () => {
     branch_delete_failed: 0,
     checks_failed: 0,
     checks_pending: 0,
+    candidate_evidence_required: 0,
+    review_window_pending: 0,
+    head_changed: 0,
     review_blocked: 0,
     ready: 0,
     dry_run_merge: 1,
@@ -299,6 +517,7 @@ test('buildMergeReport provides machine-readable summary counts', () => {
     merged: 0,
     merge_failed: 0,
     delivery_contract_blocked: 0,
+    evidence_recovered: 0,
     error: 0,
   });
   assert.deepEqual(report.handoff_records, []);

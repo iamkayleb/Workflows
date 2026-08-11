@@ -4,6 +4,7 @@ const REPORT_SCHEMA = 'workflows-sync-pr-merge/v1';
 const SYNC_BRANCH_PREFIX = 'sync/workflows-';
 const DEV_TOOL_SYNC_BRANCH_PREFIX = 'deps/sync-dev-versions-';
 const GENERATED_DELIVERY_BRANCH_PREFIXES = [SYNC_BRANCH_PREFIX, DEV_TOOL_SYNC_BRANCH_PREFIX];
+const POST_PUSH_REVIEW_WINDOW_MS = 7 * 60 * 1000;
 const { parseDeliveryRecord, mergeEligibility } = require('./sync_pr_lease_contract');
 
 function normalizeSyncHash(value) {
@@ -17,6 +18,12 @@ function normalizeSyncHash(value) {
 function syncBranchForHash(syncHash) {
   const normalized = normalizeSyncHash(syncHash);
   return normalized ? `${SYNC_BRANCH_PREFIX}${normalized}` : '';
+}
+
+function candidateEvidenceAllowsMutation({ branch, evidenceOnly, authorized } = {}) {
+  return branchNameFromRef(branch) !== syncBranchForHash('candidate')
+    || Boolean(evidenceOnly)
+    || Boolean(authorized);
 }
 
 function branchNameFromRef(value) {
@@ -109,6 +116,42 @@ function parseBooleanInput(value, defaultValue = false) {
     return false;
   }
   return Boolean(defaultValue);
+}
+
+function evaluatePostPushReviewWindow(
+  pr = {},
+  now = new Date().toISOString(),
+  windowMs = POST_PUSH_REVIEW_WINDOW_MS,
+) {
+  const timestamps = [
+    pr?.head?.pushed_at,
+    pr?.head?.pushedAt,
+    pr?.pushed_at,
+    pr?.pushedAt,
+    pr?.updated_at,
+    pr?.updatedAt,
+    pr?.created_at,
+    pr?.createdAt,
+  ]
+    .map((value) => new Date(value || '').getTime())
+    .filter(Number.isFinite);
+  const observedAt = new Date(now).getTime();
+  if (timestamps.length === 0 || !Number.isFinite(observedAt)) {
+    return {
+      ready: false,
+      reason: 'missing_review_window_timestamp',
+      eligible_at: '',
+    };
+  }
+  const anchor = Math.max(...timestamps);
+  const eligibleAt = anchor + Number(windowMs);
+  const ready = observedAt >= eligibleAt;
+  return {
+    ready,
+    reason: ready ? 'review_window_elapsed' : 'review_window_pending',
+    anchor_at: new Date(anchor).toISOString(),
+    eligible_at: new Date(eligibleAt).toISOString(),
+  };
 }
 
 function collectDeletableSyncBranches({
@@ -272,6 +315,62 @@ function selectMergeEligibleSyncPr(
   return { ...selection, deliveryRecord: record, eligibility };
 }
 
+function selectLatestMergedCandidatePr(prs, trustedActors = []) {
+  const mergedCandidates = (prs || []).filter(
+    (pr) =>
+      pr?.head?.ref === `${SYNC_BRANCH_PREFIX}candidate`
+      && Boolean(pr?.merged_at || pr?.mergedAt)
+      && isTrustedGeneratedDeliveryPr(pr, trustedActors),
+  );
+  return mergedCandidates.sort((a, b) => {
+    const aTime = new Date(a.merged_at || a.mergedAt || a.updated_at || 0).getTime();
+    const bTime = new Date(b.merged_at || b.mergedAt || b.updated_at || 0).getTime();
+    return bTime - aTime;
+  })[0] || null;
+}
+
+function validateCanaryEvidence(evidence = [], expectedRepos = []) {
+  const expected = new Set((expectedRepos || []).map((repo) => String(repo || '').trim()).filter(Boolean));
+  const rowsByRepo = new Map();
+  const errors = [];
+  for (const row of evidence || []) {
+    const repo = String(row?.repo || '').trim();
+    if (!expected.has(repo)) {
+      errors.push(`unexpected_canary_evidence:${repo || '<missing-repo>'}`);
+      continue;
+    }
+    if (rowsByRepo.has(repo)) {
+      errors.push(`duplicate_canary_evidence:${repo}`);
+      continue;
+    }
+    rowsByRepo.set(repo, row);
+  }
+  for (const repo of expected) {
+    const row = rowsByRepo.get(repo);
+    if (!row) {
+      errors.push(`missing_canary_evidence:${repo}`);
+      continue;
+    }
+    if (row.required_check_state !== 'success') {
+      errors.push(`required_checks_not_green:${repo}`);
+    }
+    if (row.active_review_thread_count !== 0) {
+      errors.push(`active_review_debt:${repo}`);
+    }
+  }
+  const planIds = new Set(
+    [...rowsByRepo.values()].map((row) => String(row?.plan_id || '').trim()).filter(Boolean),
+  );
+  if (planIds.size !== 1) {
+    errors.push('missing_or_mixed_canary_plan');
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    plan_id: planIds.size === 1 ? [...planIds][0] : '',
+  };
+}
+
 function summarizeResults(results) {
   const counts = {
     no_prs: 0,
@@ -282,6 +381,9 @@ function summarizeResults(results) {
     branch_delete_failed: 0,
     checks_failed: 0,
     checks_pending: 0,
+    candidate_evidence_required: 0,
+    review_window_pending: 0,
+    head_changed: 0,
     review_blocked: 0,
     ready: 0,
     dry_run_merge: 0,
@@ -289,6 +391,7 @@ function summarizeResults(results) {
     merged: 0,
     merge_failed: 0,
     delivery_contract_blocked: 0,
+    evidence_recovered: 0,
     error: 0,
   };
   for (const result of results || []) {
@@ -304,6 +407,13 @@ function deriveHandoffCheckState(result = {}) {
   if (explicit) return explicit;
   const status = String(result.status || '');
   if (status === 'checks_pending') return 'checks_pending';
+  if (
+    status === 'candidate_evidence_required'
+    || status === 'review_window_pending'
+    || status === 'head_changed'
+  ) {
+    return 'checks_pending';
+  }
   if (status === 'checks_failed') return 'checks_failed';
   if (
     status === 'ready'
@@ -452,12 +562,14 @@ module.exports = {
   branchNameFromRef,
   classifyGeneratedPr,
   classifySyncPrChecks,
+  candidateEvidenceAllowsMutation,
   collectDeletableSyncBranches,
   generatedDeliveryLane,
   isGeneratedDeliveryBranchName,
   isSyncBranchName,
   isTrustedGeneratedDeliveryPr,
   isTrustedSyncPr,
+  evaluatePostPushReviewWindow,
   normalizeSyncHash,
   syncBranchForHash,
   parseBooleanInput,
@@ -465,6 +577,8 @@ module.exports = {
   sortSyncPrs,
   selectActiveSyncPr,
   selectMergeEligibleSyncPr,
+  selectLatestMergedCandidatePr,
+  validateCanaryEvidence,
   summarizeResults,
   buildMergeReport,
   buildDeliveryHandoff,
