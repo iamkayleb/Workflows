@@ -6,6 +6,7 @@ import io
 import json
 import sys
 import types
+from pathlib import Path
 from unittest import mock
 
 import pytest
@@ -35,7 +36,7 @@ def test_issue_format_validator_removes_partially_loaded_module(
             attempts["count"] += 1
             if attempts["count"] == 1:
                 raise RuntimeError("transient validator load failure")
-            module.__dict__["validate"] = lambda body: ValidationResult()
+            module.__dict__["validate"] = lambda body, repo_root=None: ValidationResult()
 
     spec = importlib.machinery.ModuleSpec("_fleet_issue_format", FailingLoader())
     monkeypatch.setattr(importlib.util, "spec_from_file_location", lambda *args: spec)
@@ -54,6 +55,28 @@ def test_issue_format_validator_removes_partially_loaded_module(
 
     sys.modules.pop("_fleet_issue_format", None)
     issue_formatter._issue_format_validator.cache_clear()
+
+
+def test_formatted_output_validation_uses_current_checkout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen: dict[str, Path | None] = {"repo_root": None}
+
+    class ValidationResult:
+        ok = True
+
+    class Validator:
+        @staticmethod
+        def validate(body: str, repo_root: Path | None = None) -> ValidationResult:
+            assert body == "formatted issue"
+            seen["repo_root"] = repo_root
+            return ValidationResult()
+
+    monkeypatch.setattr(issue_formatter, "_issue_format_validator", lambda: Validator())
+    monkeypatch.setenv("GITHUB_WORKSPACE", str(tmp_path))
+
+    assert issue_formatter._formatted_output_valid("formatted issue") is True
+    assert seen["repo_root"] == tmp_path.resolve()
 
 
 def _install_fake_langchain(monkeypatch: pytest.MonkeyPatch, mock_chain: mock.MagicMock) -> None:

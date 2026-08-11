@@ -48,6 +48,29 @@ def test_fence_with_language_marker_does_not_close_a_code_block() -> None:
     ],
 )
 @pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_indented_fence_literal_does_not_hide_real_headings(
+    validator_path: Path, fence: str
+) -> None:
+    validator = _validator(validator_path)
+    body = (
+        f"    {fence}\n"
+        + VALID_CONTEXT
+        + "## Tasks\n- [ ] Update `src/client.py`\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    report = validator.validate(body)
+    assert report.ok, report.as_markdown()
+    assert "## Tasks" in validator._without_fenced_code(body)
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+@pytest.mark.parametrize("fence", ["```", "~~~"])
 def test_list_indented_fenced_acceptance_command_is_ignored(
     validator_path: Path, fence: str
 ) -> None:
@@ -580,11 +603,96 @@ def test_explicit_create_paths_do_not_trigger_wrong_repository_failure(tmp_path)
         VALID_CONTEXT
         + "## Tasks\n"
         + "- [ ] Create `src/new_a.py`\n"
-        + "- [ ] Add src/new_b.py\n"
+        + "- [ ] Add a new file at src/new_b.py\n"
         + "- [ ] Generate `tests/test_new_c.py`\n\n"
         + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
     )
     assert validator.validate(body, repo_root=tmp_path).ok
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+def test_create_verbs_after_task_context_still_mark_direct_paths_new(
+    tmp_path, validator_path: Path
+) -> None:
+    validator = _validator(validator_path)
+    body = (
+        VALID_CONTEXT
+        + "## Tasks\n"
+        + "- [ ] In the new package, create src/new/a.py\n"
+        + "- [ ] For the command, add src/new/b.py\n"
+        + "- [ ] For coverage, generate tests/test_new_c.py\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert validator._created_paths(body) == {
+        "src/new/a.py",
+        "src/new/b.py",
+        "tests/test_new_c.py",
+    }
+    assert validator.validate(body, repo_root=tmp_path).ok
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+def test_one_create_phrase_governs_a_list_of_new_paths(tmp_path, validator_path: Path) -> None:
+    validator = _validator(validator_path)
+    body = (
+        VALID_CONTEXT
+        + "## Tasks\n"
+        + "- [ ] Create new/a.py, new/b.py, new/c.py, and new/d.py\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert validator._created_paths(body) == {
+        "new/a.py",
+        "new/b.py",
+        "new/c.py",
+        "new/d.py",
+    }
+    assert validator.validate(body, repo_root=tmp_path).ok
+
+
+def test_create_path_chain_stops_when_task_switches_to_modification(tmp_path) -> None:
+    validator = _validator()
+    body = (
+        VALID_CONTEXT
+        + "## Tasks\n"
+        + "- [ ] Create new/a.py, then add validation to missing/b.py, missing/c.py, "
+        + "and missing/d.py\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert validator._created_paths(body) == {"new/a.py"}
+    assert not validator.validate(body, repo_root=tmp_path).ok
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+def test_add_behavior_to_missing_paths_is_not_file_creation(tmp_path, validator_path: Path) -> None:
+    validator = _validator(validator_path)
+    body = (
+        VALID_CONTEXT
+        + "## Tasks\n"
+        + "- [ ] Add validation to missing/a.py\n"
+        + "- [ ] Add retries to missing/b.py\n"
+        + "- [ ] Add logging in missing/c.py\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert validator._created_paths(body) == set()
+    assert not validator.validate(body, repo_root=tmp_path).ok
 
 
 def test_all_paths_resolving_produces_no_advisory(tmp_path) -> None:

@@ -50,6 +50,21 @@ def test_format_optimizer_rechecks_live_hold_and_exemption_state() -> None:
         assert "could not re-check issue eligibility; refusing format work" in text
 
 
+def test_format_optimizer_releases_lease_after_eligibility_skip() -> None:
+    for path in (WORKFLOW_PATH, CONSUMER_WORKFLOW_PATH):
+        text = path.read_text(encoding="utf-8")
+        assert "release_format_lease_after_skip" in text
+        assert text.count('release_format_lease_after_skip "') == 2
+        release_block = text[
+            text.index("release_format_lease_after_skip()") : text.index(
+                'if [[ "$EVENT_NAME" == "workflow_dispatch" ]]'
+            )
+        ]
+        assert 'any(. == "agents:format")' in release_block
+        assert '--remove-label "agents:format"' in release_block
+        assert '--repo "$GITHUB_REPOSITORY"' in release_block
+
+
 def test_issue_optimizer_validates_format_and_apply_bodies() -> None:
     text = WORKFLOW_PATH.read_text(encoding="utf-8")
     consumer_text = CONSUMER_WORKFLOW_PATH.read_text(encoding="utf-8")
