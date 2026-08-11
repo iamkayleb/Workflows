@@ -20,6 +20,8 @@ const {
   isTrustedSyncPr,
   normalizeSyncHash,
   parseBooleanInput,
+  requiredContextsFromRulesets,
+  rulesetRefPatternMatches,
   selectActiveSyncPr,
   selectLatestMergedCandidatePr,
   selectMergeEligibleSyncPr,
@@ -164,7 +166,15 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
       if (params.state === 'open') return [unrelatedOpenDelivery];
       if (params.state === 'closed') return [mergedCandidate];
       if (params.ref === 'head-abc') {
-        return [{ name: 'Gate / gate', status: 'completed', conclusion: 'success' }];
+        return [
+          { name: 'Gate / gate', status: 'completed', conclusion: 'success' },
+          {
+            name: 'Record autofix dispatch completion',
+            status: 'completed',
+            conclusion: 'cancelled',
+          },
+          { name: 'Resolve Context', status: 'completed', conclusion: 'cancelled' },
+        ];
       }
       return [];
     },
@@ -183,8 +193,24 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
       checks: { listForRef: () => {} },
       git: { getCommit: async () => ({ data: { tree: { sha: 'tree-abc' } } }) },
       repos: {
-        getBranchProtection: async () => ({
-          data: { required_status_checks: { contexts: ['Gate / gate'], checks: [] } },
+        getBranchProtection: async () => {
+          const error = new Error('Resource not accessible by integration');
+          error.status = 403;
+          throw error;
+        },
+        getRepoRulesets: async () => ({
+          data: [{ id: 7928264, name: 'Main', enforcement: 'active' }],
+        }),
+        getRepoRuleset: async () => ({
+          data: {
+            id: 7928264,
+            enforcement: 'active',
+            conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+            rules: [{
+              type: 'required_status_checks',
+              parameters: { required_status_checks: [{ context: 'Gate / gate' }] },
+            }],
+          },
         }),
         getCombinedStatusForRef: async () => ({ data: { statuses: [] } }),
         createDispatchEvent: async () => ({}),
@@ -673,6 +699,39 @@ test('classifySyncPrChecks falls back to denylist when required contexts are emp
   assert.deepEqual(nonDenylistedFailure.failed.map((check) => check.name), [
     'Record autofix metrics',
   ]);
+});
+
+test('requiredContextsFromRulesets selects active rules for the target branch', () => {
+  const rulesets = [
+    {
+      enforcement: 'active',
+      conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+      rules: [{
+        type: 'required_status_checks',
+        parameters: { required_status_checks: [{ context: 'Gate / gate' }] },
+      }],
+    },
+    {
+      enforcement: 'active',
+      conditions: { ref_name: { include: ['refs/heads/release/*'], exclude: [] } },
+      rules: [{
+        type: 'required_status_checks',
+        parameters: { required_status_checks: [{ context: 'release gate' }] },
+      }],
+    },
+    {
+      enforcement: 'evaluate',
+      conditions: { ref_name: { include: ['~ALL'], exclude: [] } },
+      rules: [{
+        type: 'required_status_checks',
+        parameters: { required_status_checks: [{ context: 'advisory' }] },
+      }],
+    },
+  ];
+
+  assert.equal(rulesetRefPatternMatches('refs/heads/release/*', 'main'), false);
+  assert.deepEqual([...requiredContextsFromRulesets(rulesets, 'main')], ['Gate / gate']);
+  assert.deepEqual([...requiredContextsFromRulesets([], 'main')], []);
 });
 
 test('runtime-AC sync PRs are blocked while ordinary sync PRs still merge', async () => {
