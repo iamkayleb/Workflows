@@ -87,6 +87,39 @@ def test_format_guard_deduplicates_inflight_optimizer_dispatch() -> None:
         )
 
 
+def test_format_guard_rechecks_after_format_lease_release() -> None:
+    for path in (GUARD_PATH, CONSUMER_GUARD_PATH):
+        text = path.read_text(encoding="utf-8")
+        condition = text[text.index("if: >-") : text.index("runs-on: ubuntu-latest")]
+        assert "github.event.action == 'unlabeled'" in condition
+        assert "github.event.label.name == 'agents:format'" in condition
+        # Applying agents:format already starts the optimizer via issues:labeled;
+        # the guard must react only when the lease is removed.
+        labeled_format = "github.event.action == 'labeled'" in condition and condition.index(
+            "github.event.action == 'labeled'"
+        ) < condition.index("github.event.label.name == 'agents:format'")
+        assert not labeled_format
+
+
+def test_format_optimizer_dispatches_guard_after_failed_lease_release() -> None:
+    for text in (
+        WORKFLOW_PATH.read_text(encoding="utf-8"),
+        CONSUMER_WORKFLOW_PATH.read_text(encoding="utf-8"),
+    ):
+        release_idx = text.index("Release failed format lease")
+        release_block = text[release_idx : release_idx + 1200]
+        remove_idx = release_block.index(
+            'gh issue edit "$ISSUE_NUMBER" --remove-label "agents:format"'
+        )
+        dispatch_idx = release_block.index("gh workflow run agents-issue-format-guard.yml")
+        assert remove_idx < dispatch_idx
+        assert '-f issue_number="$ISSUE_NUMBER"' in release_block
+        assert (
+            '|| echo "::warning::could not dispatch format guard retry after lease release"'
+            in release_block
+        )
+
+
 def test_format_guard_attempt_marker_sequence_consumes_retry_budget() -> None:
     """Exercise the marker contract used by the workflow's routing step."""
     fingerprint = "abc123def456"
