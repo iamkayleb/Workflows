@@ -119,16 +119,27 @@ def test_promotion_targets_only_non_canary_repos() -> None:
     assert result["selected_repos"] == ["stranske/Manager-Database", "stranske/Ready"]
 
 
-def test_filtered_manual_canary_run_preserves_requested_repositories() -> None:
+def test_filtered_manual_canary_run_can_narrow_the_configured_canaries() -> None:
     result = select_phase(
         plan(),
         phase="canary",
         registered_repos=REGISTERED,
-        selected_repos=["stranske/Ready"],
+        selected_repos=["stranske/Travel-Plan-Permission"],
         canaries=CANARIES,
     )
 
-    assert result["selected_repos"] == ["stranske/Ready"]
+    assert result["selected_repos"] == ["stranske/Travel-Plan-Permission"]
+
+
+def test_filtered_manual_canary_run_cannot_expand_into_the_fleet() -> None:
+    with pytest.raises(PhaseSelectionError, match="canary_selection_contains_non_canary"):
+        select_phase(
+            plan(),
+            phase="canary",
+            registered_repos=REGISTERED,
+            selected_repos=["stranske/Travel-Plan-Permission", "stranske/Ready"],
+            canaries=CANARIES,
+        )
 
 
 def test_manual_selection_cannot_target_an_unregistered_repository() -> None:

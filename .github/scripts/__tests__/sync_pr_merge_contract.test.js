@@ -118,7 +118,9 @@ test('maint71 run writes reports and records a no-PR result with fake action cli
 test('normalizeSyncHash accepts raw hashes and branch names', () => {
   assert.equal(normalizeSyncHash('5108b94a2435'), '5108b94a2435');
   assert.equal(normalizeSyncHash('sync/workflows-5108b94a2435'), '5108b94a2435');
+  assert.equal(normalizeSyncHash('sync/workflows-candidate'), 'candidate');
   assert.equal(syncBranchForHash('5108b94a2435'), 'sync/workflows-5108b94a2435');
+  assert.equal(syncBranchForHash('candidate'), 'sync/workflows-candidate');
 });
 
 test('parseBooleanInput preserves explicit false values', () => {
@@ -220,6 +222,20 @@ test('selectActiveSyncPr honors target hash instead of newest PR', () => {
 
   assert.equal(selection.active.number, 1);
   assert.equal(selection.expectedBranch, 'sync/workflows-5108b94a2435');
+  assert.deepEqual(selection.stale.map((item) => item.number), [2]);
+});
+
+test('selectActiveSyncPr can target the stable canary candidate branch', () => {
+  const selection = selectActiveSyncPr(
+    [
+      pr(1, 'sync/workflows-candidate', '2026-04-25T01:00:00Z'),
+      pr(2, 'sync/workflows-old-wave', '2026-04-25T02:00:00Z'),
+    ],
+    'candidate',
+  );
+
+  assert.equal(selection.active.number, 1);
+  assert.equal(selection.expectedBranch, 'sync/workflows-candidate');
   assert.deepEqual(selection.stale.map((item) => item.number), [2]);
 });
 

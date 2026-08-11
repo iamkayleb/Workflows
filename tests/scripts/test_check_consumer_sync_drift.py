@@ -76,7 +76,8 @@ def test_build_report_returns_machine_readable_counts() -> None:
         ),
         "targeted_repos_command": (
             "gh workflow run maint-68-sync-consumer-repos.yml "
-            "--repo stranske/Workflows --ref main -f repos=owner/a,owner/b"
+            "--repo stranske/Workflows --ref main -f phase=preview "
+            "-f repos=owner/a,owner/b"
         ),
     }
     assert report["summary_limits"]["content_error_threshold_per_repo"] == 5
@@ -201,6 +202,38 @@ def test_build_report_marks_current_sync_pr_as_covered() -> None:
     assert report["status"] == "covered"
     assert report["sync_remediation"]["expected_branch"] == "sync/workflows-aaaaaaaaaaaa"
     assert report["sync_remediation"]["repo_states"]["owner/repo"]["state"] == "covered"
+
+
+def test_build_report_accepts_the_stable_candidate_branch_only_for_canaries() -> None:
+    candidate_pr = {
+        "repo": "owner/canary",
+        "number": 13,
+        "url": "https://github.com/owner/canary/pull/13",
+        "branch": "sync/workflows-candidate",
+        "head_repo": "owner/canary",
+        "updated_at": "2026-04-26T01:00:00Z",
+    }
+    report = check_consumer_sync_drift.build_report(
+        repos=["owner/canary", "owner/regular"],
+        drift={
+            "owner/canary: .github/workflows/a.yml",
+            "owner/regular: .github/workflows/a.yml",
+        },
+        missing=set(),
+        errors=set(),
+        obsolete=set(),
+        open_sync_prs=[candidate_pr],
+        current_plan_id="sha256:" + "a" * 64,
+        candidate_repos={"owner/canary"},
+        now=datetime(2026, 4, 26, 2, 0, tzinfo=UTC),
+    )
+
+    states = report["sync_remediation"]["repo_states"]
+    assert states["owner/canary"]["state"] == "covered"
+    assert states["owner/canary"]["expected_branch"] == "sync/workflows-candidate"
+    assert states["owner/regular"]["state"] == "untracked_drift"
+    assert states["owner/regular"]["expected_branch"] == "sync/workflows-aaaaaaaaaaaa"
+    assert "-f phase=preview" in report["follow_up"]["targeted_repos_command"]
 
 
 def test_build_report_blocks_unattributed_errors_and_empty_repo_sets() -> None:

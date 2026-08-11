@@ -36,6 +36,7 @@ REPORT_SCHEMA = "workflows-consumer-sync-drift/v1"
 SUMMARY_ITEM_LIMIT = 50
 CONTENT_ERROR_THRESHOLD = 5
 SYNC_BRANCH_PREFIX = "sync/workflows-"
+SYNC_CANDIDATE_BRANCH = "sync/workflows-candidate"
 SYNC_COVERAGE_MAX_AGE = timedelta(hours=36)
 TOKEN_ENV_ORDER = (
     "DRIFT_TOKEN",
@@ -71,6 +72,11 @@ def parse_args() -> argparse.Namespace:
         help="Path to sync manifest.",
     )
     parser.add_argument(
+        "--canaries",
+        default="config/consumer_sync_canaries.json",
+        help="Path to the configured consumer sync canary set.",
+    )
+    parser.add_argument(
         "--summary",
         default=os.environ.get("GITHUB_STEP_SUMMARY", ""),
         help="Optional path to write a summary markdown.",
@@ -88,6 +94,22 @@ def resolve_repos(raw: str | None) -> list[str]:
         return [item.strip() for item in raw.split(",") if item.strip()]
     env_repos = os.environ.get("REGISTERED_CONSUMER_REPOS", "")
     repos = [item.strip() for item in env_repos.splitlines() if item.strip()]
+    return repos
+
+
+def resolve_candidate_repos(path: str, registered_repos: list[str]) -> set[str]:
+    """Load the bounded canary set used by Maint 68 candidate branches."""
+    config = json.loads(Path(path).read_text(encoding="utf-8"))
+    canaries = config.get("canaries") if isinstance(config, dict) else None
+    if not isinstance(canaries, list):
+        raise ValueError("consumer sync canary config has no canaries list")
+    repos = {
+        str(item.get("repo", ""))
+        for item in canaries
+        if isinstance(item, dict) and item.get("repo")
+    }
+    if not repos or not repos <= set(registered_repos):
+        raise ValueError("consumer sync canaries must be registered repositories")
     return repos
 
 
@@ -421,11 +443,13 @@ def build_remediation_states(
     open_sync_prs: list[dict[str, object]],
     sync_pr_lookup_errors: list[str],
     expected_branch: str,
+    candidate_repos: set[str] | None = None,
     global_errors: list[str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, dict[str, object]]:
     """Classify drift using the current compiler-plan branch, not PR presence alone."""
     current_time = now or datetime.now(UTC)
+    candidate_repos = candidate_repos or set()
     gaps_by_repo: dict[str, list[str]] = {repo: [] for repo in repos}
     for category, items in (
         ("drift", drift),
@@ -448,6 +472,9 @@ def build_remediation_states(
 
     states: dict[str, dict[str, object]] = {}
     for repo in repos:
+        repo_expected_branch = (
+            SYNC_CANDIDATE_BRANCH if repo in candidate_repos else expected_branch
+        )
         categories = sorted(set(gaps_by_repo[repo]))
         if global_errors:
             states[repo] = {
@@ -471,7 +498,7 @@ def build_remediation_states(
         current = [
             pr
             for pr in prs_by_repo[repo]
-            if pr.get("branch") == expected_branch and pr.get("head_repo") == repo
+            if pr.get("branch") == repo_expected_branch and pr.get("head_repo") == repo
         ]
         fresh = []
         for pr in current:
@@ -482,7 +509,7 @@ def build_remediation_states(
             states[repo] = {
                 "state": "covered",
                 "reason": "current compiler-plan sync PR is open",
-                "expected_branch": expected_branch,
+                "expected_branch": repo_expected_branch,
                 "pr": fresh[0],
                 "categories": categories,
             }
@@ -490,7 +517,7 @@ def build_remediation_states(
             states[repo] = {
                 "state": "stale",
                 "reason": "current compiler-plan sync PR exceeded coverage lease",
-                "expected_branch": expected_branch,
+                "expected_branch": repo_expected_branch,
                 "pr": current[0],
                 "categories": categories,
             }
@@ -498,7 +525,7 @@ def build_remediation_states(
             states[repo] = {
                 "state": "untracked_drift",
                 "reason": "no open sync PR matches the current compiler plan",
-                "expected_branch": expected_branch,
+                "expected_branch": repo_expected_branch,
                 "categories": categories,
             }
     return states
@@ -539,6 +566,7 @@ def build_report(
     sync_pr_lookup_errors: list[str] | None = None,
     token_diagnostics: dict[str, object] | None = None,
     current_plan_id: str = "",
+    candidate_repos: set[str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
     skipped = skipped or set()
@@ -570,6 +598,7 @@ def build_report(
         open_sync_prs=open_sync_prs,
         sync_pr_lookup_errors=sync_pr_lookup_errors,
         expected_branch=expected_branch,
+        candidate_repos=candidate_repos,
         global_errors=global_errors,
         now=now,
     )
@@ -617,7 +646,8 @@ def build_report(
             ),
             "targeted_repos_command": (
                 "gh workflow run maint-68-sync-consumer-repos.yml "
-                f"--repo stranske/Workflows --ref main -f repos={','.join(targeted_repos)}"
+                "--repo stranske/Workflows --ref main -f phase=preview "
+                f"-f repos={','.join(targeted_repos)}"
                 if targeted_repos
                 else ""
             ),
@@ -630,6 +660,7 @@ def build_report(
             "state": remediation_state,
             "plan_id": current_plan_id,
             "expected_branch": expected_branch,
+            "candidate_branch": SYNC_CANDIDATE_BRANCH,
             "coverage_lease_hours": int(SYNC_COVERAGE_MAX_AGE.total_seconds() // 3600),
             "repo_states": remediation_states,
             "global_errors": global_errors,
@@ -885,6 +916,21 @@ def main() -> int:
 
     sections = list(COPY_SYNCED_SECTIONS)
     current_plan_id = str(compiled.to_plan()["plan_id"])
+    try:
+        candidate_repos = resolve_candidate_repos(args.canaries, repos)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"::error::Invalid consumer sync canary config: {exc}")
+        write_report_json(
+            args.report_json,
+            build_report(
+                repos=repos,
+                drift=set(),
+                missing=set(),
+                errors={f"Invalid consumer sync canary config: {exc}"},
+                obsolete=set(),
+            ),
+        )
+        return 1
 
     session, token_diagnostics = select_read_token(
         candidates=candidates,
@@ -996,6 +1042,7 @@ def main() -> int:
         sync_pr_lookup_errors=sync_pr_lookup_errors,
         token_diagnostics=token_diagnostics,
         current_plan_id=current_plan_id,
+        candidate_repos=candidate_repos,
     )
     write_report_json(args.report_json, report)
     write_summary_markdown(args.summary, report)
