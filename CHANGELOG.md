@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.21.2](https://github.com/stranske/Workflows/compare/v1.21.1...v1.21.2) (2026-08-11)
+
+
+### Bug Fixes
+
+* **sync:** discover required checks from rulesets ([a361501](https://github.com/stranske/Workflows/commit/a3615019b4c8b4f9b5107a4894881159353853da))
+* **sync:** discover required checks from rulesets ([ac0376c](https://github.com/stranske/Workflows/commit/ac0376ca1e0b514045a4aeacca32a046a5af2891))
+* **sync:** enforce exact-head review window ([46a5d77](https://github.com/stranske/Workflows/commit/46a5d77ebe44009b13fe6f02abbb50a69c130516))
+* **sync:** gate every candidate merge path ([fd61d71](https://github.com/stranske/Workflows/commit/fd61d71bf3f8d187ad4b6c5d5b62fbea10fa7bb1))
+* **sync:** make canary evidence durable before merge ([480393f](https://github.com/stranske/Workflows/commit/480393f1b2c92328582af0fd90d7e5349d2392e2))
+* **sync:** persist canary evidence before merge ([3585d8a](https://github.com/stranske/Workflows/commit/3585d8a43946d95fe9a85e4d682a2d669d4f09ee))
+* **sync:** use canonical required-check fallback ([5b52677](https://github.com/stranske/Workflows/commit/5b526776b7c758ec63ca98b905595defb216f386))
+
 ## [1.21.1](https://github.com/stranske/Workflows/compare/v1.21.0...v1.21.1) (2026-08-11)
 
 
