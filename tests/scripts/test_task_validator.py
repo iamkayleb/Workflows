@@ -44,6 +44,19 @@ class TestHeuristicDetection:
         assert _has_subjective_without_measurable("Ensure tests pass") is False  # has "tests"
         assert _has_subjective_without_measurable("Create metrics file") is False
         assert _has_subjective_without_measurable("Run pytest tests/fast/test_api.py") is False
+        assert _has_subjective_without_measurable("Make the UI clean/intuitive") is True
+        assert (
+            _has_subjective_without_measurable(
+                "Update configuration in quality/Dockerfile for deployment defaults"
+            )
+            is False
+        )
+        assert _has_subjective_without_measurable("/quality/config") is False
+        assert _has_subjective_without_measurable(".github/quality") is False
+        assert _has_subjective_without_measurable("quality/clean.py") is False
+        assert _has_subjective_without_measurable("src/quality/config") is False
+        assert _has_subjective_without_measurable("clean/src_file") is False
+        assert _has_subjective_without_measurable("quality.md") is False
 
     def test_looks_like_human_activity(self) -> None:
         assert _looks_like_human_activity("Train staff on procedures") is True
