@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.21.1](https://github.com/stranske/Workflows/compare/v1.21.0...v1.21.1) (2026-08-11)
+
+
+### Bug Fixes
+
+* **issue-format:** address final sync review findings ([dc0d12d](https://github.com/stranske/Workflows/commit/dc0d12dd3c9cc3c6ee4e0aa6c1b1818ab4bd56c7))
+* **issue-format:** recheck eligibility in optimizer ([8fe2a8e](https://github.com/stranske/Workflows/commit/8fe2a8e574a63a01ef63880e6d72c39b21b3aa66))
+* **sync:** enforce canary promotion boundary ([f2671b6](https://github.com/stranske/Workflows/commit/f2671b64e945c59b4dba5ed1bc3dfe7d3e5420d8))
+
 ## [1.21.0](https://github.com/stranske/Workflows/compare/v1.20.26...v1.21.0) (2026-08-11)
 
 
