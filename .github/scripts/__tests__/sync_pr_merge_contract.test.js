@@ -16,10 +16,12 @@ const {
   collectDeletableSyncBranches,
   evaluatePostPushReviewWindow,
   generatedDeliveryLane,
+  isBlockingSyncSystemFailure,
   isTrustedGeneratedDeliveryPr,
   isTrustedSyncPr,
   normalizeSyncHash,
   parseBooleanInput,
+  requiresStrictGateBranchUpdate,
   requiredContextsFromRulesets,
   rulesetRefPatternMatches,
   selectActiveSyncPr,
@@ -347,6 +349,43 @@ test('post-push review window fails closed until seven full minutes elapse', () 
     true,
   );
   assert.equal(evaluatePostPushReviewWindow({}, '2026-08-11T13:09:00Z').ready, false);
+});
+
+test('strict required checks update behind branches before a generated merge', () => {
+  assert.equal(requiresStrictGateBranchUpdate({
+    pr: { mergeable_state: 'behind' },
+    requiredContexts: new Set(['Gate / gate']),
+    willMerge: true,
+  }), true);
+  assert.equal(requiresStrictGateBranchUpdate({
+    pr: { mergeable_state: 'clean' },
+    requiredContexts: ['Gate / gate'],
+    willMerge: true,
+  }), false);
+  assert.equal(requiresStrictGateBranchUpdate({
+    pr: { mergeable_state: 'behind' },
+    requiredContexts: [],
+    willMerge: true,
+  }), false);
+  assert.equal(requiresStrictGateBranchUpdate({
+    pr: { mergeable_state: 'behind' },
+    requiredContexts: ['Gate / gate'],
+    willMerge: false,
+  }), false);
+});
+
+test('branch-update failures are blocking sync-system failures', () => {
+  for (const status of [
+    'branch_update_failed',
+    'error',
+    'merge_failed',
+    'pr_refresh_failed',
+    'stale_close_failed',
+    'target_missing',
+  ]) {
+    assert.equal(isBlockingSyncSystemFailure(status), true);
+  }
+  assert.equal(isBlockingSyncSystemFailure('checks_failed'), false);
 });
 
 test('candidate mutation requires the evidence pass authorization', () => {

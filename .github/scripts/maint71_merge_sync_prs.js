@@ -16,8 +16,10 @@ async function run({ github, context, core }) {
     collectDeletableSyncBranches,
     evaluatePostPushReviewWindow,
     generatedDeliveryLane,
+    isBlockingSyncSystemFailure,
     normalizeSyncHash,
     parseBooleanInput,
+    requiresStrictGateBranchUpdate,
     requiredContextsFromRulesets,
     isTrustedGeneratedDeliveryPr,
     selectLatestMergedCandidatePr,
@@ -586,7 +588,39 @@ async function run({ github, context, core }) {
       }
   
       // Process the selected active PR
-      const pr = selection.active;
+      let pr = selection.active;
+      try {
+        const { data: fullPr } = await withRetry((client) => client.rest.pulls.get({
+          owner,
+          repo,
+          pull_number: pr.number,
+        }));
+        const changedSinceSelection = !fullPr
+          || fullPr.number !== pr.number
+          || fullPr.head?.ref !== pr.head?.ref
+          || fullPr.head?.sha !== pr.head?.sha
+          || fullPr.base?.ref !== pr.base?.ref
+          || fullPr.user?.login !== pr.user?.login
+          || fullPr.body !== pr.body
+          || !isTrustedGeneratedDeliveryPr(fullPr, trustedSyncActors);
+        if (changedSinceSelection) {
+          throw new Error('refreshed PR no longer matches the trusted delivery selection');
+        }
+        pr = fullPr;
+      } catch (error) {
+        const message = String(error?.message || error);
+        console.log(`Unable to refresh generated PR #${pr.number}: ${message}`);
+        results.push({
+          owner,
+          repo,
+          pr: pr.number,
+          branch: pr.head.ref,
+          head_sha: pr.head.sha,
+          status: 'pr_refresh_failed',
+          error: `PR refresh before branch update: ${message}`,
+        });
+        continue;
+      }
       const metadata = syncMetadata(pr);
       console.log(`\nProcessing active PR #${pr.number}: ${pr.title}`);
       console.log(`Branch: ${pr.head.ref}`);
@@ -773,6 +807,34 @@ async function run({ github, context, core }) {
       // the final exact-head/thread query so no intervening network action sits
       // between the hard review gate and the merge call.
       const willMerge = autoMerge && !dryRun && !recoveredMergedCandidate;
+      // Strict required-status-check rules evaluate the merge result. If the
+      // head is behind main, every merge strategy creates a new result without
+      // the head's Gate context. Update the generated branch and wait for its
+      // fresh Gate and mandatory review window instead of attempting a merge.
+      if (requiresStrictGateBranchUpdate({ pr, requiredContexts, willMerge })) {
+        try {
+          await withRetry((client) => client.rest.pulls.updateBranch({
+            owner,
+            repo,
+            pull_number: pr.number,
+            expected_head_sha: pr.head.sha,
+          }));
+          console.log(`Requested branch update for behind PR #${pr.number}; awaiting fresh Gate`);
+          results.push({
+            ...deliveryContext,
+            delivery_disposition: 'awaiting-review-window',
+            blocker_owner: 'maint-71',
+            next_command: 'rerun-after-updated-branch-gate',
+            status: 'review_window_pending',
+            branch_update_started: true,
+          });
+        } catch (error) {
+          const message = String(error?.message || error);
+          console.log(`Unable to update behind PR #${pr.number}: ${message}`);
+          results.push({ ...deliveryContext, status: 'branch_update_failed', error: message });
+        }
+        continue;
+      }
       if (willMerge) {
         try {
           await assertRuntimeAcMergeAllowed({
@@ -1032,12 +1094,7 @@ async function run({ github, context, core }) {
   // every scheduled flush red and forces re-runs. Only genuine sync-system action
   // failures (merge/cleanup/missing-target) are blocking; consumer CI health is
   // surfaced via the merge report and Health 68 instead.
-  const blockingFailures = results.filter(
-    (r) =>
-      r.status === 'merge_failed' ||
-      r.status === 'stale_close_failed' ||
-      r.status === 'target_missing',
-  );
+  const blockingFailures = results.filter((r) => isBlockingSyncSystemFailure(r.status));
   const branchDeleteFailures = results.filter((r) => r.status === 'branch_delete_failed');
   if (branchDeleteFailures.length > 0) {
     core.notice(
@@ -1070,8 +1127,9 @@ async function run({ github, context, core }) {
   }
   
   if (failed > 0) {
+    const blockingStatuses = [...new Set(blockingFailures.map((result) => result.status))];
     core.setFailed(
-      `${failed} blocking sync-system failure(s): merge_failed, stale_close_failed, or target_missing`,
+      `${failed} blocking sync-system failure(s): ${blockingStatuses.join(', ')}`,
     );
   }
 }
