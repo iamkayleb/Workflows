@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.21.0](https://github.com/stranske/Workflows/compare/v1.20.26...v1.21.0) (2026-08-11)
+
+
+### Features
+
+* **issue-format:** fail issues whose cited paths exist in no repo tree ([#2990](https://github.com/stranske/Workflows/issues/2990)) ([e63314d](https://github.com/stranske/Workflows/commit/e63314db421a4f084b8e6a2ea24ed6ad4bd1e1eb))
+
+
+### Bug Fixes
+
+* **issue-format:** handle nested fences and format retry ([#3036](https://github.com/stranske/Workflows/issues/3036)) ([0581e62](https://github.com/stranske/Workflows/commit/0581e6266f5ed742d210a9f08762ef8462538d18))
+* **tasks:** preserve slash-separated subjective prose ([#3038](https://github.com/stranske/Workflows/issues/3038)) ([73a3ab1](https://github.com/stranske/Workflows/commit/73a3ab13e5196952abc2638c46bd1c155a3d5309))
+
 ## [1.20.26](https://github.com/stranske/Workflows/compare/v1.20.25...v1.20.26) (2026-08-10)
 
 
