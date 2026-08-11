@@ -371,7 +371,11 @@ def _headings(body: str) -> list[tuple[str, int, int]]:
     for i, line in enumerate(body.splitlines()):
         if (new_list_indent := _list_content_indent(line)) is not None:
             list_indent = new_list_indent
-        elif line.strip() and fence is None and len(line) - len(line.lstrip(" ")) < (list_indent or 0):
+        elif (
+            line.strip()
+            and fence is None
+            and len(line) - len(line.lstrip(" ")) < (list_indent or 0)
+        ):
             list_indent = None
         fence_match = _fence_match(line, list_indent)
         if fence_match:
@@ -419,7 +423,11 @@ def _without_fenced_code(text: str) -> str:
     for line in text.splitlines():
         if (new_list_indent := _list_content_indent(line)) is not None:
             list_indent = new_list_indent
-        elif line.strip() and fence is None and len(line) - len(line.lstrip(" ")) < (list_indent or 0):
+        elif (
+            line.strip()
+            and fence is None
+            and len(line) - len(line.lstrip(" ")) < (list_indent or 0)
+        ):
             list_indent = None
         match = _fence_match(line, list_indent)
         if match:

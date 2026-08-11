@@ -644,9 +644,7 @@ def test_create_verbs_after_task_context_still_mark_direct_paths_new(
         Path("templates/consumer-repo/.github/scripts/issue_format.py"),
     ],
 )
-def test_add_behavior_to_missing_paths_is_not_file_creation(
-    tmp_path, validator_path: Path
-) -> None:
+def test_add_behavior_to_missing_paths_is_not_file_creation(tmp_path, validator_path: Path) -> None:
     validator = _validator(validator_path)
     body = (
         VALID_CONTEXT
