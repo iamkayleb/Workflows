@@ -20,6 +20,12 @@ function syncBranchForHash(syncHash) {
   return normalized ? `${SYNC_BRANCH_PREFIX}${normalized}` : '';
 }
 
+function candidateEvidenceAllowsMutation({ branch, evidenceOnly, authorized } = {}) {
+  return branchNameFromRef(branch) !== syncBranchForHash('candidate')
+    || Boolean(evidenceOnly)
+    || Boolean(authorized);
+}
+
 function branchNameFromRef(value) {
   return String(value || '')
     .trim()
@@ -375,6 +381,7 @@ function summarizeResults(results) {
     branch_delete_failed: 0,
     checks_failed: 0,
     checks_pending: 0,
+    candidate_evidence_required: 0,
     review_window_pending: 0,
     head_changed: 0,
     review_blocked: 0,
@@ -400,7 +407,11 @@ function deriveHandoffCheckState(result = {}) {
   if (explicit) return explicit;
   const status = String(result.status || '');
   if (status === 'checks_pending') return 'checks_pending';
-  if (status === 'review_window_pending' || status === 'head_changed') {
+  if (
+    status === 'candidate_evidence_required'
+    || status === 'review_window_pending'
+    || status === 'head_changed'
+  ) {
     return 'checks_pending';
   }
   if (status === 'checks_failed') return 'checks_failed';
@@ -551,6 +562,7 @@ module.exports = {
   branchNameFromRef,
   classifyGeneratedPr,
   classifySyncPrChecks,
+  candidateEvidenceAllowsMutation,
   collectDeletableSyncBranches,
   generatedDeliveryLane,
   isGeneratedDeliveryBranchName,

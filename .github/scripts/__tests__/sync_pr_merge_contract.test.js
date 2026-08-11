@@ -10,6 +10,7 @@ const {
   buildMarkdownSummary,
   buildDeliveryHandoff,
   buildMergeReport,
+  candidateEvidenceAllowsMutation,
   classifyGeneratedPr,
   classifySyncPrChecks,
   collectDeletableSyncBranches,
@@ -322,6 +323,29 @@ test('post-push review window fails closed until seven full minutes elapse', () 
   assert.equal(evaluatePostPushReviewWindow({}, '2026-08-11T13:09:00Z').ready, false);
 });
 
+test('candidate mutation requires the evidence pass authorization', () => {
+  assert.equal(candidateEvidenceAllowsMutation({
+    branch: 'sync/workflows-candidate',
+    evidenceOnly: false,
+    authorized: false,
+  }), false);
+  assert.equal(candidateEvidenceAllowsMutation({
+    branch: 'sync/workflows-candidate',
+    evidenceOnly: true,
+    authorized: false,
+  }), true);
+  assert.equal(candidateEvidenceAllowsMutation({
+    branch: 'sync/workflows-candidate',
+    evidenceOnly: false,
+    authorized: true,
+  }), true);
+  assert.equal(candidateEvidenceAllowsMutation({
+    branch: 'sync/workflows-deadbeef',
+    evidenceOnly: false,
+    authorized: false,
+  }), true);
+});
+
 test('selectActiveSyncPr falls back to newest sync PR without a target hash', () => {
   const selection = selectActiveSyncPr([
     pr(1, 'sync/workflows-old', '2026-04-25T01:00:00Z'),
@@ -483,6 +507,7 @@ test('buildMergeReport provides machine-readable summary counts', () => {
     branch_delete_failed: 0,
     checks_failed: 0,
     checks_pending: 0,
+    candidate_evidence_required: 0,
     review_window_pending: 0,
     head_changed: 0,
     review_blocked: 0,

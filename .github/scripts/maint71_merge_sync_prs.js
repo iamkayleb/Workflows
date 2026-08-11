@@ -10,6 +10,7 @@ async function run({ github, context, core }) {
   const {
     buildMarkdownSummary,
     buildMergeReport,
+    candidateEvidenceAllowsMutation,
     classifyGeneratedPr,
     classifySyncPrChecks,
     collectDeletableSyncBranches,
@@ -38,6 +39,11 @@ async function run({ github, context, core }) {
     true,
   );
   const evidenceOnly = parseBooleanInput(process.env.EVIDENCE_ONLY_INPUT, false);
+  const candidateEvidenceAuthorized = parseBooleanInput(
+    process.env.CANDIDATE_EVIDENCE_AUTHORIZED,
+    process.env.CANDIDATE_EVIDENCE_RESULT === 'success'
+      && process.env.CANDIDATE_ARTIFACT_RESULT === 'success',
+  );
   const dryRun = evidenceOnly || parseBooleanInput(
     process.env.DRY_RUN_INPUT ||
       (context.payload.client_payload && context.payload.client_payload.dry_run),
@@ -167,6 +173,7 @@ async function run({ github, context, core }) {
   console.log(`Processing repos: ${targetRepos.join(', ')}`);
   console.log(`Auto-merge: ${autoMerge}, Dry run: ${dryRun}`);
   console.log(`Evidence only: ${evidenceOnly}`);
+  console.log(`Candidate evidence authorized: ${candidateEvidenceAuthorized}`);
   console.log(`Cleanup stale sync branches: ${cleanupBranches}\n`);
   if (requestedSyncHash) {
     console.log(`Target sync hash: ${requestedSyncHash}`);
@@ -562,6 +569,28 @@ async function run({ github, context, core }) {
       console.log(`\nProcessing active PR #${pr.number}: ${pr.title}`);
       console.log(`Branch: ${pr.head.ref}`);
       console.log(`Created: ${pr.created_at}`);
+
+      if (!candidateEvidenceAllowsMutation({
+        branch: pr.head.ref,
+        evidenceOnly,
+        authorized: candidateEvidenceAuthorized,
+      })) {
+        console.log('Candidate merge blocked: pre-merge evidence was not persisted successfully');
+        results.push({
+          owner,
+          repo,
+          pr: pr.number,
+          branch: pr.head.ref,
+          head_sha: pr.head.sha,
+          delivery_generation: selection.deliveryRecord?.generation || '',
+          delivery_lane: generatedDeliveryLane(pr.head.ref),
+          delivery_disposition: 'awaiting-canary-evidence',
+          blocker_owner: 'maint-71',
+          next_command: 'rerun-active-sync-hash-candidate',
+          status: 'candidate_evidence_required',
+        });
+        continue;
+      }
 
       const reviewWindow = evaluatePostPushReviewWindow(pr, new Date().toISOString());
       if (!reviewWindow.ready) {

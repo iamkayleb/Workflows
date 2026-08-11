@@ -297,6 +297,9 @@ Candidate mode derives its repository scope from
 and cannot create false `target_missing` failures.
 Maint 71 enforces the seven-minute exact-head review window and performs a final
 head plus active-review-thread query immediately before each generated merge.
+Workflow-call, manual, and repository-dispatch candidate selectors normalize to
+the same gate. The executor requires same-job evidence/upload authorization, so
+scheduled or malformed paths cannot merge a candidate implicitly.
 
 Use `preview` to produce the plan/evidence artifact without a write matrix.
 There is no direct-repository promotion bypass. Security and production-break

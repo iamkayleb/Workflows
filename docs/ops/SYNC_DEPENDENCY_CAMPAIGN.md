@@ -30,6 +30,10 @@ unrelated non-canary delivery branch cannot be allowed to block canary evidence.
 Every generated delivery must also remain on one exact head for at least seven
 full minutes. Maint 71 re-reads that head and live non-outdated review threads
 immediately before its merge call; a changed head restarts the window.
+Candidate mode is normalized from workflow-call, manual, and repository-dispatch
+selectors. The executor refuses to mutate a selected stable candidate unless
+the same job's evidence-validation and pre-merge artifact steps both succeeded;
+an unscoped scheduled run therefore leaves candidates untouched.
 
 Maint 82 (`maint-82-sync-dependency-campaign.yml`) owns the durable campaign
 state and only requests local agent work when an actionable exception
