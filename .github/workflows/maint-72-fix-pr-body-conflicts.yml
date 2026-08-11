@@ -179,6 +179,7 @@ jobs:
 
             let needsFix = false;
             let actions = [];
+            const mutationFailures = [];
 
             // Step 1: Check if pr_body.md exists on main
             let prBodyExists = false;
@@ -286,6 +287,7 @@ jobs:
               } catch (e) {
                 console.log(`❌ Failed to delete pr_body.md: ${e.message}`);
                 core.error(`${owner}/${repo}: Failed to delete pr_body.md: ${e.message}`);
+                mutationFailures.push(`delete pr_body.md (${e.message})`);
               }
             }
 
@@ -321,7 +323,13 @@ jobs:
               } catch (e) {
                 console.log(`❌ Failed to update .gitignore: ${e.message}`);
                 core.error(`${owner}/${repo}: Failed to update .gitignore: ${e.message}`);
+                mutationFailures.push(`update .gitignore (${e.message})`);
               }
             }
 
             core.notice(`${owner}/${repo}: Fixed - ${actions.join(' and ')}`);
+            if (mutationFailures.length) {
+              core.setFailed(
+                `${owner}/${repo}: incomplete repair: ${mutationFailures.join('; ')}`,
+              );
+            }

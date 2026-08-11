@@ -811,7 +811,9 @@ jobs:
               }));
               core.info(`Assigned ${assignees.join(', ')} to PR #${prNumber}`);
             } catch (error) {
-              core.warning(`Failed to assign agent: ${error.message}`);
+              core.setOutput('triggered', 'false');
+              core.setFailed(`Failed to assign agent: ${error.message}`);
+              return;
             }
 
             // Post informational comment (without @mention to avoid triggering connector twice)

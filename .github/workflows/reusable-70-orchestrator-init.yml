@@ -321,7 +321,7 @@ jobs:
                 }
                 deferredByRateLimit = true;
                 const message = error?.message || error;
-                core.warning('Idle precheck deferred: issue scan rate-limited.');
+                core.warning('Rate limit exhausted during idle precheck; deferring dispatch.');
                 core.debug?.(`Idle precheck rate-limit detail: ${message}`);
               }
               for (const issue of openIssues) {
@@ -367,7 +367,10 @@ jobs:
             await summary.write();
 
             if (deferredByRateLimit) {
-              core.notice('Rate limit exhausted during idle precheck; deferring dispatch.');
+              core.setFailed(
+                'Idle precheck could not determine agent issue state because the GitHub API rate limit was exhausted.',
+              );
+              return;
             }
             else if (!hasWork) core.info('Idle, skipping orchestrator dispatch.');
             else if (keepaliveRequested) {
