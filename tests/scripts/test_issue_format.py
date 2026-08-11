@@ -48,6 +48,29 @@ def test_fence_with_language_marker_does_not_close_a_code_block() -> None:
     ],
 )
 @pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_indented_fence_literal_does_not_hide_real_headings(
+    validator_path: Path, fence: str
+) -> None:
+    validator = _validator(validator_path)
+    body = (
+        f"    {fence}\n"
+        + VALID_CONTEXT
+        + "## Tasks\n- [ ] Update `src/client.py`\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    report = validator.validate(body)
+    assert report.ok, report.as_markdown()
+    assert "## Tasks" in validator._without_fenced_code(body)
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+@pytest.mark.parametrize("fence", ["```", "~~~"])
 def test_list_indented_fenced_acceptance_command_is_ignored(
     validator_path: Path, fence: str
 ) -> None:
@@ -584,6 +607,33 @@ def test_explicit_create_paths_do_not_trigger_wrong_repository_failure(tmp_path)
         + "- [ ] Generate `tests/test_new_c.py`\n\n"
         + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
     )
+    assert validator.validate(body, repo_root=tmp_path).ok
+
+
+@pytest.mark.parametrize(
+    "validator_path",
+    [
+        Path(".github/scripts/issue_format.py"),
+        Path("templates/consumer-repo/.github/scripts/issue_format.py"),
+    ],
+)
+def test_create_verbs_after_task_context_still_mark_direct_paths_new(
+    tmp_path, validator_path: Path
+) -> None:
+    validator = _validator(validator_path)
+    body = (
+        VALID_CONTEXT
+        + "## Tasks\n"
+        + "- [ ] In the new package, create src/new/a.py\n"
+        + "- [ ] For the command, add src/new/b.py\n"
+        + "- [ ] For coverage, generate tests/test_new_c.py\n\n"
+        + "## Acceptance Criteria\n- pytest tests/test_x.py passes\n"
+    )
+    assert validator._created_paths(body) == {
+        "src/new/a.py",
+        "src/new/b.py",
+        "tests/test_new_c.py",
+    }
     assert validator.validate(body, repo_root=tmp_path).ok
 
 

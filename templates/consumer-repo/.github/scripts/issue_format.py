@@ -277,13 +277,8 @@ def _candidate_matches(text: str) -> list[tuple[int, str]]:
 
 
 _EXPLICIT_CREATE_PREFIX = re.compile(
-    r"(?:"
-    r"\b(?:create|scaffold|generate)\s+(?:(?:a|the)\s+)?(?:new\s+)?"
-    r"(?:file\s+)?(?:at\s+|named\s+)?"
-    r"|"
-    r"\b(?:add|introduce|write)\s+(?:(?:a|the)\s+)?(?:new\s+)?"
-    r"file(?:\s+(?:at|named))?\s+"
-    r")$",
+    r"\b(?:create|add|introduce|scaffold|generate|write)\s+"
+    r"(?:(?:a|the)\s+)?(?:new\s+)?(?:file\s+)?(?:at\s+|named\s+)?$",
     re.I,
 )
 
@@ -349,23 +344,44 @@ def _resolve_citations(body: str, repo_root: Path) -> tuple[list[str], list[str]
     return resolved, unresolved
 
 
+def _list_content_indent(line: str) -> int | None:
+    """Return the content indentation established by a Markdown list marker."""
+    match = re.match(r"^( {0,3})(?:[-+*]|\d+[.)]) +", line)
+    return match.end() if match else None
+
+
+def _fence_match(line: str, list_indent: int | None) -> re.Match[str] | None:
+    """Match a Markdown fence, including a fence nested in the current list."""
+    match = re.match(r"^( *)(`{3,}|~{3,})", line)
+    if match is None:
+        return None
+    indent = len(match.group(1))
+    if indent <= 3:
+        return match
+    if list_indent is not None and list_indent <= indent <= list_indent + 3:
+        return match
+    return None
+
+
 def _headings(body: str) -> list[tuple[str, int, int]]:
     """Return markdown headings outside fenced code blocks with line indexes."""
     out: list[tuple[str, int, int]] = []
     fence: tuple[str, int] | None = None
+    list_indent: int | None = None
     for i, line in enumerate(body.splitlines()):
-        fence_match = re.match(r"\s*(`{3,}|~{3,})", line)
+        if (new_list_indent := _list_content_indent(line)) is not None:
+            list_indent = new_list_indent
+        elif line.strip() and fence is None and len(line) - len(line.lstrip(" ")) < (list_indent or 0):
+            list_indent = None
+        fence_match = _fence_match(line, list_indent)
         if fence_match:
-            marker = fence_match.group(1)
+            marker = fence_match.group(2)
             if fence is None:
                 fence = (marker[0], len(marker))
             elif (
                 marker[0] == fence[0]
                 and len(marker) >= fence[1]
-                and re.fullmatch(
-                    rf"\s*(?:`{{{fence[1]},}}|~{{{fence[1]},}})\s*",
-                    line,
-                )
+                and not line[fence_match.end() :].strip()
             ):
                 fence = None
             continue
@@ -399,19 +415,21 @@ def _without_fenced_code(text: str) -> str:
     """Remove Markdown fences so examples cannot satisfy issue requirements."""
     kept: list[str] = []
     fence: tuple[str, int] | None = None
+    list_indent: int | None = None
     for line in text.splitlines():
-        match = re.match(r"\s*(`{3,}|~{3,})", line)
+        if (new_list_indent := _list_content_indent(line)) is not None:
+            list_indent = new_list_indent
+        elif line.strip() and fence is None and len(line) - len(line.lstrip(" ")) < (list_indent or 0):
+            list_indent = None
+        match = _fence_match(line, list_indent)
         if match:
-            marker = match.group(1)
+            marker = match.group(2)
             if fence is None:
                 fence = (marker[0], len(marker))
             elif (
                 marker[0] == fence[0]
                 and len(marker) >= fence[1]
-                and re.fullmatch(
-                    rf"\s*(?:`{{{fence[1]},}}|~{{{fence[1]},}})\s*",
-                    line,
-                )
+                and not line[match.end() :].strip()
             ):
                 # Closing fences are marker-only (optional whitespace); trailing
                 # content such as a language tag must not end the fence.
