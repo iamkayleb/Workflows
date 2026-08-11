@@ -31,6 +31,25 @@ def test_issue_optimizer_checks_for_format_label() -> None:
     assert "phase=format" in text
 
 
+def test_format_optimizer_rechecks_live_hold_and_exemption_state() -> None:
+    for path in (WORKFLOW_PATH, CONSUMER_WORKFLOW_PATH):
+        text = path.read_text(encoding="utf-8")
+        assert "format_issue_is_eligible" in text
+        assert "format-eligibility.json" in text
+        assert 'DISPATCH_PHASE" == "format"' in text
+        for label in (
+            "agents:auto-pilot",
+            "agents:auto-pilot-pause",
+            "needs-human",
+            "tracker:durable",
+            "wontfix",
+        ):
+            assert label in text
+        assert "bot-authored issues are exempt" in text
+        assert "issue body explicitly forbids dispatch" in text
+        assert "could not re-check issue eligibility; refusing format work" in text
+
+
 def test_issue_optimizer_validates_format_and_apply_bodies() -> None:
     text = WORKFLOW_PATH.read_text(encoding="utf-8")
     consumer_text = CONSUMER_WORKFLOW_PATH.read_text(encoding="utf-8")
