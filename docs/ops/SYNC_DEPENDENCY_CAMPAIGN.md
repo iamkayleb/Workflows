@@ -18,6 +18,16 @@ both `sync/workflows-*` consumer-sync branches and
 - legacy attempts without a record require an explicit, one-time provenance
   decision before any merge.
 
+For the stable `sync/workflows-candidate` lane, Maint 71 must upload a complete,
+green, review-clear `sync-canary-evidence-premerge` artifact before it mutates
+any candidate PR. Operators and local closers must not call `gh pr merge` or arm
+auto-merge on candidate PRs directly. This ordering keeps a GitHub
+`action_required` pre-job approval hold or an artifact failure recoverable
+instead of consuming the only evidence-bearing PRs.
+Maint 71 derives candidate scope from `config/consumer_sync_canaries.json`; it
+must not scan the complete consumer registry in candidate mode because an
+unrelated non-canary delivery branch cannot be allowed to block canary evidence.
+
 Maint 82 (`maint-82-sync-dependency-campaign.yml`) owns the durable campaign
 state and only requests local agent work when an actionable exception
 fingerprint materially changes. Timestamps alone do not constitute new work.

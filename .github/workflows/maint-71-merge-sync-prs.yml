@@ -44,8 +44,13 @@ on:
         required: false
         type: boolean
         default: false
+      active_sync_hash:
+        description: "Active sync hash to reconcile (use candidate for the stable canary branch)"
+        required: false
+        type: string
+        default: ""
       sync_hash:
-        description: "Optional sync hash to keep active (accepts hash or sync/workflows-* branch)"
+        description: "Deprecated alias for active_sync_hash"
         required: false
         type: string
         default: ""
@@ -71,8 +76,13 @@ on:
         required: false
         type: boolean
         default: false
+      active_sync_hash:
+        description: "Active sync hash to reconcile (use candidate for the stable canary branch)"
+        required: false
+        type: string
+        default: ""
       sync_hash:
-        description: "Optional sync hash to keep active (accepts hash or sync/workflows-* branch)"
+        description: "Deprecated alias for active_sync_hash"
         required: false
         type: string
         default: ""
@@ -114,6 +124,37 @@ jobs:
           echo "list=${repos}" >> "$GITHUB_OUTPUT"
           echo "Extracted repos: ${repos}"
 
+      - name: Collect and validate canary evidence before merge
+        id: candidate_evidence
+        if: ${{ (inputs.active_sync_hash || inputs.sync_hash || '') == 'candidate' }}
+        uses: actions/github-script@v9
+        env:
+          REPOS_INPUT: ${{ inputs.repos || 'all' }}
+          AUTO_MERGE_INPUT: "false"
+          DRY_RUN_INPUT: "true"
+          ACTIVE_SYNC_HASH_INPUT: ${{ inputs.active_sync_hash || inputs.sync_hash || '' }}
+          CLEANUP_BRANCHES_INPUT: "false"
+          EVIDENCE_ONLY_INPUT: "true"
+          CONSUMER_SYNC_CANARIES_PATH: config/consumer_sync_canaries.json
+          TRUSTED_SYNC_ACTORS: stranske,stranske-automation-bot,github-actions[bot]
+          SYNC_PR_MERGE_REPORT_JSON: artifacts/sync-pr-premerge-report.json
+          REGISTERED_REPOS_INPUT: ${{ steps.repos.outputs.list }}
+        with:
+          github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
+          script: |
+            const { run } = require("./.github/scripts/maint71_merge_sync_prs.js");
+            await run({ github, context, core });
+
+      - name: Persist pre-merge canary evidence
+        if: ${{ always() && (inputs.active_sync_hash || inputs.sync_hash || '') == 'candidate' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: sync-canary-evidence-premerge
+          path: |
+            artifacts/sync-pr-premerge-report.json
+            artifacts/sync-canary-evidence.json
+          if-no-files-found: error
+
       - name: Check and merge sync PRs
         # The executable lives in maint71_merge_sync_prs.js to keep this workflow
         # below GitHub's expression-size limit.  That module owns the
@@ -126,8 +167,9 @@ jobs:
           REPOS_INPUT: ${{ inputs.repos || 'all' }}
           AUTO_MERGE_INPUT: ${{ inputs.auto_merge }}
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
-          SYNC_HASH_INPUT: ${{ inputs.sync_hash || '' }}
+          ACTIVE_SYNC_HASH_INPUT: ${{ inputs.active_sync_hash || inputs.sync_hash || '' }}
           CLEANUP_BRANCHES_INPUT: ${{ inputs.cleanup_branches }}
+          CONSUMER_SYNC_CANARIES_PATH: config/consumer_sync_canaries.json
           TRUSTED_SYNC_ACTORS: stranske,stranske-automation-bot,github-actions[bot]
           SYNC_PR_MERGE_REPORT_JSON: artifacts/sync-pr-merge-report.json
           REGISTERED_REPOS_INPUT: ${{ steps.repos.outputs.list }}

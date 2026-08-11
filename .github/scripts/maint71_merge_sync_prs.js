@@ -17,8 +17,11 @@ async function run({ github, context, core }) {
     normalizeSyncHash,
     parseBooleanInput,
     isTrustedGeneratedDeliveryPr,
+    selectLatestMergedCandidatePr,
     selectMergeEligibleSyncPr,
     selectSyncPrGatingChecks,
+    syncBranchForHash,
+    validateCanaryEvidence,
   } = require('./sync_pr_merge_contract.js');
   const {
     assertRuntimeAcMergeAllowed,
@@ -33,7 +36,8 @@ async function run({ github, context, core }) {
       (context.payload.client_payload && context.payload.client_payload.auto_merge),
     true,
   );
-  const dryRun = parseBooleanInput(
+  const evidenceOnly = parseBooleanInput(process.env.EVIDENCE_ONLY_INPUT, false);
+  const dryRun = evidenceOnly || parseBooleanInput(
     process.env.DRY_RUN_INPUT ||
       (context.payload.client_payload && context.payload.client_payload.dry_run),
     false,
@@ -124,12 +128,10 @@ async function run({ github, context, core }) {
     .map(r => r.trim())
     .filter(Boolean);
   
-  // Determine which repos to process
-  const targetRepos = inputRepos === 'all'
-    ? registeredRepos
-    : inputRepos.split(',').map(r => r.trim());
   const requestedSyncHash = normalizeSyncHash(
-    process.env.SYNC_HASH_INPUT ||
+    process.env.ACTIVE_SYNC_HASH_INPUT ||
+      process.env.SYNC_HASH_INPUT ||
+      (context.payload.client_payload && context.payload.client_payload.active_sync_hash) ||
       (context.payload.client_payload && context.payload.client_payload.sync_hash) ||
     '',
   );
@@ -137,10 +139,33 @@ async function run({ github, context, core }) {
     .split(',')
     .map((actor) => actor.trim())
     .filter(Boolean);
+
+  let expectedCanaryRepos = [];
+  if (requestedSyncHash === 'candidate') {
+    const canaryConfigPath = process.env.CONSUMER_SYNC_CANARIES_PATH ||
+      'config/consumer_sync_canaries.json';
+    const canaryConfig = JSON.parse(
+      fs.readFileSync(canaryConfigPath, 'utf8'),
+    );
+    expectedCanaryRepos = (canaryConfig.canaries || [])
+      .map((entry) => String(entry?.repo || '').trim())
+      .filter(Boolean);
+  }
+
+  // Candidate reconciliation is a registry-owned operation. Processing the
+  // complete consumer registry here lets unrelated non-canary delivery PRs
+  // create target_missing failures and can make promotion evidence unusable.
+  // Always derive this target set from the canonical canary registry.
+  const targetRepos = requestedSyncHash === 'candidate'
+    ? expectedCanaryRepos
+    : inputRepos === 'all'
+      ? registeredRepos
+      : inputRepos.split(',').map(r => r.trim());
   
   console.log(`Registered consumer repos: ${registeredRepos.join(', ')}`);
   console.log(`Processing repos: ${targetRepos.join(', ')}`);
   console.log(`Auto-merge: ${autoMerge}, Dry run: ${dryRun}`);
+  console.log(`Evidence only: ${evidenceOnly}`);
   console.log(`Cleanup stale sync branches: ${cleanupBranches}\n`);
   if (requestedSyncHash) {
     console.log(`Target sync hash: ${requestedSyncHash}`);
@@ -213,22 +238,22 @@ async function run({ github, context, core }) {
       );
   
       const syncPRs = prs.filter((pr) => isTrustedGeneratedDeliveryPr(pr, trustedSyncActors));
+      let closedPRs = [];
+      if (cleanupBranches || requestedSyncHash === 'candidate') {
+        closedPRs = await withRetry((client) => client.paginate(client.rest.pulls.list, {
+          owner,
+          repo,
+          state: 'closed',
+          per_page: 100,
+        }));
+      }
   
       if (cleanupBranches) {
         try {
-          const [branches, closedPRs] = await Promise.all([
-            withRetry((client) => client.paginate(client.rest.repos.listBranches, {
-              owner,
-              repo,
-              per_page: 100,
-            })),
-            withRetry((client) => client.paginate(client.rest.pulls.list, {
-              owner,
-              repo,
-              state: 'closed',
-              per_page: 100,
-            })),
-          ]);
+          const branches = await withRetry((client) => client.paginate(
+            client.rest.repos.listBranches,
+            { owner, repo, per_page: 100 },
+          ));
           const branchesToDelete = collectDeletableSyncBranches({
             branches,
             // Pass every open PR so an open sync head beyond the filtered set is never deleted.
@@ -286,14 +311,31 @@ async function run({ github, context, core }) {
           });
         }
       }
-  
-      if (syncPRs.length === 0) {
+
+      let candidatePRs = syncPRs;
+      let recoveredMergedCandidate = false;
+      const hasOpenCandidate = syncPRs.some(
+        (pr) => pr?.head?.ref === syncBranchForHash('candidate'),
+      );
+      if (!hasOpenCandidate && requestedSyncHash === 'candidate') {
+        const mergedCandidate = selectLatestMergedCandidatePr(closedPRs, trustedSyncActors);
+        if (mergedCandidate) {
+          candidatePRs = [mergedCandidate];
+          recoveredMergedCandidate = true;
+          console.log(
+            `Recovering canary evidence from merged PR #${mergedCandidate.number} ` +
+              `(${mergedCandidate.head.sha})`,
+          );
+        }
+      }
+
+      if (candidatePRs.length === 0) {
         console.log('No sync PRs found');
         results.push({ owner, repo, status: 'no_prs' });
         continue;
       }
   
-      let selection = selectMergeEligibleSyncPr(syncPRs, {
+      let selection = selectMergeEligibleSyncPr(candidatePRs, {
         syncHash: requestedSyncHash,
         now: new Date().toISOString(),
         repository: `${owner}/${repo}`,
@@ -301,14 +343,14 @@ async function run({ github, context, core }) {
       if (selection.missingExpected) {
         console.log(
           `Expected sync PR branch ${selection.expectedBranch} was not found; leaving ` +
-            `${syncPRs.length} sync PRs untouched`,
+            `${candidatePRs.length} sync PRs untouched`,
         );
         results.push({
           owner,
           repo,
           status: 'target_missing',
           expected_branch: selection.expectedBranch,
-          open_sync_prs: syncPRs.map((item) => ({
+          open_sync_prs: candidatePRs.map((item) => ({
             number: item.number,
             branch: item.head.ref,
             url: item.html_url,
@@ -324,7 +366,7 @@ async function run({ github, context, core }) {
           commit_sha: selection.active.head.sha,
         }),
       );
-      selection = selectMergeEligibleSyncPr(syncPRs, {
+      selection = selectMergeEligibleSyncPr(candidatePRs, {
         syncHash: requestedSyncHash,
         now: new Date().toISOString(),
         repository: `${owner}/${repo}`,
@@ -334,7 +376,7 @@ async function run({ github, context, core }) {
       // If multiple sync PRs exist, close older ones as stale
       if (selection.stale.length > 0) {
         console.log(
-          `Found ${syncPRs.length} sync PRs - closing ` +
+          `Found ${candidatePRs.length} sync PRs - closing ` +
             `${selection.stale.length} stale PRs`,
         );
   
@@ -557,6 +599,8 @@ async function run({ github, context, core }) {
           repo: `${owner}/${repo}`,
           plan_id: metadata.plan_id,
           pr: pr.number,
+          head_sha: pr.head.sha,
+          evidence_source: recoveredMergedCandidate ? 'merged-candidate-recovery' : 'open-candidate',
           required_check_state:
             classification.status === 'ready' ? 'success' : classification.status,
           active_review_thread_count: activeReviewThreads,
@@ -608,6 +652,16 @@ async function run({ github, context, core }) {
       }
   
       // All checks passed
+      if (recoveredMergedCandidate) {
+        console.log('✓ Recovered green, review-clear evidence from the merged candidate PR');
+        results.push({
+          ...deliveryContext,
+          status: 'evidence_recovered',
+          active_review_thread_count: activeReviewThreads,
+        });
+        continue;
+      }
+
       if (!autoMerge) {
         console.log('✓ Ready to merge (auto-merge disabled)');
         results.push({
@@ -755,8 +809,16 @@ async function run({ github, context, core }) {
     }, null, 2)}\n`,
     'utf8',
   );
+  const evidenceValidation = requestedSyncHash === 'candidate'
+    ? validateCanaryEvidence(canaryEvidence, expectedCanaryRepos)
+    : { ok: true, errors: [], plan_id: '' };
+  if (evidenceOnly && !evidenceValidation.ok) {
+    core.setFailed(
+      `Canary evidence is incomplete or unsafe: ${evidenceValidation.errors.join(', ')}`,
+    );
+  }
   await core.summary.addRaw(buildMarkdownSummary(report)).write();
-  if (!dryRun && report.handoff_records.length > 0) {
+  if (!dryRun && !evidenceOnly && report.handoff_records.length > 0) {
     // Fleet-wide refresh: a targeted Maint 71 repos filter must not cause
     // Maint 82 to stale unscanned repos. Dispatch is best-effort so a
     // permissions/transient failure does not fail the reconciler run.

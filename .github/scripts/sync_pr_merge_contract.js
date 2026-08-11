@@ -272,6 +272,62 @@ function selectMergeEligibleSyncPr(
   return { ...selection, deliveryRecord: record, eligibility };
 }
 
+function selectLatestMergedCandidatePr(prs, trustedActors = []) {
+  const mergedCandidates = (prs || []).filter(
+    (pr) =>
+      pr?.head?.ref === `${SYNC_BRANCH_PREFIX}candidate`
+      && Boolean(pr?.merged_at || pr?.mergedAt)
+      && isTrustedGeneratedDeliveryPr(pr, trustedActors),
+  );
+  return mergedCandidates.sort((a, b) => {
+    const aTime = new Date(a.merged_at || a.mergedAt || a.updated_at || 0).getTime();
+    const bTime = new Date(b.merged_at || b.mergedAt || b.updated_at || 0).getTime();
+    return bTime - aTime;
+  })[0] || null;
+}
+
+function validateCanaryEvidence(evidence = [], expectedRepos = []) {
+  const expected = new Set((expectedRepos || []).map((repo) => String(repo || '').trim()).filter(Boolean));
+  const rowsByRepo = new Map();
+  const errors = [];
+  for (const row of evidence || []) {
+    const repo = String(row?.repo || '').trim();
+    if (!expected.has(repo)) {
+      errors.push(`unexpected_canary_evidence:${repo || '<missing-repo>'}`);
+      continue;
+    }
+    if (rowsByRepo.has(repo)) {
+      errors.push(`duplicate_canary_evidence:${repo}`);
+      continue;
+    }
+    rowsByRepo.set(repo, row);
+  }
+  for (const repo of expected) {
+    const row = rowsByRepo.get(repo);
+    if (!row) {
+      errors.push(`missing_canary_evidence:${repo}`);
+      continue;
+    }
+    if (row.required_check_state !== 'success') {
+      errors.push(`required_checks_not_green:${repo}`);
+    }
+    if (row.active_review_thread_count !== 0) {
+      errors.push(`active_review_debt:${repo}`);
+    }
+  }
+  const planIds = new Set(
+    [...rowsByRepo.values()].map((row) => String(row?.plan_id || '').trim()).filter(Boolean),
+  );
+  if (planIds.size !== 1) {
+    errors.push('missing_or_mixed_canary_plan');
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    plan_id: planIds.size === 1 ? [...planIds][0] : '',
+  };
+}
+
 function summarizeResults(results) {
   const counts = {
     no_prs: 0,
@@ -289,6 +345,7 @@ function summarizeResults(results) {
     merged: 0,
     merge_failed: 0,
     delivery_contract_blocked: 0,
+    evidence_recovered: 0,
     error: 0,
   };
   for (const result of results || []) {
@@ -465,6 +522,8 @@ module.exports = {
   sortSyncPrs,
   selectActiveSyncPr,
   selectMergeEligibleSyncPr,
+  selectLatestMergedCandidatePr,
+  validateCanaryEvidence,
   summarizeResults,
   buildMergeReport,
   buildDeliveryHandoff,

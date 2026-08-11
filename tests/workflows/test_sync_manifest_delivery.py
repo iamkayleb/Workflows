@@ -267,6 +267,28 @@ def test_maint_71_emits_canary_evidence_with_review_debt() -> None:
     assert "plan_id" in executor
 
 
+def test_maint_71_persists_validated_candidate_evidence_before_merge() -> None:
+    workflow_path = REPO_ROOT / ".github" / "workflows" / "maint-71-merge-sync-prs.yml"
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    dispatch_inputs = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]
+    steps = workflow["jobs"]["merge_sync_prs"]["steps"]
+    names = [step.get("name") for step in steps]
+
+    assert "active_sync_hash" in dispatch_inputs
+    assert dispatch_inputs["sync_hash"]["description"] == "Deprecated alias for active_sync_hash"
+    collect_index = names.index("Collect and validate canary evidence before merge")
+    persist_index = names.index("Persist pre-merge canary evidence")
+    merge_index = names.index("Check and merge sync PRs")
+    assert collect_index < persist_index < merge_index
+    assert steps[persist_index]["with"]["name"] == "sync-canary-evidence-premerge"
+    assert steps[persist_index]["with"]["if-no-files-found"] == "error"
+
+    source = workflow_path.read_text(encoding="utf-8")
+    assert 'AUTO_MERGE_INPUT: "false"' in source
+    assert 'EVIDENCE_ONLY_INPUT: "true"' in source
+    assert "ACTIVE_SYNC_HASH_INPUT" in source
+
+
 def test_maint68_refreshes_only_a_same_base_and_tree_delivery_attempt() -> None:
     """A current generation reuses its PR; a changed base/tree must be replaced safely."""
     source = SYNC_WORKFLOW_PATH.read_text(encoding="utf-8")
