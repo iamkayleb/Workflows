@@ -214,6 +214,50 @@ function isFallbackDeniedCheck(checkName, fallbackDenylist) {
   return [...fallbackDenylist].some((deniedName) => checkName.includes(deniedName));
 }
 
+function rulesetRefPatternMatches(pattern, branch) {
+  const normalizedPattern = String(pattern || '').trim();
+  const normalizedBranch = branchNameFromRef(branch);
+  if (!normalizedPattern || !normalizedBranch) return false;
+  if (normalizedPattern === '~ALL' || normalizedPattern === '~DEFAULT_BRANCH') return true;
+  const ref = `refs/heads/${normalizedBranch}`;
+  if (normalizedPattern === normalizedBranch || normalizedPattern === ref) return true;
+  const globPattern = normalizedPattern.startsWith('refs/')
+    ? normalizedPattern
+    : `refs/heads/${normalizedPattern}`;
+  const escaped = globPattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '\u0000')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '[^/]')
+    .replace(/\u0000/g, '.*');
+  return new RegExp(`^${escaped}$`).test(ref);
+}
+
+function requiredContextsFromRulesets(rulesets = [], branch = '') {
+  const requiredContexts = new Set();
+  for (const ruleset of rulesets || []) {
+    if (String(ruleset?.enforcement || '').toLowerCase() !== 'active') continue;
+    const refName = ruleset?.conditions?.ref_name || {};
+    const excludes = Array.isArray(refName.exclude) ? refName.exclude : [];
+    if (excludes.some((pattern) => rulesetRefPatternMatches(pattern, branch))) continue;
+    const includes = Array.isArray(refName.include) ? refName.include : [];
+    if (
+      includes.length > 0 &&
+      !includes.some((pattern) => rulesetRefPatternMatches(pattern, branch))
+    ) {
+      continue;
+    }
+    for (const rule of ruleset.rules || []) {
+      if (rule?.type !== 'required_status_checks') continue;
+      for (const check of rule?.parameters?.required_status_checks || []) {
+        const contextName = String(check?.context || '').trim();
+        if (contextName) requiredContexts.add(contextName);
+      }
+    }
+  }
+  return requiredContexts;
+}
+
 function selectSyncPrGatingChecks({
   checkRuns = [],
   requiredContexts = [],
@@ -573,6 +617,8 @@ module.exports = {
   normalizeSyncHash,
   syncBranchForHash,
   parseBooleanInput,
+  requiredContextsFromRulesets,
+  rulesetRefPatternMatches,
   selectSyncPrGatingChecks,
   sortSyncPrs,
   selectActiveSyncPr,

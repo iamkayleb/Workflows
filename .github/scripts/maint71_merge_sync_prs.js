@@ -18,6 +18,7 @@ async function run({ github, context, core }) {
     generatedDeliveryLane,
     normalizeSyncHash,
     parseBooleanInput,
+    requiredContextsFromRulesets,
     isTrustedGeneratedDeliveryPr,
     selectLatestMergedCandidatePr,
     selectMergeEligibleSyncPr,
@@ -77,39 +78,6 @@ async function run({ github, context, core }) {
         ],
       })
     : { github, withRetry: (fn) => fn(github) };
-  const fallbackCheckDenylist = [
-    'Detect keepalive',
-    'pr_meta',
-    'resolve_pr',
-    'Cleanup',
-    '${' + '{ matrix.',
-    'matrix.python-version',
-  ];
-
-  function getCanonicalRequiredContexts() {
-    const configPath = process.env.REQUIRED_CONTEXTS_PATH ||
-      '.github/config/required-contexts.json';
-    let config;
-    try {
-      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    } catch (error) {
-      throw new Error(
-        `Unable to load canonical required checks from ${configPath}: ${error.message}`,
-      );
-    }
-    const requiredContexts = new Set(
-      (config.required_contexts || [])
-        .map((contextName) => String(contextName || '').trim())
-        .filter(Boolean),
-    );
-    if (requiredContexts.size === 0) {
-      throw new Error(
-        `Canonical required-check config ${configPath} has no required_contexts`,
-      );
-    }
-    return requiredContexts;
-  }
-  
   async function getRequiredContexts({ owner, repo, branch }) {
     try {
       const { data: protection } = await withRetry((client) =>
@@ -133,31 +101,54 @@ async function run({ github, context, core }) {
           requiredContexts.add(normalized);
         }
       }
-      if (requiredContexts.size === 0) {
-        const canonicalRequiredContexts = getCanonicalRequiredContexts();
-        console.log(
-          `Branch protection for ${owner}/${repo}@${branch} has no required ` +
-            `status checks; using canonical fallback: ${[
-              ...canonicalRequiredContexts,
-            ].join(', ')}`,
-        );
-        return canonicalRequiredContexts;
+      if (requiredContexts.size > 0) {
+        return { contexts: requiredContexts, source: 'branch-protection' };
       }
-      return requiredContexts;
+      console.log(
+        `Legacy branch protection for ${owner}/${repo}@${branch} has no ` +
+          'required checks; checking active repository and organization rulesets',
+      );
     } catch (error) {
       const status = error?.status || error?.response?.status;
       if (status === 403 || status === 404) {
-        const canonicalRequiredContexts = getCanonicalRequiredContexts();
         console.log(
           `Branch protection unavailable for ${owner}/${repo}@${branch} ` +
-            `(${status}); using canonical fallback: ${[
-              ...canonicalRequiredContexts,
-            ].join(', ')}`,
+            `(${status}); checking active repository and organization rulesets`,
         );
-        return canonicalRequiredContexts;
+      } else {
+        throw error;
       }
-      throw error;
     }
+
+    const { data: rulesetList } = await withRetry((client) =>
+      client.rest.repos.getRepoRulesets({
+        owner,
+        repo,
+        includes_parents: true,
+      }),
+    );
+    const rulesets = [];
+    for (const ruleset of rulesetList || []) {
+      if (Array.isArray(ruleset?.rules) && ruleset?.conditions) {
+        rulesets.push(ruleset);
+        continue;
+      }
+      const { data: rulesetDetail } = await withRetry((client) =>
+        client.rest.repos.getRepoRuleset({
+          owner,
+          repo,
+          ruleset_id: ruleset.id,
+        }),
+      );
+      rulesets.push(rulesetDetail);
+    }
+    const requiredContexts = requiredContextsFromRulesets(rulesets, branch);
+    console.log(
+      requiredContexts.size > 0
+        ? `Ruleset required checks: ${[...requiredContexts].join(', ')}`
+        : `No active ruleset requires status checks for ${owner}/${repo}@${branch}`,
+    );
+    return { contexts: requiredContexts, source: 'rulesets' };
   }
   
   // Parse repos from previous step
@@ -681,16 +672,15 @@ async function run({ github, context, core }) {
         ...paginatedCheckRuns,
         ...statusAsChecks.filter((status) => !checkNames.has(String(status.name || '').trim())),
       ];
-      const requiredContexts = await getRequiredContexts({
+      const requiredCheckPolicy = await getRequiredContexts({
         owner,
         repo,
         branch: pr.base.ref,
       });
-      let classification = classifySyncPrChecks({
-        checkRuns: allChecks,
-        requiredContexts,
-        fallbackDenylist: fallbackCheckDenylist,
-      });
+      const requiredContexts = requiredCheckPolicy.contexts;
+      let classification = requiredContexts.size > 0
+        ? classifySyncPrChecks({ checkRuns: allChecks, requiredContexts })
+        : { status: 'ready', failed: [], pending: [] };
       // Fail closed: a required context absent from both checks and statuses is not "ready".
       if (requiredContexts.size > 0 && classification.status === 'ready') {
         const seenNames = new Set(
@@ -705,13 +695,10 @@ async function run({ github, context, core }) {
           };
         }
       }
-      const gatingChecks = selectSyncPrGatingChecks({
-        checkRuns: allChecks,
-        requiredContexts,
-        fallbackDenylist: fallbackCheckDenylist,
-      });
-      const checkGateMode =
-        requiredContexts.size > 0 ? 'required-contexts' : 'denylist-fallback';
+      const gatingChecks = requiredContexts.size > 0
+        ? selectSyncPrGatingChecks({ checkRuns: allChecks, requiredContexts })
+        : [];
+      const checkGateMode = requiredCheckPolicy.source;
       const failedChecks = classification.failed;
       const pendingChecks = classification.pending;
       const activeReviewThreads = await activeReviewThreadCount(

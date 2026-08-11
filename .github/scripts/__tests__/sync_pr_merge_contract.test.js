@@ -20,6 +20,8 @@ const {
   isTrustedSyncPr,
   normalizeSyncHash,
   parseBooleanInput,
+  requiredContextsFromRulesets,
+  rulesetRefPatternMatches,
   selectActiveSyncPr,
   selectLatestMergedCandidatePr,
   selectMergeEligibleSyncPr,
@@ -129,7 +131,6 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
     'EVIDENCE_ONLY_INPUT',
     'ACTIVE_SYNC_HASH_INPUT',
     'CONSUMER_SYNC_CANARIES_PATH',
-    'REQUIRED_CONTEXTS_PATH',
     'TRUSTED_SYNC_ACTORS',
     'SYNC_PR_MERGE_REPORT_JSON',
   ];
@@ -137,14 +138,9 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maint71-recovery-'));
   const reportPath = path.join(tempDir, 'artifacts', 'merge-report.json');
   const canaryConfigPath = path.join(tempDir, 'consumer-sync-canaries.json');
-  const requiredContextsPath = path.join(tempDir, 'required-contexts.json');
   fs.writeFileSync(
     canaryConfigPath,
     JSON.stringify({ canaries: [{ repo: 'stranske/Travel-Plan-Permission' }] }),
-  );
-  fs.writeFileSync(
-    requiredContextsPath,
-    JSON.stringify({ required_contexts: ['summary'] }),
   );
   const marker = '<!-- workflows-consumer-sync:v1 {"schema":"workflows-consumer-sync-pr/v1","consumer_repo":"stranske/Travel-Plan-Permission","plan_id":"plan-abc","sync_phase":"canary"} -->';
   const delivery = '<!-- sync-pr-delivery-record:v1 {"schema":"sync-pr-delivery-record/v1","durable_issue_url":"https://github.com/stranske/Workflows/issues/1836","plan_id":"plan-abc","generation":"candidate-1","repository":"stranske/Travel-Plan-Permission","desired_tree_hash":"tree-abc","source_commit":"source-abc","lease_expires_at":"2099-08-14T00:00:00Z","predecessor_prs":[],"successor_prs":[]} -->';
@@ -171,7 +167,7 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
       if (params.state === 'closed') return [mergedCandidate];
       if (params.ref === 'head-abc') {
         return [
-          { name: 'summary', status: 'completed', conclusion: 'success' },
+          { name: 'Gate / gate', status: 'completed', conclusion: 'success' },
           {
             name: 'Record autofix dispatch completion',
             status: 'completed',
@@ -202,6 +198,20 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
           error.status = 403;
           throw error;
         },
+        getRepoRulesets: async () => ({
+          data: [{ id: 7928264, name: 'Main', enforcement: 'active' }],
+        }),
+        getRepoRuleset: async () => ({
+          data: {
+            id: 7928264,
+            enforcement: 'active',
+            conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+            rules: [{
+              type: 'required_status_checks',
+              parameters: { required_status_checks: [{ context: 'Gate / gate' }] },
+            }],
+          },
+        }),
         getCombinedStatusForRef: async () => ({ data: { statuses: [] } }),
         createDispatchEvent: async () => ({}),
       },
@@ -226,7 +236,6 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
     process.env.ACTIVE_SYNC_HASH_INPUT = 'candidate';
     process.env.EVIDENCE_ONLY_INPUT = 'true';
     process.env.CONSUMER_SYNC_CANARIES_PATH = canaryConfigPath;
-    process.env.REQUIRED_CONTEXTS_PATH = requiredContextsPath;
     process.env.TRUSTED_SYNC_ACTORS = 'stranske';
     process.env.SYNC_PR_MERGE_REPORT_JSON = reportPath;
 
@@ -690,6 +699,39 @@ test('classifySyncPrChecks falls back to denylist when required contexts are emp
   assert.deepEqual(nonDenylistedFailure.failed.map((check) => check.name), [
     'Record autofix metrics',
   ]);
+});
+
+test('requiredContextsFromRulesets selects active rules for the target branch', () => {
+  const rulesets = [
+    {
+      enforcement: 'active',
+      conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
+      rules: [{
+        type: 'required_status_checks',
+        parameters: { required_status_checks: [{ context: 'Gate / gate' }] },
+      }],
+    },
+    {
+      enforcement: 'active',
+      conditions: { ref_name: { include: ['refs/heads/release/*'], exclude: [] } },
+      rules: [{
+        type: 'required_status_checks',
+        parameters: { required_status_checks: [{ context: 'release gate' }] },
+      }],
+    },
+    {
+      enforcement: 'evaluate',
+      conditions: { ref_name: { include: ['~ALL'], exclude: [] } },
+      rules: [{
+        type: 'required_status_checks',
+        parameters: { required_status_checks: [{ context: 'advisory' }] },
+      }],
+    },
+  ];
+
+  assert.equal(rulesetRefPatternMatches('refs/heads/release/*', 'main'), false);
+  assert.deepEqual([...requiredContextsFromRulesets(rulesets, 'main')], ['Gate / gate']);
+  assert.deepEqual([...requiredContextsFromRulesets([], 'main')], []);
 });
 
 test('runtime-AC sync PRs are blocked while ordinary sync PRs still merge', async () => {

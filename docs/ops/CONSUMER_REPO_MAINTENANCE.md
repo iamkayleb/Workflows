@@ -295,11 +295,11 @@ review threads. Maint 68 still rejects a stale or mixed recovered plan.
 Candidate mode derives its repository scope from
 `config/consumer_sync_canaries.json`; non-canary delivery branches are excluded
 and cannot create false `target_missing` failures.
-When the Maint 71 installation token cannot read a consumer's branch
-protection, required-check recovery loads the Workflows-owned
-`.github/config/required-contexts.json` allowlist. It fails closed if that file
-is missing or empty, and it does not promote cancelled informational jobs into
-required failures.
+Maint 71 reads required contexts from legacy branch protection when available,
+then from active repository and inherited organization rulesets. It fails
+closed if neither protection surface is visible. A successful ruleset query
+that returns no required checks is authoritative, so cancelled informational
+jobs do not become invented required failures.
 
 Maint 71 enforces the seven-minute exact-head review window and performs a final
 head plus active-review-thread query immediately before each generated merge.
