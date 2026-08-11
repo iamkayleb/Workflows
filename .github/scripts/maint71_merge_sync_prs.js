@@ -85,6 +85,30 @@ async function run({ github, context, core }) {
     '${' + '{ matrix.',
     'matrix.python-version',
   ];
+
+  function getCanonicalRequiredContexts() {
+    const configPath = process.env.REQUIRED_CONTEXTS_PATH ||
+      '.github/config/required-contexts.json';
+    let config;
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    } catch (error) {
+      throw new Error(
+        `Unable to load canonical required checks from ${configPath}: ${error.message}`,
+      );
+    }
+    const requiredContexts = new Set(
+      (config.required_contexts || [])
+        .map((contextName) => String(contextName || '').trim())
+        .filter(Boolean),
+    );
+    if (requiredContexts.size === 0) {
+      throw new Error(
+        `Canonical required-check config ${configPath} has no required_contexts`,
+      );
+    }
+    return requiredContexts;
+  }
   
   async function getRequiredContexts({ owner, repo, branch }) {
     try {
@@ -110,20 +134,27 @@ async function run({ github, context, core }) {
         }
       }
       if (requiredContexts.size === 0) {
+        const canonicalRequiredContexts = getCanonicalRequiredContexts();
         console.log(
           `Branch protection for ${owner}/${repo}@${branch} has no required ` +
-            'status checks; using denylist fallback',
+            `status checks; using canonical fallback: ${[
+              ...canonicalRequiredContexts,
+            ].join(', ')}`,
         );
+        return canonicalRequiredContexts;
       }
       return requiredContexts;
     } catch (error) {
       const status = error?.status || error?.response?.status;
       if (status === 403 || status === 404) {
+        const canonicalRequiredContexts = getCanonicalRequiredContexts();
         console.log(
           `Branch protection unavailable for ${owner}/${repo}@${branch} ` +
-            `(${status}); using denylist fallback`,
+            `(${status}); using canonical fallback: ${[
+              ...canonicalRequiredContexts,
+            ].join(', ')}`,
         );
-        return new Set();
+        return canonicalRequiredContexts;
       }
       throw error;
     }
