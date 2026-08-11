@@ -125,6 +125,7 @@ jobs:
         env:
           CANARY_EVIDENCE_JSON: ${{ inputs.canary_evidence_json || '' }}
           REPOS_INPUT: ${{ inputs.repos }}
+          TEMPLATE_HASH: ${{ steps.manifest.outputs.template_hash }}
         run: |
           if [ -n "$REPOS_INPUT" ]; then
             repos="$REPOS_INPUT"
@@ -155,7 +156,7 @@ jobs:
             # repository. Only a plan-bound promotion gets immutable hash branches.
             sync_branch="sync/workflows-candidate"
           else
-            sync_branch="sync/workflows-${{ steps.manifest.outputs.template_hash }}"
+            sync_branch="sync/workflows-$TEMPLATE_HASH"
           fi
           echo "sync_branch=$sync_branch" >> "$GITHUB_OUTPUT"
           echo "Selected phase: $phase"
@@ -723,11 +724,13 @@ jobs:
         id: open_pr
         if: steps.sync.outputs.has_changes == 'true' && inputs.dry_run != true
         uses: actions/github-script@v9
+        env:
+          SYNC_BRANCH: ${{ needs.prepare.outputs.sync_branch }}
         with:
           github-token: ${{ env.REPO_TOKEN }}
           script: |
             const { isConsumerOpenPr } = require('./workflows/.github/scripts/sync_tracker_state');
-            const branchName = '${{ needs.prepare.outputs.sync_branch }}';
+            const branchName = process.env.SYNC_BRANCH;
             const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const exists = await isConsumerOpenPr({
               github,
@@ -747,10 +750,11 @@ jobs:
           GH_TOKEN: ${{ env.REPO_TOKEN }}
           DELIVERY_GENERATION: ${{ needs.prepare.outputs.template_hash }}
           DELIVERY_REPOSITORY: ${{ matrix.repo }}
+          SYNC_BRANCH: ${{ needs.prepare.outputs.sync_branch }}
         run: |
           cd consumer
 
-          branch_name="${{ needs.prepare.outputs.sync_branch }}"
+          branch_name="$SYNC_BRANCH"
 
           # Configure git for push/fetch authentication using credential helper
           # This avoids exposing token in git remote URL or command output.

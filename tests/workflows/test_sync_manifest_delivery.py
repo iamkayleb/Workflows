@@ -233,8 +233,9 @@ def test_sync_fanout_is_canary_gated_and_promotion_is_plan_bound() -> None:
     assert sync["if"] == "needs.prepare.outputs.phase != 'preview'"
     assert "select_consumer_sync_phase.py" in source
     assert 'sync_branch="sync/workflows-candidate"' in source
-    assert 'sync_branch="sync/workflows-${{ steps.manifest.outputs.template_hash }}"' in source
-    assert 'branch_name="${{ needs.prepare.outputs.sync_branch }}"' in source
+    assert 'sync_branch="sync/workflows-$TEMPLATE_HASH"' in source
+    assert "const branchName = process.env.SYNC_BRANCH;" in source
+    assert 'branch_name="$SYNC_BRANCH"' in source
     assert "candidate_plan_rotation" in source
     assert 'process.env.SYNC_BRANCH === "sync/workflows-candidate"' in source
     upload = next(

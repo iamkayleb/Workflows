@@ -472,9 +472,7 @@ def build_remediation_states(
 
     states: dict[str, dict[str, object]] = {}
     for repo in repos:
-        repo_expected_branch = (
-            SYNC_CANDIDATE_BRANCH if repo in candidate_repos else expected_branch
-        )
+        repo_expected_branch = SYNC_CANDIDATE_BRANCH if repo in candidate_repos else expected_branch
         categories = sorted(set(gaps_by_repo[repo]))
         if global_errors:
             states[repo] = {
