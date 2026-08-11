@@ -13,6 +13,7 @@ const {
   classifyGeneratedPr,
   classifySyncPrChecks,
   collectDeletableSyncBranches,
+  evaluatePostPushReviewWindow,
   generatedDeliveryLane,
   isTrustedGeneratedDeliveryPr,
   isTrustedSyncPr,
@@ -174,7 +175,10 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
       },
     }),
     rest: {
-      pulls: { list: () => {} },
+      pulls: {
+        list: () => {},
+        get: async () => ({ data: mergedCandidate }),
+      },
       checks: { listForRef: () => {} },
       git: { getCommit: async () => ({ data: { tree: { sha: 'tree-abc' } } }) },
       repos: {
@@ -295,6 +299,27 @@ test('parseBooleanInput preserves explicit false values', () => {
   assert.equal(parseBooleanInput('0', true), false);
   assert.equal(parseBooleanInput('', true), true);
   assert.equal(parseBooleanInput(undefined, false), false);
+});
+
+test('post-push review window fails closed until seven full minutes elapse', () => {
+  const prState = {
+    created_at: '2026-08-11T13:00:00Z',
+    updated_at: '2026-08-11T13:02:00Z',
+  };
+  assert.deepEqual(
+    evaluatePostPushReviewWindow(prState, '2026-08-11T13:08:59Z'),
+    {
+      ready: false,
+      reason: 'review_window_pending',
+      anchor_at: '2026-08-11T13:02:00.000Z',
+      eligible_at: '2026-08-11T13:09:00.000Z',
+    },
+  );
+  assert.equal(
+    evaluatePostPushReviewWindow(prState, '2026-08-11T13:09:00Z').ready,
+    true,
+  );
+  assert.equal(evaluatePostPushReviewWindow({}, '2026-08-11T13:09:00Z').ready, false);
 });
 
 test('selectActiveSyncPr falls back to newest sync PR without a target hash', () => {
@@ -458,6 +483,8 @@ test('buildMergeReport provides machine-readable summary counts', () => {
     branch_delete_failed: 0,
     checks_failed: 0,
     checks_pending: 0,
+    review_window_pending: 0,
+    head_changed: 0,
     review_blocked: 0,
     ready: 0,
     dry_run_merge: 1,

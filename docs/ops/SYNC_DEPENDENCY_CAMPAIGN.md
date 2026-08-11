@@ -27,6 +27,9 @@ instead of consuming the only evidence-bearing PRs.
 Maint 71 derives candidate scope from `config/consumer_sync_canaries.json`; it
 must not scan the complete consumer registry in candidate mode because an
 unrelated non-canary delivery branch cannot be allowed to block canary evidence.
+Every generated delivery must also remain on one exact head for at least seven
+full minutes. Maint 71 re-reads that head and live non-outdated review threads
+immediately before its merge call; a changed head restarts the window.
 
 Maint 82 (`maint-82-sync-dependency-campaign.yml`) owns the durable campaign
 state and only requests local agent work when an actionable exception

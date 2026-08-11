@@ -295,6 +295,8 @@ review threads. Maint 68 still rejects a stale or mixed recovered plan.
 Candidate mode derives its repository scope from
 `config/consumer_sync_canaries.json`; non-canary delivery branches are excluded
 and cannot create false `target_missing` failures.
+Maint 71 enforces the seven-minute exact-head review window and performs a final
+head plus active-review-thread query immediately before each generated merge.
 
 Use `preview` to produce the plan/evidence artifact without a write matrix.
 There is no direct-repository promotion bypass. Security and production-break

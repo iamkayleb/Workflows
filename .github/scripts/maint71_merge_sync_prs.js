@@ -13,6 +13,7 @@ async function run({ github, context, core }) {
     classifyGeneratedPr,
     classifySyncPrChecks,
     collectDeletableSyncBranches,
+    evaluatePostPushReviewWindow,
     generatedDeliveryLane,
     normalizeSyncHash,
     parseBooleanInput,
@@ -215,6 +216,67 @@ async function run({ github, context, core }) {
       core.warning(`Unable to read active review threads for ${owner}/${repo}#${number}: ${error}`);
       return -1;
     }
+  }
+
+  async function confirmExactHeadReviewClear({ owner, repo, pr, expectMerged }) {
+    const { data: freshPr } = await withRetry((client) => client.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: pr.number,
+    }));
+    if (freshPr?.head?.sha !== pr.head.sha) {
+      return {
+        ok: false,
+        reason: 'head_changed',
+        activeReviewThreads: -1,
+        freshHeadSha: freshPr?.head?.sha || '',
+      };
+    }
+    if (expectMerged && !freshPr?.merged_at) {
+      return {
+        ok: false,
+        reason: 'merged_state_changed',
+        activeReviewThreads: -1,
+        freshHeadSha: freshPr?.head?.sha || '',
+      };
+    }
+    if (!expectMerged && freshPr?.state !== 'open') {
+      return {
+        ok: false,
+        reason: 'pr_state_changed',
+        activeReviewThreads: -1,
+        freshHeadSha: freshPr?.head?.sha || '',
+      };
+    }
+    const reviewWindow = evaluatePostPushReviewWindow(
+      freshPr,
+      new Date().toISOString(),
+    );
+    if (!reviewWindow.ready) {
+      return {
+        ok: false,
+        reason: 'review_window_pending',
+        activeReviewThreads: -1,
+        freshHeadSha: freshPr.head.sha,
+        reviewWindow,
+      };
+    }
+    const activeReviewThreads = await activeReviewThreadCount(owner, repo, pr.number);
+    if (activeReviewThreads !== 0) {
+      return {
+        ok: false,
+        reason: 'review_blocked',
+        activeReviewThreads,
+        freshHeadSha: freshPr.head.sha,
+      };
+    }
+    return {
+      ok: true,
+      reason: 'exact_head_review_clear',
+      activeReviewThreads,
+      freshHeadSha: freshPr.head.sha,
+      freshPr,
+    };
   }
   
   for (const repoEntry of targetRepos) {
@@ -500,6 +562,28 @@ async function run({ github, context, core }) {
       console.log(`\nProcessing active PR #${pr.number}: ${pr.title}`);
       console.log(`Branch: ${pr.head.ref}`);
       console.log(`Created: ${pr.created_at}`);
+
+      const reviewWindow = evaluatePostPushReviewWindow(pr, new Date().toISOString());
+      if (!reviewWindow.ready) {
+        console.log(`Post-push review window remains open until ${reviewWindow.eligible_at || 'unknown'}`);
+        results.push({
+          owner,
+          repo,
+          pr: pr.number,
+          branch: pr.head.ref,
+          head_sha: pr.head.sha,
+          delivery_generation: selection.deliveryRecord?.generation || '',
+          delivery_lane: generatedDeliveryLane(pr.head.ref),
+          delivery_disposition: 'awaiting-review-window',
+          blocker_owner: 'maint-71',
+          next_command: reviewWindow.eligible_at
+            ? `rerun-after:${reviewWindow.eligible_at}`
+            : 'rerun-after-review-window',
+          status: 'review_window_pending',
+          review_window_eligible_at: reviewWindow.eligible_at || '',
+        });
+        continue;
+      }
   
       // Combined legacy statuses + every check-run page (paginate returns a flat array).
       const { data: combinedStatus } = await withRetry((client) =>
@@ -594,19 +678,6 @@ async function run({ github, context, core }) {
         next_command: deliveryState.next_command,
       };
   
-      if (metadata?.sync_phase === 'canary' && metadata?.plan_id) {
-        canaryEvidence.push({
-          repo: `${owner}/${repo}`,
-          plan_id: metadata.plan_id,
-          pr: pr.number,
-          head_sha: pr.head.sha,
-          evidence_source: recoveredMergedCandidate ? 'merged-candidate-recovery' : 'open-candidate',
-          required_check_state:
-            classification.status === 'ready' ? 'success' : classification.status,
-          active_review_thread_count: activeReviewThreads,
-        });
-      }
-  
       console.log(
         `Checks (${checkGateMode}): ${gatingChecks.length} gating, ` +
           `${failedChecks.length} failed, ${pendingChecks.length} pending`,
@@ -651,13 +722,97 @@ async function run({ github, context, core }) {
         continue;
       }
   
-      // All checks passed
+      // All checks passed. For an actual merge, run the runtime AC guard before
+      // the final exact-head/thread query so no intervening network action sits
+      // between the hard review gate and the merge call.
+      const willMerge = autoMerge && !dryRun && !recoveredMergedCandidate;
+      if (willMerge) {
+        try {
+          await assertRuntimeAcMergeAllowed({
+            github,
+            core,
+            owner,
+            repo,
+            prNumber: pr.number,
+            withRetry,
+            source: 'maint-71-merge-sync-prs',
+          });
+        } catch (guardError) {
+          const message = String(guardError?.message || guardError);
+          console.log(`Runtime AC merge guard blocked PR #${pr.number}: ${message}`);
+          results.push({
+            ...deliveryContext,
+            status: 'merge_blocked_runtime_ac',
+            error: message,
+          });
+          continue;
+        }
+      }
+
+      const finalGate = await confirmExactHeadReviewClear({
+        owner,
+        repo,
+        pr,
+        expectMerged: recoveredMergedCandidate,
+      });
+      if (!finalGate.ok) {
+        console.log(`Final exact-head review gate blocked delivery: ${finalGate.reason}`);
+        if (finalGate.reason === 'review_window_pending') {
+          results.push({
+            ...deliveryContext,
+            delivery_disposition: 'awaiting-review-window',
+            blocker_owner: 'maint-71',
+            next_command: finalGate.reviewWindow?.eligible_at
+              ? `rerun-after:${finalGate.reviewWindow.eligible_at}`
+              : 'rerun-after-review-window',
+            status: 'review_window_pending',
+            review_window_eligible_at: finalGate.reviewWindow?.eligible_at || '',
+          });
+        } else if (finalGate.reason === 'review_blocked') {
+          results.push({
+            ...deliveryContext,
+            delivery_disposition: 'review-blocked',
+            blocker_owner: 'closer',
+            next_command: finalGate.activeReviewThreads < 0
+              ? 'retry-review-thread-query'
+              : 'resolve-active-review-threads',
+            status: 'review_blocked',
+            active_review_thread_count: finalGate.activeReviewThreads,
+          });
+        } else {
+          results.push({
+            ...deliveryContext,
+            delivery_disposition: 'awaiting-exact-head',
+            blocker_owner: 'maint-71',
+            next_command: 'rerun-exact-head-gate',
+            status: 'head_changed',
+            observed_head_sha: finalGate.freshHeadSha || '',
+            gate_reason: finalGate.reason,
+          });
+        }
+        continue;
+      }
+
+      if (metadata?.sync_phase === 'canary' && metadata?.plan_id) {
+        canaryEvidence.push({
+          repo: `${owner}/${repo}`,
+          plan_id: metadata.plan_id,
+          pr: pr.number,
+          head_sha: pr.head.sha,
+          evidence_source: recoveredMergedCandidate
+            ? 'merged-candidate-recovery'
+            : 'open-candidate',
+          required_check_state: 'success',
+          active_review_thread_count: finalGate.activeReviewThreads,
+        });
+      }
+
       if (recoveredMergedCandidate) {
         console.log('✓ Recovered green, review-clear evidence from the merged candidate PR');
         results.push({
           ...deliveryContext,
           status: 'evidence_recovered',
-          active_review_thread_count: activeReviewThreads,
+          active_review_thread_count: finalGate.activeReviewThreads,
         });
         continue;
       }
@@ -667,6 +822,7 @@ async function run({ github, context, core }) {
         results.push({
           ...deliveryContext,
           status: 'ready',
+          active_review_thread_count: finalGate.activeReviewThreads,
         });
         continue;
       }
@@ -676,31 +832,13 @@ async function run({ github, context, core }) {
         results.push({
           ...deliveryContext,
           status: 'dry_run_merge',
+          active_review_thread_count: finalGate.activeReviewThreads,
         });
         continue;
       }
   
-      // Merge the PR
-      try {
-        await assertRuntimeAcMergeAllowed({
-          github,
-          core,
-          owner,
-          repo,
-          prNumber: pr.number,
-          withRetry,
-          source: 'maint-71-merge-sync-prs',
-        });
-      } catch (guardError) {
-        const message = String(guardError?.message || guardError);
-        console.log(`Runtime AC merge guard blocked PR #${pr.number}: ${message}`);
-        results.push({
-          ...deliveryContext,
-          status: 'merge_blocked_runtime_ac',
-          error: message,
-        });
-        continue;
-      }
+      // Merge the PR. The final exact-head and live-thread query above is the
+      // immediately preceding network gate for this exact head.
   
       try {
         const mergeMethods = ['merge', 'squash', 'rebase'];
