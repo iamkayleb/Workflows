@@ -60,6 +60,42 @@ test('blocks exact runtime AC labels', async () => {
   );
 });
 
+test('blocks mutable generated deliveries outside the sealed Maint 71 lane', async () => {
+  const labels = [{ name: 'sync:delivery-staging' }];
+  await assert.rejects(
+    () => assertRuntimeAcMergeAllowed({
+      owner: 'stranske',
+      repo: 'Ready',
+      prNumber: 900,
+      labels,
+      source: 'generic merger',
+    }),
+    (error) => error.code === 'generated_delivery_staging',
+  );
+  assert.deepEqual(await assertRuntimeAcMergeAllowed({
+    owner: 'stranske',
+    repo: 'Ready',
+    prNumber: 900,
+    labels,
+    source: 'maint-71',
+    allowSealedSyncDelivery: true,
+  }), { allowed: true, labels: [] });
+});
+
+test('sealed delivery exception does not bypass runtime acceptance labels', async () => {
+  await assert.rejects(
+    () => assertRuntimeAcMergeAllowed({
+      owner: 'stranske',
+      repo: 'Ready',
+      prNumber: 901,
+      labels: [{ name: 'sync:delivery-staging' }, { name: 'runtime-ac' }],
+      source: 'maint-71',
+      allowSealedSyncDelivery: true,
+    }),
+    (error) => error.code === 'runtime_ac_merge_blocked',
+  );
+});
+
 test('blocks prefixed labels using Orchestrator suffix semantics', () => {
   const requirement = runtimeAcRequirement([
     { name: 'verify:runtime-checks' },
