@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.22.2](https://github.com/stranske/Workflows/compare/v1.22.1...v1.22.2) (2026-08-13)
+
+
+### Bug Fixes
+
+* **auth:** keep health failure gate runtime-safe ([#3073](https://github.com/stranske/Workflows/issues/3073)) ([d20cec7](https://github.com/stranske/Workflows/commit/d20cec7ce47b6fdfa1a547e7cc4fe35202b8b916))
+* **auth:** reject unusable Codex secret updates ([#3071](https://github.com/stranske/Workflows/issues/3071)) ([75d4bf1](https://github.com/stranske/Workflows/commit/75d4bf11c385c82193d15de5863a188b0ace32de))
+* **keepalive:** complete authority challenges ([#3066](https://github.com/stranske/Workflows/issues/3066)) ([a4bbb67](https://github.com/stranske/Workflows/commit/a4bbb6709ef939cfc74a3d661a0056c31fa2e64f))
+* **sync:** address canary review findings ([#3070](https://github.com/stranske/Workflows/issues/3070)) ([bae175a](https://github.com/stranske/Workflows/commit/bae175aff54d60a96e7a7668636ac044df084e78))
+
 ## [1.22.1](https://github.com/stranske/Workflows/compare/v1.22.0...v1.22.1) (2026-08-13)
 
 
