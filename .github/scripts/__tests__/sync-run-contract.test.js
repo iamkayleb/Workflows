@@ -14,6 +14,7 @@ test('summarizeResults counts known statuses and buckets unknown as error', () =
     summarizeResults([
       { status: 'created_pr' },
       { status: 'existing_pr' },
+      { status: 'refreshed_pr' },
       { status: 'created_pr' },
       { status: 'unexpected_status' },
     ]),
@@ -21,6 +22,7 @@ test('summarizeResults counts known statuses and buckets unknown as error', () =
       no_changes: 0,
       dry_run_changes: 0,
       existing_pr: 1,
+      refreshed_pr: 1,
       created_pr: 2,
       no_committed_changes: 0,
       create_pr_failed: 0,
@@ -59,6 +61,7 @@ test('buildSyncRunReport publishes the sync branch contract', () => {
     no_changes: 0,
     dry_run_changes: 1,
     existing_pr: 0,
+    refreshed_pr: 0,
     created_pr: 0,
     no_committed_changes: 0,
     create_pr_failed: 0,

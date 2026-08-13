@@ -151,10 +151,12 @@ function evaluatePostPushReviewWindow(
     .map((value) => new Date(value || '').getTime())
     .filter(Number.isFinite);
   const observedAt = new Date(now).getTime();
-  // Git commit metadata is author-controlled and can be backdated. Prefer the
-  // newest timestamp GitHub observed anywhere on the PR so a freshly pushed
-  // head can never inherit an already-expired review window.
-  const timestamps = [...pushTimestamps, ...fallbackTimestamps];
+  // A verified exact-head timestamp is the push-specific anchor. PR updated_at
+  // also changes for body edits, labels, comments, and thread resolution; using
+  // it after an exact-head timestamp is available would restart the post-push
+  // window without a push. Fall back to PR lifecycle timestamps only when the
+  // caller cannot supply head-specific evidence.
+  const timestamps = pushTimestamps.length > 0 ? pushTimestamps : fallbackTimestamps;
   if (timestamps.length === 0 || !Number.isFinite(observedAt)) {
     return {
       ready: false,

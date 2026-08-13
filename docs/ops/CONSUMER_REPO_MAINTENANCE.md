@@ -341,8 +341,15 @@ Gate summary rejects an unsealed stable delivery, while the shared merge guard
 rejects `sync:delivery-staging` for every merger except Maint 71's verified
 sealed path. The staging hold remains until the merge succeeds.
 
+Generated `sync/workflows-*` PRs are excluded from both the basic and agent
+autofix lanes. Their intentional pre-seal Gate failure is a delivery hold, not
+a request for a consumer-branch repair commit; Maint 71 advances the record and
+shared defects return to Workflows source before the stable PR is refreshed.
+
 Maint 71 also enforces the seven-minute exact-head post-push window and performs a final
 head plus active-review-thread query immediately before each generated merge.
+When exact-head commit evidence is available, that timestamp anchors the window;
+PR body edits, labels, comments, and review-thread resolution do not restart it.
 Workflow-call, manual, and repository-dispatch candidate selectors normalize to
 the same gate. The executor requires same-job evidence/upload authorization, so
 scheduled or malformed paths cannot merge a candidate implicitly.
