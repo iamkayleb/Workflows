@@ -165,6 +165,21 @@ def test_external_merge_lanes_require_runtime_ac_guard():
     )
 
 
+def test_generated_sync_prs_are_excluded_from_autofix_lanes():
+    workflow_paths = [
+        WORKFLOWS_DIR / "agents-autofix-loop.yml",
+        WORKFLOWS_DIR / "autofix.yml",
+        Path("templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"),
+        Path("templates/consumer-repo/.github/workflows/autofix.yml"),
+    ]
+    for path in workflow_paths:
+        text = path.read_text(encoding="utf-8")
+        assert (
+            "startsWith('sync/workflows-')" in text
+        ), f"{path} must not turn Maint 71 delivery holds into autofix commits"
+        assert "Maint 71-owned" in text
+
+
 def test_orchestrator_idle_precheck_defers_on_issue_scan_rate_limit():
     init_text = (WORKFLOWS_DIR / "reusable-70-orchestrator-init.yml").read_text(encoding="utf-8")
 

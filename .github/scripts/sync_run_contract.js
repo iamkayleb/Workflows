@@ -7,6 +7,7 @@ function summarizeResults(results) {
     no_changes: 0,
     dry_run_changes: 0,
     existing_pr: 0,
+    refreshed_pr: 0,
     created_pr: 0,
     no_committed_changes: 0,
     create_pr_failed: 0,

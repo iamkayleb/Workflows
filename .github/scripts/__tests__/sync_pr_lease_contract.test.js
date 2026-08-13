@@ -19,6 +19,8 @@ const current = {
   repository: 'stranske/Ready',
   desired_tree_hash: 'tree-abc',
   source_commit: 'source-abc',
+  head_observed_sha: 'head-abc',
+  head_observed_at: '2026-08-01T21:00:00Z',
   lease_expires_at: '2026-08-02T00:00:00Z',
   predecessor_prs: ['#10'],
   successor_prs: [],
@@ -87,6 +89,17 @@ test('delivery marker replacement treats dollar sequences as literal data', () =
 
   assert.equal(parseDeliveryRecord(replaced).generation, 'candidate-$&-$`-$\'');
   assert.equal((replaced.match(/sync-pr-delivery-record:v1/g) || []).length, 1);
+});
+
+test('delivery records require a complete exact-head observation pair', () => {
+  assert.throws(
+    () => formatDeliveryRecord({ ...current, head_observed_at: '' }),
+    /head_observation_pair/,
+  );
+  assert.throws(
+    () => formatDeliveryRecord({ ...current, head_observed_at: 'not-a-date' }),
+    /head_observed_at/,
+  );
 });
 
 test('only the newest matching generation is selected for merge', () => {

@@ -349,6 +349,10 @@ def test_maint68_reuses_stable_delivery_pr_without_resetting_an_unchanged_head()
     assert 'git config user.name "github-actions[bot]"' not in source
     assert "published_verified=$(jq -r" in source
     assert "published_reason=$(jq -r" in source
+    assert 'head_observed_sha="$signed_commit_sha"' in source
+    assert "head_observed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" in source
+    assert '--arg head_observed_sha "$head_observed_sha"' in source
+    assert '--arg head_observed_at "$head_observed_at"' in source
     assert (
         source.index(
             '--force-with-lease="refs/heads/$branch_name:$existing_head"',
@@ -356,6 +360,16 @@ def test_maint68_reuses_stable_delivery_pr_without_resetting_an_unchanged_head()
         )
         > commit_push_guard
     )
+
+
+def test_maint71_anchors_review_window_to_producer_head_observation() -> None:
+    source = Path(".github/scripts/maint71_merge_sync_prs.js").read_text(encoding="utf-8")
+
+    assert "selection.deliveryRecord?.head_observed_sha === pr.head.sha" in source
+    assert "selection.deliveryRecord.head_observed_at" in source
+    assert "observed_sha: pr?.head?.observed_sha" in source
+    assert "observed_at: pr?.head?.observed_at" in source
+    assert "selectedHeadCommit?.committer?.date" not in source
 
 
 def test_gate_and_shared_mergers_hold_mutable_stable_deliveries() -> None:
