@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.22.3](https://github.com/stranske/Workflows/compare/v1.22.2...v1.22.3) (2026-08-13)
+
+
+### Bug Fixes
+
+* **keepalive:** trust only automation state comments ([#3077](https://github.com/stranske/Workflows/issues/3077)) ([590ae80](https://github.com/stranske/Workflows/commit/590ae8053b0ac6ce1f5efd36e9379f240d794e0f))
+* **sync:** count timestamped reviewer statuses ([#3078](https://github.com/stranske/Workflows/issues/3078)) ([e15e03c](https://github.com/stranske/Workflows/commit/e15e03c975f9bcc6aec81f29c1d3e72acd6b0e2f))
+* **sync:** recover terminal keepalive stops ([#3072](https://github.com/stranske/Workflows/issues/3072)) ([60a0826](https://github.com/stranske/Workflows/commit/60a0826ffbf0d3b600bc92d700c383199944b8fd))
+
 ## [1.22.2](https://github.com/stranske/Workflows/compare/v1.22.1...v1.22.2) (2026-08-13)
 
 
