@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.23.0](https://github.com/stranske/Workflows/compare/v1.22.3...v1.23.0) (2026-08-13)
+
+
+### Features
+
+* **runtime:** report consumer sync shadow state ([#3074](https://github.com/stranske/Workflows/issues/3074)) ([5befd18](https://github.com/stranske/Workflows/commit/5befd18432bc6691592876c0981e82476436e597))
+
+
+### Bug Fixes
+
+* **sync:** unblock trusted delivery bootstrap ([#3079](https://github.com/stranske/Workflows/issues/3079)) ([ed57289](https://github.com/stranske/Workflows/commit/ed57289505e7500ca1db4fa28e1483b56f3555db))
+
 ## [1.22.3](https://github.com/stranske/Workflows/compare/v1.22.2...v1.22.3) (2026-08-13)
 
 
