@@ -3225,7 +3225,7 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
     if (migrateSummaryWriter) {
       core?.info?.(
         `Creating a trusted App-owned keepalive summary; existing writer ` +
-        `${existingSummaryAuthor || 'unknown'} is not ${trustedSummaryAuthor}.`,
+        `${existingSummaryAuthor || 'unknown'} is not ${trustedSummaryAuthor}; migrating known state.`,
       );
     }
 

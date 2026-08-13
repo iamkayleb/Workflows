@@ -193,12 +193,45 @@ function reviewerProfileForLogin(login, reviewerProfiles = []) {
   )?.id || '';
 }
 
-function isReviewerCapacitySignal(body = '', capacityPatterns = []) {
-  const text = String(body || '').toLowerCase();
-  return (capacityPatterns || []).some((pattern) => {
+function reviewerStatusLineMatches(body = '', patterns = []) {
+  const statusLines = String(body || '')
+    .split(/\r?\n/)
+    .map((line) => line
+      .trim()
+      .replace(/^(?:[>\s]*[-*#`_:]+|[>\s]*[⚠️ℹ️🚫⏭️]+)\s*/u, '')
+      .toLowerCase())
+    .filter(Boolean);
+  return (patterns || []).some((pattern) => {
     const literal = String(pattern || '').trim().toLowerCase();
-    return literal.length > 0 && text.includes(literal);
+    if (!literal) return false;
+    return statusLines.some((line) => (
+      line === literal
+      || line.startsWith(`${literal}:`)
+      || line.startsWith(`${literal} -`)
+      || line.startsWith(`${literal} —`)
+      || line.startsWith(`${literal}.`)
+      || line.startsWith(`${literal} because `)
+      || line.startsWith(`${literal} due to `)
+      || line.startsWith(`${literal} for `)
+    ));
   });
+}
+
+function isReviewerCapacitySignal(body = '', capacityPatterns = []) {
+  return reviewerStatusLineMatches(body, capacityPatterns);
+}
+
+function isReviewerNonResponseSignal(body = '', nonResponsePatterns = []) {
+  return reviewerStatusLineMatches(body, nonResponsePatterns);
+}
+
+function generatedPrsForSyncSelector(prs = [], syncHash = '') {
+  const normalized = normalizeSyncHash(syncHash);
+  if (!normalized) return prs;
+  // A sync hash names a sync/workflows-* branch. Dev-tool deliveries share
+  // Maint 71 but are a separate generated lane; their presence must not turn
+  // an otherwise complete workflow-delivery pass into target_missing.
+  return prs.filter((pr) => generatedDeliveryLane(pr?.head?.ref) === 'sync');
 }
 
 function evaluateReviewerSettlement({
@@ -800,6 +833,7 @@ module.exports = {
   collectDeletableSyncBranches,
   generatedDeliveryLane,
   generatedDeliveryRequiresVerifiedHead,
+  generatedPrsForSyncSelector,
   isGeneratedDeliveryBranchName,
   isStableSyncBranchName,
   isSyncBranchName,
@@ -810,6 +844,7 @@ module.exports = {
   evaluatePostPushReviewWindow,
   evaluateReviewerSettlement,
   isReviewerCapacitySignal,
+  isReviewerNonResponseSignal,
   normalizeReviewerId,
   reviewerProfileForLogin,
   requiresStrictGateBranchUpdate,

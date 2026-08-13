@@ -281,8 +281,10 @@ in `config/orchestrator_runtime/capabilities.json`; duplicate replays return
 Maint 68 separates a sync plan into `preview`, `canary`, and `promote` phases.
 An ordinary scheduled or manual no-filter run defaults to `canary` (release
 publication deliberately does not start a second sync cycle):
-it can open sync PRs only for the 2-3 representative repositories declared in
-`config/consumer_sync_canaries.json`. The selection artifact records the exact
+it can open sync PRs only for the three representative repositories declared in
+`config/consumer_sync_canaries.json`. Those canaries span runtime/build shapes
+and the fleet's automated-review profiles; at least one must exercise the Codex
+review profile before promotion. The selection artifact records the exact
 compiled `plan_id`, desired hash, and prospective affected paths for every
 registered repository before any consumer write.
 
@@ -347,7 +349,13 @@ policy in `config/consumer_sync_review_policy.json` requires one response, not
 all configured reviewers, after a seven-minute quiet period. If every reviewer
 reports capacity unavailability, settlement degrades after the quiet period;
 if nobody responds, it degrades after fifteen minutes. Active non-outdated
-review threads are never waived by either fallback. Maint 71 then seals the
+review threads are never waived by either fallback. Reviewer statuses and
+comments that explicitly say a review was skipped, excluded, review-disabled,
+or not performed are unavailable signals and cannot satisfy the one-response
+quorum. A completed negative verdict with substantive review output still
+counts as a response; settlement is evidence of reviewer participation, not
+approval.
+Maint 71 then seals the
 exact head and applies `sync:delivery-ready`, which triggers a fresh Gate. The
 Gate summary rejects an unsealed stable delivery, while the shared merge guard
 rejects `sync:delivery-staging` for every merger except Maint 71's verified
@@ -363,6 +371,10 @@ fork heads, missing head SHAs, and unreadable copies still fail closed. Maint 71
 remains the final boundary and independently requires the exact generated head
 to carry a valid GitHub-recognized signature before merge. After the bootstrap
 lands, every later delivery returns to trusted-base-only enforcement.
+Because pull-request checkouts use a shallow synthetic merge ref, the classifier
+fetches the exact same-repository head SHA before comparing or reading the
+bootstrap copy; the event payload alone is not evidence that the object exists
+in the local checkout.
 
 Generated `sync/workflows-*` PRs are excluded from both the basic and agent
 autofix lanes. Their intentional pre-seal Gate failure is a delivery hold, not
@@ -384,6 +396,12 @@ mismatched or missing observation fails back to the conservative PR timestamp.
 Workflow-call, manual, and repository-dispatch candidate selectors normalize to
 the same gate. The executor requires same-job evidence/upload authorization, so
 scheduled or malformed paths cannot merge a candidate implicitly.
+
+A non-empty workflow-sync selector applies only to the `sync/workflows-*` lane.
+An open sibling `deps/sync-dev-versions-*` delivery is therefore ignored for
+the selector's expected-branch check instead of producing a false
+`target_missing` system failure; an unscoped Maint 71 pass reconciles the
+dev-tool lane independently.
 
 Use `preview` to produce the plan/evidence artifact without a write matrix.
 There is no direct-repository promotion bypass. Security and production-break
