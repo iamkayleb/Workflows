@@ -7,6 +7,8 @@ const {
   DEFAULT_CATEGORIES,
   classifyFiles,
   globToRegExp,
+  isStableDeliveryPullRequest,
+  listChangedFiles,
   loadDeliveryContract,
   matchesAny,
   parseClassificationConfig,
@@ -190,6 +192,32 @@ test('stable delivery fails closed when the trusted base contract is unavailable
     },
   });
   assert.equal(contract, null);
+});
+
+test('stable delivery reuses its trusted-base fetch for changed-file classification', () => {
+  const context = deliveryContext(deliveryRecord);
+  let fetches = 0;
+  const options = {
+    baseRef: 'origin/main',
+    githubContext: { ...context, sha: 'head-abc' },
+    fetchBase: () => {
+      fetches += 1;
+    },
+    diffGit: () => '',
+  };
+
+  assert.equal(isStableDeliveryPullRequest(context), true);
+  listChangedFiles({ ...options, baseAlreadyFetched: true });
+  assert.equal(fetches, 0);
+
+  const ordinaryContext = deliveryContext(deliveryRecord, { branch: 'feature/example' });
+  assert.equal(isStableDeliveryPullRequest(ordinaryContext), false);
+  listChangedFiles({
+    ...options,
+    githubContext: { ...ordinaryContext, sha: 'head-abc' },
+    baseAlreadyFetched: false,
+  });
+  assert.equal(fetches, 1);
 });
 
 test('custom Gate classifier accepts only the sealed exact head', () => {
