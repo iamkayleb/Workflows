@@ -174,9 +174,9 @@ def test_generated_sync_prs_are_excluded_from_autofix_lanes():
     ]
     for path in workflow_paths:
         text = path.read_text(encoding="utf-8")
-        assert "startsWith('sync/workflows-')" in text, (
-            f"{path} must not turn Maint 71 delivery holds into autofix commits"
-        )
+        assert (
+            "startsWith('sync/workflows-')" in text
+        ), f"{path} must not turn Maint 71 delivery holds into autofix commits"
         assert "Maint 71-owned" in text
 
 
