@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Sync dev tool version pins from autofix-versions.env to pyproject.toml.
+"""Sync dev tool version pins from autofix-versions.env to dependency surfaces.
 
-This script updates the [project.optional-dependencies] dev section in pyproject.toml
+This script updates the [project.optional-dependencies] dev section in pyproject.toml,
+supported requirements lockfiles, and managed .pre-commit-config.yaml hook revisions
 to use the pinned versions from the central autofix-versions.env file.
 
 It handles both exact pins (==) and minimum version pins (>=) in pyproject.toml,
@@ -22,6 +23,7 @@ import argparse
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Default paths (can be overridden for testing)
 PIN_FILE = Path(".github/workflows/autofix-versions.env")
@@ -33,6 +35,7 @@ LOCKFILE_FILES = (
     Path("requirements-dev.lock"),
     Path("requirements-dev.txt"),
 )
+PRE_COMMIT_FILE = Path(".pre-commit-config.yaml")
 
 # Map env file keys to package names
 # Format: ENV_KEY -> (package_name, optional_alternative_names)
@@ -47,6 +50,16 @@ TOOL_MAPPING: dict[str, tuple[str, ...]] = {
     "COVERAGE_VERSION": ("coverage",),
     "DOCFORMATTER_VERSION": ("docformatter",),
     "HYPOTHESIS_VERSION": ("hypothesis",),
+}
+
+# Only version pins for tools already governed by autofix-versions.env are managed.
+# The rest of a consumer's pre-commit configuration remains consumer-owned.
+PRE_COMMIT_REPO_MAPPING = {
+    "psf/black": "BLACK_VERSION",
+    "astral-sh/ruff-pre-commit": "RUFF_VERSION",
+    "pre-commit/mirrors-mypy": "MYPY_VERSION",
+    "pycqa/isort": "ISORT_VERSION",
+    "pycqa/docformatter": "DOCFORMATTER_VERSION",
 }
 
 # Core dev tools to include when creating a new dev section
@@ -373,6 +386,87 @@ def sync_lockfile(
     return changes, []
 
 
+def _pre_commit_repo_name(line: str) -> str | None:
+    """Return the normalized repository name from a pre-commit ``repo:`` line."""
+    match = re.match(r"^\s*-\s*repo:\s*(?P<repo>[^\s#]+)", line)
+    if not match:
+        return None
+
+    repo = match.group("repo").strip().strip("\"'")
+    if "://" in repo:
+        parsed = urlparse(repo)
+        if parsed.hostname and parsed.hostname.lower() == "github.com":
+            repo = parsed.path.lstrip("/")
+    repo = repo.rstrip("/").removesuffix(".git")
+    if repo.lower().startswith("github.com/"):
+        repo = repo.split("/", 1)[1]
+    return repo.lower()
+
+
+def sync_pre_commit_config(
+    pre_commit_path: Path, pins: dict[str, str], apply: bool = False
+) -> tuple[list[str], list[str]]:
+    """Sync managed pre-commit hook revisions while preserving all other text.
+
+    Pre-commit configuration is intentionally not copied wholesale to consumers.
+    This only changes a recognized remote hook's ``rev:`` value and preserves that
+    hook's existing ``v`` prefix convention.
+    """
+    if not pre_commit_path.exists():
+        return [], []
+
+    with pre_commit_path.open(encoding="utf-8", newline="") as pre_commit_file:
+        content = pre_commit_file.read()
+    lines = content.splitlines(keepends=True)
+    changes: list[str] = []
+    current_env_key: str | None = None
+
+    for index, line in enumerate(lines):
+        repo_name = _pre_commit_repo_name(line)
+        if repo_name is not None:
+            current_env_key = PRE_COMMIT_REPO_MAPPING.get(repo_name)
+            continue
+
+        if current_env_key is None or current_env_key not in pins:
+            continue
+
+        line_ending = "\r\n" if line.endswith("\r\n") else "\n" if line.endswith("\n") else ""
+        revision_line = line[: -len(line_ending)] if line_ending else line
+        rev_match = re.match(
+            r"^(?P<prefix>\s*rev:\s*)(?P<value>[^\s#]+)(?P<suffix>.*)$",
+            revision_line,
+        )
+        if not rev_match:
+            continue
+
+        current_value = rev_match.group("value")
+        target_value = pins[current_env_key]
+        if current_value.startswith("v"):
+            target_value = f"v{target_value}"
+        if current_value == target_value:
+            current_env_key = None
+            continue
+
+        repo_name = next(
+            name for name, env_key in PRE_COMMIT_REPO_MAPPING.items() if env_key == current_env_key
+        )
+        changes.append(f"{pre_commit_path.name}:{repo_name}: {current_value} -> {target_value}")
+        if apply:
+            lines[index] = (
+                f"{rev_match.group('prefix')}{target_value}{rev_match.group('suffix')}"
+                f"{line_ending}"
+            )
+        current_env_key = None
+
+    if apply:
+        updated = "".join(lines)
+        if updated != content:
+            with pre_commit_path.open("w", encoding="utf-8", newline="") as pre_commit_file:
+                pre_commit_file.write(updated)
+
+    return changes, []
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Sync dev dependency versions from autofix-versions.env to pyproject.toml"
@@ -442,6 +536,12 @@ def main(argv: list[str] | None = None) -> int:
         lock_changes, lock_errors = sync_lockfile(lockfile_path, pins, apply=args.apply)
         changes.extend(lock_changes)
         errors.extend(lock_errors)
+
+    pre_commit_changes, pre_commit_errors = sync_pre_commit_config(
+        PRE_COMMIT_FILE, pins, apply=args.apply
+    )
+    changes.extend(pre_commit_changes)
+    errors.extend(pre_commit_errors)
 
     if errors:
         for err in errors:
