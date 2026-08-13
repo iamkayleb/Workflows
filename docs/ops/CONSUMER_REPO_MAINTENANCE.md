@@ -345,6 +345,12 @@ Generated `sync/workflows-*` PRs are excluded from both the basic and agent
 autofix lanes. Their intentional pre-seal Gate failure is a delivery hold, not
 a request for a consumer-branch repair commit; Maint 71 advances the record and
 shared defects return to Workflows source before the stable PR is refreshed.
+Maint 68 also writes `autofix: false` into every generated PR body. The shared
+reusable autofix workflow independently rejects `sync/workflows-*` heads, so an
+older consumer caller cannot mutate the transition PR while the updated local
+caller is still waiting to land. The body directive protects the agent lane;
+the synced caller branch exclusion becomes the durable local guard after the
+generated PR lands.
 
 Maint 71 also enforces the seven-minute exact-head post-push window and performs a final
 head plus active-review-thread query immediately before each generated merge.

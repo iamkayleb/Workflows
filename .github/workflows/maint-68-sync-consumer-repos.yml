@@ -1186,7 +1186,9 @@ jobs:
           **Manifest:** \`.github/sync-manifest.yml\`
 
           <!-- workflows-consumer-sync:v1 $sync_marker -->
-          <!-- sync-pr-delivery-record:v1 $delivery_marker -->"
+          <!-- sync-pr-delivery-record:v1 $delivery_marker -->
+
+          autofix: false"
 
           if [ -n "$existing_pr" ]; then
             gh pr edit "$existing_pr" --body "$pr_body"
