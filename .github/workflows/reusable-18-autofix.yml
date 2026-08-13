@@ -325,8 +325,14 @@ jobs:
         run: |
           set -euo pipefail
           skip=false
+          head_ref="${PR_HEAD_REF:-}"
+          if [[ "$head_ref" == sync/workflows-* ]]; then
+            echo "[autofix] Skipping: generated sync PR is Maint 71-owned (${head_ref})"
+            skip=true
+          fi
           caller="${CALLER_ACTOR}"
-          if [ "$caller" = "github-actions" ] || [ "$caller" = "github-actions[bot]" ]; then
+          if [ "$skip" != "true" ] && \
+            { [ "$caller" = "github-actions" ] || [ "$caller" = "github-actions[bot]" ]; }; then
             head_msg="$(git log -1 --pretty=%s 2>/dev/null || echo '')"
             head_msg_lc=$(printf '%s' "$head_msg" | tr '[:upper:]' '[:lower:]')
             prefix_lc=$(printf '%s' "$AUTOFIX_COMMIT_PREFIX" | tr '[:upper:]' '[:lower:]')

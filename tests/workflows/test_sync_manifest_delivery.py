@@ -36,6 +36,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPO_ROOT / ".github" / "sync-manifest.yml"
 SYNC_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "maint-68-sync-consumer-repos.yml"
+REUSABLE_AUTOFIX_PATH = REPO_ROOT / ".github" / "workflows" / "reusable-18-autofix.yml"
 DRIFT_CHECK_PATH = REPO_ROOT / "scripts" / "check_consumer_sync_drift.py"
 
 # Manifest sections whose entries are physically copied into consumer repos by
@@ -241,6 +242,10 @@ def test_sync_fanout_is_canary_gated_and_promotion_is_plan_bound() -> None:
     assert "--draft" in source
     assert "sync:delivery-staging" in source
     assert "sync:delivery-ready" in source
+    assert "autofix: false" in source
+    reusable_autofix = REUSABLE_AUTOFIX_PATH.read_text(encoding="utf-8")
+    assert '[[ "$head_ref" == sync/workflows-* ]]' in reusable_autofix
+    assert "generated sync PR is Maint 71-owned" in reusable_autofix
     assert "release" not in workflow.get("on", workflow.get(True))
     upload = next(
         step for step in prepare["steps"] if step.get("uses") == "actions/upload-artifact@v7"
