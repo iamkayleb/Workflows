@@ -18,6 +18,21 @@ on:
         required: false
         default: true
         type: boolean
+      authority_challenge_fingerprint:
+        description: 'Internal sweep provenance for one due authority challenge'
+        required: false
+        default: ''
+        type: string
+      authority_challenge_claim:
+        description: 'Internal signed sweep claim metadata for one due authority challenge'
+        required: false
+        default: ''
+        type: string
+      sweep_recheck:
+        description: 'Internal hourly sweep wakeup; re-evaluates without forcing Gate bypass'
+        required: false
+        default: false
+        type: boolean
       orchestrator_skill_pack:
         description: >-
           Optional reference-pack name override for exported Orchestrator skill context
@@ -126,6 +141,15 @@ jobs:
             }}
           GATE_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
           PR_ACTOR: ${{ github.actor }}
+          AUTHORITY_CHALLENGE_FINGERPRINT: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              github.actor == 'github-actions[bot]' &&
+              github.event.inputs.sweep_recheck == 'true' &&
+              github.event.inputs.authority_challenge_fingerprint || '' }}
+          SWEEP_RECHECK: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              github.actor == 'github-actions[bot]' &&
+              github.event.inputs.sweep_recheck == 'true' }}
         run: |
           if [ -z "${PR_NUMBER:-}" ]; then
             {
@@ -146,6 +170,23 @@ jobs:
             {
               echo "should_run=false"
               echo "reason=dependency-bot-pr"
+              echo "current_hash="
+              echo "prior_hash="
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Every eligible hourly sweep must re-evaluate stalled agent work even
+          # when its last head/label fingerprint is unchanged. This bypasses only
+          # the state debounce; force_retry remains limited to due challenges.
+          if [ "${SWEEP_RECHECK:-false}" = "true" ]; then
+            {
+              echo "should_run=true"
+              if [ -n "${AUTHORITY_CHALLENGE_FINGERPRINT:-}" ]; then
+                echo "reason=due-authority-challenge"
+              else
+                echo "reason=scheduled-sweep-recheck"
+              fi
               echo "current_hash="
               echo "prior_hash="
             } >> "$GITHUB_OUTPUT"
@@ -508,8 +549,28 @@ jobs:
           PR_NUMBER: ${{ steps.evaluate.outputs.pr_number }}
           HEAD_SHA: ${{ steps.evaluate.outputs.head_sha }}
           PROVIDER: ${{ steps.evaluate.outputs.agent_type || 'codex' }}
+          AUTHORITY_CHALLENGE_FINGERPRINT: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              github.actor == 'github-actions[bot]' &&
+              github.event.inputs.sweep_recheck == 'true' &&
+              github.event.inputs.authority_challenge_fingerprint || '' }}
+          SWEEP_RECHECK: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              github.actor == 'github-actions[bot]' &&
+              github.event.inputs.sweep_recheck == 'true' }}
         run: |
           set -euo pipefail
+          if [ "${SWEEP_RECHECK:-false}" = "true" ]; then
+            {
+              echo "should_dispatch=true"
+              if [ -n "${AUTHORITY_CHALLENGE_FINGERPRINT:-}" ]; then
+                echo "reason=due-authority-challenge"
+              else
+                echo "reason=scheduled-sweep-recheck"
+              fi
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ -z "${PR_NUMBER:-}" ] || [ -z "${HEAD_SHA:-}" ]; then
             {
               echo "should_dispatch=true"
@@ -565,6 +626,7 @@ jobs:
       }}
     outputs:
       secrets_ok: ${{ steps.check.outputs.secrets_ok }}
+      failure_summary: ${{ steps.check.outputs.failure_summary }}
     steps:
       - name: Check secrets
         id: check
@@ -572,6 +634,8 @@ jobs:
           HAS_CODEX_AUTH: ${{ secrets.CODEX_AUTH_JSON != '' }}
           HAS_CLAUDE_AUTH: ${{ secrets.CLAUDE_AUTH_JSON != '' }}
           HAS_CLAUDE_OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+          HAS_CURSOR_AUTH: ${{ secrets.CURSOR_API_KEY != '' }}
+          HAS_GEMINI_AUTH: ${{ secrets.GEMINI_API_KEY != '' }}
           AGENT_TYPE: ${{ needs.evaluate.outputs.agent_type || 'codex' }}
           HAS_APP_ID: >-
             ${{ secrets.KEEPALIVE_APP_ID != '' ||
@@ -584,6 +648,8 @@ jobs:
           echo "CODEX_AUTH_JSON present: $HAS_CODEX_AUTH"
           echo "CLAUDE_AUTH_JSON present: $HAS_CLAUDE_AUTH"
           echo "CLAUDE_CODE_OAUTH_TOKEN present: $HAS_CLAUDE_OAUTH"
+          echo "CURSOR_API_KEY present: $HAS_CURSOR_AUTH"
+          echo "GEMINI_API_KEY present: $HAS_GEMINI_AUTH"
           echo "KEEPALIVE_APP or WORKFLOWS_APP present: $HAS_APP_ID"
           echo "WORKFLOWS_APP_PRIVATE_KEY present: $HAS_APP_KEY"
           agent_auth_ok=false
@@ -598,10 +664,22 @@ jobs:
                 agent_auth_ok=true
               fi
               ;;
+            cursor)
+              if [ "$HAS_CURSOR_AUTH" = "true" ]; then
+                agent_auth_ok=true
+              fi
+              ;;
+            gemini)
+              if [ "$HAS_GEMINI_AUTH" = "true" ]; then
+                agent_auth_ok=true
+              fi
+              ;;
             *)
               if [ "$HAS_CODEX_AUTH" = "true" ] || \
                 [ "$HAS_CLAUDE_AUTH" = "true" ] || \
-                [ "$HAS_CLAUDE_OAUTH" = "true" ]; then
+                [ "$HAS_CLAUDE_OAUTH" = "true" ] || \
+                [ "$HAS_CURSOR_AUTH" = "true" ] || \
+                [ "$HAS_GEMINI_AUTH" = "true" ]; then
                 agent_auth_ok=true
               fi
               ;;
@@ -612,13 +690,17 @@ jobs:
           if [ "$agent_auth_ok" != "true" ]; then
             case "$AGENT_TYPE" in
               claude)
-                missing_msg="Missing credentials for agent 'claude'. Set "
-                missing_msg+="CLAUDE_CODE_OAUTH_TOKEN (preferred), CLAUDE_AUTH_JSON, "
-                missing_msg+="or configure KEEPALIVE/WORKFLOWS_APP credentials."
+                missing_msg="Missing Claude auth: set CLAUDE_CODE_OAUTH_TOKEN "
+                missing_msg+="or CLAUDE_AUTH_JSON"
                 ;;
               codex)
-                missing_msg="Missing credentials for agent 'codex'. Set CODEX_AUTH_JSON, "
-                missing_msg+="or configure KEEPALIVE/WORKFLOWS_APP credentials."
+                missing_msg="Missing Codex auth: set CODEX_AUTH_JSON"
+                ;;
+              cursor)
+                missing_msg="Missing Cursor auth: set the CURSOR_API_KEY secret"
+                ;;
+              gemini)
+                missing_msg="Missing Gemini auth: set the GEMINI_API_KEY secret"
                 ;;
               *)
                 missing_msg="Missing credentials for agent '${AGENT_TYPE}'. Configure "
@@ -627,6 +709,7 @@ jobs:
             esac
             echo "::error::$missing_msg"
             echo "secrets_ok=false" >> "$GITHUB_OUTPUT"
+            echo "failure_summary=$missing_msg" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           echo "secrets_ok=true" >> "$GITHUB_OUTPUT"
@@ -1166,6 +1249,7 @@ jobs:
     name: Update keepalive summary
     needs:
       - evaluate
+      - preflight
       - run-codex
       - run-claude
       - run-cursor
@@ -1376,8 +1460,22 @@ jobs:
               needs.run-claude.outputs.error-summary ||
               needs.run-cursor.outputs.error-summary ||
               needs.run-gemini.outputs.error-summary ||
+              needs.preflight.outputs.failure_summary ||
               ''
             }}
+          PREFLIGHT_FAILURE_SUMMARY: ${{ needs.preflight.outputs.failure_summary || '' }}
+          AUTHORITY_CHALLENGE_FINGERPRINT: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              github.actor == 'github-actions[bot]' &&
+              github.event.inputs.sweep_recheck == 'true' &&
+              github.event.inputs.authority_challenge_fingerprint || '' }}
+          AUTHORITY_CHALLENGE_CLAIM: >-
+            ${{ github.event_name == 'workflow_dispatch' &&
+              github.actor == 'github-actions[bot]' &&
+              github.event.inputs.sweep_recheck == 'true' &&
+              github.event.inputs.authority_challenge_claim || '' }}
+          AUTHORITY_CHALLENGE_SIGNING_KEY: >-
+            ${{ secrets.KEEPALIVE_AUTHORITY_SIGNING_KEY || '' }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
@@ -1388,10 +1486,20 @@ jobs:
             const codexResult = '${{ needs.run-codex.result }}';
             const cursorResult = '${{ needs.run-cursor.result }}';
             const geminiResult = '${{ needs.run-gemini.result }}';
-            const runResult =
+            const runnerResult =
               claudeResult && claudeResult !== 'skipped' ? claudeResult :
               (cursorResult && cursorResult !== 'skipped' ? cursorResult :
               (geminiResult && geminiResult !== 'skipped' ? geminiResult : codexResult));
+            const preflightFailureSummary = process.env.PREFLIGHT_FAILURE_SUMMARY || '';
+            const allRunnersSkipped = [
+              claudeResult,
+              codexResult,
+              cursorResult,
+              geminiResult,
+            ].every((result) => !result || result === 'skipped');
+            const runResult = preflightFailureSummary && allRunnersSkipped
+              ? 'failure'
+              : runnerResult;
 
             const agentExitCode =
               '${{ needs.run-codex.outputs.exit-code }}' ||
@@ -1470,6 +1578,13 @@ jobs:
               llm_confidence: llmConfidence,
               llm_analysis_run: llmAnalysisRun,
               force_retry: '${{ needs.evaluate.outputs.force_retry }}',
+              authority_challenge_fingerprint:
+                process.env.AUTHORITY_CHALLENGE_FINGERPRINT || '',
+              authority_challenge_claim:
+                process.env.AUTHORITY_CHALLENGE_CLAIM || '',
+              authority_challenge_signing_key:
+                process.env.AUTHORITY_CHALLENGE_SIGNING_KEY || '',
+              retry_workflow_id: 'agents-keepalive-loop.yml',
             };
             await updateKeepaliveLoopSummary({ github, context, core, inputs });
 

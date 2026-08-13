@@ -83,8 +83,18 @@ a bounded retry while the failure threshold remains. At the threshold (default
 3), keepalive pauses that strategy; the hourly sweep owns the next recovery
 review. A possible access or
 authority boundary adds `agent:needs-attention` and an immediately due
-independent challenge; the hourly sweep reads that state and force-dispatches a
-current-state recheck. Only an independent review may add `needs-human`.
+independent challenge; the hourly sweep reads that state and passes its exact
+boundary fingerprint into a current-state recheck while ordinary sweep traffic
+remains non-forced. Every scheduled sweep wakeup bypasses state and completed-
+runner debounce so a zero-event stall is actually re-evaluated; only the due
+fingerprint carries challenge provenance, signed with the dedicated
+`KEEPALIVE_AUTHORITY_SIGNING_KEY` and bound to the repository, PR, random nonce, and exact sweep run/attempt.
+Unsigned or forged claims fail closed as ordinary non-forced rechecks. A replacement boundary is
+therefore checked on the next sweep. A green recheck clears
+the challenge; only the sweep-selected allowlisted authority projection failing
+again records the exact runner-reported action before replacing
+`agent:needs-attention` with `needs-human`. A generic manual retry or another
+`github-actions[bot]` workflow cannot confirm it.
 Confirmed human holds are challenged again after 24 hours by the reviewed-repo
 controller so stale assumptions cannot idle a PR.
 

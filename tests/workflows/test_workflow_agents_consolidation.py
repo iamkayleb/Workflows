@@ -652,6 +652,54 @@ def test_keepalive_metrics_emit_compact_ndjson():
         assert "metrics_json=$(jq -cn \\" in text, f"{path} must emit one JSON object per line"
 
 
+def test_keepalive_recovery_uses_active_lane_and_forces_only_due_challenges():
+    root_loop = (WORKFLOWS_DIR / "agents-keepalive-loop.yml").read_text(encoding="utf-8")
+    consumer_loop = Path(
+        "templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"
+    ).read_text(encoding="utf-8")
+    sweep_paths = [
+        WORKFLOWS_DIR / "agents-keepalive-sweep.yml",
+        Path("templates/consumer-repo/.github/workflows/agents-keepalive-sweep.yml"),
+    ]
+
+    assert "retry_workflow_id: 'agents-keepalive-loop.yml'" in root_loop
+    assert "retry_workflow_id: 'agents-81-gate-followups.yml'" in consumer_loop
+    assert "authority_challenge_fingerprint:" in root_loop
+    assert "authority_challenge_fingerprint:" in consumer_loop
+    assert "authority_challenge_claim:" in root_loop
+    assert "authority_challenge_claim:" in consumer_loop
+    assert "sweep_recheck:" in root_loop
+    assert "sweep_recheck:" in consumer_loop
+    assert "reason=due-authority-challenge" in root_loop
+    assert "reason=due-authority-challenge" in consumer_loop
+    assert "reason=scheduled-sweep-recheck" in root_loop
+    assert "reason=scheduled-sweep-recheck" in consumer_loop
+    assert root_loop.count("reason=scheduled-sweep-recheck") >= 2
+    assert consumer_loop.count("reason=scheduled-sweep-recheck") >= 2
+    assert root_loop.index("reason=dependency-bot-pr") < root_loop.index(
+        "reason=scheduled-sweep-recheck"
+    )
+    assert root_loop.count("reason=due-authority-challenge") >= 2
+    assert consumer_loop.count("reason=due-authority-challenge") >= 2
+    for text in (root_loop, consumer_loop):
+        assert text.count("github.actor == 'github-actions[bot]'") >= 5
+        assert "${{ github.event.inputs.authority_challenge_fingerprint || '' }}" not in text
+        assert "${{ github.event.inputs.sweep_recheck || 'false' }}" not in text
+    for path in sweep_paths:
+        text = path.read_text(encoding="utf-8")
+        assert "force_retry: String(Boolean(dueChallenge))" in text
+        assert "sweep_recheck: 'true'" in text
+        assert "dueChallenge?.boundaryFingerprint || ''" in text
+        assert "signAuthorityChallengeClaim" in text
+        assert "authority_challenge_claim: JSON.stringify" in text
+        assert "AUTHORITY_CHALLENGE_SIGNING_KEY" in text
+        assert "secrets.KEEPALIVE_AUTHORITY_SIGNING_KEY || ''" in text
+        assert "force_retry: 'true'" not in text
+        assert "github-token: ${{ github.token }}" in text
+        assert "await withRetry((client) => client.rest.actions.createWorkflowDispatch({" in text
+        assert "await github.rest.actions.createWorkflowDispatch({" not in text
+
+
 def test_terminal_disposition_records_include_artifact_identity():
     workflow_paths = [
         WORKFLOWS_DIR / "agents-verify-to-issue-v2.yml",
@@ -1287,3 +1335,71 @@ def test_keepalive_gate_job_handles_missing_pull_request_metadata():
     assert (
         "update_body" in jobs or "comment_event_context" in jobs
     ), "PR meta workflow must handle PR context for keepalive operations"
+
+
+def test_codex_setup_auth_failure_exports_actionable_keepalive_evidence():
+    path = WORKFLOWS_DIR / "reusable-codex-run.yml"
+    text = path.read_text(encoding="utf-8")
+
+    setup_marker = 'if [ -z "$CODEX_AUTH_JSON" ]; then'
+    evidence_marker = 'error_msg="Missing Codex auth: set CODEX_AUTH_JSON"'
+    export_marker = 'echo "CODEX_PREFLIGHT_ERROR=${error_msg}" >> "$GITHUB_ENV"'
+    failure_marker = 'echo "::error::CODEX_AUTH_JSON secret is not set or empty."'
+    classifier_marker = "PREFLIGHT_ERROR: ${{ env.CODEX_PREFLIGHT_ERROR }}"
+    setup_start = text.index(setup_marker)
+    setup_end = text.index("# Check token expiration", setup_start)
+    setup_region = text[setup_start:setup_end]
+
+    for marker in (
+        setup_marker,
+        evidence_marker,
+        export_marker,
+        failure_marker,
+    ):
+        assert marker in setup_region
+    assert classifier_marker in text
+
+    assert setup_region.index(setup_marker) < setup_region.index(evidence_marker)
+    assert setup_region.index(evidence_marker) < setup_region.index(export_marker)
+    assert setup_region.index(export_marker) < setup_region.index(failure_marker)
+
+
+def test_keepalive_preflight_auth_failures_reach_root_and_consumer_summaries():
+    workflow_paths = (
+        WORKFLOWS_DIR / "agents-keepalive-loop.yml",
+        Path("templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"),
+    )
+
+    for path in workflow_paths:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        jobs = data.get("jobs") or {}
+        preflight = jobs.get("preflight") or {}
+        summary = jobs.get("summary") or {}
+        preflight_outputs = preflight.get("outputs") or {}
+        preflight_check = next(
+            (step for step in (preflight.get("steps") or []) if step.get("id") == "check"),
+            None,
+        )
+        assert preflight_check is not None, f"{path}: preflight job has no step with id 'check'"
+        preflight_env = preflight_check.get("env") or {}
+        summary_needs = summary.get("needs") or []
+        text = path.read_text(encoding="utf-8")
+
+        assert preflight_outputs.get("failure_summary") == (
+            "${{ steps.check.outputs.failure_summary }}"
+        )
+        assert "preflight" in summary_needs
+        assert "needs.preflight.outputs.failure_summary" in text
+        assert "PREFLIGHT_FAILURE_SUMMARY" in text
+        assert "preflightFailureSummary && allRunnersSkipped" in text
+        assert "? 'failure'" in text
+        assert 'missing_msg="Missing Codex auth: set CODEX_AUTH_JSON"' in text
+        assert 'echo "failure_summary=$missing_msg" >> "$GITHUB_OUTPUT"' in text
+
+        if path == WORKFLOWS_DIR / "agents-keepalive-loop.yml":
+            assert preflight_env.get("HAS_CURSOR_AUTH") == ("${{ secrets.CURSOR_API_KEY != '' }}")
+            assert preflight_env.get("HAS_GEMINI_AUTH") == ("${{ secrets.GEMINI_API_KEY != '' }}")
+
+    root_text = workflow_paths[0].read_text(encoding="utf-8")
+    assert 'missing_msg="Missing Cursor auth: set the CURSOR_API_KEY secret"' in root_text
+    assert 'missing_msg="Missing Gemini auth: set the GEMINI_API_KEY secret"' in root_text

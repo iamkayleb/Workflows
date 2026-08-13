@@ -165,6 +165,12 @@ Use an exact commit SHA when you need stricter reproducibility or a controlled r
 
 **Note:** Choose either `CODEX_AUTH_JSON` (ChatGPT auth) OR the GitHub App credentials (`WORKFLOWS_APP_CLIENT_ID` or `WORKFLOWS_APP_ID` + `WORKFLOWS_APP_PRIVATE_KEY`), not both. Prefer client ID secrets where available; legacy App ID fallbacks remain supported for existing installs.
 
+### Keepalive Authority Secret
+
+| Secret | Purpose | Note |
+|--------|---------|------|
+| `KEEPALIVE_AUTHORITY_SIGNING_KEY` | Dedicated random HMAC key for signed authority-challenge claims | Always required for terminal authority confirmation, independent of the authentication choice above; a missing key fails closed. Do not reuse an App private key |
+
 ### Legacy Secrets (for agents-orchestrator.yml)
 
 | Secret | Purpose | Note |
@@ -232,10 +238,10 @@ Keepalive dispatches an agent only when **ALL** conditions are met:
 
 ### Failure Handling
 For each non-transient failure:
-1. Keepalive adds `agent:retry` and explicitly dispatches a bounded retry
+1. Keepalive adds `agent:retry` and explicitly dispatches `agents-81-gate-followups.yml`
 2. At 3 consecutive failures, the current strategy pauses for the hourly recovery sweep
-3. Possible authority boundaries use `agent:needs-attention`; the sweep independently rechecks due claims
-4. `needs-human` is reserved for independently confirmed external authority
+3. Every hourly sweep wakeup bypasses state and completed-runner debounce without forcing Gate; possible authority boundaries use `agent:needs-attention`, and only due claims receive a forced recheck with exact boundary-fingerprint provenance
+4. A green recheck clears the challenge; only the sweep-selected allowlisted authority projection failing again records its constrained credential or permission action before applying `needs-human`; arbitrary runner text is never persisted and a generic retry cannot confirm the challenge
 
 ### Manual Control
 - **Pause**: Add `agents:paused` label

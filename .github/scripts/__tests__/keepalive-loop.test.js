@@ -14,9 +14,33 @@ const {
   markAgentRunning,
   analyzeTaskCompletion,
   autoReconcileTasks,
+  buildAuthorityChallengeEvidence,
   selectEscalationDisposition,
 } = require('../keepalive_loop.js');
 const { formatStateComment, parseStateComment } = require('../keepalive_state.js');
+const { signAuthorityChallengeClaim } = require('../keepalive_challenge_due.js');
+
+const authorityClaimInputs = (prNumber, boundaryFingerprint, overrides = {}) => {
+  const claim = {
+    signingKey: 'test-only-authority-signing-key',
+    repository: 'octo/workflows',
+    prNumber,
+    boundaryFingerprint,
+    nonce: overrides.nonce || 'a'.repeat(64),
+    sweepRunId: overrides.sweepRunId || '987654321',
+    sweepRunAttempt: overrides.sweepRunAttempt || '1',
+  };
+  return {
+    authority_challenge_fingerprint: boundaryFingerprint,
+    authority_challenge_claim: JSON.stringify({
+      signature: signAuthorityChallengeClaim(claim),
+      nonce: claim.nonce,
+      sweep_run_id: claim.sweepRunId,
+      sweep_run_attempt: claim.sweepRunAttempt,
+    }),
+    authority_challenge_signing_key: claim.signingKey,
+  };
+};
 
 const fixturesDir = path.join(__dirname, 'fixtures');
 const prBodyFixture = fs.readFileSync(path.join(fixturesDir, 'pr-body.md'), 'utf8');
@@ -30,8 +54,13 @@ const buildGithubStub = ({
   workflowRun = null,
   annotationsByCheckRunId = {},
   jobLogsByJobId = {},
+  failNeedsHumanLabel = false,
+  failNeedsAttentionLabel = false,
+  failNeedsAttentionRemoval = false,
+  failStateCommentWriteAt = 0,
 } = {}) => {
   const actions = [];
+  let stateCommentWriteCount = 0;
   return {
     actions,
     rest: {
@@ -73,18 +102,40 @@ const buildGithubStub = ({
           return { data: labels.map((name) => ({ name })) };
         },
         async updateComment({ body, comment_id: commentId }) {
+          stateCommentWriteCount += 1;
+          if (failStateCommentWriteAt === stateCommentWriteCount) {
+            actions.push({ type: 'update-failed', body, commentId });
+            throw new Error('simulated state comment failure');
+          }
           actions.push({ type: 'update', body, commentId });
           return { data: { id: commentId } };
         },
         async createComment({ body }) {
+          stateCommentWriteCount += 1;
+          if (failStateCommentWriteAt === stateCommentWriteCount) {
+            actions.push({ type: 'create-failed', body });
+            throw new Error('simulated state comment failure');
+          }
           actions.push({ type: 'create', body });
           return { data: { id: 101, html_url: 'https://example.com/101' } };
         },
         async addLabels({ labels }) {
+          if (failNeedsHumanLabel && labels.includes('needs-human')) {
+            actions.push({ type: 'label-failed', labels });
+            throw new Error('simulated needs-human label failure');
+          }
+          if (failNeedsAttentionLabel && labels.includes('agent:needs-attention')) {
+            actions.push({ type: 'label-failed', labels });
+            throw new Error('simulated attention label failure');
+          }
           actions.push({ type: 'label', labels });
           return { data: {} };
         },
         async removeLabel({ name }) {
+          if (failNeedsAttentionRemoval && name === 'agent:needs-attention') {
+            actions.push({ type: 'remove-label-failed', name });
+            throw new Error('simulated attention label removal failure');
+          }
           actions.push({ type: 'remove-label', name });
           return { data: {} };
         },
@@ -106,6 +157,7 @@ const buildContext = (prNumber = 101, runId = 9001, overrides = {}) => ({
 
 const buildCore = () => ({
   info() {},
+  warning() {},
   setOutput() {},
 });
 
@@ -2235,7 +2287,8 @@ test('updateKeepaliveLoopSummary does not treat skipped runs as agent failures',
   assert.match(updateAction.body, /"failure":\{\}/);
 });
 
-test('updateKeepaliveLoopSummary sends auth failures to independent challenge', async () => {
+test('updateKeepaliveLoopSummary sends preflight auth failures without a runner exit to independent challenge', async () => {
+  const authSummary = 'Missing token ACTIONS_BOT_PAT for GitHub API repository dispatch.';
   const existingState = formatStateComment({
     trace: 'trace-attention-auth',
     iteration: 1,
@@ -2263,8 +2316,7 @@ test('updateKeepaliveLoopSummary sends auth failures to independent challenge', 
       maxIterations: 5,
       failureThreshold: 3,
       trace: 'trace-attention-auth',
-      agent_exit_code: '1',
-      agent_summary: 'Bad credentials while calling GitHub API.',
+      agent_summary: authSummary,
     },
   });
 
@@ -2279,6 +2331,1149 @@ test('updateKeepaliveLoopSummary sends auth failures to independent challenge', 
   const updateAction = github.actions.find((action) => action.type === 'update');
   assert.match(updateAction.body, /"disposition":"challenge-due"/);
   assert.match(updateAction.body, /"owner":"automation"/);
+  assert.match(updateAction.body, /"boundary_fingerprint":"[0-9a-f]{64}"/);
+  assert.match(updateAction.body, /"boundary_detail":"Required credential: ACTIONS_BOT_PAT/);
+  assert.match(updateAction.body, /"next_action":"Independently rerun the current operation/);
+});
+
+test('a scheduled recheck that reproduces auth failure records a terminal human action', async () => {
+  const authSummary = 'Missing token ACTIONS_BOT_PAT for GitHub API repository dispatch.';
+  const boundary = buildAuthorityChallengeEvidence({ agentSummary: authSummary });
+  const existingState = formatStateComment({
+    trace: 'trace-attention-auth-confirmed',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'agent-run-failed|failure|auth|agent|1',
+      boundary_fingerprint: boundary.fingerprint,
+      boundary_detail: boundary.detail,
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 89, body: existingState, html_url: 'https://example.com/89' }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(654),
+    core: buildCore(),
+    inputs: {
+      prNumber: 654,
+      action: 'run',
+      runResult: 'failure',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 3,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 2,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-auth-confirmed',
+      forceRetry: true,
+      ...authorityClaimInputs(654, boundary.fingerprint),
+      agent_exit_code: '1',
+      agent_summary: authSummary,
+    },
+  });
+
+  assert.ok(github.actions.some((action) =>
+    action.type === 'remove-label' && action.name === 'agent:needs-attention'
+  ));
+  assert.ok(github.actions.some((action) =>
+    action.type === 'label' && action.labels.includes('needs-human')
+  ));
+  const hardLabelIndex = github.actions.findIndex((action) =>
+    action.type === 'label' && action.labels.includes('needs-human')
+  );
+  const softLabelRemovalIndex = github.actions.findIndex((action) =>
+    action.type === 'remove-label' && action.name === 'agent:needs-attention'
+  );
+  const pendingStateIndex = github.actions.findIndex((action) =>
+    action.type === 'update' && action.body.includes('Applying Blocker')
+  );
+  const finalStateIndex = github.actions.findIndex((action) =>
+    action.type === 'update' && action.body.includes('Independent Authority Challenge Confirmed')
+  );
+  assert.ok(pendingStateIndex >= 0 && pendingStateIndex < hardLabelIndex);
+  assert.ok(hardLabelIndex >= 0 && hardLabelIndex < finalStateIndex);
+  assert.ok(finalStateIndex >= 0 && finalStateIndex < softLabelRemovalIndex);
+  assert.equal(
+    github.actions.some((action) => action.type === 'workflow-dispatch'),
+    false,
+  );
+  const updateAction = github.actions.find((action) =>
+    action.type === 'update' && action.body.includes('Independent Authority Challenge Confirmed')
+  );
+  assert.match(updateAction.body, /Independent Authority Challenge Confirmed/);
+  assert.match(updateAction.body, /"disposition":"needs-human"/);
+  assert.match(updateAction.body, /"owner":"human"/);
+  assert.match(updateAction.body, /"confirmation":"scheduled-current-state-recheck-reproduced-auth-boundary"/);
+  assert.match(
+    updateAction.body,
+    /"human_action":"Resolve the reproduced runner authority failure: Required credential: ACTIONS_BOT_PAT"/,
+  );
+});
+
+test('a two-phase terminal transition reuses a newly created summary comment', async () => {
+  const authSummary = 'Missing token ACTIONS_BOT_PAT for GitHub API repository dispatch.';
+  const boundary = buildAuthorityChallengeEvidence({ agentSummary: authSummary });
+  const existingState = formatStateComment({
+    trace: 'trace-attention-auth-create',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'agent-run-failed|failure|auth|agent|1',
+      boundary_fingerprint: boundary.fingerprint,
+      boundary_detail: boundary.detail,
+    },
+  });
+  const github = buildGithubStub({
+    // GitHub comments always have ids; omitting it exercises the defensive
+    // create path while retaining the prior challenge state needed to confirm.
+    comments: [{ body: existingState }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(654),
+    core: buildCore(),
+    inputs: {
+      prNumber: 654,
+      action: 'run',
+      runResult: 'failure',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 3,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 2,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-auth-create',
+      forceRetry: true,
+      ...authorityClaimInputs(654, boundary.fingerprint),
+      agent_exit_code: '1',
+      agent_summary: authSummary,
+    },
+  });
+
+  const stateCreates = github.actions.filter(
+    (action) => action.type === 'create' && action.body.includes('keepalive-state:v1'),
+  );
+  const stateUpdates = github.actions.filter(
+    (action) => action.type === 'update' && action.body.includes('keepalive-state:v1'),
+  );
+  assert.equal(stateCreates.length, 1);
+  assert.match(stateCreates[0].body, /Applying Blocker/);
+  assert.equal(stateUpdates.length, 1);
+  assert.equal(stateUpdates[0].commentId, 101);
+  assert.match(stateUpdates[0].body, /Independent Authority Challenge Confirmed/);
+});
+
+test('a failed hard label write keeps the authority challenge automation-owned', async () => {
+  const authSummary = 'Missing token ACTIONS_BOT_PAT for GitHub API repository dispatch.';
+  const boundary = buildAuthorityChallengeEvidence({ agentSummary: authSummary });
+  const existingState = formatStateComment({
+    trace: 'trace-attention-auth-label-failed',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'agent-run-failed|failure|auth|agent|1',
+      boundary_fingerprint: boundary.fingerprint,
+      boundary_detail: boundary.detail,
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 93, body: existingState, html_url: 'https://example.com/93' }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+    failNeedsHumanLabel: true,
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(654),
+    core: buildCore(),
+    inputs: {
+      prNumber: 654,
+      action: 'run',
+      runResult: 'failure',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 3,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 2,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-auth-label-failed',
+      forceRetry: true,
+      ...authorityClaimInputs(654, boundary.fingerprint),
+      agent_exit_code: '1',
+      agent_summary: authSummary,
+    },
+  });
+
+  assert.ok(github.actions.some((action) => action.type === 'label-failed'));
+  assert.equal(
+    github.actions.some((action) =>
+      action.type === 'label' && action.labels.includes('needs-human')
+    ),
+    false,
+  );
+  assert.ok(github.actions.some((action) =>
+    action.type === 'label' && action.labels.includes('agent:needs-attention')
+  ));
+  const updateAction = github.actions.find((action) => action.type === 'update');
+  const state = parseStateComment(updateAction.body).data;
+  assert.equal(state.attention.owner, 'automation');
+  assert.equal(state.attention.disposition, 'challenge-due');
+  assert.equal(state.attention.boundary_fingerprint, boundary.fingerprint);
+  assert.doesNotMatch(updateAction.body, /Independent Authority Challenge Confirmed/);
+});
+
+test('a failed terminal state write leaves a durable actionable pending transition', async () => {
+  const authSummary = 'Missing token ACTIONS_BOT_PAT for GitHub API repository dispatch.';
+  const boundary = buildAuthorityChallengeEvidence({ agentSummary: authSummary });
+  const existingState = formatStateComment({
+    trace: 'trace-attention-auth-state-failed',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'agent-run-failed|failure|auth|agent|1',
+      boundary_fingerprint: boundary.fingerprint,
+      boundary_detail: boundary.detail,
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 95, body: existingState, html_url: 'https://example.com/95' }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+    failStateCommentWriteAt: 2,
+  });
+
+  await assert.rejects(
+    updateKeepaliveLoopSummary({
+      github,
+      context: buildContext(654),
+      core: buildCore(),
+      inputs: {
+        prNumber: 654,
+        action: 'run',
+        runResult: 'failure',
+        gateConclusion: 'success',
+        tasksTotal: 3,
+        tasksUnchecked: 3,
+        keepaliveEnabled: true,
+        autofixEnabled: false,
+        iteration: 2,
+        maxIterations: 5,
+        failureThreshold: 3,
+        trace: 'trace-attention-auth-state-failed',
+        forceRetry: true,
+        ...authorityClaimInputs(654, boundary.fingerprint),
+        agent_exit_code: '1',
+        agent_summary: authSummary,
+      },
+    }),
+    /simulated state comment failure/,
+  );
+
+  const hardLabelIndex = github.actions.findIndex((action) =>
+    action.type === 'label' && action.labels.includes('needs-human')
+  );
+  const failedWriteIndex = github.actions.findIndex((action) => action.type === 'update-failed');
+  assert.ok(hardLabelIndex >= 0 && hardLabelIndex < failedWriteIndex);
+  assert.equal(
+    github.actions.some((action) =>
+      action.type === 'remove-label' && action.name === 'needs-human'
+    ),
+    false,
+  );
+  assert.equal(
+    github.actions.some((action) =>
+      action.type === 'remove-label' && action.name === 'agent:needs-attention'
+    ),
+    false,
+  );
+  const pendingUpdate = github.actions.find((action) =>
+    action.type === 'update' && action.body.includes('Applying Blocker')
+  );
+  const pendingState = parseStateComment(pendingUpdate.body).data;
+  assert.equal(pendingState.attention.owner, 'automation');
+  assert.equal(pendingState.attention.disposition, 'challenge-due');
+  assert.equal(pendingState.attention.confirmation_pending_label, true);
+  assert.match(pendingState.attention.next_action, /ACTIONS_BOT_PAT/);
+});
+
+test('a forged sweep claim cannot confirm an authority challenge', async () => {
+  const authSummary = 'Missing token ACTIONS_BOT_PAT for GitHub API repository dispatch.';
+  const boundary = buildAuthorityChallengeEvidence({ agentSummary: authSummary });
+  const existingState = formatStateComment({
+    trace: 'trace-attention-auth-unproven',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'original-auth-boundary',
+      boundary_fingerprint: boundary.fingerprint,
+      boundary_detail: boundary.detail,
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 92, body: existingState, html_url: 'https://example.com/92' }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(654),
+    core: buildCore(),
+    inputs: {
+      prNumber: 654,
+      action: 'run',
+      runResult: 'failure',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 3,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 2,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-auth-unproven',
+      forceRetry: true,
+      authority_challenge_fingerprint: boundary.fingerprint,
+      authority_challenge_claim: JSON.stringify({
+        signature: '0'.repeat(64),
+        nonce: 'a'.repeat(64),
+        sweep_run_id: '987654321',
+        sweep_run_attempt: '1',
+      }),
+      authority_challenge_signing_key: 'test-only-authority-signing-key',
+      agent_exit_code: '1',
+      agent_summary: authSummary,
+    },
+  });
+
+  assert.equal(
+    github.actions.some((action) =>
+      action.type === 'label' && action.labels.includes('needs-human')
+    ),
+    false,
+  );
+  const updateAction = github.actions.find((action) =>
+    action.type === 'update' && parseStateComment(action.body)?.data?.attention
+  );
+  const state = parseStateComment(updateAction.body).data;
+  assert.equal(state.attention.owner, 'automation');
+  assert.equal(state.attention.disposition, 'challenge-due');
+  assert.equal(state.attention.boundary_fingerprint, boundary.fingerprint);
+});
+
+test('a reproduced generic auth failure remains automation-owned', async () => {
+  const authSummary = 'Authentication failed';
+  const boundary = buildAuthorityChallengeEvidence({
+    agentSummary: authSummary,
+    agentType: 'codex',
+    operation: 'run',
+  });
+  const existingState = formatStateComment({
+    trace: 'trace-attention-auth-generic',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'generic-auth-boundary',
+      boundary_fingerprint: boundary.fingerprint,
+      boundary_detail: boundary.detail,
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 96, body: existingState, html_url: 'https://example.com/96' }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(654),
+    core: buildCore(),
+    inputs: {
+      prNumber: 654,
+      action: 'run',
+      agent_type: 'codex',
+      runResult: 'failure',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 3,
+      keepaliveEnabled: true,
+      iteration: 2,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-auth-generic',
+      forceRetry: true,
+      authority_challenge_fingerprint: boundary.fingerprint,
+      agent_exit_code: '1',
+      agent_summary: authSummary,
+    },
+  });
+
+  assert.equal(boundary.actionable, false);
+  assert.equal(boundary.humanAction, '');
+  assert.equal(
+    github.actions.some((candidate) =>
+      candidate.type === 'label' && candidate.labels.includes('needs-human')
+    ),
+    false,
+  );
+  const updateAction = github.actions.find((candidate) =>
+    candidate.type === 'update' && parseStateComment(candidate.body)?.data?.attention
+  );
+  const state = parseStateComment(updateAction.body).data;
+  assert.equal(state.attention.owner, 'automation');
+  assert.equal(state.attention.disposition, 'challenge-due');
+});
+
+test('a forced recheck with a different auth boundary stays automation-owned', async () => {
+  const original = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing token ACTIONS_BOT_PAT for GitHub API repository dispatch.',
+  });
+  const existingState = formatStateComment({
+    trace: 'trace-attention-auth-different',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'original-auth-boundary',
+      boundary_fingerprint: original.fingerprint,
+      boundary_detail: original.detail,
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 91, body: existingState, html_url: 'https://example.com/91' }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(654),
+    core: buildCore(),
+    inputs: {
+      prNumber: 654,
+      action: 'run',
+      runResult: 'failure',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 3,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 2,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-auth-different',
+      forceRetry: true,
+      authority_challenge_fingerprint: original.fingerprint,
+      agent_exit_code: '1',
+      agent_summary: 'Insufficient permission pull-requests:write for repository update.',
+    },
+  });
+
+  assert.equal(
+    github.actions.some((action) =>
+      action.type === 'label' && action.labels.includes('needs-human')
+    ),
+    false,
+  );
+  assert.ok(github.actions.some((action) =>
+    action.type === 'label' && action.labels.includes('agent:needs-attention')
+  ));
+  const updateAction = github.actions.find((action) =>
+    action.type === 'update' && parseStateComment(action.body)?.data?.attention
+  );
+  const state = parseStateComment(updateAction.body).data;
+  assert.equal(state.attention.owner, 'automation');
+  assert.equal(state.attention.disposition, 'challenge-due');
+  assert.notEqual(state.attention.boundary_fingerprint, original.fingerprint);
+  assert.match(state.attention.boundary_detail, /pull-requests:write/);
+});
+
+test('renewing an authority challenge never removes its existing soft label', async () => {
+  const original = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing token ACTIONS_BOT_PAT for GitHub API repository dispatch.',
+  });
+  const existingState = formatStateComment({
+    trace: 'trace-attention-auth-renewal-label-failed',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'original-auth-boundary',
+      boundary_fingerprint: original.fingerprint,
+      boundary_detail: original.detail,
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 94, body: existingState, html_url: 'https://example.com/94' }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+    failNeedsAttentionLabel: true,
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(654),
+    core: buildCore(),
+    inputs: {
+      prNumber: 654,
+      action: 'run',
+      runResult: 'failure',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 3,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 2,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-auth-renewal-label-failed',
+      forceRetry: true,
+      authority_challenge_fingerprint: original.fingerprint,
+      agent_exit_code: '1',
+      agent_summary: 'Insufficient permission pull-requests:write for repository update.',
+    },
+  });
+
+  assert.ok(github.actions.some((action) =>
+    action.type === 'label-failed' && action.labels.includes('agent:needs-attention')
+  ));
+  assert.equal(
+    github.actions.some((action) =>
+      action.type === 'remove-label' && action.name === 'agent:needs-attention'
+    ),
+    false,
+  );
+  const updateAction = github.actions.find((action) => action.type === 'update');
+  const state = parseStateComment(updateAction.body).data;
+  assert.equal(state.attention.owner, 'automation');
+  assert.equal(state.attention.disposition, 'challenge-due');
+  assert.notEqual(state.attention.boundary_fingerprint, original.fingerprint);
+});
+
+test('authority evidence persists only an allowlisted safe projection', () => {
+  const commonPrefix = `Permission failure ${'x'.repeat(320)}`;
+  const first = buildAuthorityChallengeEvidence({
+    agentSummary: `${commonPrefix} missing scope contents:write Bearer secret-one`,
+  });
+  const second = buildAuthorityChallengeEvidence({
+    agentSummary: `${commonPrefix} missing scope pull-requests:write Bearer secret-two`,
+  });
+  const sensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Forbidden request with Bearer secret-three and token=secret-four',
+  });
+  const uppercaseSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Forbidden request with password=CORRECT_HORSE.',
+  });
+  const undelimitedSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Forbidden request returned token CORRECT_HORSE.',
+  });
+  const genericCredentialSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Forbidden credential=correct-horse-battery-staple credentials another-secret-value.',
+  });
+  const oauthSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing OPENAI_API_KEY=sk-proj-value client_secret=oauth-value access_token=access-value.',
+  });
+  const jsonSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Forbidden response {"access_token":"json-access", "password": "json-password"}.',
+  });
+  const prefixedSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Unauthorized: OPENAI_API_KEY=sk-prefixed-secret',
+  });
+  const headerSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied Authorization: Basic dXNlcjpzdXBlcnNlY3JldA== Proxy-Authorization=Bearer proxy-secret Cookie: session=secret-cookie',
+  });
+  const digestHeaderSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied Authorization: Digest username="Mufasa", realm="example", nonce="abc", response="deadbeef" after retry',
+  });
+  const arbitraryHeaderSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: `Denied Authorization: ApiKey ${'super-' + 'secret-value'} after retry`,
+  });
+  const standaloneHttpAuthSensitive = [
+    'Basic dXNlcjpwYXNz',
+    'Digest username="Mufasa", response="deadbeef"',
+    'Negotiate runtime-ticket',
+    'NTLM runtime-token',
+    'ApiKey runtime-secret',
+  ].map(value => buildAuthorityChallengeEvidence({
+    agentSummary: `HTTP 401 using ${value}; required permission contents:write`,
+  }));
+  const sigV4HeaderSensitive = buildAuthorityChallengeEvidence({
+    agentSummary:
+      `Denied Authorization: AWS4-HMAC-SHA256 Credential=${'access-key'}/scope, ` +
+      `SignedHeaders=host, Signature=${'dead' + 'beef'} after retry`,
+  });
+  const headerWithPermissionRemedy = buildAuthorityChallengeEvidence({
+    agentSummary:
+      `Denied Authorization: Bearer ${'runtime-' + 'secret'}; ` +
+      'requires contents:write permission',
+  });
+  const headerWithEarlierPermissionValue = buildAuthorityChallengeEvidence({
+    agentSummary:
+      `Attempted contents:read request. Authorization: Bearer ${'runtime-' + 'secret'}; ` +
+      'requires pull-requests:write permission',
+  });
+  const headerWithCredentialRemedy = buildAuthorityChallengeEvidence({
+    agentSummary:
+      `Denied Authorization: ApiKey ${'runtime-' + 'secret'}; ` +
+      'Missing token: CODEX_AUTH_JSON',
+  });
+  const headerWithCredentialShapedSecret = buildAuthorityChallengeEvidence({
+    agentSummary:
+      'Denied Authorization: Custom Missing token: CORRECT_HORSE; ' +
+      'requires contents:write permission',
+  });
+  const pemBegin = ['-----BEGIN', 'PRIVATE KEY-----'].join(' ');
+  const pemEnd = ['-----END', 'PRIVATE KEY-----'].join(' ');
+  const openSshPemBegin = ['-----BEGIN', 'OPENSSH PRIVATE KEY-----'].join(' ');
+  const pemPrivateKeySensitive = buildAuthorityChallengeEvidence({
+    // Assemble key-shaped material at runtime so the repository secret scanner
+    // does not mistake the redaction fixture for a live private key.
+    agentSummary:
+      `Authentication failed ${pemBegin} ${'private-' + 'key-material'} ${pemEnd} ` +
+      'requires contents:write permission',
+  });
+  const truncatedPrivateKeySensitive = buildAuthorityChallengeEvidence({
+    agentSummary:
+      `Authentication failed ${openSshPemBegin} ${'truncated-' + 'key-material'} ` +
+      'Missing token: CORRECT_HORSE; requires contents:write permission',
+  });
+  const multiCookieSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied Cookie: session=alpha; csrf=beta after retry',
+  });
+  const commaCookieSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied Set-Cookie: session=alpha, csrf=beta; requires contents:write permission',
+  });
+  const attributedCookieSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied Set-Cookie: session=alpha; Path=/; HttpOnly, csrf=beta; Secure; requires contents:write permission',
+  });
+  const compactJwtSensitive = buildAuthorityChallengeEvidence({
+    agentSummary:
+      `Denied JWT ${'eyJhbGciOiJIUzI1NiJ9'}.${'eyJzdWIiOiJ1c2VyIn0'}.${'runtime-signature-value'}; ` +
+      'requires contents:write permission',
+  });
+  const githubAppSensitive = buildAuthorityChallengeEvidence({
+    // Build the scanner-shaped fixture at runtime so the repository's own
+    // complete-diff secret scanner does not mistake test data for a live token.
+    agentSummary: `Authentication failed for ${'ghs_'}abcdefghijklmnopqrstuvwxyz123456`,
+  });
+  const quotedSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Forbidden password="correct horse battery staple" token=\'another secret phrase\'.',
+  });
+  const quotedUppercasePassword = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing password: "HUNTERTWO"; requires contents:write permission',
+  });
+  const unquotedUppercasePassword = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing password: HUNTERTWO; requires contents:write permission',
+  });
+  const passwordAliasSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied passwd=correct-horse-battery-staple pwd another-secret; requires contents:write permission',
+  });
+  const extendedAliasSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied pass=alpha pin beta otp=gamma mfa_code delta session_token=epsilon signature zeta; requires contents:write permission',
+  });
+  const credentialFieldShapes = [
+    'secretAccessKey', 'secretAccessKeyId', 'privateKeyData', 'privateKeyPEM',
+    'clientSecretValue', 'apiKeys', 'accessTokens', 'passwordHashes',
+    'credentialBlob', 'sessionTokenString', 'private_key_material',
+    'api_keys', 'client_secret_value', 'access_tokens', 'password_hashes',
+    'serviceAuthMaterial', 'oauthCredentialsBundle', 'signingKeyBytes',
+    'pfxData', 'pkcs12Bytes', 'p12Blob', 'releaseKeystore', 'buildTruststore',
+  ];
+  const credentialFieldEvidence = credentialFieldShapes.map((field, index) => ({
+    field,
+    sentinel: `sensitive-value-${index}`,
+    evidence: buildAuthorityChallengeEvidence({
+      agentSummary: `Denied ${field}=sensitive-value-${index}; requires contents:write permission`,
+    }),
+  }));
+  const jsonCamelCaseSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied "clientSecretValue": "json-secret"; requires contents:write permission',
+  });
+  const structuredCredentialSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied apiKeys=["array-secret-one","array-secret-two"]; requires contents:write permission',
+  });
+  const structuredCredentialObjectSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied credentials={"clientSecret":"object-secret"}; requires contents:write permission',
+  });
+  const ordinaryLowercaseControl = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied monkey=banana while reading metadata',
+  });
+  const novelUnrecognizedSecret = buildAuthorityChallengeEvidence({
+    agentSummary:
+      'Denied futuristicEnvelope=NEVER_PERSIST_THIS_FORMAT; ' +
+      'required permission contents:write',
+  });
+  const unrecognizedEnvShapedValue = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing token: NEVER_PERSIST_THIS_FORMAT for runner launch.',
+  });
+  const aiderRegistryCredential = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing Aider auth: set AIDER_API_KEY',
+    agentType: 'aider',
+  });
+  const wrongRoutedAgentCredential = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing Aider auth: set AIDER_API_KEY',
+    agentType: 'codex',
+  });
+  const pluralNamedCredentials = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing credentials: OPENAI_API_KEY',
+  });
+  const qualifiedNamedCredentials = [
+    { agentSummary: 'Missing API key: OPENAI_API_KEY', agentType: 'codex' },
+    { agentSummary: 'Required API token: OPENAI_API_KEY', agentType: 'codex' },
+    { agentSummary: 'Unset OAuth token: CLAUDE_CODE_OAUTH_TOKEN', agentType: 'claude' },
+  ].map(input => buildAuthorityChallengeEvidence(input));
+  const unrecognizedNamespacedPermission = buildAuthorityChallengeEvidence({
+    agentSummary: 'Required permission read:CORRECT_HORSE_BATTERY_STAPLE',
+  });
+  const passphraseSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Key authentication failed passphrase="correct horse battery staple".',
+  });
+  const longPermissionRemediation = buildAuthorityChallengeEvidence({
+    agentSummary:
+      `Access denied: requires contents:write permission ` +
+      'while processing extended runner diagnostics '.repeat(20),
+  });
+  const urlSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Permission denied for https://alice:correct-horse@example.com/private',
+  });
+  const sshUrlSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Permission denied for ssh://alice:correct-horse@example.com/private',
+  });
+  const databaseUrlSensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Permission denied for postgres://alice:correct-horse@example.com/private',
+  });
+  const undelimitedApiKeySensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied X-API-Key correct-horse-battery-staple; requires contents:write permission',
+  });
+  const undelimitedAwsKeySensitive = buildAuthorityChallengeEvidence({
+    agentSummary: 'Denied AWS_SECRET_ACCESS_KEY correct-horse-battery-staple; requires contents:write permission',
+  });
+  const bareProviderSensitive = buildAuthorityChallengeEvidence({
+    agentSummary:
+      `Unauthorized provider key ${'sk-'}abcdefghijklmnopqrstuvwxyz123456 ` +
+      `and access key ${'AKIA'}ABCDEFGHIJKLMNOP`,
+  });
+
+  assert.ok(first.detail.length <= 300);
+  assert.match(first.detail, /contents:write/);
+  assert.match(first.humanAction, /contents:write/);
+  assert.match(second.detail, /pull-requests:write/);
+  assert.notEqual(first.fingerprint, second.fingerprint);
+  const sameFailureCodex = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing token ACTIONS_BOT_PAT for repository dispatch.',
+    agentType: 'codex',
+    operation: 'run',
+  });
+  const sameFailureClaude = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing token ACTIONS_BOT_PAT for repository dispatch.',
+    agentType: 'claude',
+    operation: 'run',
+  });
+  const sameFailureFix = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing token ACTIONS_BOT_PAT for repository dispatch.',
+    agentType: 'codex',
+    operation: 'fix',
+  });
+  assert.notEqual(sameFailureCodex.fingerprint, sameFailureClaude.fingerprint);
+  assert.notEqual(sameFailureCodex.fingerprint, sameFailureFix.fingerprint);
+  const githubPermissionBefore = buildAuthorityChallengeEvidence({
+    agentSummary: 'missing contents: write permission',
+  });
+  const githubScopeBefore = buildAuthorityChallengeEvidence({
+    agentSummary: 'requires contents:write scope',
+  });
+  const githubScopeAfter = buildAuthorityChallengeEvidence({
+    agentSummary: 'missing scope contents: write',
+  });
+  const githubScopeAfterCompact = buildAuthorityChallengeEvidence({
+    agentSummary: 'missing scope contents:write',
+  });
+  const githubOauthScope = buildAuthorityChallengeEvidence({
+    agentSummary: 'requires read:org scope',
+  });
+  const githubRepoScope = buildAuthorityChallengeEvidence({
+    agentSummary: 'requires repo scope',
+  });
+  const githubWorkflowScope = buildAuthorityChallengeEvidence({
+    agentSummary: 'missing workflow scope',
+  });
+  const pluralPermissionRemedies = [
+    'missing permissions: contents:write',
+    'permissions required: contents:write',
+    'permissions: contents:write are required',
+    'contents:write permissions are required',
+    'scopes required: repo',
+    'required permission `contents:write`',
+    'required permission "pull-requests:write"',
+    "required scope 'repo'",
+    'required permission **issues:write**',
+    'required permission [statuses:write]',
+    'required scope <workflow>',
+  ].map(agentSummary => buildAuthorityChallengeEvidence({ agentSummary }));
+  const metadataOnly = buildAuthorityChallengeEvidence({
+    agentSummary: 'Permission denied; error:403 from repository API',
+  });
+  const ordinaryRepoWord = buildAuthorityChallengeEvidence({
+    agentSummary: 'Permission denied while updating repo metadata.',
+  });
+  const ordinaryUserWord = buildAuthorityChallengeEvidence({
+    agentSummary: 'Insufficient permission to access user profile.',
+  });
+  const attemptedPermissionOnly = buildAuthorityChallengeEvidence({
+    agentSummary: 'Attempted contents:read request. Permission denied by repository policy.',
+  });
+  const unrelatedUppercaseRemedy = buildAuthorityChallengeEvidence({
+    agentSummary: 'Authentication failed while reading repository metadata. Missing README',
+  });
+  const unnamedEnvironmentRemedy = buildAuthorityChallengeEvidence({
+    agentSummary: 'Authentication failed while launching runner. Missing OPENAI_API_KEY',
+  });
+  const separatePermissionRemedies = buildAuthorityChallengeEvidence({
+    agentSummary:
+      'contents:read permission granted. Authorization: opaque; Required permission: issues:write',
+  });
+  assert.equal(githubPermissionBefore.actionable, true);
+  assert.equal(githubScopeBefore.actionable, true);
+  assert.equal(githubScopeAfter.actionable, true);
+  assert.equal(githubOauthScope.actionable, true);
+  assert.equal(githubRepoScope.actionable, true);
+  assert.equal(githubWorkflowScope.actionable, true);
+  for (const evidence of pluralPermissionRemedies) assert.equal(evidence.actionable, true);
+  assert.equal(metadataOnly.actionable, false);
+  assert.equal(metadataOnly.humanAction, '');
+  assert.equal(ordinaryRepoWord.actionable, false);
+  assert.equal(ordinaryRepoWord.humanAction, '');
+  assert.equal(ordinaryUserWord.actionable, false);
+  assert.equal(ordinaryUserWord.humanAction, '');
+  assert.equal(attemptedPermissionOnly.actionable, false);
+  assert.equal(attemptedPermissionOnly.humanAction, '');
+  assert.equal(unrelatedUppercaseRemedy.actionable, false);
+  assert.equal(unrelatedUppercaseRemedy.humanAction, '');
+  assert.equal(unnamedEnvironmentRemedy.actionable, true);
+  assert.match(unnamedEnvironmentRemedy.humanAction, /OPENAI_API_KEY/);
+  assert.equal(separatePermissionRemedies.actionable, true);
+  assert.match(separatePermissionRemedies.humanAction, /issues:write/);
+  assert.doesNotMatch(separatePermissionRemedies.humanAction, /Required permission: contents:read/);
+  assert.equal(githubScopeAfter.fingerprint, githubScopeAfterCompact.fingerprint);
+  assert.equal(githubPermissionBefore.fingerprint, githubScopeAfter.fingerprint);
+  const safeProjection = /^(?:Required credential: [A-Z][A-Z0-9_]+|Required permission: [A-Za-z0-9_.:-]+|HTTP (?:401|403)(?:\/(?:401|403))*|Authority failure(?: \([a-z, ]+\))?)(?:; (?:Required credential: [A-Z][A-Z0-9_]+|Required permission: [A-Za-z0-9_.:-]+|HTTP (?:401|403)(?:\/(?:401|403))*))*$/;
+  const projectedEvidence = [
+    sensitive, uppercaseSensitive, undelimitedSensitive, genericCredentialSensitive,
+    oauthSensitive, jsonSensitive, prefixedSensitive, headerSensitive,
+    digestHeaderSensitive, arbitraryHeaderSensitive, sigV4HeaderSensitive,
+    headerWithPermissionRemedy, headerWithEarlierPermissionValue,
+    headerWithCredentialRemedy, headerWithCredentialShapedSecret,
+    pemPrivateKeySensitive, truncatedPrivateKeySensitive, multiCookieSensitive,
+    commaCookieSensitive, attributedCookieSensitive, compactJwtSensitive,
+    githubAppSensitive, quotedSensitive, quotedUppercasePassword,
+    unquotedUppercasePassword, passwordAliasSensitive, extendedAliasSensitive,
+    jsonCamelCaseSensitive, structuredCredentialSensitive,
+    structuredCredentialObjectSensitive, passphraseSensitive, urlSensitive,
+    sshUrlSensitive, databaseUrlSensitive, undelimitedApiKeySensitive,
+    undelimitedAwsKeySensitive, bareProviderSensitive, novelUnrecognizedSecret,
+    unrecognizedEnvShapedValue,
+    unrecognizedNamespacedPermission,
+    ...standaloneHttpAuthSensitive,
+    ...credentialFieldEvidence.map(item => item.evidence),
+  ];
+  for (const evidence of projectedEvidence) assert.match(evidence.detail, safeProjection);
+  const forbiddenSecretFragments = /dXNlc|proxy-secret|secret-cookie|Mufasa|example|nonce|deadbeef|ApiKey|secret-value|runtime-secret|CORRECT_HORSE|private-key-material|truncated-key-material|alpha|beta|HttpOnly|Secure|eyJhbGci|eyJzdWI|runtime-signature|ghs_|HUNTERTWO|correct-horse|another-secret|json-secret|array-secret|object-secret|alice|abcdefghijklmnopqrstuvwxyz|ABCDEFGHIJKLMNOP/;
+  for (const evidence of projectedEvidence) {
+    assert.doesNotMatch(evidence.detail, forbiddenSecretFragments);
+    assert.doesNotMatch(evidence.humanAction, forbiddenSecretFragments);
+  }
+  assert.equal(sensitive.actionable, false);
+  assert.equal(genericCredentialSensitive.actionable, false);
+  assert.equal(headerSensitive.actionable, false);
+  assert.equal(digestHeaderSensitive.actionable, false);
+  assert.equal(arbitraryHeaderSensitive.actionable, false);
+  for (const evidence of standaloneHttpAuthSensitive) {
+    assert.match(evidence.humanAction, /contents:write/);
+  }
+  assert.equal(headerWithPermissionRemedy.actionable, true);
+  assert.match(headerWithPermissionRemedy.humanAction, /contents:write/);
+  assert.match(headerWithEarlierPermissionValue.humanAction, /pull-requests:write/);
+  assert.doesNotMatch(headerWithEarlierPermissionValue.humanAction, /Required permission: contents:read/);
+  assert.equal(headerWithCredentialRemedy.actionable, true);
+  assert.match(headerWithCredentialRemedy.humanAction, /CODEX_AUTH_JSON/);
+  assert.equal(headerWithCredentialShapedSecret.actionable, true);
+  assert.equal(pemPrivateKeySensitive.actionable, true);
+  assert.equal(truncatedPrivateKeySensitive.actionable, true);
+  for (const { evidence, field, sentinel } of credentialFieldEvidence) {
+    assert.match(evidence.detail, safeProjection, field);
+    assert.doesNotMatch(evidence.detail, new RegExp(sentinel), field);
+    assert.doesNotMatch(evidence.humanAction, new RegExp(sentinel), field);
+  }
+  assert.match(structuredCredentialSensitive.humanAction, /contents:write/);
+  assert.match(structuredCredentialObjectSensitive.humanAction, /contents:write/);
+  assert.match(ordinaryLowercaseControl.detail, safeProjection);
+  assert.doesNotMatch(ordinaryLowercaseControl.detail, /monkey|banana/);
+  assert.equal(novelUnrecognizedSecret.detail, 'Required permission: contents:write');
+  assert.doesNotMatch(
+    `${novelUnrecognizedSecret.detail} ${novelUnrecognizedSecret.humanAction}`,
+    /NEVER_PERSIST_THIS_FORMAT|futuristicEnvelope/,
+  );
+  assert.equal(unrecognizedEnvShapedValue.actionable, false);
+  assert.doesNotMatch(
+    `${unrecognizedEnvShapedValue.detail} ${unrecognizedEnvShapedValue.humanAction}`,
+    /NEVER_PERSIST_THIS_FORMAT/,
+  );
+  assert.equal(aiderRegistryCredential.actionable, true);
+  assert.match(aiderRegistryCredential.humanAction, /AIDER_API_KEY/);
+  assert.equal(wrongRoutedAgentCredential.actionable, false);
+  assert.doesNotMatch(wrongRoutedAgentCredential.detail, /AIDER_API_KEY/);
+  assert.equal(pluralNamedCredentials.actionable, true);
+  assert.match(pluralNamedCredentials.detail, /OPENAI_API_KEY/);
+  assert.match(pluralNamedCredentials.humanAction, /OPENAI_API_KEY/);
+  for (const evidence of qualifiedNamedCredentials) {
+    assert.equal(evidence.actionable, true);
+    assert.match(evidence.humanAction, /OPENAI_API_KEY|CLAUDE_CODE_OAUTH_TOKEN/);
+  }
+  assert.equal(unrecognizedNamespacedPermission.actionable, false);
+  assert.doesNotMatch(
+    `${unrecognizedNamespacedPermission.detail} ${unrecognizedNamespacedPermission.humanAction}`,
+    /CORRECT_HORSE_BATTERY_STAPLE/,
+  );
+  assert.match(longPermissionRemediation.detail, /contents:write/);
+  assert.match(longPermissionRemediation.humanAction, /contents:write/);
+  assert.ok(longPermissionRemediation.detail.length <= 300);
+  const missingCodexCredential = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing token: CODEX_AUTH_JSON for runner launch.',
+  });
+  const missingClaudeCredential = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing token: CLAUDE_CODE_OAUTH_TOKEN for runner launch.',
+    agentType: 'claude',
+  });
+  const missingNamedCredential = buildAuthorityChallengeEvidence({
+    agentSummary: 'Missing credential ACTIONS_BOT_PAT for runner launch.',
+  });
+  const requiredNamedCredential = buildAuthorityChallengeEvidence({
+    agentSummary: 'Required credential: OPENAI_API_KEY for runner launch.',
+  });
+  const routedMissingAuth = [
+    buildAuthorityChallengeEvidence({
+      agentSummary: 'Missing Claude auth: set CLAUDE_CODE_OAUTH_TOKEN',
+      agentType: 'claude',
+    }),
+    buildAuthorityChallengeEvidence({
+      agentSummary: 'Missing Cursor auth: set the CURSOR_API_KEY secret',
+      agentType: 'cursor',
+    }),
+    buildAuthorityChallengeEvidence({
+      agentSummary: 'Missing Gemini auth: set the GEMINI_API_KEY secret',
+      agentType: 'gemini',
+    }),
+  ];
+  assert.match(missingCodexCredential.detail, /CODEX_AUTH_JSON/);
+  assert.match(missingClaudeCredential.detail, /CLAUDE_CODE_OAUTH_TOKEN/);
+  assert.match(missingNamedCredential.detail, /ACTIONS_BOT_PAT/);
+  assert.equal(missingNamedCredential.actionable, true);
+  assert.match(requiredNamedCredential.detail, /OPENAI_API_KEY/);
+  assert.equal(requiredNamedCredential.actionable, true);
+  for (const evidence of routedMissingAuth) {
+    assert.equal(evidence.actionable, true);
+    assert.match(evidence.humanAction, /_OAUTH_|_API_KEY/);
+  }
+  assert.notEqual(missingCodexCredential.fingerprint, missingClaudeCredential.fingerprint);
+  const unauthorized = buildAuthorityChallengeEvidence({
+    agentSummary: 'GitHub API returned HTTP 401 for repository dispatch run 123456789.',
+  });
+  const forbidden = buildAuthorityChallengeEvidence({
+    agentSummary: 'GitHub API returned HTTP 403 for repository dispatch run 987654321.',
+  });
+  const unauthorizedAgain = buildAuthorityChallengeEvidence({
+    agentSummary: 'GitHub API returned HTTP 401 for repository dispatch run 987654321.',
+  });
+  assert.notEqual(unauthorized.fingerprint, forbidden.fingerprint);
+  assert.equal(unauthorized.fingerprint, unauthorizedAgain.fingerprint);
+  const timestampedOne = buildAuthorityChallengeEvidence({
+    agentSummary: '2026-08-13T01:00:00Z missing credential at timestamp=1786410000',
+  });
+  const timestampedTwo = buildAuthorityChallengeEvidence({
+    agentSummary: '2026-08-13T02:00:00Z missing credential at timestamp=1786413600',
+  });
+  const commaTimestampedOne = buildAuthorityChallengeEvidence({
+    agentSummary: '2026-08-13 01:00:00,123 missing credential',
+  });
+  const commaTimestampedTwo = buildAuthorityChallengeEvidence({
+    agentSummary: '2026-08-13 01:00:00,987 missing credential',
+  });
+  assert.equal(timestampedOne.fingerprint, timestampedTwo.fingerprint);
+  assert.equal(commaTimestampedOne.fingerprint, commaTimestampedTwo.fingerprint);
+  const requestIdOne = buildAuthorityChallengeEvidence({
+    agentSummary: 'Authentication failed. Request ID: req_Qwerty123456',
+  });
+  const requestIdTwo = buildAuthorityChallengeEvidence({
+    agentSummary: 'Authentication failed. Request ID: req_Asdfgh987654',
+  });
+  const traceIdOne = buildAuthorityChallengeEvidence({
+    agentSummary: 'Authentication failed. correlation_id=traceAlpha123',
+  });
+  const traceIdTwo = buildAuthorityChallengeEvidence({
+    agentSummary: 'Authentication failed. correlation_id=traceBeta987',
+  });
+  assert.equal(requestIdOne.fingerprint, requestIdTwo.fingerprint);
+  assert.equal(traceIdOne.fingerprint, traceIdTwo.fingerprint);
+  const permissionCodeOne = buildAuthorityChallengeEvidence({
+    agentSummary: 'Repository permission policy code 123456 denied dispatch.',
+  });
+  const permissionCodeTwo = buildAuthorityChallengeEvidence({
+    agentSummary: 'Repository permission policy code 654321 denied dispatch.',
+  });
+  // Arbitrary numeric policy codes are not durable authority facts. Generic,
+  // non-actionable failures intentionally collapse to the same safe projection.
+  assert.equal(permissionCodeOne.fingerprint, permissionCodeTwo.fingerprint);
+});
+
+test('a successful authority recheck clears the automation challenge with or without a signed force claim', async () => {
+  for (const forceRetry of [true, false]) {
+    const existingState = formatStateComment({
+      trace: `trace-attention-auth-cleared-${forceRetry}`,
+      iteration: 2,
+      failure_threshold: 3,
+      failure: { reason: 'agent-run-failed', count: 1 },
+      attention: {
+        owner: 'automation',
+        disposition: 'challenge-due',
+        first_seen_at: '2026-08-12T12:00:00Z',
+        challenge_due_at: '2026-08-12T12:05:00Z',
+        key: 'agent-run-failed|failure|auth|agent|1',
+      },
+    });
+    const github = buildGithubStub({
+      comments: [{ id: 90, body: existingState, html_url: 'https://example.com/90' }],
+      labels: ['agent:codex', 'agent:needs-attention'],
+    });
+
+    await updateKeepaliveLoopSummary({
+      github,
+      context: buildContext(654),
+      core: buildCore(),
+      inputs: {
+        prNumber: 654,
+        action: 'run',
+        runResult: 'success',
+        gateConclusion: 'success',
+        tasksTotal: 3,
+        tasksUnchecked: 2,
+        keepaliveEnabled: true,
+        autofixEnabled: false,
+        iteration: 2,
+        maxIterations: 5,
+        failureThreshold: 3,
+        trace: `trace-attention-auth-cleared-${forceRetry}`,
+        forceRetry,
+      },
+    });
+
+    assert.ok(github.actions.some((action) =>
+      action.type === 'remove-label' && action.name === 'agent:needs-attention'
+    ));
+    assert.equal(
+      github.actions.some((action) =>
+        action.type === 'label' && action.labels.includes('needs-human')
+      ),
+      false,
+    );
+    const updateAction = github.actions.find((action) => action.type === 'update');
+    const state = parseStateComment(updateAction.body).data;
+    assert.equal(state.attention, undefined);
+  }
+});
+
+test('a recovered authority challenge retains automation ownership until its soft label is removed', async () => {
+  const existingState = formatStateComment({
+    trace: 'trace-attention-cleanup-pending',
+    iteration: 2,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 1 },
+    attention: {
+      owner: 'automation',
+      disposition: 'challenge-due',
+      first_seen_at: '2026-08-12T12:00:00Z',
+      challenge_due_at: '2026-08-12T12:05:00Z',
+      key: 'agent-run-failed|failure|auth|agent|1',
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 90, body: existingState, html_url: 'https://example.com/90' }],
+    labels: ['agent:codex', 'agent:needs-attention'],
+    failNeedsAttentionRemoval: true,
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(654),
+    core: buildCore(),
+    inputs: {
+      prNumber: 654,
+      action: 'run',
+      runResult: 'success',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 2,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-cleanup-pending',
+      forceRetry: false,
+    },
+  });
+
+  assert.ok(github.actions.some((action) => action.type === 'remove-label-failed'));
+  const updateAction = github.actions.find((action) => action.type === 'update');
+  const state = parseStateComment(updateAction.body).data;
+  assert.equal(state.attention.owner, 'automation');
+  assert.equal(state.attention.disposition, 'challenge-due');
+  assert.equal(state.attention.cleanup_pending_label, true);
+  assert.match(state.attention.next_action, /Retry removal/);
 });
 
 test('updateKeepaliveLoopSummary routes resource failures to automation retry', async () => {
@@ -2309,6 +3504,7 @@ test('updateKeepaliveLoopSummary routes resource failures to automation retry', 
       maxIterations: 5,
       failureThreshold: 3,
       trace: 'trace-attention-resource',
+      retry_workflow_id: 'agents-81-gate-followups.yml',
       agent_exit_code: '1',
       agent_summary: 'Repository not found for this request.',
     },
@@ -2319,7 +3515,7 @@ test('updateKeepaliveLoopSummary routes resource failures to automation retry', 
   );
   assert.ok(retryLabel);
   const retryDispatch = github.actions.find((action) => action.type === 'workflow-dispatch');
-  assert.equal(retryDispatch.workflow_id, 'agents-keepalive-loop.yml');
+  assert.equal(retryDispatch.workflow_id, 'agents-81-gate-followups.yml');
   assert.deepEqual(retryDispatch.inputs, { pr_number: '655', force_retry: 'true' });
   assert.equal(
     github.actions.some((action) => action.type === 'label' && action.labels.includes('needs-human')),
