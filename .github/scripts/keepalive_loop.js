@@ -23,7 +23,7 @@ try {
 
 const ATTEMPT_HISTORY_LIMIT = 20;
 const ATTEMPTED_TASK_LIMIT = 20;
-const HUMAN_BLOCKER_LABELS = ['agent:needs-attention', 'needs-human'];
+const AUTOMATION_ATTENTION_LABELS = ['agent:needs-attention'];
 
 const TIMEOUT_VARIABLE_NAMES = [
   'WORKFLOW_TIMEOUT_DEFAULT',
@@ -66,7 +66,26 @@ function normalise(value) {
   return String(value ?? '').trim();
 }
 
-async function clearStaleHumanBlockerLabels({ github, owner, repo, prNumber, core }) {
+function selectEscalationDisposition({ required, errorCategory, summaryReason } = {}) {
+  if (!required) return 'none';
+  const reason = normalise(summaryReason).toLowerCase();
+  if (errorCategory === ERROR_CATEGORIES.auth && !reason.includes('rate-limit')) {
+    return 'challenge-due';
+  }
+  // Runner/CI/resource/logic/unknown failures and exhausted iteration budgets
+  // prove only that the current strategy stopped. They remain automation-owned.
+  return 'automation-retry';
+}
+
+async function clearStaleHumanBlockerLabels({
+  github,
+  owner,
+  repo,
+  prNumber,
+  core,
+  automationOwned = false,
+}) {
+  if (!automationOwned) return [];
   let currentLabels = [];
   try {
     const { data } = await github.rest.issues.listLabelsOnIssue({
@@ -83,7 +102,12 @@ async function clearStaleHumanBlockerLabels({ github, owner, repo, prNumber, cor
     return [];
   }
 
-  const staleLabels = HUMAN_BLOCKER_LABELS.filter((label) =>
+  // `needs-human` is a hard authority blocker. Keepalive never removes it:
+  // label provenance can change between evaluation and this live read, so an
+  // operator-confirmed blocker must be cleared only by the independent
+  // challenge controller. This cleanup is limited to keepalive's own soft
+  // attention label and requires persisted automation ownership.
+  const staleLabels = AUTOMATION_ATTENTION_LABELS.filter((label) =>
     currentLabels.includes(label.toLowerCase())
   );
   const removed = [];
@@ -3365,6 +3389,14 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
     const errorCategory = failureDetails.category;
     const errorType = failureDetails.type;
     const errorRecovery = failureDetails.recovery;
+    const escalationRequired =
+      ((action === 'run' || action === 'fix') && runResult && runResult !== 'success' && errorCategory !== ERROR_CATEGORIES.transient) ||
+      (action === 'stop' && !isSuccessStop && !isNeutralStop && errorCategory !== ERROR_CATEGORIES.transient);
+    const escalationDisposition = selectEscalationDisposition({
+      required: escalationRequired || stop,
+      errorCategory,
+      summaryReason,
+    });
     const tasksComplete = Math.max(0, tasksTotal - tasksUnchecked);
     const allTasksComplete = tasksUnchecked === 0 && tasksTotal > 0;
     const previousCompleteGateFailureRounds = toNumber(previousState?.complete_gate_failure_rounds, 0);
@@ -3813,17 +3845,24 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
         '_To resume immediately: Wait for rate limit reset, or add additional API tokens._',
       );
     } else if (stop) {
+      const challengeDue = escalationDisposition === 'challenge-due';
       summaryLines.push(
         '',
-        '### 🛑 Paused – Human Attention Required',
+        challengeDue
+          ? '### 🔎 Paused – Independent Authority Challenge Required'
+          : '### 🔁 Paused – Automation Recovery Required',
         '',
-        'The keepalive loop has paused due to repeated failures.',
+        challengeDue
+          ? 'The keepalive loop found a possible access boundary. Automation must verify it before asking a human.'
+          : 'The keepalive loop paused this execution strategy after repeated failures; ownership remains with automation.',
         '',
         '**To resume:**',
-        '1. Investigate the failure reason above',
-        '2. Fix any issues in the code or prompt',
-        '3. Remove the `needs-human` label from this PR',
-        '4. The next Gate pass will restart the loop',
+        challengeDue
+          ? '1. Reproduce the access failure from current state and verify the exact unavailable permission or secret'
+          : '1. Route the failure to CI repair, retry/backoff, alternate-agent, review fallback, or issue decomposition',
+        '2. Record a concrete next action and responsible automation worker',
+        '3. Use `needs-human` only after an independent review proves a real authority boundary',
+        '4. Re-run Gate or apply the automation retry path',
         '',
         '_Or manually edit this comment to reset `failure: {}` in the state below._',
       );
@@ -4029,9 +4068,7 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       core.setOutput('error_category', errorCategory || '');
     }
 
-    const shouldEscalate =
-      ((action === 'run' || action === 'fix') && runResult && runResult !== 'success' && errorCategory !== ERROR_CATEGORIES.transient) ||
-      (action === 'stop' && !isSuccessStop && !isNeutralStop && errorCategory !== ERROR_CATEGORIES.transient);
+    const shouldEscalate = escalationRequired || stop;
     const shouldClearStaleHumanBlockers =
       isSuccessStop ||
       (gateConclusion === 'success' &&
@@ -4041,6 +4078,26 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
 
     const attentionKey = [summaryReason, runResult, errorCategory, errorType, agentExitCode].filter(Boolean).join('|');
     const priorAttentionKey = normalise(previousAttention.key);
+    const previousAttentionAutomationOwned =
+      previousAttention.owner === 'automation' &&
+      ['automation-retry', 'challenge-due'].includes(previousAttention.disposition);
+    const challengeDueAt = escalationDisposition === 'challenge-due'
+      ? new Date().toISOString()
+      : null;
+    if (shouldEscalate) {
+      newState.attention = {
+        key: attentionKey,
+        disposition: escalationDisposition,
+        owner: 'automation',
+        first_seen_at: priorAttentionKey === attentionKey
+          ? previousAttention.first_seen_at || new Date().toISOString()
+          : new Date().toISOString(),
+        challenge_due_at: challengeDueAt,
+        next_action: escalationDisposition === 'challenge-due'
+          ? 'Independently verify the authority boundary, then route or record an exact human action.'
+          : 'Route to automation retry/backoff, CI repair, alternate agent, or review fallback.',
+      };
+    }
 
     // NOTE: Failure comment posting removed - handled by reusable-*-run.yml with proper deduplication
     // This prevents duplicate failure notifications on PRs
@@ -4100,32 +4157,52 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
           repo: context.repo.repo,
           prNumber,
           core,
+          automationOwned: previousAttentionAutomationOwned,
         });
       }
 
       if (shouldEscalate) {
+        const routingLabel = escalationDisposition === 'challenge-due'
+          ? 'agent:needs-attention'
+          : 'agent:retry';
         try {
+          // Remove automation-created legacy hard stops before writing the new
+          // recoverable disposition. A successful terminal also performs this cleanup.
+          await clearStaleHumanBlockerLabels({
+            github,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            prNumber,
+            core,
+            automationOwned: previousAttentionAutomationOwned,
+          });
           await github.rest.issues.addLabels({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: prNumber,
-            labels: ['agent:needs-attention'],
+            labels: [routingLabel],
           });
         } catch (error) {
-          if (core) core.warning(`Failed to add agent:needs-attention label: ${error.message}`);
+          if (core) core.warning(`Failed to add ${escalationDisposition} routing label: ${error.message}`);
         }
-      }
-
-      if (stop) {
-        try {
-          await github.rest.issues.addLabels({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: prNumber,
-            labels: ['needs-human'],
-          });
-        } catch (error) {
-          if (core) core.warning(`Failed to add needs-human label: ${error.message}`);
+        if (escalationDisposition === 'automation-retry' && !stop) {
+          try {
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'agents-keepalive-loop.yml',
+              ref:
+                context.payload?.repository?.default_branch ||
+                context.payload?.pull_request?.base?.ref ||
+                'main',
+              inputs: {
+                pr_number: String(prNumber),
+                force_retry: 'true',
+              },
+            });
+          } catch (error) {
+            core?.warning?.(`Failed to dispatch bounded automation retry: ${error.message}`);
+          }
         }
       }
 
@@ -4865,4 +4942,5 @@ module.exports = {
   validateScopeCompliance,
   buildMetricsRecord,
   parseCapabilityBundlesInput,
+  selectEscalationDisposition,
 };

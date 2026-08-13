@@ -14,6 +14,7 @@ const {
   markAgentRunning,
   analyzeTaskCompletion,
   autoReconcileTasks,
+  selectEscalationDisposition,
 } = require('../keepalive_loop.js');
 const { formatStateComment, parseStateComment } = require('../keepalive_state.js');
 
@@ -53,6 +54,10 @@ const buildGithubStub = ({
           const data = jobLogsByJobId[jobId] ?? '';
           const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
           return { data: buffer };
+        },
+        async createWorkflowDispatch(payload) {
+          actions.push({ type: 'workflow-dispatch', ...payload });
+          return { data: {} };
         },
       },
       checks: {
@@ -2018,7 +2023,7 @@ test('updateKeepaliveLoopSummary marks deferred rate limit cancellations as tran
   assert.match(updateAction.body, /"failure":\{\}/);
 });
 
-test('updateKeepaliveLoopSummary adds needs-human after repeated actual failures', async () => {
+test('updateKeepaliveLoopSummary routes repeated actual failures to automation retry', async () => {
   // Only actual failures (agent-run-failed) should count toward threshold
   const existingState = formatStateComment({
     trace: 'trace-fail',
@@ -2050,21 +2055,28 @@ test('updateKeepaliveLoopSummary adds needs-human after repeated actual failures
     },
   });
 
-  assert.equal(github.actions.length, 4);
   const updateAction = github.actions.find((action) => action.type === 'update');
   assert.ok(updateAction);
   assert.match(updateAction.body, /agent-run-failed-repeat/);
   assert.match(updateAction.body, /AGENT FAILED/);
+  assert.match(updateAction.body, /Automation Recovery Required/);
 
-  const needsAttentionLabel = github.actions.find((action) =>
-    action.type === 'label' && action.labels.includes('agent:needs-attention')
+  const retryLabel = github.actions.find((action) =>
+    action.type === 'label' && action.labels.includes('agent:retry')
   );
-  assert.ok(needsAttentionLabel);
+  assert.ok(retryLabel);
+  assert.equal(
+    github.actions.some((action) => action.type === 'workflow-dispatch'),
+    false,
+    'a stopped strategy must wait for the scheduled recovery sweep instead of self-recursing',
+  );
 
-  const needsHumanLabel = github.actions.find((action) =>
-    action.type === 'label' && action.labels.includes('needs-human')
+  const humanLabel = github.actions.find((action) =>
+    action.type === 'label' && (
+      action.labels.includes('agent:needs-attention') || action.labels.includes('needs-human')
+    )
   );
-  assert.ok(needsHumanLabel);
+  assert.equal(humanLabel, undefined);
 });
 
 test('updateKeepaliveLoopSummary applies automerge label on tasks-complete (#2270)', async () => {
@@ -2223,7 +2235,7 @@ test('updateKeepaliveLoopSummary does not treat skipped runs as agent failures',
   assert.match(updateAction.body, /"failure":\{\}/);
 });
 
-test('updateKeepaliveLoopSummary adds attention label for auth failures', async () => {
+test('updateKeepaliveLoopSummary sends auth failures to independent challenge', async () => {
   const existingState = formatStateComment({
     trace: 'trace-attention-auth',
     iteration: 1,
@@ -2260,9 +2272,16 @@ test('updateKeepaliveLoopSummary adds attention label for auth failures', async 
     action.type === 'label' && action.labels.includes('agent:needs-attention')
   );
   assert.ok(labelAction);
+  assert.equal(
+    github.actions.some((action) => action.type === 'label' && action.labels.includes('needs-human')),
+    false
+  );
+  const updateAction = github.actions.find((action) => action.type === 'update');
+  assert.match(updateAction.body, /"disposition":"challenge-due"/);
+  assert.match(updateAction.body, /"owner":"automation"/);
 });
 
-test('updateKeepaliveLoopSummary adds attention label for resource failures', async () => {
+test('updateKeepaliveLoopSummary routes resource failures to automation retry', async () => {
   const existingState = formatStateComment({
     trace: 'trace-attention-resource',
     iteration: 1,
@@ -2295,13 +2314,20 @@ test('updateKeepaliveLoopSummary adds attention label for resource failures', as
     },
   });
 
-  const attentionLabel = github.actions.find((action) =>
-    action.type === 'label' && action.labels.includes('agent:needs-attention')
+  const retryLabel = github.actions.find((action) =>
+    action.type === 'label' && action.labels.includes('agent:retry')
   );
-  assert.ok(attentionLabel);
+  assert.ok(retryLabel);
+  const retryDispatch = github.actions.find((action) => action.type === 'workflow-dispatch');
+  assert.equal(retryDispatch.workflow_id, 'agents-keepalive-loop.yml');
+  assert.deepEqual(retryDispatch.inputs, { pr_number: '655', force_retry: 'true' });
+  assert.equal(
+    github.actions.some((action) => action.type === 'label' && action.labels.includes('needs-human')),
+    false
+  );
 });
 
-test('updateKeepaliveLoopSummary adds attention label for logic failures', async () => {
+test('updateKeepaliveLoopSummary routes logic failures to automation retry', async () => {
   const existingState = formatStateComment({
     trace: 'trace-attention-logic',
     iteration: 1,
@@ -2334,10 +2360,37 @@ test('updateKeepaliveLoopSummary adds attention label for logic failures', async
     },
   });
 
-  const attentionLabel = github.actions.find((action) =>
-    action.type === 'label' && action.labels.includes('agent:needs-attention')
+  const retryLabel = github.actions.find((action) =>
+    action.type === 'label' && action.labels.includes('agent:retry')
   );
-  assert.ok(attentionLabel);
+  assert.ok(retryLabel);
+  assert.ok(github.actions.some((action) => action.type === 'workflow-dispatch'));
+  assert.equal(
+    github.actions.some((action) => action.type === 'label' && action.labels.includes('needs-human')),
+    false
+  );
+});
+
+test('selectEscalationDisposition never presumes a human authority boundary', () => {
+  assert.equal(selectEscalationDisposition({ required: false }), 'none');
+  assert.equal(
+    selectEscalationDisposition({
+      required: true,
+      errorCategory: 'auth',
+      summaryReason: 'agent-run-failed',
+    }),
+    'challenge-due'
+  );
+  for (const errorCategory of ['resource_failure', 'logic_failure', 'unknown_failure']) {
+    assert.equal(
+      selectEscalationDisposition({
+        required: true,
+        errorCategory,
+        summaryReason: 'agent-run-failed-repeat',
+      }),
+      'automation-retry'
+    );
+  }
 });
 
 test('updateKeepaliveLoopSummary formats codex failure details in summary', async () => {
@@ -2439,6 +2492,7 @@ test('updateKeepaliveLoopSummary clears stale human-blocker labels on tasks-comp
     iteration: 3,
     failure_threshold: 3,
     failure: { reason: 'agent-run-failed', count: 2 },
+    attention: { owner: 'automation', disposition: 'challenge-due' },
   });
   const github = buildGithubStub({
     comments: [{ id: 46, body: existingState, html_url: 'https://example.com/46' }],
@@ -2469,7 +2523,11 @@ test('updateKeepaliveLoopSummary clears stale human-blocker labels on tasks-comp
     .filter((action) => action.type === 'remove-label')
     .map((action) => action.name)
     .sort();
-  assert.deepEqual(removedLabels, ['agent:needs-attention', 'needs-human']);
+  assert.deepEqual(removedLabels, ['agent:needs-attention']);
+  assert.equal(
+    github.actions.some((action) => action.type === 'remove-label' && action.name === 'needs-human'),
+    false,
+  );
   assert.equal(
     github.actions.some((action) => action.type === 'label' && action.labels.includes('needs-human')),
     false,
