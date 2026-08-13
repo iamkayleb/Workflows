@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.22.0](https://github.com/stranske/Workflows/compare/v1.21.7...v1.22.0) (2026-08-13)
+
+
+### Features
+
+* record typed completion evidence for shadow sync ([#3056](https://github.com/stranske/Workflows/issues/3056)) ([508dedf](https://github.com/stranske/Workflows/commit/508dedfb5934519302a6320b06e1b0012d802ebc))
+
+
+### Bug Fixes
+
+* **gate:** fetch classifier base once ([3857adf](https://github.com/stranske/Workflows/commit/3857adfcfa8e92e7ca0787aec892764c555e7855))
+* **gate:** fetch classifier base once ([0962d16](https://github.com/stranske/Workflows/commit/0962d163178a27de745590286dfa22eec66796ca))
+* **issue-format:** accept tilde provenance fences ([#3064](https://github.com/stranske/Workflows/issues/3064)) ([a246288](https://github.com/stranske/Workflows/commit/a246288a51b66aa46c6f84f580cdf17bd0e54318))
+* **sync:** trust base seal contract and visible issue body ([#3061](https://github.com/stranske/Workflows/issues/3061)) ([f2e01a6](https://github.com/stranske/Workflows/commit/f2e01a63813e51bb19a60accdd19c38c58308e86))
+
 ## [1.21.7](https://github.com/stranske/Workflows/compare/v1.21.6...v1.21.7) (2026-08-13)
 
 
