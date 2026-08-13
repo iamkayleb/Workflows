@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.21.7](https://github.com/stranske/Workflows/compare/v1.21.6...v1.21.7) (2026-08-13)
+
+
+### Bug Fixes
+
+* **sync:** bind review window to head publication ([9ba09a8](https://github.com/stranske/Workflows/commit/9ba09a8e11251cb753566a9fcdac83b5e0ef456e))
+* **sync:** keep delivery holds out of autofix ([75d7a6d](https://github.com/stranske/Workflows/commit/75d7a6dc6009a12f1e3dc96532502a0989307ab6))
+* **sync:** keep delivery holds out of autofix ([a5450f8](https://github.com/stranske/Workflows/commit/a5450f80e2b9d137d7cefc7a94079df256a18aba))
+* **sync:** persist generated autofix hold ([66e9de1](https://github.com/stranske/Workflows/commit/66e9de1827630480fe56d4bb76e7a21ecedeada3))
+* **sync:** persist generated autofix hold ([2ca99cc](https://github.com/stranske/Workflows/commit/2ca99cc824ad48232ece2d3d13ac98e137d8afa5))
+
 ## [1.21.6](https://github.com/stranske/Workflows/compare/v1.21.5...v1.21.6) (2026-08-12)
 
 
