@@ -588,7 +588,11 @@ async function run({ github, context, core }) {
       {
         created_at: freshPr?.createdAt || pr.created_at,
         updated_at: freshPr?.updatedAt || pr.updated_at,
-        head: { pushed_at: pr?.head?.pushed_at },
+        head: {
+          sha: pr?.head?.sha,
+          observed_sha: pr?.head?.observed_sha,
+          observed_at: pr?.head?.observed_at,
+        },
       },
       new Date().toISOString(),
     );
@@ -923,9 +927,13 @@ async function run({ github, context, core }) {
           throw new Error('refreshed PR no longer matches the trusted delivery selection');
         }
         pr = fullPr;
-        pr.head.pushed_at = selectedHeadCommit?.committer?.date
-          || selectedHeadCommit?.author?.date
-          || '';
+        const observedHeadMatches = selection.deliveryRecord?.head_observed_sha === pr.head.sha;
+        pr.head.observed_sha = observedHeadMatches
+          ? selection.deliveryRecord.head_observed_sha
+          : '';
+        pr.head.observed_at = observedHeadMatches
+          ? selection.deliveryRecord.head_observed_at
+          : '';
       } catch (error) {
         const message = String(error?.message || error);
         console.log(`Unable to refresh generated PR #${pr.number}: ${message}`);

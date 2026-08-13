@@ -817,6 +817,8 @@ jobs:
           sealed_at=""
           sealed_head_sha=""
           review_evidence='{}'
+          head_observed_sha=""
+          head_observed_at=""
           if [ -n "$existing_pr" ]; then
             echo "Inspecting existing sync PR #$existing_pr for same-generation refresh"
             # Capture the remote head now so a later force push cannot overwrite
@@ -876,6 +878,8 @@ jobs:
                     sealed_at: record.sealed_at || "",
                     sealed_head_sha: record.sealed_head_sha || "",
                     review_evidence: record.review_evidence || {},
+                    head_observed_sha: record.head_observed_sha || "",
+                    head_observed_at: record.head_observed_at || "",
                   }));
                   process.exit(0);
                 }
@@ -896,6 +900,8 @@ jobs:
                   sealed_at: record.sealed_at || "",
                   sealed_head_sha: record.sealed_head_sha || "",
                   review_evidence: record.review_evidence || {},
+                  head_observed_sha: record.head_observed_sha || "",
+                  head_observed_at: record.head_observed_at || "",
                 }));
               '
             )
@@ -908,6 +914,8 @@ jobs:
             sealed_at=$(jq -r '.sealed_at // ""' <<<"$refresh_json")
             sealed_head_sha=$(jq -r '.sealed_head_sha // ""' <<<"$refresh_json")
             review_evidence=$(jq -c '.review_evidence // {}' <<<"$refresh_json")
+            head_observed_sha=$(jq -r '.head_observed_sha // ""' <<<"$refresh_json")
+            head_observed_at=$(jq -r '.head_observed_at // ""' <<<"$refresh_json")
             echo "Existing PR #$existing_pr refreshable=${existing_refreshable} reason=${existing_refresh_reason}"
           fi
 
@@ -973,6 +981,10 @@ jobs:
               review_evidence='{}'
               echo "Existing PR #$existing_pr already matches this base and desired tree; migrating its legacy metadata into the staged delivery lifecycle"
             fi
+            if [ "$head_observed_sha" != "$existing_head" ] || [ -z "$head_observed_at" ]; then
+              head_observed_sha="$existing_head"
+              head_observed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+            fi
           elif [ -n "$existing_pr" ] \
             && [ "$existing_refreshable" = "true" ] \
             && [ "$existing_base" = "$base_sha" ] \
@@ -1019,6 +1031,8 @@ jobs:
             sealed_at=""
             sealed_head_sha=""
             review_evidence='{}'
+            head_observed_sha=""
+            head_observed_at=""
             commit_message_file=$(mktemp)
             signed_result_file=$(mktemp)
             signed_temp_branch="${branch_name}-signed-build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -1096,6 +1110,8 @@ jobs:
               echo "::error::Published sync head is not verified (reason=$published_reason)"
               exit 1
             fi
+            head_observed_sha="$signed_commit_sha"
+            head_observed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 
             git push --quiet origin --delete "$signed_temp_branch" >/dev/null
             signed_temp_branch=""
@@ -1142,13 +1158,15 @@ jobs:
             --arg repository "$DELIVERY_REPOSITORY" \
             --arg desired_tree_hash "$desired_tree_hash" \
             --arg source_commit "$GITHUB_SHA" \
+            --arg head_observed_sha "$head_observed_sha" \
+            --arg head_observed_at "$head_observed_at" \
             --arg lease_expires_at "$lease_expires_at" \
             --arg delivery_state "$delivery_state" \
             --arg review_started_at "$review_started_at" \
             --arg sealed_at "$sealed_at" \
             --arg sealed_head_sha "$sealed_head_sha" \
             --argjson review_evidence "$review_evidence" \
-            '{schema:$schema,durable_issue_url:$durable_issue_url,plan_id:$plan_id,generation:$generation,repository:$repository,desired_tree_hash:$desired_tree_hash,source_commit:$source_commit,lease_expires_at:$lease_expires_at,predecessor_prs:[],successor_prs:[],delivery_state:$delivery_state,review_started_at:$review_started_at,sealed_at:$sealed_at,sealed_head_sha:$sealed_head_sha,review_evidence:$review_evidence}')
+            '{schema:$schema,durable_issue_url:$durable_issue_url,plan_id:$plan_id,generation:$generation,repository:$repository,desired_tree_hash:$desired_tree_hash,source_commit:$source_commit,head_observed_sha:$head_observed_sha,head_observed_at:$head_observed_at,lease_expires_at:$lease_expires_at,predecessor_prs:[],successor_prs:[],delivery_state:$delivery_state,review_started_at:$review_started_at,sealed_at:$sealed_at,sealed_head_sha:$sealed_head_sha,review_evidence:$review_evidence}')
           pr_body=$(cat ../sync_summary.md)
           pr_body="$pr_body
 

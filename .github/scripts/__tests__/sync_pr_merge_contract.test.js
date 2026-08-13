@@ -369,11 +369,26 @@ test('post-push review window fails closed until seven full minutes elapse', () 
   assert.equal(evaluatePostPushReviewWindow({}, '2026-08-11T13:09:00Z').ready, false);
 
   const exactHeadWithLaterReviewActivity = evaluatePostPushReviewWindow({
-    head: { pushed_at: '2026-08-11T12:00:00Z' },
+    head: {
+      sha: 'head-abc',
+      observed_sha: 'head-abc',
+      observed_at: '2026-08-11T12:00:00Z',
+    },
     updated_at: '2026-08-11T13:08:00Z',
   }, '2026-08-11T12:07:00Z');
   assert.equal(exactHeadWithLaterReviewActivity.ready, true);
   assert.equal(exactHeadWithLaterReviewActivity.anchor_at, '2026-08-11T12:00:00.000Z');
+
+  const mismatchedHeadObservation = evaluatePostPushReviewWindow({
+    head: {
+      sha: 'head-new',
+      observed_sha: 'head-old',
+      observed_at: '2026-08-11T12:00:00Z',
+    },
+    updated_at: '2026-08-11T13:08:00Z',
+  }, '2026-08-11T13:14:59Z');
+  assert.equal(mismatchedHeadObservation.ready, false);
+  assert.equal(mismatchedHeadObservation.anchor_at, '2026-08-11T13:08:00.000Z');
 });
 
 test('reviewer settlement never requires every configured reviewer', () => {

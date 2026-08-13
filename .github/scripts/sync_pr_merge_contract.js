@@ -134,12 +134,16 @@ function evaluatePostPushReviewWindow(
   now = new Date().toISOString(),
   windowMs = POST_PUSH_REVIEW_WINDOW_MS,
 ) {
-  const pushTimestamps = [
-    pr?.head?.pushed_at,
-    pr?.head?.pushedAt,
-    pr?.pushed_at,
-    pr?.pushedAt,
-  ]
+  const headSha = String(pr?.head?.sha || '').trim();
+  const observedHeadSha = String(
+    pr?.head?.observed_sha || pr?.head?.observedSha || '',
+  ).trim();
+  const observationMatchesHead = Boolean(headSha && observedHeadSha === headSha);
+  const pushTimestamps = (
+    observationMatchesHead
+      ? [pr?.head?.observed_at, pr?.head?.observedAt]
+      : []
+  )
     .map((value) => new Date(value || '').getTime())
     .filter(Number.isFinite);
   const fallbackTimestamps = [
@@ -151,11 +155,11 @@ function evaluatePostPushReviewWindow(
     .map((value) => new Date(value || '').getTime())
     .filter(Number.isFinite);
   const observedAt = new Date(now).getTime();
-  // A verified exact-head timestamp is the push-specific anchor. PR updated_at
-  // also changes for body edits, labels, comments, and thread resolution; using
-  // it after an exact-head timestamp is available would restart the post-push
-  // window without a push. Fall back to PR lifecycle timestamps only when the
-  // caller cannot supply head-specific evidence.
+  // A producer-recorded exact-head observation is the push-specific anchor. PR
+  // updated_at also changes for body edits, labels, comments, and thread
+  // resolution; using it after an exact-head observation is available would
+  // restart the post-push window without a push. A mismatched/missing head
+  // observation falls back conservatively to PR lifecycle timestamps.
   const timestamps = pushTimestamps.length > 0 ? pushTimestamps : fallbackTimestamps;
   if (timestamps.length === 0 || !Number.isFinite(observedAt)) {
     return {

@@ -348,8 +348,10 @@ shared defects return to Workflows source before the stable PR is refreshed.
 
 Maint 71 also enforces the seven-minute exact-head post-push window and performs a final
 head plus active-review-thread query immediately before each generated merge.
-When exact-head commit evidence is available, that timestamp anchors the window;
-PR body edits, labels, comments, and review-thread resolution do not restart it.
+Maint 68 records the exact head and its post-publication observation time in the
+delivery record. That SHA-bound observation anchors the window; PR body edits,
+labels, comments, and review-thread resolution do not restart it, while a
+mismatched or missing observation fails back to the conservative PR timestamp.
 Workflow-call, manual, and repository-dispatch candidate selectors normalize to
 the same gate. The executor requires same-job evidence/upload authorization, so
 scheduled or malformed paths cannot merge a candidate implicitly.
