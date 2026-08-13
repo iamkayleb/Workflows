@@ -58,6 +58,7 @@ const buildGithubStub = ({
   failNeedsAttentionLabel = false,
   failNeedsAttentionRemoval = false,
   failStateCommentWriteAt = 0,
+  failWorkflowDispatch = false,
 } = {}) => {
   const actions = [];
   let stateCommentWriteCount = 0;
@@ -85,6 +86,10 @@ const buildGithubStub = ({
           return { data: buffer };
         },
         async createWorkflowDispatch(payload) {
+          if (failWorkflowDispatch) {
+            actions.push({ type: 'workflow-dispatch-failed', ...payload });
+            throw new Error('simulated workflow dispatch failure');
+          }
           actions.push({ type: 'workflow-dispatch', ...payload });
           return { data: {} };
         },
@@ -373,6 +378,93 @@ test('evaluateKeepaliveLoop stops when round budget is exhausted', async () => {
   });
   assert.equal(result.action, 'stop');
   assert.equal(result.reason, 'round-budget-exhausted');
+});
+
+test('evaluateKeepaliveLoop grants a forced recovery lease across the round budget', async () => {
+  const pr = {
+    number: 406,
+    head: { ref: 'feature/forced-budget-recovery', sha: 'sha-forced-budget' },
+    labels: [{ name: 'agent:codex' }],
+    body: '## Tasks\n- [ ] one\n## Acceptance Criteria\n- [ ] a\n<!-- keepalive-config: {"iteration": 5, "max_iterations": 5} -->',
+  };
+  const github = buildGithubStub({
+    pr,
+    workflowRuns: [{ head_sha: 'sha-forced-budget', conclusion: 'success' }],
+  });
+
+  const result = await evaluateKeepaliveLoop({
+    github,
+    context: buildContext(pr.number),
+    core: buildCore(),
+    forceRetry: true,
+  });
+
+  assert.equal(result.action, 'run');
+  assert.equal(result.reason, 'ready');
+  assert.equal(result.forceRetry, true);
+});
+
+test('evaluateKeepaliveLoop grants a forced recovery lease after verification exhaustion', async () => {
+  const pr = {
+    number: 408,
+    head: { ref: 'feature/forced-verification-recovery', sha: 'sha-forced-verification' },
+    labels: [{ name: 'agent:codex' }],
+    body: prBodyFixture.replace(/- \[ \]/g, '- [x]'),
+  };
+  const existingState = formatStateComment({
+    trace: 'fixture-trace',
+    verification: { status: 'failed', iteration: 2, attempt_count: 2 },
+  });
+  const github = buildGithubStub({
+    pr,
+    comments: [{ id: 24, body: existingState, html_url: 'https://example.com/24' }],
+    workflowRuns: [{ head_sha: 'sha-forced-verification', conclusion: 'success' }],
+  });
+
+  const result = await evaluateKeepaliveLoop({
+    github,
+    context: buildContext(pr.number),
+    core: buildCore(),
+    forceRetry: true,
+  });
+
+  assert.equal(result.action, 'run');
+  assert.equal(result.reason, 'fix-verification-gaps');
+});
+
+test('evaluateKeepaliveLoop uses a forced lease to repair an exhausted complete Gate', async () => {
+  const pr = {
+    number: 409,
+    head: { ref: 'feature/forced-complete-gate-recovery', sha: 'sha-forced-complete-gate' },
+    labels: [{ name: 'agent:codex' }],
+    body: prBodyFixture.replace(/- \[ \]/g, '- [x]'),
+  };
+  const existingState = formatStateComment({
+    trace: 'fixture-trace',
+    iteration: 4,
+    max_iterations: 12,
+    consecutive_fix_rounds: 2,
+    complete_gate_failure_rounds: 3,
+    complete_gate_failure_rounds_max: 3,
+  });
+  const github = buildGithubStub({
+    pr,
+    comments: [{ id: 25, body: existingState, html_url: 'https://example.com/25' }],
+    workflowRuns: [{ id: 1004, head_sha: 'sha-forced-complete-gate', conclusion: 'failure' }],
+  });
+  github.rest.actions.listJobsForWorkflowRun = async () => ({
+    data: { jobs: [{ name: 'lint (ruff)', status: 'completed', conclusion: 'failure' }] },
+  });
+
+  const result = await evaluateKeepaliveLoop({
+    github,
+    context: buildContext(pr.number),
+    core: buildCore(),
+    forceRetry: true,
+  });
+
+  assert.equal(result.action, 'fix');
+  assert.equal(result.reason, 'force-retry-fix-lint');
 });
 
 test('evaluateKeepaliveLoop stops at max iterations even when productive with tasks remaining', async () => {
@@ -2116,12 +2208,10 @@ test('updateKeepaliveLoopSummary routes repeated actual failures to automation r
   const retryLabel = github.actions.find((action) =>
     action.type === 'label' && action.labels.includes('agent:retry')
   );
-  assert.ok(retryLabel);
-  assert.equal(
-    github.actions.some((action) => action.type === 'workflow-dispatch'),
-    false,
-    'a stopped strategy must wait for the scheduled recovery sweep instead of self-recursing',
-  );
+  assert.equal(retryLabel, undefined);
+  const retryDispatch = github.actions.find((action) => action.type === 'workflow-dispatch');
+  assert.ok(retryDispatch, 'a newly stopped strategy must receive one immediate recovery lease');
+  assert.deepEqual(retryDispatch.inputs, { pr_number: '457', force_retry: 'true' });
 
   const humanLabel = github.actions.find((action) =>
     action.type === 'label' && (
@@ -3513,7 +3603,7 @@ test('updateKeepaliveLoopSummary routes resource failures to automation retry', 
   const retryLabel = github.actions.find((action) =>
     action.type === 'label' && action.labels.includes('agent:retry')
   );
-  assert.ok(retryLabel);
+  assert.equal(retryLabel, undefined);
   const retryDispatch = github.actions.find((action) => action.type === 'workflow-dispatch');
   assert.equal(retryDispatch.workflow_id, 'agents-81-gate-followups.yml');
   assert.deepEqual(retryDispatch.inputs, { pr_number: '655', force_retry: 'true' });
@@ -3521,6 +3611,435 @@ test('updateKeepaliveLoopSummary routes resource failures to automation retry', 
     github.actions.some((action) => action.type === 'label' && action.labels.includes('needs-human')),
     false
   );
+});
+
+test('automation-owned terminal stops dispatch exactly one forced recovery lease', async () => {
+  for (const reason of [
+    'round-budget-exhausted',
+    'verification-exhausted',
+    'zero-activity-infrastructure',
+  ]) {
+    for (const forceRetry of [false, true]) {
+      const existingState = formatStateComment({
+        trace: `trace-terminal-${reason}-${forceRetry}`,
+        iteration: 5,
+        max_iterations: 5,
+        failure_threshold: 3,
+        failure: {},
+      });
+      const github = buildGithubStub({
+        comments: [{ id: 104, body: existingState, html_url: 'https://example.com/104' }],
+      });
+
+      await updateKeepaliveLoopSummary({
+        github,
+        context: buildContext(659),
+        core: buildCore(),
+        inputs: {
+          prNumber: 659,
+          action: 'stop',
+          reason,
+          gateConclusion: 'success',
+          tasksTotal: 3,
+          tasksUnchecked: reason === 'verification-exhausted' ? 0 : 2,
+          keepaliveEnabled: true,
+          autofixEnabled: false,
+          iteration: 5,
+          maxIterations: 5,
+          failureThreshold: 3,
+          trace: `trace-terminal-${reason}-${forceRetry}`,
+          forceRetry,
+          retry_workflow_id: 'agents-81-gate-followups.yml',
+        },
+      });
+
+      const dispatches = github.actions.filter((action) => action.type === 'workflow-dispatch');
+      assert.equal(dispatches.length, forceRetry ? 0 : 1, `${reason} forceRetry=${forceRetry}`);
+      if (!forceRetry) {
+        assert.deepEqual(dispatches[0].inputs, { pr_number: '659', force_retry: 'true' });
+      }
+    }
+  }
+});
+
+test('a consumed forced recovery lease survives later ordinary wakeups', async () => {
+  const initialState = formatStateComment({
+    trace: 'trace-durable-recovery-lease',
+    iteration: 5,
+    max_iterations: 5,
+    failure_threshold: 3,
+    failure: {},
+    tasks: { total: 3, unchecked: 2 },
+  });
+  const first = buildGithubStub({
+    comments: [{ id: 106, body: initialState, html_url: 'https://example.com/106' }],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github: first,
+    context: buildContext(661),
+    core: buildCore(),
+    inputs: {
+      prNumber: 661,
+      action: 'stop',
+      reason: 'round-budget-exhausted',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 5,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-durable-recovery-lease',
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  const issuedUpdate = first.actions.find((action) => action.type === 'update');
+  const issuedState = parseStateComment(issuedUpdate.body).data;
+  assert.equal(issuedState.recovery_lease.status, 'issued');
+  assert.equal(issuedState.recovery_lease.reason, 'round-budget-exhausted');
+  assert.equal(
+    first.actions.filter((action) => action.type === 'workflow-dispatch').length,
+    1,
+  );
+
+  const forced = buildGithubStub({
+    comments: [{ id: 106, body: issuedUpdate.body, html_url: 'https://example.com/106' }],
+  });
+  await updateKeepaliveLoopSummary({
+    github: forced,
+    context: buildContext(661),
+    core: buildCore(),
+    inputs: {
+      prNumber: 661,
+      action: 'run',
+      reason: 'ready',
+      runResult: 'success',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 5,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-durable-recovery-lease',
+      forceRetry: true,
+      agent_files_changed: 1,
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  const consumedUpdate = forced.actions.find((action) => action.type === 'update');
+  const consumedState = parseStateComment(consumedUpdate.body).data;
+  assert.equal(consumedState.recovery_lease.status, 'consumed');
+  assert.ok(forced.actions.some((action) =>
+    action.type === 'remove-label' && action.name === 'agent:retry'
+  ));
+  assert.equal(
+    forced.actions.filter((action) => action.type === 'workflow-dispatch').length,
+    0,
+  );
+
+  const laterWakeup = buildGithubStub({
+    comments: [{ id: 106, body: consumedUpdate.body, html_url: 'https://example.com/106' }],
+  });
+  await updateKeepaliveLoopSummary({
+    github: laterWakeup,
+    context: buildContext(661),
+    core: buildCore(),
+    inputs: {
+      prNumber: 661,
+      action: 'stop',
+      reason: 'round-budget-exhausted',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 6,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-durable-recovery-lease',
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  const laterUpdate = laterWakeup.actions.find((action) => action.type === 'update');
+  assert.equal(parseStateComment(laterUpdate.body).data.recovery_lease.status, 'consumed');
+  assert.equal(
+    laterWakeup.actions.filter((action) => action.type === 'workflow-dispatch').length,
+    0,
+  );
+
+  const raisedBudget = buildGithubStub({
+    comments: [{ id: 106, body: laterUpdate.body, html_url: 'https://example.com/106' }],
+  });
+  await updateKeepaliveLoopSummary({
+    github: raisedBudget,
+    context: buildContext(661),
+    core: buildCore(),
+    inputs: {
+      prNumber: 661,
+      action: 'stop',
+      reason: 'round-budget-exhausted',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 6,
+      maxIterations: 6,
+      failureThreshold: 3,
+      trace: 'trace-durable-recovery-lease',
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  const raisedUpdate = raisedBudget.actions.find((action) => action.type === 'update');
+  const raisedState = parseStateComment(raisedUpdate.body).data;
+  assert.equal(raisedState.recovery_lease.status, 'issued');
+  assert.equal(raisedState.recovery_lease.max_iterations, 6);
+  assert.equal(
+    raisedBudget.actions.filter((action) => action.type === 'workflow-dispatch').length,
+    1,
+  );
+});
+
+test('an operator guard defers rather than consumes a forced recovery lease', async () => {
+  const issuedState = formatStateComment({
+    trace: 'trace-deferred-recovery-lease',
+    iteration: 5,
+    max_iterations: 5,
+    failure_threshold: 3,
+    failure: {},
+    tasks: { total: 3, unchecked: 2 },
+    recovery_lease: {
+      key: 'round-budget-exhausted:max-iterations=5',
+      reason: 'round-budget-exhausted',
+      status: 'issued',
+      issued_at: '2026-08-13T13:00:00Z',
+      last_dispatched_at: '2026-08-13T13:00:00Z',
+      dispatch_attempt: 1,
+      iteration: 5,
+      max_iterations: 5,
+    },
+  });
+  const guarded = buildGithubStub({
+    comments: [{ id: 107, body: issuedState, html_url: 'https://example.com/107' }],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github: guarded,
+    context: buildContext(662),
+    core: buildCore(),
+    inputs: {
+      prNumber: 662,
+      action: 'skip',
+      reason: 'paused',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 5,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-deferred-recovery-lease',
+      forceRetry: true,
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  const deferredUpdate = guarded.actions.find((action) => action.type === 'update');
+  const deferredState = parseStateComment(deferredUpdate.body).data;
+  assert.equal(deferredState.recovery_lease.status, 'deferred');
+  assert.equal(deferredState.recovery_lease.deferred_reason, 'paused');
+  assert.equal(
+    guarded.actions.filter((action) => action.type === 'workflow-dispatch').length,
+    0,
+  );
+
+  const resumed = buildGithubStub({
+    comments: [{ id: 107, body: deferredUpdate.body, html_url: 'https://example.com/107' }],
+  });
+  await updateKeepaliveLoopSummary({
+    github: resumed,
+    context: buildContext(662),
+    core: buildCore(),
+    inputs: {
+      prNumber: 662,
+      action: 'stop',
+      reason: 'round-budget-exhausted',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 5,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-deferred-recovery-lease',
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  const resumedUpdate = resumed.actions.find((action) => action.type === 'update');
+  const resumedState = parseStateComment(resumedUpdate.body).data;
+  assert.equal(resumedState.recovery_lease.status, 'issued');
+  assert.equal(resumedState.recovery_lease.dispatch_attempt, 2);
+  assert.equal(
+    resumed.actions.filter((action) => action.type === 'workflow-dispatch').length,
+    1,
+  );
+
+  const skippedRunner = buildGithubStub({
+    comments: [{ id: 107, body: resumedUpdate.body, html_url: 'https://example.com/107' }],
+  });
+  await updateKeepaliveLoopSummary({
+    github: skippedRunner,
+    context: buildContext(662),
+    core: buildCore(),
+    inputs: {
+      prNumber: 662,
+      action: 'run',
+      reason: 'ready',
+      runResult: 'skipped',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 5,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-deferred-recovery-lease',
+      forceRetry: true,
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  const skippedUpdate = skippedRunner.actions.find((action) => action.type === 'update');
+  const skippedState = parseStateComment(skippedUpdate.body).data;
+  assert.equal(skippedState.recovery_lease.status, 'deferred');
+  assert.equal(skippedState.recovery_lease.deferred_reason, 'agent-run-skipped');
+
+  const preflightFailure = buildGithubStub({
+    comments: [{ id: 107, body: resumedUpdate.body, html_url: 'https://example.com/107' }],
+  });
+  await updateKeepaliveLoopSummary({
+    github: preflightFailure,
+    context: buildContext(662),
+    core: buildCore(),
+    inputs: {
+      prNumber: 662,
+      action: 'run',
+      reason: 'ready',
+      runResult: 'failure',
+      agent_execution_started: false,
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 5,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-deferred-recovery-lease',
+      forceRetry: true,
+      agent_summary: 'Missing Codex auth: set CODEX_AUTH_JSON',
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  const preflightUpdate = preflightFailure.actions.find(
+    (action) => action.type === 'update' && parseStateComment(action.body)?.data?.recovery_lease,
+  );
+  const preflightState = parseStateComment(preflightUpdate.body).data;
+  assert.equal(preflightState.recovery_lease.status, 'deferred');
+  assert.equal(preflightState.recovery_lease.deferred_reason, 'agent-run-failed');
+});
+
+test('a failed bounded dispatch defers without adding a sticky retry label', async () => {
+  const existingState = formatStateComment({
+    trace: 'trace-dispatch-fallback',
+    iteration: 5,
+    max_iterations: 5,
+    failure_threshold: 3,
+    failure: {},
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 105, body: existingState, html_url: 'https://example.com/105' }],
+    failWorkflowDispatch: true,
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(660),
+    core: buildCore(),
+    inputs: {
+      prNumber: 660,
+      action: 'stop',
+      reason: 'round-budget-exhausted',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 5,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-dispatch-fallback',
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+
+  assert.ok(github.actions.some((action) => action.type === 'workflow-dispatch-failed'));
+  assert.ok(!github.actions.some((action) =>
+    action.type === 'label' && action.labels.includes('agent:retry')
+  ));
+  const stateUpdates = github.actions.filter((action) => action.type === 'update');
+  const deferredState = parseStateComment(stateUpdates.at(-1).body).data;
+  assert.equal(deferredState.recovery_lease.status, 'deferred');
+  assert.equal(deferredState.recovery_lease.deferred_reason, 'workflow-dispatch-failed');
+
+  const sweepRetry = buildGithubStub({
+    comments: [{ id: 105, body: stateUpdates.at(-1).body, html_url: 'https://example.com/105' }],
+  });
+  await updateKeepaliveLoopSummary({
+    github: sweepRetry,
+    context: buildContext(660),
+    core: buildCore(),
+    inputs: {
+      prNumber: 660,
+      action: 'stop',
+      reason: 'round-budget-exhausted',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 2,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 5,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-dispatch-fallback',
+      retry_workflow_id: 'agents-81-gate-followups.yml',
+    },
+  });
+  assert.equal(
+    sweepRetry.actions.filter((action) => action.type === 'workflow-dispatch').length,
+    1,
+  );
+  assert.ok(!sweepRetry.actions.some((action) =>
+    action.type === 'label' && action.labels.includes('agent:retry')
+  ));
+  const sweepState = parseStateComment(
+    sweepRetry.actions.find((action) => action.type === 'update').body,
+  ).data;
+  assert.equal(sweepState.recovery_lease.status, 'issued');
+  assert.equal(sweepState.recovery_lease.dispatch_attempt, 2);
 });
 
 test('updateKeepaliveLoopSummary routes logic failures to automation retry', async () => {
@@ -3559,7 +4078,7 @@ test('updateKeepaliveLoopSummary routes logic failures to automation retry', asy
   const retryLabel = github.actions.find((action) =>
     action.type === 'label' && action.labels.includes('agent:retry')
   );
-  assert.ok(retryLabel);
+  assert.equal(retryLabel, undefined);
   assert.ok(github.actions.some((action) => action.type === 'workflow-dispatch'));
   assert.equal(
     github.actions.some((action) => action.type === 'label' && action.labels.includes('needs-human')),
@@ -3728,6 +4247,53 @@ test('updateKeepaliveLoopSummary clears stale human-blocker labels on tasks-comp
     github.actions.some((action) => action.type === 'label' && action.labels.includes('needs-human')),
     false,
   );
+});
+
+test('a successful terminal migrates and clears legacy automation attention state', async () => {
+  const existingState = formatStateComment({
+    trace: 'trace-legacy-attention',
+    iteration: 3,
+    failure_threshold: 3,
+    failure: { reason: 'agent-run-failed', count: 2 },
+    attention: {
+      key: 'legacy-agent-run-failed',
+      first_seen_at: '2026-07-01T12:00:00Z',
+    },
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 47, body: existingState, html_url: 'https://example.com/47' }],
+    labels: ['agent:needs-attention', 'needs-human'],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(459),
+    core: buildCore(),
+    inputs: {
+      prNumber: 459,
+      action: 'stop',
+      reason: 'tasks-complete',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 0,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 3,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-legacy-attention',
+    },
+  });
+
+  assert.ok(github.actions.some((action) =>
+    action.type === 'remove-label' && action.name === 'agent:needs-attention'
+  ));
+  assert.equal(
+    github.actions.some((action) => action.type === 'remove-label' && action.name === 'needs-human'),
+    false,
+  );
+  const updateAction = github.actions.find((action) => action.type === 'update');
+  assert.equal(parseStateComment(updateAction.body).data.attention, undefined);
 });
 
 test('evaluateKeepaliveLoop extracts agent type from agent:* labels', async () => {

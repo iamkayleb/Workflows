@@ -6,7 +6,11 @@ const crypto = require('crypto');
 
 const { parseScopeTasksAcceptanceSections } = require('./issue_scope_parser');
 const { getGithubApiCache } = require('./github-api-cache-client');
-const { loadKeepaliveState, formatStateComment } = require('./keepalive_state');
+const {
+  loadKeepaliveState,
+  formatStateComment,
+  upsertStateCommentBody,
+} = require('./keepalive_state');
 const { resolvePromptMode } = require('./keepalive_prompt_routing');
 const { classifyError, ERROR_CATEGORIES } = require('./error_classifier');
 const { formatFailureComment } = require('./failure_comment_formatter');
@@ -2792,11 +2796,14 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
     // An iteration is productive if it has a reasonable productivity score
     const isProductive = productivityScore >= 20 && !hasRecentFailures;
 
-    // max_iterations is a hard per-PR budget. Once reached, stop dispatching
-    // and require a human to raise the budget or remove the blocker.
+    // max_iterations is the ordinary per-PR budget. Once reached, stop the
+    // current strategy; a single forced recovery lease may cross it once.
     const hasMaxIterations = maxIterations > 0;
     const reachedMaxIterations = hasMaxIterations && iteration >= maxIterations;
-    const shouldStopForMaxIterations = reachedMaxIterations;
+    // A force retry is a single, explicit recovery lease. It may cross the
+    // persisted round budget once; the summary step prevents a forced run from
+    // recursively dispatching another forced run.
+    const shouldStopForMaxIterations = reachedMaxIterations && !forceRetry;
 
     // Build task appendix for the agent prompt (after state load for reconciliation info)
     const taskAppendix = buildTaskAppendix(normalisedSections, checkboxCounts, state, { prBody: pr.body });
@@ -2825,7 +2832,7 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
     // This prevents premature stop when the verifier identifies unmet criteria.
     const needsVerification = allComplete && !verificationDone && !verificationAttempted;
     const needsVerificationRetry = allComplete && verificationFailed
-      && verificationAttemptCount < maxVerificationAttempts;
+      && (verificationAttemptCount < maxVerificationAttempts || forceRetry);
 
     // Only treat GitHub API conflicts as definitive (mergeable_state === 'dirty')
     // CI-log based conflict detection has too many false positives from commit messages
@@ -2897,7 +2904,14 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
         // This ensures at least one fix attempt is made before giving up, and
         // that transient cancelled rounds don't consume the fix budget.
         const gateFailure = await classifyGateFailure({ github, context, pr, core });
-        if (gateFailure.shouldFixMode && consecutiveFixRounds < fixAttemptMax) {
+        if (forceRetry) {
+          // A terminal recovery lease must perform recovery work, even after
+          // the ordinary complete-Gate/fix budgets are exhausted. The summary
+          // consumes the lease after this single non-recursive fix attempt.
+          action = 'fix';
+          reason = `force-retry-fix-${gateFailure.failureType || 'complete-gate'}`;
+          if (core) core.info(`Forced recovery: retrying complete Gate failure (${gateFailure.failureType || 'unknown'}).`);
+        } else if (gateFailure.shouldFixMode && consecutiveFixRounds < fixAttemptMax) {
           // Fix is possible and we haven't exhausted fix attempts — try to fix
           action = 'fix';
           reason = `fix-${gateFailure.failureType}`;
@@ -3174,6 +3188,12 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       inputs.roundsWithoutTaskCompletion ?? inputs.rounds_without_task_completion;
     const agentType = normalise(inputs.agent_type ?? inputs.agentType) || _defaultAgent;
     const runResult = normalise(inputs.runResult || inputs.run_result);
+    const agentExecutionStartedInput =
+      inputs.agent_execution_started ?? inputs.agentExecutionStarted;
+    const agentExecutionStarted =
+      agentExecutionStartedInput === undefined || agentExecutionStartedInput === ''
+        ? null
+        : toBool(agentExecutionStartedInput, false);
     const stateTrace = normalise(inputs.trace || inputs.keepalive_trace || '');
 
     // Delegation policy inputs (from evaluate step when agent:auto is active)
@@ -3234,6 +3254,10 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
     );
     // Resolve force_retry early — needed by the live-recount and zero-activity blocks.
     const isForceRetry = toBool(inputs.force_retry ?? inputs.forceRetry, false);
+    const previousRecoveryLease =
+      previousState?.recovery_lease && typeof previousState.recovery_lease === 'object'
+        ? { ...previousState.recovery_lease }
+        : {};
 
     let roundsWithoutTaskCompletion = hasRoundsWithoutTaskCompletionInput
       ? toNumber(roundsWithoutTaskCompletionInput, 0)
@@ -3557,6 +3581,21 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       summaryReason,
       authorityChallengeConfirmed,
     });
+    const recoveryLeaseReason = stop
+      ? normalise(summaryReason).replace(/-repeat$/, '')
+      : '';
+    const recoveryLeaseKey = recoveryLeaseReason
+      ? `${recoveryLeaseReason}:max-iterations=${maxIterations}`
+      : '';
+    const recoveryLeaseMatches =
+      Boolean(recoveryLeaseKey) && normalise(previousRecoveryLease.key) === recoveryLeaseKey;
+    const recoveryLeaseAlreadyIssued =
+      recoveryLeaseMatches && ['issued', 'consumed'].includes(previousRecoveryLease.status);
+    const shouldIssueTerminalRecoveryLease =
+      stop &&
+      escalationDisposition === 'automation-retry' &&
+      !isForceRetry &&
+      !recoveryLeaseAlreadyIssued;
     let hardHumanLabelApplied = false;
     const tasksComplete = Math.max(0, tasksTotal - tasksUnchecked);
     const allTasksComplete = tasksUnchecked === 0 && tasksTotal > 0;
@@ -4134,6 +4173,64 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       },
     };
 
+    const ordinaryProgressAfterRecovery =
+      !isForceRetry &&
+      actionRunsAgent &&
+      runResult === 'success' &&
+      (agentFilesChanged > 0 || tasksCompletedThisRound > 0 || checklistChanged);
+    const forcedLeaseExecutedAgent =
+      actionRunsAgent &&
+      (agentExecutionStarted === null ? true : agentExecutionStarted) &&
+      Boolean(runResult) &&
+      !['skipped', 'cancelled'].includes(runResult);
+    const recoveryLeaseBudgetChanged =
+      Object.keys(previousRecoveryLease).length > 0 &&
+      toNumber(previousRecoveryLease.max_iterations, maxIterations) !== maxIterations;
+    if (
+      isForceRetry &&
+      previousRecoveryLease.status === 'issued' &&
+      !isSuccessStop &&
+      !isNeutralStop
+    ) {
+      const forcedLeaseStatus = forcedLeaseExecutedAgent ? 'consumed' : 'deferred';
+      newState.recovery_lease = {
+        ...previousRecoveryLease,
+        status: forcedLeaseStatus,
+        ...(forcedLeaseExecutedAgent
+          ? { consumed_at: new Date().toISOString() }
+          : {
+              deferred_at: new Date().toISOString(),
+              deferred_reason: summaryReason,
+            }),
+      };
+    } else if (shouldIssueTerminalRecoveryLease) {
+      const retryingDeferredLease =
+        recoveryLeaseMatches && previousRecoveryLease.status === 'deferred';
+      const dispatchedAt = new Date().toISOString();
+      newState.recovery_lease = {
+        key: recoveryLeaseKey,
+        reason: recoveryLeaseReason,
+        status: 'issued',
+        issued_at: retryingDeferredLease
+          ? previousRecoveryLease.issued_at || dispatchedAt
+          : dispatchedAt,
+        last_dispatched_at: dispatchedAt,
+        dispatch_attempt: retryingDeferredLease
+          ? toNumber(previousRecoveryLease.dispatch_attempt, 1) + 1
+          : 1,
+        iteration: nextIteration,
+        max_iterations: maxIterations,
+      };
+    } else if (
+      Object.keys(previousRecoveryLease).length > 0 &&
+      !recoveryLeaseBudgetChanged &&
+      !ordinaryProgressAfterRecovery &&
+      !isSuccessStop &&
+      !isNeutralStop
+    ) {
+      newState.recovery_lease = previousRecoveryLease;
+    }
+
     // Persist agent delegation state when in auto mode
     if (agentRoutingMode === 'auto' || previousState?.current_agent) {
       const previousDelegationLog = Array.isArray(previousState?.delegation_log)
@@ -4244,9 +4341,14 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       authorityEvidence.fingerprint,
     ].filter(Boolean).join('|');
     const priorAttentionKey = normalise(previousAttention.key);
+    const previousAttentionHasLegacyOwnership =
+      Object.keys(previousAttention).length > 0 &&
+      !normalise(previousAttention.owner) &&
+      !normalise(previousAttention.disposition);
     const previousAttentionAutomationOwned =
-      previousAttention.owner === 'automation' &&
-      ['automation-retry', 'challenge-due'].includes(previousAttention.disposition);
+      (previousAttention.owner === 'automation' &&
+        ['automation-retry', 'challenge-due'].includes(previousAttention.disposition)) ||
+      previousAttentionHasLegacyOwnership;
     const challengeDueAt = escalationDisposition === 'challenge-due'
       ? new Date().toISOString()
       : null;
@@ -4321,7 +4423,9 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
           core,
           automationOwned: previousAttentionAutomationOwned,
         });
-        if (previousAuthorityChallenge && runResult === 'success') {
+        if (previousAttentionAutomationOwned && cleanup.complete) {
+          delete newState.attention;
+        } else if (previousAuthorityChallenge && runResult === 'success') {
           if (cleanup.complete) {
             delete newState.attention;
           } else {
@@ -4389,6 +4493,24 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
       const body = summaryLines.join('\n');
       await persistSummary(body);
 
+      if (isForceRetry && forcedLeaseExecutedAgent) {
+        try {
+          await github.rest.issues.removeLabel({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+            name: 'agent:retry',
+          });
+        } catch (error) {
+          if (
+            error?.status !== 404 &&
+            !String(error?.message || '').includes('Label does not exist')
+          ) {
+            core?.warning?.(`Failed to consume agent:retry label: ${error.message}`);
+          }
+        }
+      }
+
       // Append to the work log comment (best-effort; failures don't block the loop)
       try {
         const logEntry = formatWorkLogEntry({
@@ -4423,13 +4545,13 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
           : escalationDisposition === 'challenge-due'
             ? 'agent:needs-attention'
             : 'agent:retry';
+        const addRoutingLabel = () => github.rest.issues.addLabels({
+          owner: context.repo.owner,
+          repo: context.repo.repo,
+          issue_number: prNumber,
+          labels: [routingLabel],
+        });
         try {
-          const addRoutingLabel = () => github.rest.issues.addLabels({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: prNumber,
-            labels: [routingLabel],
-          });
           const clearAutomationAttention = () => clearStaleHumanBlockerLabels({
             github,
             owner: context.repo.owner,
@@ -4447,15 +4569,23 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
             // only sweep-routing signal while renewing or replacing a challenge.
             await addRoutingLabel();
           } else {
-            // Remove automation-created legacy hard stops before writing the new
-            // recoverable disposition. A successful terminal also performs this cleanup.
+            // The direct workflow dispatch below owns the retry lease. Do not
+            // add agent:retry: its labeled event could race a successful
+            // dispatch, while GITHUB_TOKEN cannot wake a failed one. A failure
+            // defers the durable lease for a later direct retry instead.
             await clearAutomationAttention();
-            await addRoutingLabel();
           }
         } catch (error) {
           if (core) core.warning(`Failed to add ${escalationDisposition} routing label: ${error.message}`);
         }
-        if (escalationDisposition === 'automation-retry' && !stop) {
+        // Every automation-owned terminal gets one immediate recovery lease.
+        // Persist the issued/consumed lease across events so later ordinary
+        // sweeps cannot mint another lease for the same terminal boundary.
+        if (
+          escalationDisposition === 'automation-retry' &&
+          !isForceRetry &&
+          (!stop || shouldIssueTerminalRecoveryLease)
+        ) {
           try {
             const retryWorkflowId = normalise(
               inputs.retry_workflow_id ?? inputs.retryWorkflowId,
@@ -4475,6 +4605,23 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
             });
           } catch (error) {
             core?.warning?.(`Failed to dispatch bounded automation retry: ${error.message}`);
+            if (newState.recovery_lease?.status === 'issued') {
+              newState.recovery_lease = {
+                ...newState.recovery_lease,
+                status: 'deferred',
+                deferred_at: new Date().toISOString(),
+                deferred_reason: 'workflow-dispatch-failed',
+              };
+              try {
+                await persistSummary(
+                  upsertStateCommentBody(body, formatStateComment(newState)),
+                );
+              } catch (stateError) {
+                core?.warning?.(
+                  `Failed to persist deferred recovery lease: ${stateError.message}`,
+                );
+              }
+            }
           }
         }
       }

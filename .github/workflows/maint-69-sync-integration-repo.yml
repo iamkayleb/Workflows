@@ -116,6 +116,7 @@ jobs:
           if [ -f "pyproject.toml" ]; then
             python "../workflows/scripts/sync_dev_dependencies.py" \
               --apply \
+              --pre-commit \
               --pin-file ".github/workflows/autofix-versions.env" \
               --pyproject "pyproject.toml"
             echo "✅ Synced pyproject.toml dev tool pins"
@@ -198,6 +199,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add .github/workflows/ pyproject.toml requirements.lock scripts/
+          if [ -f .pre-commit-config.yaml ]; then
+            git add .pre-commit-config.yaml
+          fi
           git commit \
             -m "sync: Update workflow templates from stranske/Workflows" \
             -m "" \
