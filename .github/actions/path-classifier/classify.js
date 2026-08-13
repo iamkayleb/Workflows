@@ -31,6 +31,11 @@ const STABLE_SYNC_BRANCHES = new Set([
   'sync/workflows-delivery',
 ]);
 
+function isStableDeliveryPullRequest(githubContext) {
+  const branch = githubContext?.event?.pull_request?.head?.ref || '';
+  return githubContext?.event_name === 'pull_request' && STABLE_SYNC_BRANCHES.has(branch);
+}
+
 function normalizePath(value) {
   return String(value || '').replace(/\\/g, '/').replace(/^\.\/+/, '');
 }
@@ -191,8 +196,7 @@ function parseGithubContext() {
 function stableDeliverySealStatus(githubContext, { contract, now } = {}) {
   const event = githubContext?.event || {};
   const pullRequest = event.pull_request;
-  const branch = pullRequest?.head?.ref || '';
-  if (githubContext?.event_name !== 'pull_request' || !STABLE_SYNC_BRANCHES.has(branch)) {
+  if (!isStableDeliveryPullRequest(githubContext)) {
     return { required: false, valid: true, reason: '' };
   }
 
@@ -241,9 +245,8 @@ function loadDeliveryContract(
   const workspace = process.env.GITHUB_WORKSPACE || process.cwd();
   const relativeContractPath = '.github/scripts/sync_pr_lease_contract.js';
   const pullRequest = githubContext?.event?.pull_request;
-  const branch = pullRequest?.head?.ref || '';
 
-  if (githubContext?.event_name === 'pull_request' && STABLE_SYNC_BRANCHES.has(branch)) {
+  if (isStableDeliveryPullRequest(githubContext)) {
     const baseSha = pullRequest?.base?.sha || '';
     if (!baseSha) {
       return null;
@@ -307,7 +310,13 @@ function fetchBaseRef(baseRef, githubContext) {
   }
 }
 
-function listChangedFiles({ baseRef, githubContext } = {}) {
+function listChangedFiles({
+  baseRef,
+  githubContext,
+  baseAlreadyFetched = false,
+  fetchBase = fetchBaseRef,
+  diffGit = tryGit,
+} = {}) {
   const envFiles = process.env.PATH_CLASSIFIER_FILES_JSON;
   if (envFiles) {
     const parsed = JSON.parse(envFiles);
@@ -317,7 +326,9 @@ function listChangedFiles({ baseRef, githubContext } = {}) {
     return parsed.map(normalizePath).filter(Boolean);
   }
 
-  fetchBaseRef(baseRef, githubContext);
+  if (!baseAlreadyFetched) {
+    fetchBase(baseRef, githubContext);
+  }
   const head = githubContext.sha || 'HEAD';
   const ranges = [];
   if (baseRef) {
@@ -331,7 +342,7 @@ function listChangedFiles({ baseRef, githubContext } = {}) {
   }
 
   for (const range of ranges) {
-    const output = tryGit(['diff', '--name-only', range]);
+    const output = diffGit(['diff', '--name-only', range]);
     if (output) {
       return output.split(/\r?\n/).map(normalizePath).filter(Boolean);
     }
@@ -397,8 +408,13 @@ function main() {
   const githubContext = parseGithubContext();
   const baseRef = resolveBaseRef(process.env.INPUT_BASE_REF || '', githubContext);
   // The stable-delivery contract is loaded from the exact trusted base SHA.
-  // Make that object available before evaluating the seal.
-  fetchBaseRef(baseRef, githubContext);
+  // Fetch it before evaluating a stable delivery seal, then reuse that fetch
+  // for changed-file classification. Ordinary PRs defer the same fetch until
+  // classification so every run fetches the base at most once.
+  const baseAlreadyFetched = isStableDeliveryPullRequest(githubContext);
+  if (baseAlreadyFetched) {
+    fetchBaseRef(baseRef, githubContext);
+  }
   const seal = stableDeliverySealStatus(githubContext, {
     contract: loadDeliveryContract(githubContext),
   });
@@ -415,7 +431,7 @@ function main() {
   let conservativeFull = false;
 
   try {
-    files = listChangedFiles({ baseRef, githubContext });
+    files = listChangedFiles({ baseRef, githubContext, baseAlreadyFetched });
   } catch (error) {
     conservativeFull = true;
     console.warn(`::warning::Unable to list changed files; forcing full classification: ${error.message}`);
@@ -436,6 +452,8 @@ module.exports = {
   OUTPUT_NAMES,
   classifyFiles,
   globToRegExp,
+  isStableDeliveryPullRequest,
+  listChangedFiles,
   loadConfig,
   loadDeliveryContract,
   matchesAny,
