@@ -611,11 +611,100 @@ function validateCanaryEvidence(evidence = [], expectedRepos = []) {
   if (planIds.size !== 1) {
     errors.push('missing_or_mixed_canary_plan');
   }
+  const planScopes = new Set(
+    [...rowsByRepo.values()].map((row) => String(row?.plan_scope || 'full').trim()),
+  );
+  if (planScopes.size !== 1) {
+    errors.push('missing_or_mixed_canary_plan_scope');
+  }
+  const planScope = planScopes.size === 1 ? [...planScopes][0] : '';
+  if (planScope && !['full', 'source-delta'].includes(planScope)) {
+    errors.push('unsupported_canary_plan_scope');
+  }
+  let scopeBaseSha = '';
+  let sourceCommit = '';
+  if (planScope === 'source-delta') {
+    const sourceDeltaRows = [...rowsByRepo.values()];
+    const missingBase = sourceDeltaRows.some(
+      (row) => !String(row?.scope_base_sha || '').trim(),
+    );
+    const missingSource = sourceDeltaRows.some(
+      (row) => !String(row?.source_commit || '').trim(),
+    );
+    const bases = new Set(
+      sourceDeltaRows
+        .map((row) => String(row?.scope_base_sha || '').trim())
+        .filter(Boolean),
+    );
+    const sourceCommits = new Set(
+      sourceDeltaRows
+        .map((row) => String(row?.source_commit || '').trim())
+        .filter(Boolean),
+    );
+    if (missingBase || bases.size !== 1) errors.push('missing_or_mixed_canary_scope_base');
+    if (missingSource || sourceCommits.size !== 1) {
+      errors.push('missing_or_mixed_canary_source_commit');
+    }
+    scopeBaseSha = bases.size === 1 ? [...bases][0] : '';
+    sourceCommit = sourceCommits.size === 1 ? [...sourceCommits][0] : '';
+    const shaPattern = /^[0-9a-f]{40,64}$/i;
+    if (scopeBaseSha && !shaPattern.test(scopeBaseSha)) {
+      errors.push('invalid_canary_scope_base');
+    }
+    if (sourceCommit && !shaPattern.test(sourceCommit)) {
+      errors.push('invalid_canary_source_commit');
+    }
+  }
   return {
     ok: errors.length === 0,
     errors,
     plan_id: planIds.size === 1 ? [...planIds][0] : '',
+    plan_scope: planScope,
+    scope_base_sha: scopeBaseSha,
+    source_commit: sourceCommit,
   };
+}
+
+function validateSourceDeltaEvidenceBinding({ metadata = {}, deliveryRecord = {}, commitMessage = '' } = {}) {
+  if (String(metadata.plan_scope || 'full').trim() !== 'source-delta') {
+    return { ok: true, errors: [] };
+  }
+  const record = deliveryRecord && typeof deliveryRecord === 'object' ? deliveryRecord : {};
+  const expected = {
+    plan_id: String(metadata.plan_id || '').trim(),
+    scope_base_sha: String(metadata.scope_base_sha || '').trim(),
+    source_commit: String(metadata.source_commit || metadata.source_sha || '').trim(),
+  };
+  const errors = [];
+  if (!expected.plan_id || expected.plan_id !== String(record.plan_id || '').trim()) {
+    errors.push('source_delta_plan_record_mismatch');
+  }
+  if (
+    !expected.source_commit
+    || expected.source_commit !== String(record.source_commit || '').trim()
+  ) {
+    errors.push('source_delta_commit_record_mismatch');
+  }
+  const immutableFields = {};
+  for (const line of String(commitMessage || '').split(/\r?\n/)) {
+    const match = line.match(
+      /^(Consumer-sync plan ID|Plan scope|Scope base SHA|Source commit):\s*(.+)\s*$/,
+    );
+    if (match) immutableFields[match[1]] = match[2].trim();
+  }
+  if (immutableFields['Consumer-sync plan ID'] !== expected.plan_id) {
+    errors.push('source_delta_plan_commit_mismatch');
+  }
+  if (immutableFields['Plan scope'] !== 'source-delta') {
+    errors.push('source_delta_scope_commit_mismatch');
+  }
+  if (immutableFields['Scope base SHA'] !== expected.scope_base_sha) {
+    errors.push('source_delta_base_commit_mismatch');
+  }
+  if (immutableFields['Source commit'] !== expected.source_commit) {
+    errors.push('source_delta_source_commit_mismatch');
+  }
+  return { ok: errors.length === 0, errors };
 }
 
 function summarizeResults(results) {
@@ -859,6 +948,7 @@ module.exports = {
   selectMergeEligibleSyncPr,
   selectLatestMergedCandidatePr,
   validateCanaryEvidence,
+  validateSourceDeltaEvidenceBinding,
   summarizeResults,
   buildMergeReport,
   buildDeliveryHandoff,

@@ -37,6 +37,7 @@ const {
   summarizeResults,
   syncBranchForHash,
   validateCanaryEvidence,
+  validateSourceDeltaEvidenceBinding,
 } = require('../sync_pr_merge_contract');
 const { assertRuntimeAcMergeAllowed } = require('../runtime_ac_merge_guard');
 const {
@@ -331,6 +332,9 @@ test('validateCanaryEvidence fails closed on missing, mixed, red, or reviewed ca
     ok: true,
     errors: [],
     plan_id: 'plan-1',
+    plan_scope: 'full',
+    scope_base_sha: '',
+    source_commit: '',
   });
 
   const invalid = validateCanaryEvidence([
@@ -341,6 +345,88 @@ test('validateCanaryEvidence fails closed on missing, mixed, red, or reviewed ca
   assert.ok(invalid.errors.includes('required_checks_not_green:stranske/A'));
   assert.ok(invalid.errors.includes('active_review_debt:stranske/B'));
   assert.ok(invalid.errors.includes('missing_or_mixed_canary_plan'));
+});
+
+test('validateCanaryEvidence preserves one immutable source-delta range', () => {
+  const expected = ['stranske/A', 'stranske/B'];
+  const base = '1'.repeat(40);
+  const head = '2'.repeat(40);
+  const valid = expected.map((repo) => ({
+    repo,
+    plan_id: 'plan-1',
+    plan_scope: 'source-delta',
+    scope_base_sha: base,
+    source_commit: head,
+    required_check_state: 'success',
+    active_review_thread_count: 0,
+  }));
+
+  assert.deepEqual(validateCanaryEvidence(valid, expected), {
+    ok: true,
+    errors: [],
+    plan_id: 'plan-1',
+    plan_scope: 'source-delta',
+    scope_base_sha: base,
+    source_commit: head,
+  });
+  const mixed = validateCanaryEvidence(
+    [valid[0], { ...valid[1], source_commit: '3'.repeat(40) }],
+    expected,
+  );
+  assert.equal(mixed.ok, false);
+  assert.ok(mixed.errors.includes('missing_or_mixed_canary_source_commit'));
+  const missingBase = validateCanaryEvidence(
+    [valid[0], { ...valid[1], scope_base_sha: '' }],
+    expected,
+  );
+  assert.equal(missingBase.ok, false);
+  assert.ok(missingBase.errors.includes('missing_or_mixed_canary_scope_base'));
+  const missingSource = validateCanaryEvidence(
+    [valid[0], { ...valid[1], source_commit: '' }],
+    expected,
+  );
+  assert.equal(missingSource.ok, false);
+  assert.ok(missingSource.errors.includes('missing_or_mixed_canary_source_commit'));
+  const malformed = validateCanaryEvidence(
+    valid.map((row) => ({ ...row, scope_base_sha: 'not-a-commit' })),
+    expected,
+  );
+  assert.equal(malformed.ok, false);
+  assert.ok(malformed.errors.includes('invalid_canary_scope_base'));
+});
+
+test('source-delta evidence is bound to the immutable generated commit message', () => {
+  const planId = `sha256:${'a'.repeat(64)}`;
+  const base = '1'.repeat(40);
+  const head = '2'.repeat(40);
+  const metadata = {
+    plan_id: planId,
+    plan_scope: 'source-delta',
+    scope_base_sha: base,
+    source_commit: head,
+  };
+  const deliveryRecord = { plan_id: planId, source_commit: head };
+  const commitMessage = [
+    'chore: sync workflow templates from Workflows repo',
+    '',
+    `Consumer-sync plan ID: ${planId}`,
+    'Plan scope: source-delta',
+    `Scope base SHA: ${base}`,
+    `Source commit: ${head}`,
+  ].join('\n');
+
+  assert.deepEqual(
+    validateSourceDeltaEvidenceBinding({ metadata, deliveryRecord, commitMessage }),
+    { ok: true, errors: [] },
+  );
+  const tampered = validateSourceDeltaEvidenceBinding({
+    metadata: { ...metadata, source_commit: '3'.repeat(40) },
+    deliveryRecord,
+    commitMessage,
+  });
+  assert.equal(tampered.ok, false);
+  assert.ok(tampered.errors.includes('source_delta_commit_record_mismatch'));
+  assert.ok(tampered.errors.includes('source_delta_source_commit_mismatch'));
 });
 
 test('parseBooleanInput preserves explicit false values', () => {
