@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.23.3](https://github.com/stranske/Workflows/compare/v1.23.2...v1.23.3) (2026-08-14)
+
+
+### Bug Fixes
+
+* **sync:** pin bootstrap delivery contract source ([68abfc5](https://github.com/stranske/Workflows/commit/68abfc534e444a5ddb7731336350ed8e038c3824))
+* **sync:** pin bootstrap delivery contract source ([139cdce](https://github.com/stranske/Workflows/commit/139cdce9d74f5930ed1def476f7fadd4566dac01))
+
 ## [1.23.2](https://github.com/stranske/Workflows/compare/v1.23.1...v1.23.2) (2026-08-14)
 
 
