@@ -3731,6 +3731,44 @@ test('updateKeepaliveLoopSummary routes resource failures to automation retry', 
   );
 });
 
+test('updateKeepaliveLoopSummary defaults recovery dispatches to the consolidated followups workflow', async () => {
+  const existingState = formatStateComment({
+    trace: 'trace-attention-resource-default',
+    iteration: 1,
+    failure_threshold: 3,
+    failure: {},
+  });
+  const github = buildGithubStub({
+    comments: [{ id: 100, body: existingState, html_url: 'https://example.com/100' }],
+  });
+
+  await updateKeepaliveLoopSummary({
+    github,
+    context: buildContext(656),
+    core: buildCore(),
+    inputs: {
+      prNumber: 656,
+      action: 'run',
+      runResult: 'failure',
+      gateConclusion: 'success',
+      tasksTotal: 3,
+      tasksUnchecked: 3,
+      keepaliveEnabled: true,
+      autofixEnabled: false,
+      iteration: 1,
+      maxIterations: 5,
+      failureThreshold: 3,
+      trace: 'trace-attention-resource-default',
+      agent_exit_code: '1',
+      agent_summary: 'Repository not found for this request.',
+    },
+  });
+
+  const retryDispatch = github.actions.find((action) => action.type === 'workflow-dispatch');
+  assert.equal(retryDispatch.workflow_id, 'agents-81-gate-followups.yml');
+  assert.deepEqual(retryDispatch.inputs, { pr_number: '656', force_retry: 'true' });
+});
+
 test('automation-owned terminal stops dispatch exactly one forced recovery lease', async () => {
   for (const reason of [
     'round-budget-exhausted',
