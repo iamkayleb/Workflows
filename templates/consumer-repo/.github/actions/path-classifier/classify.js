@@ -3,7 +3,14 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const vm = require('node:vm');
+
+// The first delivery to an older consumer may add this contract to a base
+// branch that does not contain it yet.  The classifier must never execute an
+// arbitrary module supplied by that PR: accept only the exact source contract
+// published by Workflows.  Subsequent deliveries read the trusted base copy.
+const BOOTSTRAP_DELIVERY_CONTRACT_SHA256 = 'b61558cca342ffffbdfc22453e585e252a7465a2d3407020e10e4bda73065023';
 
 const OUTPUT_NAMES = {
   'docs-only': 'is-docs-only',
@@ -295,6 +302,10 @@ function loadDeliveryContract(
           return null;
         }
         const source = readBootstrapContract(headSha, relativeContractPath);
+        const digest = crypto.createHash('sha256').update(String(source)).digest('hex');
+        if (digest !== BOOTSTRAP_DELIVERY_CONTRACT_SHA256) {
+          return null;
+        }
         return compileDeliveryContract(source, `${headSha}:${relativeContractPath}`);
       } catch {
         return null;
