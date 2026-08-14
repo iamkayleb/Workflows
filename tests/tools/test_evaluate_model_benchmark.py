@@ -158,15 +158,32 @@ def test_unpaired_candidate_cases_are_rejected():
         ("total_cost_usd", math.nan),
         ("total_cost_usd", math.inf),
         ("total_cost_usd", -0.01),
+        ("total_cost_usd", True),
+        ("total_cost_usd", False),
+        ("total_cost_usd", "not-a-number"),
+        ("total_cost_usd", 10**400),
         ("latency_ms", math.nan),
         ("latency_ms", math.inf),
         ("latency_ms", -1),
+        ("latency_ms", True),
+        ("latency_ms", False),
+        ("latency_ms", "not-a-number"),
+        ("latency_ms", 10**400),
     ],
 )
 def test_nonfinite_or_negative_metrics_are_rejected(field, value):
     payload = _payload()
     payload["candidates"][1]["cases"][0][field] = value
     with pytest.raises(ValueError, match=f"invalid {field}"):
+        evaluator.evaluate_benchmark(payload, _policy())
+
+
+@pytest.mark.parametrize("field", ["total_cost_usd", "latency_ms"])
+def test_missing_metrics_are_rejected_instead_of_treated_as_zero(field):
+    payload = _payload()
+    del payload["candidates"][1]["cases"][0][field]
+
+    with pytest.raises(ValueError, match=f"missing {field}"):
         evaluator.evaluate_benchmark(payload, _policy())
 
 
