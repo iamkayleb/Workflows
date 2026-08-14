@@ -4610,7 +4610,7 @@ async function updateKeepaliveLoopSummary({ github: rawGithub, context, core, in
           try {
             const retryWorkflowId = normalise(
               inputs.retry_workflow_id ?? inputs.retryWorkflowId,
-            ) || 'agents-keepalive-loop.yml';
+            ) || 'agents-81-gate-followups.yml';
             await github.rest.actions.createWorkflowDispatch({
               owner: context.repo.owner,
               repo: context.repo.repo,
