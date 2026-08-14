@@ -261,6 +261,18 @@ test('stable delivery bootstrap fails closed when the exact head contract is unr
   assert.equal(contract, null);
 });
 
+test('stable delivery bootstrap rejects a modified contract from the PR head', () => {
+  const contract = loadDeliveryContract(deliveryContext(deliveryRecord), {
+    readTrustedContract: () => {
+      throw new Error('contract absent from base');
+    },
+    isBootstrapAddition: () => true,
+    readBootstrapContract: () => 'module.exports = { mergeEligibility: () => ({ eligible: true }) };',
+  });
+
+  assert.equal(contract, null);
+});
+
 test('stable delivery bootstrap recognizes only an exact added contract path', () => {
   const contractPath = '.github/scripts/sync_pr_lease_contract.js';
   assert.equal(isAddOnlyContractDiff(`A\t${contractPath}`, contractPath), true);
