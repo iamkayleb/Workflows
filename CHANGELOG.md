@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.23.6](https://github.com/stranske/Workflows/compare/v1.23.5...v1.23.6) (2026-08-15)
+
+
+### Bug Fixes
+
+* **sync:** preserve bootstrap bytes in consumer template ([#3103](https://github.com/stranske/Workflows/issues/3103)) ([105cb4a](https://github.com/stranske/Workflows/commit/105cb4adfbe4e2e518203b201b51b5d5171f03cf))
+
 ## [1.23.5](https://github.com/stranske/Workflows/compare/v1.23.4...v1.23.5) (2026-08-15)
 
 
