@@ -804,8 +804,9 @@ def test_mark_running_uses_same_trusted_app_token_as_summary():
     ):
         assert mark_running.count(permission) == 2
     assert "Require trusted keepalive running writer" in mark_running
-    assert "id: mark_running_writer" in mark_running
-    assert "id: mark_running_pat_identity" in mark_running
+    assert "id: running_token_writer" in mark_running
+    assert "id: running_pat_identity" in mark_running
+    assert "github.rest.users.getAuthenticated()" in mark_running
     assert "withRetry(() => github.rest.users.getAuthenticated())" in mark_running
     assert "'ACTIONS_BOT_PAT:stranske'" in mark_running
     assert "'SERVICE_BOT_PAT:stranske-automation-bot'" in mark_running
@@ -814,8 +815,12 @@ def test_mark_running_uses_same_trusted_app_token_as_summary():
     assert "steps.running_workflows_app_token.outputs.token ||" in update
     assert "secrets.ACTIONS_BOT_PAT ||" in update
     assert "secrets.SERVICE_BOT_PAT" in update
+    assert "steps.running_token_writer.outputs.source == 'ACTIONS_BOT_PAT'" in update
+    assert "'stranske-automation-bot'" in update
     assert "github-token: ${{ secrets.GITHUB_TOKEN }}" not in update
     assert "github-token: ${{ github.token }}" not in update
+
+
 def test_terminal_disposition_records_include_artifact_identity():
     workflow_paths = [
         WORKFLOWS_DIR / "agents-verify-to-issue-v2.yml",
