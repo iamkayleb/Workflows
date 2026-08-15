@@ -785,6 +785,67 @@ def test_keepalive_recovery_uses_active_lane_and_forces_only_due_challenges():
         assert "await github.rest.actions.createWorkflowDispatch({" not in text
 
 
+def test_consumer_mark_running_supports_identity_checked_pat():
+    consumer_loop = Path(
+        "templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"
+    ).read_text(encoding="utf-8")
+    mark_start = consumer_loop.index("  mark-running:")
+    mark_end = consumer_loop.index("  run-codex:", mark_start)
+    mark_running = consumer_loop[mark_start:mark_end]
+
+    assert "id: running_keepalive_app_token" in mark_running
+    assert "id: running_workflows_app_token" in mark_running
+    assert mark_running.count("repositories: ${{ github.event.repository.name }}") == 2
+    for permission in (
+        "permission-actions: write",
+        "permission-contents: read",
+        "permission-issues: write",
+        "permission-pull-requests: read",
+    ):
+        assert mark_running.count(permission) == 2
+    assert "Require trusted keepalive running writer" in mark_running
+    assert "id: running_token_writer" in mark_running
+    assert "id: running_pat_identity" in mark_running
+    assert "github.rest.users.getAuthenticated()" in mark_running
+    assert "withRetry(() => github.rest.users.getAuthenticated())" in mark_running
+    assert "'ACTIONS_BOT_PAT:stranske'" in mark_running
+    assert "'SERVICE_BOT_PAT:stranske-automation-bot'" in mark_running
+    update = mark_running[mark_running.index("- name: Update summary with running status") :]
+    assert "steps.running_keepalive_app_token.outputs.token ||" in update
+    assert "steps.running_workflows_app_token.outputs.token ||" in update
+    assert "secrets.ACTIONS_BOT_PAT ||" in update
+    assert "secrets.SERVICE_BOT_PAT" in update
+    assert "steps.running_token_writer.outputs.source == 'ACTIONS_BOT_PAT'" in update
+    assert "'stranske-automation-bot'" in update
+    assert "secrets.GITHUB_TOKEN" not in update
+    assert "github.token" not in update
+
+
+def test_pr_triggered_keepalive_and_autofix_never_serialize_secret_context():
+    workflow_paths = (
+        WORKFLOWS_DIR / "agents-keepalive-loop.yml",
+        WORKFLOWS_DIR / "autofix.yml",
+        Path("templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"),
+        Path("templates/consumer-repo/.github/workflows/autofix.yml"),
+    )
+    explicit_inputs = (
+        "service_bot_pat: ${{ secrets.SERVICE_BOT_PAT }}",
+        "actions_bot_pat: ${{ secrets.ACTIONS_BOT_PAT }}",
+        "owner_pr_pat: ${{ secrets.OWNER_PR_PAT }}",
+        "agents_automation_pat: ${{ secrets.AGENTS_AUTOMATION_PAT }}",
+        "workflows_app_id: ${{ secrets.WORKFLOWS_APP_ID }}",
+        "workflows_app_private_key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}",
+        "keepalive_app_id: ${{ secrets.KEEPALIVE_APP_ID }}",
+        "keepalive_app_private_key: ${{ secrets.KEEPALIVE_APP_PRIVATE_KEY }}",
+    )
+
+    for path in workflow_paths:
+        text = path.read_text(encoding="utf-8")
+        assert "toJSON(secrets)" not in text, f"{path} must not serialize the secrets context"
+        for explicit_input in explicit_inputs:
+            assert explicit_input in text, f"{path} must pass {explicit_input} explicitly"
+
+
 def test_terminal_disposition_records_include_artifact_identity():
     workflow_paths = [
         WORKFLOWS_DIR / "agents-verify-to-issue-v2.yml",

@@ -316,10 +316,11 @@ jobs:
       session-event-count: ${{ steps.analyze_session.outputs.event-count }}
       session-todo-count: ${{ steps.analyze_session.outputs.todo-count }}
     steps:
-      # Shared agent-agnostic setup (App-token mint / auth-token selection /
-      # checkout / Node.js / API client / Workflows scripts checkout) lives in
+      # Shared agent-agnostic setup (auth-token selection / Node.js / API client /
+      # Workflows scripts checkout) lives in
       # the agent-run-base composite so it is maintained once for both runners
-      # (issue #2341).
+      # (issue #2341). The target checkout must happen first so it cannot erase
+      # the nested local action directory that the runner needs during post-job cleanup.
       - name: Mint Workflows bootstrap app token
         id: bootstrap_app_token
         continue-on-error: true
@@ -327,6 +328,15 @@ jobs:
         with:
           app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
           private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
+
+      - name: Checkout target repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.pr_ref || github.ref }}
+          token: ${{ steps.bootstrap_app_token.outputs.token || github.token }}
+          persist-credentials: false
+          clean: false
 
       - name: Checkout Workflows run-base action
         uses: actions/checkout@v7
@@ -338,6 +348,7 @@ jobs:
             .github/actions/agent-run-base
           sparse-checkout-cone-mode: false
           token: ${{ steps.bootstrap_app_token.outputs.token || github.token }}
+          persist-credentials: false
 
       - name: Agent run base setup
         id: run_base
@@ -353,6 +364,7 @@ jobs:
           runner_pr_number: ${{ inputs.pr_number }}
           mode_env_name: CODEX_MODE
           pr_number_env_name: CODEX_PR_NUMBER
+          target_checkout_ready: true
 
       - name: Ensure Workflows script deps
         run: |
@@ -586,10 +598,12 @@ jobs:
             python -m scripts.runner_lib assemble-prompt "${assemble_args[@]}"
 
       - name: Install Codex CLI
+        env:
+          CODEX_CLI_VERSION: ${{ inputs.codex_cli_version }}
         run: |
           set -euo pipefail
           echo "Installing Codex CLI..."
-          npm install -g "@openai/codex@${{ inputs.codex_cli_version }}"
+          npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
           echo "Installed Codex CLI version: $(codex --version)"
 
       - name: Setup Codex auth

@@ -263,10 +263,11 @@ jobs:
       error-type: ${{ steps.classify_failure.outputs.error_type }}
       error-recovery: ${{ steps.classify_failure.outputs.error_recovery }}
     steps:
-      # Shared agent-agnostic setup (App-token mint / auth-token selection /
-      # checkout / Node.js / API client / Workflows scripts checkout) lives in
+      # Shared agent-agnostic setup (auth-token selection / Node.js / API client /
+      # Workflows scripts checkout) lives in
       # the agent-run-base composite so it is maintained once for both runners
-      # (issue #2341).
+      # (issue #2341). The target checkout must happen first so it cannot erase
+      # the nested local action directory that the runner needs during post-job cleanup.
       - name: Mint Workflows bootstrap app token
         id: bootstrap_app_token
         continue-on-error: true
@@ -274,6 +275,15 @@ jobs:
         with:
           app-id: ${{ secrets.WORKFLOWS_APP_ID || '0' }}
           private-key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY || 'dummy' }}
+
+      - name: Checkout target repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.pr_ref || github.ref }}
+          token: ${{ steps.bootstrap_app_token.outputs.token || github.token }}
+          persist-credentials: false
+          clean: false
 
       - name: Checkout Workflows run-base action
         uses: actions/checkout@v7
@@ -285,6 +295,7 @@ jobs:
             .github/actions/agent-run-base
           sparse-checkout-cone-mode: false
           token: ${{ steps.bootstrap_app_token.outputs.token || github.token }}
+          persist-credentials: false
 
       - name: Agent run base setup
         id: run_base
@@ -300,6 +311,7 @@ jobs:
           runner_pr_number: ${{ inputs.pr_number }}
           mode_env_name: CLAUDE_MODE
           pr_number_env_name: CLAUDE_PR_NUMBER
+          target_checkout_ready: true
 
       # Ensure Workflows deps BEFORE calling setup-api-client for .workflows-lib.
       # setup-api-client invokes create_vendor_aliases.js + npm and will fail

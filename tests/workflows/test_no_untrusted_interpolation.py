@@ -499,11 +499,6 @@ REVIEWED_SCRIPT_INTERPOLATIONS = frozenset(
             "dispatch/step-6/with.script",
             "inputs.pr_number",
         ),
-        (
-            ".github/workflows/reusable-codex-run.yml",
-            "codex/step-14/run",
-            "inputs.codex_cli_version",
-        ),
         (".github/workflows/reusable-cursor-run.yml", "cursor/step-1/run", "inputs.mode"),
         (".github/workflows/reusable-cursor-run.yml", "cursor/step-1/run", "inputs.pr_number"),
         (
