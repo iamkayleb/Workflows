@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.23.5](https://github.com/stranske/Workflows/compare/v1.23.4...v1.23.5) (2026-08-15)
+
+
+### Bug Fixes
+
+* **keepalive:** preserve trusted running writer ([#3100](https://github.com/stranske/Workflows/issues/3100)) ([52425ef](https://github.com/stranske/Workflows/commit/52425efe79bc98fa6a35fb9ec580105761b0c418))
+* model LangSmith fleet evidence states ([#3098](https://github.com/stranske/Workflows/issues/3098)) ([b5b40e5](https://github.com/stranske/Workflows/commit/b5b40e5225e0b5b28bbc76f1490a1e61c58ef97b))
+* **sync:** make generated delivery lifecycle self-resuming ([#3096](https://github.com/stranske/Workflows/issues/3096)) ([3ddc9ee](https://github.com/stranske/Workflows/commit/3ddc9ee58d2fac83b11f65dcfa5c5571265c1bc1))
+
 ## [1.23.4](https://github.com/stranske/Workflows/compare/v1.23.3...v1.23.4) (2026-08-15)
 
 
