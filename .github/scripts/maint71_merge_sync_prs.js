@@ -344,21 +344,20 @@ async function run({ github, context, core }) {
         paginateWithRetry: (githubInstance, method, params) =>
           githubInstance.paginate(method, params),
       };
-  const { createTokenAwareRetry } = retryHelpers;
-  const { withRetry } = createTokenAwareRetry
-    ? await createTokenAwareRetry({
-        github,
-        core,
-        env: process.env,
-        task: 'maint-71-merge-sync-prs',
-        capabilities: [
-          'pull-requests:read',
-          'pull-requests:write',
-          'checks:read',
-          'contents:write',
-        ],
-      })
-    : { github, withRetry: (fn) => fn(github) };
+  if (!String(process.env.OWNER_PR_PAT || '').trim()) {
+    throw new Error(
+      'Maint 71 requires OWNER_PR_PAT for fail-closed cross-repository PR mutations',
+    );
+  }
+  // The actions/github-script client is authenticated with OWNER_PR_PAT by
+  // the workflow. Keep retries on that exact client so credential or quota
+  // degradation cannot rotate a cross-repository mutation to a token with a
+  // smaller repository installation scope.
+  const withRetry = (fn, options = {}) => retryHelpers.withRetry(fn, {
+    github,
+    core,
+    ...options,
+  });
   async function getRequiredContexts({ owner, repo, branch }) {
     try {
       const { data: protection } = await withRetry((client) =>
