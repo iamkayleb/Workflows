@@ -541,7 +541,8 @@ jobs:
               secrets.SERVICE_BOT_PAT
             }}
           script: |
-            const { data } = await github.rest.users.getAuthenticated();
+            const { withRetry } = require('./.github/scripts/github-api-with-retry.js');
+            const { data } = await withRetry(() => github.rest.users.getAuthenticated());
             const login = (data?.login || '').trim();
             if (!login) {
               core.setFailed('Unable to determine identity for the mark-running PAT.');
