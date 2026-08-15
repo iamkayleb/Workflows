@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.24.0](https://github.com/stranske/Workflows/compare/v1.23.6...v1.24.0) (2026-08-15)
+
+
+### Features
+
+* **sync:** publish trusted delivery seal action ([#3108](https://github.com/stranske/Workflows/issues/3108)) ([632eb20](https://github.com/stranske/Workflows/commit/632eb20586f8403219d101e8a982b62efeb94104))
+
+
+### Bug Fixes
+
+* **keepalive:** use app token in failure reporter ([#3105](https://github.com/stranske/Workflows/issues/3105)) ([c4291b0](https://github.com/stranske/Workflows/commit/c4291b0680c1b68f156c7c9e7cc274fc9104a0c2))
+* **sync:** anchor delivery seal outside PR checkout ([#3107](https://github.com/stranske/Workflows/issues/3107)) ([de3246a](https://github.com/stranske/Workflows/commit/de3246a18d2ba3178b7403c54eec2bb843f6fe24))
+
 ## [1.23.6](https://github.com/stranske/Workflows/compare/v1.23.5...v1.23.6) (2026-08-15)
 
 
