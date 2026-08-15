@@ -821,6 +821,31 @@ def test_consumer_mark_running_supports_identity_checked_pat():
     assert "github.token" not in update
 
 
+def test_pr_triggered_keepalive_and_autofix_never_serialize_secret_context():
+    workflow_paths = (
+        WORKFLOWS_DIR / "agents-keepalive-loop.yml",
+        WORKFLOWS_DIR / "autofix.yml",
+        Path("templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"),
+        Path("templates/consumer-repo/.github/workflows/autofix.yml"),
+    )
+    explicit_inputs = (
+        "service_bot_pat: ${{ secrets.SERVICE_BOT_PAT }}",
+        "actions_bot_pat: ${{ secrets.ACTIONS_BOT_PAT }}",
+        "owner_pr_pat: ${{ secrets.OWNER_PR_PAT }}",
+        "agents_automation_pat: ${{ secrets.AGENTS_AUTOMATION_PAT }}",
+        "workflows_app_id: ${{ secrets.WORKFLOWS_APP_ID }}",
+        "workflows_app_private_key: ${{ secrets.WORKFLOWS_APP_PRIVATE_KEY }}",
+        "keepalive_app_id: ${{ secrets.KEEPALIVE_APP_ID }}",
+        "keepalive_app_private_key: ${{ secrets.KEEPALIVE_APP_PRIVATE_KEY }}",
+    )
+
+    for path in workflow_paths:
+        text = path.read_text(encoding="utf-8")
+        assert "toJSON(secrets)" not in text, f"{path} must not serialize the secrets context"
+        for explicit_input in explicit_inputs:
+            assert explicit_input in text, f"{path} must pass {explicit_input} explicitly"
+
+
 def test_terminal_disposition_records_include_artifact_identity():
     workflow_paths = [
         WORKFLOWS_DIR / "agents-verify-to-issue-v2.yml",
