@@ -785,7 +785,7 @@ def test_keepalive_recovery_uses_active_lane_and_forces_only_due_challenges():
         assert "await github.rest.actions.createWorkflowDispatch({" not in text
 
 
-def test_mark_running_uses_same_trusted_app_token_as_summary():
+def test_consumer_mark_running_supports_identity_checked_pat():
     consumer_loop = Path(
         "templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"
     ).read_text(encoding="utf-8")
@@ -817,8 +817,8 @@ def test_mark_running_uses_same_trusted_app_token_as_summary():
     assert "secrets.SERVICE_BOT_PAT" in update
     assert "steps.running_token_writer.outputs.source == 'ACTIONS_BOT_PAT'" in update
     assert "'stranske-automation-bot'" in update
-    assert "github-token: ${{ secrets.GITHUB_TOKEN }}" not in update
-    assert "github-token: ${{ github.token }}" not in update
+    assert "secrets.GITHUB_TOKEN" not in update
+    assert "github.token" not in update
 
 
 def test_terminal_disposition_records_include_artifact_identity():
