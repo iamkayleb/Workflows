@@ -45,6 +45,12 @@ test('classifies python code changes', () => {
   assert.equal(outputs['is-docs-only'], 'false');
 });
 
+test('classifies Trend preset data changes as python code', () => {
+  const outputs = outputsFor(['src/trend_analysis/preset_data/momentum.yml']);
+  assert.equal(outputs['is-python-code'], 'true');
+  assert.equal(outputs['is-docs-only'], 'false');
+});
+
 test('classifies workflow and security relevant changes', () => {
   const outputs = outputsFor(['.github/workflows/pr-00-gate.yml']);
   assert.equal(outputs['is-workflow-change'], 'true');
