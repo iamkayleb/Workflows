@@ -471,6 +471,8 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          CREATE_ISSUE: ${{ inputs.create_issue }}
         run: |
           if [ "$REPORT_AVAILABLE" == "true" ]; then
             echo "✅ LangSmith metrics dashboard generated successfully"
@@ -478,7 +480,7 @@ jobs:
             echo "📊 Report locations:"
             echo "  - Artifact: langsmith-metrics-report-${{ github.run_id }}"
             if [ "${{ github.event_name }}" == "schedule" ] || \
-               [ "${{ inputs.create_issue }}" == "true" ]; then
+               [ "$CREATE_ISSUE" == "true" ]; then
               location="  - Authoritative dashboard: durable issue upserted"
               location+=" with labels 'metrics,automated,tracker:durable'"
               echo "$location"

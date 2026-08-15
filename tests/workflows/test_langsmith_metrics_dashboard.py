@@ -125,4 +125,6 @@ def test_dashboard_publication_cannot_push_to_default_branch() -> None:
     assert "persist-credentials: false" in source
     assert "name: Update dashboard file" not in source
     assert "git push" not in source
+    assert '[ "${{ inputs.create_issue }}" == "true" ]' not in source
+    assert '[ "$CREATE_ISSUE" == "true" ]' in source
     assert "Authoritative dashboard: durable issue" in source
