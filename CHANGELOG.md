@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.24.2](https://github.com/stranske/Workflows/compare/v1.24.1...v1.24.2) (2026-08-15)
+
+
+### Bug Fixes
+
+* **sync:** classify Trend preset data as python ([04c9a37](https://github.com/stranske/Workflows/commit/04c9a37409ec8c873a36294ce1d45755cec06a74))
+* **sync:** classify Trend preset data as Python ([b7ed9ff](https://github.com/stranske/Workflows/commit/b7ed9ff4f4b0429cb80e81ee1fdd023784313d4c))
+
 ## [1.24.1](https://github.com/stranske/Workflows/compare/v1.24.0...v1.24.1) (2026-08-15)
 
 
