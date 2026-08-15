@@ -596,10 +596,12 @@ jobs:
             python -m scripts.runner_lib assemble-prompt "${assemble_args[@]}"
 
       - name: Install Codex CLI
+        env:
+          CODEX_CLI_VERSION: ${{ inputs.codex_cli_version }}
         run: |
           set -euo pipefail
           echo "Installing Codex CLI..."
-          npm install -g "@openai/codex@${{ inputs.codex_cli_version }}"
+          npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
           echo "Installed Codex CLI version: $(codex --version)"
 
       - name: Setup Codex auth
