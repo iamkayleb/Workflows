@@ -506,10 +506,74 @@ jobs:
           permission-issues: write
           permission-pull-requests: read
 
+<<<<<<< HEAD
       - name: Require trusted keepalive running writer
+=======
+      - name: Select trusted mark-running writer
+        id: mark_running_writer
+        env:
+          KEEPALIVE_APP_TOKEN: ${{ steps.mark_running_keepalive_app_token.outputs.token || '' }}
+          WORKFLOWS_APP_TOKEN: ${{ steps.mark_running_workflows_app_token.outputs.token || '' }}
+          ACTIONS_TOKEN: ${{ secrets.ACTIONS_BOT_PAT || '' }}
+          SERVICE_TOKEN: ${{ secrets.SERVICE_BOT_PAT || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$KEEPALIVE_APP_TOKEN" ]; then
+            echo 'source=KEEPALIVE_APP_TOKEN' >>"$GITHUB_OUTPUT"
+          elif [ -n "$WORKFLOWS_APP_TOKEN" ]; then
+            echo 'source=WORKFLOWS_APP_TOKEN' >>"$GITHUB_OUTPUT"
+          elif [ -n "$ACTIONS_TOKEN" ]; then
+            echo 'source=ACTIONS_BOT_PAT' >>"$GITHUB_OUTPUT"
+          elif [ -n "$SERVICE_TOKEN" ]; then
+            echo 'source=SERVICE_BOT_PAT' >>"$GITHUB_OUTPUT"
+          else
+            echo 'source=none' >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Probe PAT mark-running identity
+        if: >-
+          steps.mark_running_writer.outputs.source == 'ACTIONS_BOT_PAT' ||
+          steps.mark_running_writer.outputs.source == 'SERVICE_BOT_PAT'
+        id: mark_running_pat_identity
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          github-token: >-
+            ${{
+              (steps.mark_running_writer.outputs.source == 'ACTIONS_BOT_PAT' &&
+                secrets.ACTIONS_BOT_PAT) ||
+              secrets.SERVICE_BOT_PAT
+            }}
+          script: |
+            const { data } = await github.rest.users.getAuthenticated();
+            const login = (data?.login || '').trim();
+            if (!login) {
+              core.setFailed('Unable to determine identity for the mark-running PAT.');
+              return;
+            }
+            core.setOutput('login', login);
+
+      - name: Enforce PAT mark-running identity
+        if: >-
+          steps.mark_running_writer.outputs.source == 'ACTIONS_BOT_PAT' ||
+          steps.mark_running_writer.outputs.source == 'SERVICE_BOT_PAT'
+        env:
+          TOKEN_SOURCE: ${{ steps.mark_running_writer.outputs.source }}
+          TOKEN_LOGIN: ${{ steps.mark_running_pat_identity.outputs.login || '' }}
+        run: |
+          set -euo pipefail
+          case "$TOKEN_SOURCE:$TOKEN_LOGIN" in
+            'ACTIONS_BOT_PAT:stranske'|'SERVICE_BOT_PAT:stranske-automation-bot') ;;
+            *)
+              echo "::error::$TOKEN_SOURCE has unexpected identity '$TOKEN_LOGIN'."
+              exit 1 ;;
+          esac
+
+      - name: Require trusted mark-running writer
+>>>>>>> 0449235b (fix(keepalive): preserve trusted PAT fallback)
         env:
           KEEPALIVE_RUNNING_TOKEN: >-
             ${{
+<<<<<<< HEAD
               steps.running_keepalive_app_token.outputs.token ||
               steps.running_workflows_app_token.outputs.token ||
               ''
@@ -517,6 +581,17 @@ jobs:
         run: |
           if [ -z "$KEEPALIVE_RUNNING_TOKEN" ]; then
             echo "::error::A dedicated keepalive or Workflows App token is required to mark the agent running."
+=======
+              steps.mark_running_keepalive_app_token.outputs.token ||
+              steps.mark_running_workflows_app_token.outputs.token ||
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.SERVICE_BOT_PAT ||
+              ''
+            }}
+        run: |
+          if [ -z "$MARK_RUNNING_TOKEN" ]; then
+            echo "::error::A keepalive/Workflows App token or an approved PAT is required to mark the agent running."
+>>>>>>> 0449235b (fix(keepalive): preserve trusted PAT fallback)
             exit 1
           fi
 
@@ -532,8 +607,15 @@ jobs:
         with:
           github-token: >-
             ${{
+<<<<<<< HEAD
               steps.running_keepalive_app_token.outputs.token ||
               steps.running_workflows_app_token.outputs.token
+=======
+              steps.mark_running_keepalive_app_token.outputs.token ||
+              steps.mark_running_workflows_app_token.outputs.token ||
+              secrets.ACTIONS_BOT_PAT ||
+              secrets.SERVICE_BOT_PAT
+>>>>>>> 0449235b (fix(keepalive): preserve trusted PAT fallback)
             }}
           script: |
             const { markAgentRunning } = require('./.github/scripts/keepalive_loop.js');

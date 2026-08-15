@@ -785,6 +785,37 @@ def test_keepalive_recovery_uses_active_lane_and_forces_only_due_challenges():
         assert "await github.rest.actions.createWorkflowDispatch({" not in text
 
 
+def test_mark_running_uses_same_trusted_app_token_as_summary():
+    consumer_loop = Path(
+        "templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml"
+    ).read_text(encoding="utf-8")
+    mark_start = consumer_loop.index("  mark-running:")
+    mark_end = consumer_loop.index("  run-codex:", mark_start)
+    mark_running = consumer_loop[mark_start:mark_end]
+
+    assert "id: running_keepalive_app_token" in mark_running
+    assert "id: running_workflows_app_token" in mark_running
+    assert mark_running.count("repositories: ${{ github.event.repository.name }}") == 2
+    for permission in (
+        "permission-actions: write",
+        "permission-contents: read",
+        "permission-issues: write",
+        "permission-pull-requests: read",
+    ):
+        assert mark_running.count(permission) == 2
+    assert "Require trusted keepalive running writer" in mark_running
+    assert "id: mark_running_writer" in mark_running
+    assert "id: mark_running_pat_identity" in mark_running
+    assert "withRetry(() => github.rest.users.getAuthenticated())" in mark_running
+    assert "'ACTIONS_BOT_PAT:stranske'" in mark_running
+    assert "'SERVICE_BOT_PAT:stranske-automation-bot'" in mark_running
+    update = mark_running[mark_running.index("- name: Update summary with running status") :]
+    assert "steps.running_keepalive_app_token.outputs.token ||" in update
+    assert "steps.running_workflows_app_token.outputs.token ||" in update
+    assert "secrets.ACTIONS_BOT_PAT ||" in update
+    assert "secrets.SERVICE_BOT_PAT" in update
+    assert "github-token: ${{ secrets.GITHUB_TOKEN }}" not in update
+    assert "github-token: ${{ github.token }}" not in update
 def test_terminal_disposition_records_include_artifact_identity():
     workflow_paths = [
         WORKFLOWS_DIR / "agents-verify-to-issue-v2.yml",
