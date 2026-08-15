@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.23.4](https://github.com/stranske/Workflows/compare/v1.23.3...v1.23.4) (2026-08-15)
+
+
+### Bug Fixes
+
+* **deps:** align mypy 2.3.1 pins ([#3092](https://github.com/stranske/Workflows/issues/3092)) ([655780b](https://github.com/stranske/Workflows/commit/655780bd164211e3a863fa794f3df7926254bf88))
+* **sync:** preserve bootstrap contract bytes ([#3091](https://github.com/stranske/Workflows/issues/3091)) ([fe7ca61](https://github.com/stranske/Workflows/commit/fe7ca618eb7e075ad4cb87fd83104f1b1ddfed4d))
+
 ## [1.23.3](https://github.com/stranske/Workflows/compare/v1.23.2...v1.23.3) (2026-08-14)
 
 
