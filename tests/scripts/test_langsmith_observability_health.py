@@ -60,9 +60,7 @@ def test_overdue_pause_requires_attention() -> None:
 
     assert component["status"] == "degraded"
     assert component["paused_entries"][0]["pause_owner"] == "stranske/Workflows#2150"
-    assert component["reasons"] == [
-        "stranske/Workflows pause review was due 2026-08-01"
-    ]
+    assert component["reasons"] == ["stranske/Workflows pause review was due 2026-08-01"]
 
 
 def test_workflow_run_loader_preserves_fetch_failure(tmp_path) -> None:

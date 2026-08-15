@@ -6,16 +6,17 @@ WORKFLOW = Path(".github/workflows/health-84-langsmith-observability.yml")
 def test_observability_health_is_independent_and_non_mutating() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "schedule:" in source
-    assert "workflow_run:" in source
-    assert "LangSmith Metrics Dashboard" in source
-    assert "LangSmith Fleet Conformance" in source
+    assert source.count("schedule:") == 1
+    assert "workflow_dispatch:" in source
+    assert "workflow_run:" not in source
     assert "maint-80-langsmith-metrics-dashboard.yml" in source
     assert "maint-81-langsmith-fleet-conformance.yml" in source
     assert "contents: read" in source
     assert "contents: write" not in source
     assert "persist-credentials: false" in source
     assert "git push" not in source
+    assert "gh run list" in source
+    assert "gh api" not in source
 
 
 def test_observability_health_has_visible_durable_escalation() -> None:

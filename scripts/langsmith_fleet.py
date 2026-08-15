@@ -301,19 +301,13 @@ def validate_registry(
                     f"registry repos[{index}].paused_at must be an ISO timestamp"
                 ) from exc
             if paused_at.tzinfo is None:
-                raise ValueError(
-                    f"registry repos[{index}].paused_at must include a timezone"
-                )
+                raise ValueError(f"registry repos[{index}].paused_at must include a timezone")
             try:
                 review_by = date.fromisoformat(entry["review_by"])
             except ValueError as exc:
-                raise ValueError(
-                    f"registry repos[{index}].review_by must be an ISO date"
-                ) from exc
+                raise ValueError(f"registry repos[{index}].review_by must be an ISO date") from exc
             if review_by < paused_at.date():
-                raise ValueError(
-                    f"registry repos[{index}].review_by cannot predate paused_at"
-                )
+                raise ValueError(f"registry repos[{index}].review_by cannot predate paused_at")
 
         if not isinstance(operations, list) or not operations:
             raise ValueError(f"registry repos[{index}].operations must be a non-empty list")

@@ -3,11 +3,6 @@ name: Health 84 LangSmith Observability
 on:
   schedule:
     - cron: '15 10 * * *'
-  workflow_run:
-    workflows:
-      - LangSmith Metrics Dashboard
-      - LangSmith Fleet Conformance
-    types: [completed]
   workflow_dispatch:
     inputs:
       workflow_max_age_hours:
@@ -56,14 +51,24 @@ jobs:
             name="${spec%%:*}"
             workflow="${spec#*:}"
             output=".observability-health/${name}-runs.json"
-            runs_url="/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs"
-            if ! gh api --method GET \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$runs_url" \
-              -F per_page=20 \
-              -F status=completed \
-              > "$output"; then
+            raw_output=".observability-health/${name}-runs-raw.json"
+            if gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "$workflow" \
+              --status completed \
+              --limit 20 \
+              --json conclusion,createdAt,databaseId,status,url \
+              > "$raw_output"; then
+              jq \
+                '{workflow_runs: [.[] | {
+                  conclusion,
+                  created_at: .createdAt,
+                  id: .databaseId,
+                  status,
+                  html_url: .url
+                }]}' \
+                "$raw_output" > "$output"
+            else
               printf '{"workflow_runs":[],"fetch_error":"GitHub API request failed for %s"}\n' \
                 "$workflow" > "$output"
             fi
@@ -72,13 +77,15 @@ jobs:
       - name: Evaluate observability health
         env:
           LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          TRACE_MAX_AGE_HOURS: ${{ inputs.trace_max_age_hours || '24' }}
+          WORKFLOW_MAX_AGE_HOURS: ${{ inputs.workflow_max_age_hours || '192' }}
         run: |
           set -uo pipefail
           if ! python scripts/langsmith_observability_health.py \
             --dashboard-runs .observability-health/dashboard-runs.json \
             --conformance-runs .observability-health/conformance-runs.json \
-            --workflow-max-age-hours "${{ inputs.workflow_max_age_hours || '192' }}" \
-            --trace-max-age-hours "${{ inputs.trace_max_age_hours || '24' }}" \
+            --workflow-max-age-hours "$WORKFLOW_MAX_AGE_HOURS" \
+            --trace-max-age-hours "$TRACE_MAX_AGE_HOURS" \
             --failure-threshold 2 \
             --json-output .observability-health/report.json \
             --markdown-output .observability-health/report.md; then
@@ -146,8 +153,8 @@ jobs:
           - [LangSmith Metrics Dashboard](${repo_url}/issues/2415)
           - [Observability contract](${contract_url})
 
-          This durable issue is updated by an independent daily and
-          workflow-completion sentinel. A degraded transition adds
+          This durable issue is updated by an independent daily and manual
+          sentinel. A degraded transition adds
           \`needs-human\` and \`agent:needs-attention\`; recovery removes them.
           EOF
 

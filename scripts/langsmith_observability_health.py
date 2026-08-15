@@ -114,9 +114,9 @@ def evaluate_workflow_runs(
         ),
         "latest_conclusion": latest.get("conclusion"),
         "last_success_at": last_success_at.isoformat() if last_success_at else None,
-        "hours_since_success": round(hours_since_success, 1)
-        if hours_since_success is not None
-        else None,
+        "hours_since_success": (
+            round(hours_since_success, 1) if hours_since_success is not None else None
+        ),
         "consecutive_failures": consecutive_failures,
         "reasons": reasons,
     }
@@ -210,7 +210,9 @@ def _request_json(
         with urlrequest.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
     except urlerror.HTTPError as exc:
-        raise RuntimeError(f"LangSmith HTTP {exc.code} for {method} {urlparse.urlparse(url).path}") from exc
+        raise RuntimeError(
+            f"LangSmith HTTP {exc.code} for {method} {urlparse.urlparse(url).path}"
+        ) from exc
 
 
 def query_latest_trace(
@@ -240,7 +242,9 @@ def query_latest_trace(
         },
     )
     runs = response.get("runs", []) if isinstance(response, dict) else []
-    usable = [run for run in runs if isinstance(run, dict) and parse_timestamp(run.get("start_time"))]
+    usable = [
+        run for run in runs if isinstance(run, dict) and parse_timestamp(run.get("start_time"))
+    ]
     return max(usable, key=lambda run: parse_timestamp(run["start_time"])) if usable else None
 
 
@@ -256,15 +260,9 @@ def render_markdown(report: dict[str, Any]) -> str:
         "|---|---|---|---|",
     ]
     for component in report["components"]:
-        latest = (
-            component.get("latest_trace_at")
-            or component.get("last_success_at")
-            or "n/a"
-        )
+        latest = component.get("latest_trace_at") or component.get("last_success_at") or "n/a"
         details = "; ".join(component.get("reasons", [])) or "within freshness policy"
-        lines.append(
-            f"| {component['name']} | {component['status']} | {latest} | {details} |"
-        )
+        lines.append(f"| {component['name']} | {component['status']} | {latest} | {details} |")
     lines.extend(
         [
             "",
@@ -331,9 +329,11 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "schema_version": "langsmith-observability-health/v1",
         "generated_at": now.isoformat(),
-        "status": "degraded"
-        if any(component["status"] != "healthy" for component in components)
-        else "healthy",
+        "status": (
+            "degraded"
+            if any(component["status"] != "healthy" for component in components)
+            else "healthy"
+        ),
         "components": components,
     }
 
@@ -362,7 +362,9 @@ def main() -> int:
     args = parse_args()
     report = build_report(args)
     args.json_output.parent.mkdir(parents=True, exist_ok=True)
-    args.json_output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.json_output.write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     args.markdown_output.parent.mkdir(parents=True, exist_ok=True)
     args.markdown_output.write_text(render_markdown(report), encoding="utf-8")
     print(json.dumps({"status": report["status"], "json": str(args.json_output)}))
