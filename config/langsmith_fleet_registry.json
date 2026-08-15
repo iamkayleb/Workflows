@@ -17,6 +17,11 @@
       "artifact_name": "langsmith-fleet.ndjson",
       "evidence_mode": "artifact",
       "rollout_status": "paused",
+      "paused_at": "2026-06-13T13:36:33Z",
+      "pause_reason": "Workflows artifact expectation paused by #2273 to stop zero-signal dashboard churn; cloud LangSmith tracing remains active.",
+      "pause_owner": "stranske/Workflows#2150",
+      "resume_condition": "Resume artifact expectation after the Workflows primary producer uploads a conformant langsmith-fleet.ndjson artifact.",
+      "review_by": "2026-09-15",
       "required_domain_fields": [
         "workflow",
         "agent",

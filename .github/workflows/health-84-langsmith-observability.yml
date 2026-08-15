@@ -1,0 +1,198 @@
+name: Health 84 LangSmith Observability
+
+on:
+  schedule:
+    - cron: '15 10 * * *'
+  workflow_run:
+    workflows:
+      - LangSmith Metrics Dashboard
+      - LangSmith Fleet Conformance
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      workflow_max_age_hours:
+        description: 'Maximum hours since a successful weekly workflow run'
+        required: false
+        default: '192'
+        type: string
+      trace_max_age_hours:
+        description: 'Maximum hours since a workflows-agents cloud trace'
+        required: false
+        default: '24'
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: health-84-langsmith-observability
+  cancel-in-progress: true
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Collect independent workflow histories
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          mkdir -p .observability-health
+          for spec in \
+            "dashboard:maint-80-langsmith-metrics-dashboard.yml" \
+            "conformance:maint-81-langsmith-fleet-conformance.yml"; do
+            name="${spec%%:*}"
+            workflow="${spec#*:}"
+            output=".observability-health/${name}-runs.json"
+            runs_url="/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs"
+            if ! gh api --method GET \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$runs_url" \
+              -F per_page=20 \
+              -F status=completed \
+              > "$output"; then
+              printf '{"workflow_runs":[],"fetch_error":"GitHub API request failed for %s"}\n' \
+                "$workflow" > "$output"
+            fi
+          done
+
+      - name: Evaluate observability health
+        env:
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+        run: |
+          set -uo pipefail
+          if ! python scripts/langsmith_observability_health.py \
+            --dashboard-runs .observability-health/dashboard-runs.json \
+            --conformance-runs .observability-health/conformance-runs.json \
+            --workflow-max-age-hours "${{ inputs.workflow_max_age_hours || '192' }}" \
+            --trace-max-age-hours "${{ inputs.trace_max_age_hours || '24' }}" \
+            --failure-threshold 2 \
+            --json-output .observability-health/report.json \
+            --markdown-output .observability-health/report.md; then
+            cat > .observability-health/report.json <<'EOF'
+          {
+            "schema_version": "langsmith-observability-health/v1",
+            "status": "degraded",
+            "components": [{
+              "name": "sentinel_execution",
+              "status": "degraded",
+              "reasons": ["health evaluator failed before producing a report"]
+            }]
+          }
+          EOF
+            cat > .observability-health/report.md <<'EOF'
+          # LangSmith Observability Health
+
+          - Overall status: **degraded**
+          - The health evaluator failed before producing a report. Inspect this workflow run.
+          EOF
+          fi
+          health_status=$(jq -r '.status' .observability-health/report.json)
+          echo "LANGSMITH_OBSERVABILITY_STATUS=$health_status" >> "$GITHUB_ENV"
+          cat .observability-health/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload health evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: langsmith-observability-health-${{ github.run_id }}
+          path: .observability-health
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Upsert durable observability health issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEALTH_STATUS: ${{ env.LANGSMITH_OBSERVABILITY_STATUS || 'degraded' }}
+        run: |
+          set -euo pipefail
+          mkdir -p .observability-health
+          title="🔭 LangSmith Observability Health"
+          marker="<!-- langsmith-observability-health:v1 status=${HEALTH_STATUS} -->"
+          report_file=.observability-health/report.md
+          if [ ! -f "$report_file" ]; then
+            printf '%s\n' \
+              '# LangSmith Observability Health' \
+              '' \
+              '- Overall status: **degraded**' \
+              > "$report_file"
+          fi
+          repo_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+          run_url="${repo_url}/actions/runs/${GITHUB_RUN_ID}"
+          contract_url="${repo_url}/blob/main/docs/contracts/langsmith-observability-contract.md"
+          cat > .observability-health/issue-body.md <<EOF
+          ${marker}
+
+          $(cat "$report_file")
+
+          ## Operator links
+
+          - [This health run](${run_url})
+          - [LangSmith Metrics Dashboard](${repo_url}/issues/2415)
+          - [Observability contract](${contract_url})
+
+          This durable issue is updated by an independent daily and
+          workflow-completion sentinel. A degraded transition adds
+          \`needs-human\` and \`agent:needs-attention\`; recovery removes them.
+          EOF
+
+          issue_json=$(gh issue list \
+            --state open \
+            --search "LangSmith Observability Health in:title" \
+            --json number,title,body)
+          issue_number=$(printf '%s' "$issue_json" | jq -r \
+            --arg title "$title" 'map(select(.title == $title)) | .[0].number // empty')
+
+          if [ -n "$issue_number" ]; then
+            previous_status=$(printf '%s' "$issue_json" | jq -r \
+              --arg title "$title" 'map(select(.title == $title)) | .[0].body // ""' \
+              | sed -n 's/.*langsmith-observability-health:v1 status=\([^ ]*\).*/\1/p' \
+              | head -n 1)
+            gh issue edit "$issue_number" \
+              --title "$title" \
+              --body-file .observability-health/issue-body.md \
+              --add-label "metrics" \
+              --add-label "automated" \
+              --add-label "tracker:durable"
+          else
+            labels="metrics,automated,tracker:durable"
+            if [ "$HEALTH_STATUS" != "healthy" ]; then
+              labels="${labels},needs-human,agent:needs-attention"
+            fi
+            issue_url=$(gh issue create \
+              --title "$title" \
+              --body-file .observability-health/issue-body.md \
+              --label "$labels")
+            issue_number="${issue_url##*/}"
+            previous_status=""
+          fi
+
+          if [ "$HEALTH_STATUS" = "healthy" ]; then
+            gh issue edit "$issue_number" --remove-label "needs-human" 2>/dev/null || true
+            gh issue edit "$issue_number" --remove-label "agent:needs-attention" 2>/dev/null || true
+          else
+            gh issue edit "$issue_number" \
+              --add-label "needs-human" \
+              --add-label "agent:needs-attention"
+          fi
+
+          if [ -n "${previous_status:-}" ] && [ "$previous_status" != "$HEALTH_STATUS" ]; then
+            transition="Observability health changed from **${previous_status}**"
+            transition+=" to **${HEALTH_STATUS}**. See run ${run_url}."
+            gh issue comment "$issue_number" --body "$transition"
+          fi
