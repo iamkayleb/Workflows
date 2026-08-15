@@ -178,6 +178,7 @@ def test_extracted_setup_steps_not_duplicated_in_runners(workflow_rel: str) -> N
     assert target_with["fetch-depth"] == 0
     assert target_with["ref"] == "${{ inputs.pr_ref || github.ref }}"
     assert target_with["token"] == "${{ steps.bootstrap_app_token.outputs.token || github.token }}"
+    assert target_with["persist-credentials"] is False
     assert target_with["clean"] is False
     assert steps.index(target_checkout) < steps.index(run_base_checkout_steps[0]), (
         f"{workflow_rel}: target checkout must precede the nested local-action "
@@ -191,6 +192,7 @@ def test_extracted_setup_steps_not_duplicated_in_runners(workflow_rel: str) -> N
     assert (
         checkout_with["token"] == "${{ steps.bootstrap_app_token.outputs.token || github.token }}"
     )
+    assert checkout_with["persist-credentials"] is False
     run_base_step = next(step for step in steps if _uses_base(step) in RUN_BASE_USE_BASES)
     assert run_base_step["with"]["target_checkout_ready"] is True
 

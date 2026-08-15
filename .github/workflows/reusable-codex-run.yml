@@ -335,6 +335,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.pr_ref || github.ref }}
           token: ${{ steps.bootstrap_app_token.outputs.token || github.token }}
+          persist-credentials: false
           clean: false
 
       - name: Checkout Workflows run-base action
@@ -347,6 +348,7 @@ jobs:
             .github/actions/agent-run-base
           sparse-checkout-cone-mode: false
           token: ${{ steps.bootstrap_app_token.outputs.token || github.token }}
+          persist-credentials: false
 
       - name: Agent run base setup
         id: run_base
