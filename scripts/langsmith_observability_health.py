@@ -145,16 +145,35 @@ def evaluate_pauses(registry: dict[str, Any], *, now: datetime) -> dict[str, Any
         if not isinstance(entry, dict) or entry.get("rollout_status") != "paused":
             continue
         repo = str(entry.get("repo") or "unknown")
-        missing = [field for field in PAUSE_METADATA_FIELDS if not entry.get(field)]
+        normalized_metadata = {
+            field: value.strip()
+            for field in PAUSE_METADATA_FIELDS
+            if isinstance((value := entry.get(field)), str) and value.strip()
+        }
+        missing = [field for field in PAUSE_METADATA_FIELDS if field not in normalized_metadata]
         if missing:
             reasons.append(f"{repo} pause is missing: {', '.join(missing)}")
-        review_by_raw = entry.get("review_by")
+
+        paused_at_raw = normalized_metadata.get("paused_at")
+        paused_at = None
+        if paused_at_raw:
+            try:
+                paused_at = datetime.fromisoformat(paused_at_raw.replace("Z", "+00:00"))
+                if paused_at.tzinfo is None:
+                    raise ValueError
+                paused_at = paused_at.astimezone(UTC)
+            except ValueError:
+                reasons.append(f"{repo} paused_at is not a timezone-aware ISO timestamp")
+
+        review_by_raw = normalized_metadata.get("review_by")
         review_by = None
-        try:
-            if isinstance(review_by_raw, str):
+        if review_by_raw:
+            try:
                 review_by = date.fromisoformat(review_by_raw)
-        except ValueError:
-            reasons.append(f"{repo} review_by is not an ISO date")
+            except ValueError:
+                reasons.append(f"{repo} review_by is not an ISO date")
+        if paused_at and review_by and review_by < paused_at.date():
+            reasons.append(f"{repo} review_by cannot predate paused_at")
         if review_by and review_by < now.date():
             reasons.append(f"{repo} pause review was due {review_by.isoformat()}")
         paused_entries.append(
@@ -163,7 +182,7 @@ def evaluate_pauses(registry: dict[str, Any], *, now: datetime) -> dict[str, Any
                 "paused_at": entry.get("paused_at"),
                 "pause_owner": entry.get("pause_owner"),
                 "resume_condition": entry.get("resume_condition"),
-                "review_by": review_by_raw,
+                "review_by": entry.get("review_by"),
             }
         )
     return {

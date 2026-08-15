@@ -85,6 +85,42 @@ def test_overdue_pause_requires_attention() -> None:
     assert component["reasons"] == ["stranske/Workflows pause review was due 2026-08-01"]
 
 
+@pytest.mark.parametrize(
+    ("override", "reason"),
+    [
+        (
+            {"paused_at": "not-a-timestamp"},
+            "paused_at is not a timezone-aware ISO timestamp",
+        ),
+        (
+            {"paused_at": "2026-08-01T12:00:00"},
+            "paused_at is not a timezone-aware ISO timestamp",
+        ),
+        ({"pause_owner": "   "}, "pause is missing: pause_owner"),
+        ({"review_by": 20260815}, "pause is missing: review_by"),
+        ({"review_by": "2026-07-31"}, "review_by cannot predate paused_at"),
+    ],
+)
+def test_malformed_pause_metadata_requires_attention(
+    override: dict[str, object], reason: str
+) -> None:
+    entry: dict[str, object] = {
+        "repo": "stranske/Workflows",
+        "rollout_status": "paused",
+        "paused_at": "2026-08-01T12:00:00Z",
+        "pause_reason": "artifact rollout paused",
+        "pause_owner": "stranske/Workflows#2150",
+        "resume_condition": "producer artifact is available",
+        "review_by": "2026-08-15",
+    }
+    entry.update(override)
+
+    component = health.evaluate_pauses({"repos": [entry]}, now=NOW)
+
+    assert component["status"] == "degraded"
+    assert any(reason in item for item in component["reasons"])
+
+
 def test_workflow_run_loader_preserves_fetch_failure(tmp_path) -> None:
     payload = tmp_path / "runs.json"
     payload.write_text(

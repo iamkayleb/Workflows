@@ -93,8 +93,8 @@ still requires the corresponding cloud trace to remain retained and accessible.
 
 ## Health And Notification Protocol
 
-`health-84-langsmith-observability.yml` runs daily and after either LangSmith
-maintenance workflow completes. It independently checks:
+`health-84-langsmith-observability.yml` runs daily and supports manual
+dispatch. It independently checks:
 
 - the dashboard and conformance workflows have a success within 192 hours,
 - neither workflow has two consecutive non-successful completed runs,
