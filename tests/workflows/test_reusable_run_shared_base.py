@@ -17,9 +17,10 @@ checkout of the target repo, Node.js setup, the API client, and the
 ``.workflows-lib`` scripts checkout — into ``.github/actions/agent-run-base``
 so it is maintained in one place.
 
-This test asserts both runners call the shared composite exactly once and no
-longer carry their own copy of the extracted ``actions/checkout`` /
-``sparse-checkout`` steps, so the duplication cannot silently creep back.
+This test asserts both runners call the shared composite exactly once. The
+target checkout deliberately remains in each runner and must happen before the
+trusted local-action checkout so the root checkout cannot erase local action
+metadata needed during post-job cleanup.
 """
 
 from __future__ import annotations
@@ -96,6 +97,7 @@ def test_run_base_action_exists_and_parses() -> None:
     assert "sparse-checkout" in src
     checkout_step = next(s for s in steps if s.get("name") == "Checkout")
     assert checkout_step["with"]["clean"] is False
+    assert checkout_step["if"] == "inputs.target_checkout_ready != 'true'"
 
 
 @pytest.mark.parametrize(
@@ -156,6 +158,12 @@ def test_extracted_setup_steps_not_duplicated_in_runners(workflow_rel: str) -> N
     path = ROOT / workflow_rel
     src = path.read_text()
     steps = _workflow_steps(workflow_rel)
+    target_checkout_steps = [
+        step
+        for step in steps
+        if step.get("name") == "Checkout target repository"
+        and _uses_base(step) == "actions/checkout"
+    ]
     run_base_checkout_steps = [
         step
         for step in steps
@@ -163,9 +171,17 @@ def test_extracted_setup_steps_not_duplicated_in_runners(workflow_rel: str) -> N
         and _uses_base(step) == "actions/checkout"
     ]
 
-    assert len(run_base_checkout_steps) == 1, (
-        f"{workflow_rel}: expected one pre-checkout for {RUN_BASE_ACTION} so "
-        "the local composite exists before the target repository checkout"
+    assert len(target_checkout_steps) == 1
+    assert len(run_base_checkout_steps) == 1
+    target_checkout = target_checkout_steps[0]
+    target_with = target_checkout["with"]
+    assert target_with["fetch-depth"] == 0
+    assert target_with["ref"] == "${{ inputs.pr_ref || github.ref }}"
+    assert target_with["token"] == "${{ steps.bootstrap_app_token.outputs.token || github.token }}"
+    assert target_with["clean"] is False
+    assert steps.index(target_checkout) < steps.index(run_base_checkout_steps[0]), (
+        f"{workflow_rel}: target checkout must precede the nested local-action "
+        "checkout so post-job metadata survives"
     )
     checkout_with = run_base_checkout_steps[0]["with"]
     assert checkout_with["path"] == RUN_BASE_CHECKOUT_PATH
@@ -175,6 +191,8 @@ def test_extracted_setup_steps_not_duplicated_in_runners(workflow_rel: str) -> N
     assert (
         checkout_with["token"] == "${{ steps.bootstrap_app_token.outputs.token || github.token }}"
     )
+    run_base_step = next(step for step in steps if _uses_base(step) in RUN_BASE_USE_BASES)
+    assert run_base_step["with"]["target_checkout_ready"] is True
 
     bootstrap_token_steps = [
         step
@@ -188,9 +206,8 @@ def test_extracted_setup_steps_not_duplicated_in_runners(workflow_rel: str) -> N
     )
     assert bootstrap_token_steps[0].get("continue-on-error") is True
 
-    # The target repository checkout and Workflows scripts checkout now live in
-    # the composite; only the pre-checkout for the composite definition remains
-    # in the runners.
+    # Runtime auth selection and the Workflows scripts checkout remain shared in
+    # the composite; the target checkout is intentionally caller-owned.
     assert "repository: stranske/Workflows" in src
     assert sum(_uses_base(step) == "actions/create-github-app-token" for step in steps) == 1, (
         f"{workflow_rel}: only the run-base bootstrap checkout may mint an App "
