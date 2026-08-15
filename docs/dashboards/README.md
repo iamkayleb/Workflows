@@ -20,9 +20,13 @@ This directory contains automated dashboard reports for monitoring repository me
 
 #### Where to View
 
-1. **Dashboard file:** `docs/dashboards/langsmith-metrics.md` (updated weekly, committed to main)
-2. **Dashboard issue:** A single open issue is updated with labels `metrics,automated`
-3. **Workflow artifacts:** Downloadable JSON + markdown reports (90-day retention)
+1. **Dashboard issue:** [issue #2415](https://github.com/stranske/Workflows/issues/2415)
+   is the authoritative human-readable view and is updated in place with labels
+   `metrics,automated,tracker:durable`
+2. **Workflow artifacts:** Downloadable JSON, markdown, diagnostics, and NDJSON
+   reports are retained for 90 days
+3. **Repository file:** `docs/dashboards/langsmith-metrics.md` is a stable pointer
+   to those live surfaces; scheduled jobs do not commit generated snapshots
 
 #### Manual Triggers
 
@@ -85,8 +89,9 @@ before treating a consumer-local validator as a design blocker.
 4. **Report** - Generates a markdown report combining the trace-coverage section
    and the fleet artifact status section (the report is published even when only
    the fleet section has content)
-5. **Publish** - Updates `docs/dashboards/langsmith-metrics.md`, upserts the
-   dashboard issue, and uploads artifacts (report + fleet status JSON/markdown)
+5. **Publish** - Upserts the durable dashboard issue and uploads artifacts
+   (report + fleet status JSON/markdown). The workflow has read-only repository
+   contents permission and never pushes a generated snapshot to `main`.
 
 ---
 
@@ -95,9 +100,10 @@ before treating a consumer-local validator as a design blocker.
 To create a new dashboard:
 
 1. **Create workflow** in `.github/workflows/maint-XX-<name>-dashboard.yml`
-2. **Generate report** as markdown file
-3. **Save to** `docs/dashboards/<name>.md`
-4. **Update this README** with dashboard details
+2. **Generate report** as markdown and machine-readable artifacts
+3. **Publish** through an uploaded artifact and, when needed, one durable issue
+4. **Add a stable pointer** under `docs/dashboards/` instead of committing on a schedule
+5. **Update this README** with dashboard details
 
 ### Dashboard Workflow Template
 
@@ -117,15 +123,14 @@ jobs:
       - name: Generate report
         run: |
           # Your analysis script
-          ./scripts/analyze.py > docs/dashboards/my-dashboard.md
+          mkdir -p .dashboard-output
+          ./scripts/analyze.py > .dashboard-output/my-dashboard.md
 
-      - name: Commit dashboard
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/dashboards/my-dashboard.md
-          git commit -m "chore: Update my dashboard"
-          git push
+      - name: Upload dashboard
+        uses: actions/upload-artifact@v7
+        with:
+          name: my-dashboard-${{ github.run_id }}
+          path: .dashboard-output/my-dashboard.md
 ```
 
 ---
