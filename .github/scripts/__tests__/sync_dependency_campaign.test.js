@@ -19,6 +19,7 @@ const {
   normalizeDeliveryHandoff,
   paginateWithRetry,
   parseCampaignMarker,
+  planMaint71Continuations,
   replaceCampaignMarker,
   verboseDryRunLoggingEnabled,
   validateCampaignState,
@@ -37,7 +38,61 @@ test('mergeDeliveryHandoffs retains one current record per generated PR', () => 
     check_state: 'ready', review_state: 'blocked',
   };
   assert.deepEqual(mergeDeliveryHandoffs([stale], [current], '2026-08-02T00:00:00Z'), [{
-    ...current, branch: '', lane: '', observed_at: '2026-08-02T00:00:00Z',
+    ...current,
+    branch: '',
+    lane: '',
+    continuation: { class: '', lane: '', reason: '', resume_after: '' },
+    observed_at: '2026-08-02T00:00:00Z',
+  }]);
+});
+
+test('plans only due transient Maint 71 lanes and suppresses candidates during delivery', () => {
+  const base = {
+    schema: 'workflows-generated-delivery-handoff/v1',
+    head_sha: 'abc',
+    delivery_generation: 'g1',
+    disposition: 'awaiting-checks',
+    blocker_owner: 'ci',
+    next_command: 'await-required-checks',
+    check_state: 'checks_pending',
+    review_state: 'clear',
+    observed_at: '2026-08-15T12:00:00Z',
+  };
+  const candidate = {
+    ...base,
+    repository: 'stranske/Travel',
+    pr: 11,
+    branch: 'sync/workflows-candidate',
+    continuation: {
+      class: 'transient', lane: 'candidate', reason: 'checks_pending',
+      resume_after: '2026-08-15T12:10:00Z',
+    },
+  };
+  const delivery = {
+    ...base,
+    repository: 'stranske/Ready',
+    pr: 12,
+    branch: 'sync/workflows-delivery',
+    continuation: {
+      class: 'transient', lane: 'delivery', reason: 'review_window_pending',
+      resume_after: '2026-08-15T12:07:00Z',
+    },
+  };
+  const planned = planMaint71Continuations([candidate, delivery], {
+    now: '2026-08-15T12:11:00Z',
+  });
+  assert.deepEqual(planned.map((item) => item.lane), ['delivery']);
+  assert.equal(planMaint71Continuations([candidate], {
+    now: '2026-08-15T12:09:59Z',
+  }).length, 0);
+  assert.deepEqual(planMaint71Continuations([candidate], {
+    now: '2026-08-15T12:10:00Z',
+  }), []);
+  assert.deepEqual(planMaint71Continuations([candidate], {
+    now: '2026-08-15T12:10:00.001Z',
+  }).map((item) => ({ lane: item.lane, branch: item.branch })), [{
+    lane: 'candidate',
+    branch: 'sync/workflows-candidate',
   }]);
 });
 

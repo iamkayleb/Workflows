@@ -57,6 +57,46 @@ function normalizeReviewPolicy(policy = {}) {
   };
 }
 
+function parseReviewResolutionProofs(raw = '') {
+  if (!String(raw || '').trim()) return [];
+  let parsed;
+  try {
+    parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch (error) {
+    throw new Error(`review resolution proof is not valid JSON: ${error.message}`);
+  }
+  const proofs = Array.isArray(parsed) ? parsed : parsed?.proofs;
+  if (!Array.isArray(proofs)) {
+    throw new Error('review resolution proof must be an array or contain proofs[]');
+  }
+  return proofs;
+}
+
+function validateReviewResolutionProof(proof = {}, {
+  owner,
+  repo,
+  prNumber,
+  headSha,
+  actor,
+  trustedActors = [],
+} = {}) {
+  const errors = [];
+  if (proof.schema !== 'workflows-sync-review-resolution/v1') errors.push('unsupported_schema');
+  if (proof.repository !== `${owner}/${repo}`) errors.push('repository_mismatch');
+  if (Number(proof.pr) !== Number(prNumber)) errors.push('pr_mismatch');
+  if (String(proof.head_sha || '') !== String(headSha || '')) errors.push('head_mismatch');
+  if (!String(proof.thread_id || '').startsWith('PRRT_')) errors.push('invalid_thread_id');
+  if (!/^[0-9a-f]{40,64}$/i.test(String(proof.source_fix_sha || ''))) {
+    errors.push('invalid_source_fix_sha');
+  }
+  if (!/^https:\/\/github\.com\/stranske\/Workflows\/(?:pull\/[1-9]\d*|commit\/[0-9a-f]{40,64})$/i.test(
+    String(proof.evidence_url || ''),
+  )) errors.push('invalid_evidence_url');
+  if (!String(proof.reason || '').trim()) errors.push('missing_reason');
+  if (!new Set(trustedActors).has(String(actor || ''))) errors.push('untrusted_dispatch_actor');
+  return { ok: errors.length === 0, errors };
+}
+
 async function collectReviewerEvidence({
   owner,
   repo,
@@ -237,6 +277,7 @@ async function run({ github, context, core }) {
     isStableSyncBranchName,
     normalizeSyncHash,
     parseBooleanInput,
+    parsePromotionEvidenceFromCommitMessage,
     requiresStrictGateBranchUpdate,
     requiredContextsFromRulesets,
     isTrustedGeneratedDeliveryPr,
@@ -266,12 +307,13 @@ async function run({ github, context, core }) {
     true,
   );
   const evidenceOnly = parseBooleanInput(process.env.EVIDENCE_ONLY_INPUT, false);
+  const resolutionOnly = parseBooleanInput(process.env.RESOLUTION_ONLY_INPUT, false);
   const candidateEvidenceAuthorized = parseBooleanInput(
     process.env.CANDIDATE_EVIDENCE_AUTHORIZED,
     process.env.CANDIDATE_EVIDENCE_RESULT === 'success'
       && process.env.CANDIDATE_ARTIFACT_RESULT === 'success',
   );
-  const dryRun = evidenceOnly || parseBooleanInput(
+  const dryRun = resolutionOnly || evidenceOnly || parseBooleanInput(
     process.env.DRY_RUN_INPUT ||
       (context.payload.client_payload && context.payload.client_payload.dry_run),
     false,
@@ -281,6 +323,19 @@ async function run({ github, context, core }) {
       (context.payload.client_payload && context.payload.client_payload.cleanup_branches),
     true,
   );
+  let reviewResolutionProofs = [];
+  let reviewResolutionProofParseError = '';
+  try {
+    reviewResolutionProofs = parseReviewResolutionProofs(
+      process.env.REVIEW_RESOLUTION_JSON || '',
+    );
+  } catch (error) {
+    reviewResolutionProofParseError = error.message || String(error);
+    core.warning(reviewResolutionProofParseError);
+  }
+  const trustedResolutionActors = String(
+    process.env.TRUSTED_REVIEW_RESOLUTION_ACTORS || 'stranske,stranske-automation-bot',
+  ).split(',').map((actor) => actor.trim()).filter(Boolean);
   const retryHelpers = fs.existsSync(retryHelperPath)
     ? require(retryHelperPath)
     : {
@@ -376,12 +431,163 @@ async function run({ github, context, core }) {
     );
     return { contexts: requiredContexts, source: 'rulesets' };
   }
+
+  async function resolveProvenReviewDebt({ owner, repo, pr, deliveryRecord }) {
+    const matching = reviewResolutionProofs.filter((proof) =>
+      proof?.repository === `${owner}/${repo}`
+      && Number(proof?.pr) === Number(pr.number),
+    );
+    const resolved = [];
+    const wouldResolve = [];
+    const errors = reviewResolutionProofParseError
+      ? [`payload:${reviewResolutionProofParseError}`]
+      : [];
+    for (const proof of matching) {
+      const validation = validateReviewResolutionProof(proof, {
+        owner,
+        repo,
+        prNumber: pr.number,
+        headSha: pr.head.sha,
+        actor: context.actor,
+        trustedActors: trustedResolutionActors,
+      });
+      if (!validation.ok) {
+        errors.push(`${proof.thread_id || '<missing-thread>'}:${validation.errors.join(',')}`);
+        continue;
+      }
+      const sourceCommit = String(deliveryRecord?.source_commit || '');
+      if (!/^[0-9a-f]{40,64}$/i.test(sourceCommit)) {
+        errors.push(`${proof.thread_id}:delivery_source_commit_missing`);
+        continue;
+      }
+      try {
+        const evidenceUrl = String(proof.evidence_url || '');
+        const commitEvidence = evidenceUrl.match(
+          /^https:\/\/github\.com\/stranske\/Workflows\/commit\/([0-9a-f]{40,64})$/i,
+        );
+        const pullEvidence = evidenceUrl.match(
+          /^https:\/\/github\.com\/stranske\/Workflows\/pull\/([1-9]\d*)$/,
+        );
+        if (commitEvidence) {
+          if (commitEvidence[1].toLowerCase() !== String(proof.source_fix_sha).toLowerCase()) {
+            errors.push(`${proof.thread_id}:evidence_commit_mismatch`);
+            continue;
+          }
+          await withRetry((client) => client.rest.repos.getCommit({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            ref: proof.source_fix_sha,
+          }));
+        } else if (pullEvidence) {
+          const pullNumber = Number(pullEvidence[1]);
+          const { data: sourcePull } = await withRetry((client) => client.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: pullNumber,
+          }));
+          if (!sourcePull?.merged_at) {
+            errors.push(`${proof.thread_id}:evidence_pr_not_merged`);
+            continue;
+          }
+          const sourceCommits = await withRetry((client) => client.paginate(
+            client.rest.pulls.listCommits,
+            {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullNumber,
+              per_page: 100,
+            },
+          ));
+          const evidenceShas = new Set([
+            sourcePull.merge_commit_sha,
+            ...(sourceCommits || []).map((commit) => commit.sha),
+          ].map((sha) => String(sha || '').toLowerCase()).filter(Boolean));
+          if (!evidenceShas.has(String(proof.source_fix_sha).toLowerCase())) {
+            errors.push(`${proof.thread_id}:source_fix_not_in_evidence_pr`);
+            continue;
+          }
+        } else {
+          errors.push(`${proof.thread_id}:invalid_evidence_url`);
+          continue;
+        }
+        const { data: comparison } = await withRetry((client) =>
+          client.rest.repos.compareCommitsWithBasehead({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            basehead: `${proof.source_fix_sha}...${sourceCommit}`,
+          }),
+        );
+        if (!['ahead', 'identical'].includes(String(comparison?.status || ''))) {
+          errors.push(`${proof.thread_id}:source_fix_not_in_delivery_source`);
+          continue;
+        }
+        const data = await withRetry((client) => client.graphql(
+          `query($owner: String!, $repo: String!, $number: Int!) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                headRefOid
+                reviewThreads(first: 100) {
+                  pageInfo { hasNextPage }
+                  nodes { id isResolved isOutdated }
+                }
+              }
+            }
+          }`,
+          { owner, repo, number: pr.number },
+        ));
+        const fresh = data?.repository?.pullRequest;
+        const threads = fresh?.reviewThreads;
+        if (fresh?.headRefOid !== pr.head.sha) {
+          errors.push(`${proof.thread_id}:head_changed`);
+          continue;
+        }
+        if (threads?.pageInfo?.hasNextPage) {
+          errors.push(`${proof.thread_id}:review_thread_page_truncated`);
+          continue;
+        }
+        const thread = (threads?.nodes || []).find((item) => item.id === proof.thread_id);
+        if (!thread || thread.isResolved || thread.isOutdated) {
+          errors.push(`${proof.thread_id}:thread_not_active`);
+          continue;
+        }
+        if (dryRun && !resolutionOnly) {
+          wouldResolve.push(proof.thread_id);
+          console.log(
+            `Would resolve proof-bound review thread ${proof.thread_id} using ` +
+              `${proof.evidence_url}`,
+          );
+          continue;
+        }
+        await withRetry((client) => client.graphql(
+          `mutation($threadId: ID!) {
+            resolveReviewThread(input: {threadId: $threadId}) {
+              thread { id isResolved }
+            }
+          }`,
+          { threadId: proof.thread_id },
+        ));
+        resolved.push(proof.thread_id);
+        console.log(
+          `Resolved proof-bound review thread ${proof.thread_id} using ${proof.evidence_url}`,
+        );
+      } catch (error) {
+        errors.push(`${proof.thread_id}:${error.message || error}`);
+      }
+    }
+    return { resolved, wouldResolve, errors };
+  }
   
   // Parse repos from previous step
+  const excludedRepos = new Set(
+    String(process.env.EXCLUDED_REPOS_INPUT || 'stranske/Collab-Admin')
+      .split(',')
+      .map((repo) => repo.trim())
+      .filter(Boolean),
+  );
   const registeredRepos = String(process.env.REGISTERED_REPOS_INPUT || '')
     .split(',')
     .map(r => r.trim())
-    .filter(Boolean);
+    .filter((repo) => repo && !excludedRepos.has(repo));
   
   const requestedSyncHash = normalizeSyncHash(
     process.env.ACTIVE_SYNC_HASH_INPUT ||
@@ -439,12 +645,13 @@ async function run({ github, context, core }) {
     ? expectedCanaryRepos
     : inputRepos === 'all'
       ? registeredRepos
-      : inputRepos.split(',').map(r => r.trim());
+      : inputRepos.split(',').map(r => r.trim()).filter((repo) => repo && !excludedRepos.has(repo));
   
   console.log(`Registered consumer repos: ${registeredRepos.join(', ')}`);
   console.log(`Processing repos: ${targetRepos.join(', ')}`);
   console.log(`Auto-merge: ${autoMerge}, Dry run: ${dryRun}`);
   console.log(`Evidence only: ${evidenceOnly}`);
+  console.log(`Resolution only: ${resolutionOnly}`);
   console.log(`Candidate evidence authorized: ${candidateEvidenceAuthorized}`);
   console.log(
     `Reviewer policy: minimum=${minimumReviewerResponses}, ` +
@@ -518,14 +725,14 @@ async function run({ github, context, core }) {
       body,
     }));
     if (pr.draft) {
-      await github.graphql(
+      await withRetry((client) => client.graphql(
         `mutation($id: ID!) {
           markPullRequestReadyForReview(input: {pullRequestId: $id}) {
             pullRequest { id isDraft }
           }
         }`,
         { id: pr.node_id },
-      );
+      ));
     }
     await withRetry((client) => client.rest.issues.addLabels({
       owner,
@@ -534,6 +741,50 @@ async function run({ github, context, core }) {
       labels: ['sync:delivery-staging'],
     }));
     return { reviewStartedAt, body, dryRun: false };
+  }
+
+  async function restageStableDelivery({ owner, repo, pr, dryRunMode }) {
+    const body = replaceDeliveryRecord(pr.body || '', {
+      delivery_state: 'staging',
+      review_started_at: '',
+      sealed_at: '',
+      sealed_head_sha: '',
+      review_evidence: {},
+    });
+    if (dryRunMode) return { body, dryRun: true };
+    await withRetry((client) => client.rest.pulls.update({
+      owner,
+      repo,
+      pull_number: pr.number,
+      body,
+    }));
+    if (!pr.draft) {
+      await withRetry((client) => client.graphql(
+        `mutation($id: ID!) {
+          convertPullRequestToDraft(input: {pullRequestId: $id}) {
+            pullRequest { id isDraft }
+          }
+        }`,
+        { id: pr.node_id },
+      ));
+    }
+    await withRetry((client) => client.rest.issues.addLabels({
+      owner,
+      repo,
+      issue_number: pr.number,
+      labels: ['sync:delivery-staging'],
+    }));
+    try {
+      await withRetry((client) => client.rest.issues.removeLabel({
+        owner,
+        repo,
+        issue_number: pr.number,
+        name: 'sync:delivery-ready',
+      }));
+    } catch (labelError) {
+      if (labelError?.status !== 404) throw labelError;
+    }
+    return { body, dryRun: false };
   }
 
   async function sealStableDelivery({ owner, repo, pr, record, settlement, dryRunMode }) {
@@ -1102,6 +1353,13 @@ async function run({ github, context, core }) {
       const checkGateMode = requiredCheckPolicy.source;
       const failedChecks = classification.failed;
       const pendingChecks = classification.pending;
+      let deliveryRecord = parseDeliveryRecord(pr.body || '');
+      const reviewResolution = await resolveProvenReviewDebt({
+        owner,
+        repo,
+        pr,
+        deliveryRecord,
+      });
       const activeReviewThreads = await activeReviewThreadCount(
         owner,
         repo,
@@ -1113,7 +1371,6 @@ async function run({ github, context, core }) {
         activeReviewThreadCount: activeReviewThreads,
         now: new Date().toISOString(),
       });
-      let deliveryRecord = parseDeliveryRecord(pr.body || '');
       const deliveryContext = {
         owner,
         repo,
@@ -1121,10 +1378,14 @@ async function run({ github, context, core }) {
         branch: pr.head.ref,
         head_sha: pr.head.sha,
         delivery_generation: deliveryRecord?.generation || '',
+        plan_id: deliveryRecord?.plan_id || '',
         delivery_lane: generatedDeliveryLane(pr.head.ref),
         delivery_disposition: deliveryState.disposition,
         blocker_owner: deliveryState.blocker_owner,
         next_command: deliveryState.next_command,
+        review_resolution_thread_ids: reviewResolution.resolved,
+        review_resolution_would_resolve_thread_ids: reviewResolution.wouldResolve,
+        review_resolution_errors: reviewResolution.errors,
       };
   
       console.log(
@@ -1270,12 +1531,22 @@ async function run({ github, context, core }) {
           deliveryRecord.delivery_state !== 'sealed'
           || deliveryRecord.sealed_head_sha !== pr.head.sha
         ) {
+          await restageStableDelivery({
+            owner,
+            repo,
+            pr,
+            dryRunMode: dryRun,
+          });
           results.push({
             ...deliveryContext,
-            delivery_disposition: 'awaiting-review-settlement',
+            delivery_disposition: dryRun
+              ? 'awaiting-review-settlement'
+              : 'awaiting-review-start',
             blocker_owner: 'maint-71',
-            next_command: 'restage-changed-delivery-head',
-            status: 'sealed_head_mismatch',
+            next_command: dryRun
+              ? 'restage-changed-delivery-head'
+              : 'rerun-with-auto-merge-to-start-review',
+            status: dryRun ? 'sealed_head_mismatch' : 'delivery_review_not_started',
           });
           continue;
         }
@@ -1345,44 +1616,39 @@ async function run({ github, context, core }) {
       if (requiresStrictGateBranchUpdate({ pr, requiredContexts, willMerge })) {
         try {
           if (stableDelivery) {
-            const stagingBody = replaceDeliveryRecord(pr.body || '', {
-              delivery_state: 'staging',
-              review_started_at: '',
-              sealed_at: '',
-              sealed_head_sha: '',
-              review_evidence: {},
+            await restageStableDelivery({
+              owner,
+              repo,
+              pr,
+              dryRunMode: false,
             });
-            await withRetry((client) => client.rest.pulls.update({
-              owner,
-              repo,
-              pull_number: pr.number,
-              body: stagingBody,
-            }));
-            if (!pr.draft) {
-              await github.graphql(
-                `mutation($id: ID!) {
-                  convertPullRequestToDraft(input: {pullRequestId: $id}) {
-                    pullRequest { id isDraft }
-                  }
-                }`,
-                { id: pr.node_id },
+            let promotionEvidence = null;
+            if (metadata?.sync_phase === 'promote') {
+              const { data: signedHead } = await withRetry((client) =>
+                client.rest.repos.getCommit({
+                  owner,
+                  repo,
+                  ref: pr.head.sha,
+                }),
               );
-            }
-            await withRetry((client) => client.rest.issues.addLabels({
-              owner,
-              repo,
-              issue_number: pr.number,
-              labels: ['sync:delivery-staging'],
-            }));
-            try {
-              await withRetry((client) => client.rest.issues.removeLabel({
-                owner,
-                repo,
-                issue_number: pr.number,
-                name: 'sync:delivery-ready',
-              }));
-            } catch (labelError) {
-              if (labelError?.status !== 404) throw labelError;
+              const verification = signedHead?.commit?.verification || {};
+              promotionEvidence = parsePromotionEvidenceFromCommitMessage(
+                signedHead?.commit?.message || '',
+              );
+              if (
+                verification.verified !== true
+                || verification.reason !== 'valid'
+                || !promotionEvidence
+              ) {
+                results.push({
+                  ...deliveryContext,
+                  delivery_disposition: 'awaiting-promotion-evidence',
+                  blocker_owner: 'maint-68',
+                  next_command: 'rerun-phase-promote-from-original-evidence-artifact',
+                  status: 'delivery_promotion_evidence_missing',
+                });
+                continue;
+              }
             }
             results.push({
               ...deliveryContext,
@@ -1391,6 +1657,7 @@ async function run({ github, context, core }) {
               next_command: metadata?.sync_phase === 'canary'
                 ? 'dispatch-maint-68-phase-canary-no-filter'
                 : 'rerun-maint-68-phase-promote-with-same-evidence',
+              promotion_evidence: promotionEvidence,
               status: 'stable_base_refresh_required',
             });
             continue;
@@ -1804,5 +2071,7 @@ module.exports = {
   collectReviewerEvidence,
   legacyStatusAsCheck,
   normalizeReviewPolicy,
+  parseReviewResolutionProofs,
   run,
+  validateReviewResolutionProof,
 };

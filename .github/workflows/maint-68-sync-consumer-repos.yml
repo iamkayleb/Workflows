@@ -1,4 +1,5 @@
 name: Maint 68 Sync Consumer Repos
+run-name: Maint 68 ${{ inputs.phase || 'canary' }} ${{ inputs.delivery_scope || 'auto' }}
 
 # Push workflow template updates to registered consumer repositories
 #
@@ -428,6 +429,7 @@ jobs:
       SCOPE_BASE_SHA: ${{ needs.prepare.outputs.scope_base_sha }}
       PLAN_SOURCE_COMMIT: ${{ needs.prepare.outputs.source_commit }}
       SYNC_PHASE: ${{ needs.prepare.outputs.phase }}
+      CANARY_EVIDENCE_JSON: ${{ inputs.canary_evidence_json || '' }}
       DURABLE_ISSUE_URL: https://github.com/stranske/Workflows/issues/1836
     steps:
       - name: Compute result artifact name
@@ -1198,6 +1200,15 @@ jobs:
               rm -f "${commit_message_file:-}" "${signed_result_file:-}"
             }
             trap cleanup_signed_commit EXIT
+            promotion_evidence_line=""
+            if [ "$SYNC_PHASE" = "promote" ]; then
+              if ! jq -e . >/dev/null 2>&1 <<<"$CANARY_EVIDENCE_JSON"; then
+                echo "::error::Promotion evidence is missing or invalid"
+                exit 1
+              fi
+              promotion_evidence_base64=$(printf '%s' "$CANARY_EVIDENCE_JSON" | base64 -w 0)
+              promotion_evidence_line="Canary evidence JSON (base64): $promotion_evidence_base64"
+            fi
             cat >"$commit_message_file" <<COMMIT_MESSAGE
           chore: sync workflow templates from Workflows repo
 
@@ -1209,6 +1220,7 @@ jobs:
           Plan scope: $PLAN_SCOPE
           Scope base SHA: ${SCOPE_BASE_SHA:-full}
           Source commit: $PLAN_SOURCE_COMMIT
+          $promotion_evidence_line
           COMMIT_MESSAGE
 
             GH_TOKEN="$SIGNED_COMMIT_TOKEN" node \
@@ -1602,6 +1614,78 @@ jobs:
           path: ${{ env.CONSUMER_SYNC_RUN_REPORT_JSON }}
           retention-days: 14
           if-no-files-found: warn
+
+  continue-delivery:
+    name: Start generated delivery reconciliation
+    needs: [prepare, sync]
+    if: >-
+      ${{
+        always() &&
+        needs.prepare.result == 'success' &&
+        needs.sync.result == 'success' &&
+        needs.prepare.outputs.has_plan_items == 'true' &&
+        (inputs.dry_run || false) != true &&
+        needs.prepare.outputs.phase != 'preview'
+      }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Checkout API retry helper
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/setup-api-client
+            .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Setup API client
+        uses: ./.github/actions/setup-api-client
+        with:
+          github_token: ${{ github.token }}
+          owner_pr_pat: ${{ secrets.OWNER_PR_PAT }}
+          service_bot_pat: ${{ secrets.SERVICE_BOT_PAT }}
+
+      - name: Dispatch Maint 71 for the generated lane
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          SYNC_PHASE: ${{ needs.prepare.outputs.phase }}
+        with:
+          github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
+          script: |
+            const { createTokenAwareRetry } = require(
+              './.github/scripts/github-api-with-retry.js'
+            );
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-68-continue-generated-delivery',
+              capabilities: ['actions:write'],
+            });
+            const phase = process.env.SYNC_PHASE;
+            const activeSyncHash = phase === 'canary' ? 'candidate' : 'delivery';
+            const nonAdminRepos = String(process.env.REGISTERED_CONSUMER_REPOS || '')
+              .split(/\s+/)
+              .map((repo) => repo.trim())
+              .filter((repo) => repo && repo !== 'stranske/Collab-Admin');
+            const inputs = {
+              active_sync_hash: activeSyncHash,
+              auto_merge: 'true',
+              dry_run: 'false',
+              cleanup_branches: 'true',
+            };
+            if (activeSyncHash === 'delivery') inputs.repos = nonAdminRepos.join(',');
+            await withRetry((client) => client.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'maint-71-merge-sync-prs.yml',
+              ref: context.payload.repository?.default_branch || 'main',
+              inputs,
+            }));
+            core.notice(`Dispatched Maint 71 ${activeSyncHash} reconciliation`);
 
   # ============================================================================
   # FAILURE NOTIFICATION: Create issue when sync fails

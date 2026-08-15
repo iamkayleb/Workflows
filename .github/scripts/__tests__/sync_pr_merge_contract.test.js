@@ -10,7 +10,11 @@ const {
   buildMarkdownSummary,
   buildDeliveryHandoff,
   buildMergeReport,
+  candidateRefreshDecision,
+  candidatePromotionDecision,
+  deliveryRefreshDecision,
   candidateEvidenceAllowsMutation,
+  classifyDeliveryContinuation,
   classifyGeneratedPr,
   classifySyncPrChecks,
   commitSignatureAllowsMerge,
@@ -28,6 +32,7 @@ const {
   isTrustedSyncPr,
   normalizeSyncHash,
   parseBooleanInput,
+  parsePromotionEvidenceFromCommitMessage,
   requiresStrictGateBranchUpdate,
   requiredContextsFromRulesets,
   rulesetRefPatternMatches,
@@ -44,7 +49,9 @@ const {
   collectReviewerEvidence,
   legacyStatusAsCheck,
   normalizeReviewPolicy,
+  parseReviewResolutionProofs,
   run,
+  validateReviewResolutionProof,
 } = require('../maint71_merge_sync_prs');
 
 const pr = (number, ref, created_at) => ({
@@ -64,6 +71,193 @@ const checkRun = ({
   status,
   conclusion,
   started_at,
+});
+
+test('transient delivery holds carry a durable due time and lane', () => {
+  assert.deepEqual(classifyDeliveryContinuation({
+    branch: 'sync/workflows-candidate',
+    status: 'review_window_pending',
+    review_window_eligible_at: '2026-08-15T12:07:00Z',
+  }, '2026-08-15T12:00:00Z'), {
+    class: 'transient',
+    lane: 'candidate',
+    reason: 'review_window_pending',
+    resume_after: '2026-08-15T12:07:00.000Z',
+  });
+  assert.equal(classifyDeliveryContinuation({
+    branch: 'sync/workflows-candidate',
+    status: 'review_blocked',
+  }).class, 'actionable');
+  assert.equal(classifyDeliveryContinuation({
+    branch: 'sync/workflows-delivery',
+    status: 'merged',
+  }).class, 'terminal');
+  assert.equal(classifyDeliveryContinuation({
+    branch: 'sync/workflows-delivery',
+    status: 'sealed_head_mismatch',
+  }).class, 'actionable');
+  assert.equal(classifyDeliveryContinuation({
+    branch: 'sync/workflows-delivery',
+    status: 'delivery_review_not_started',
+  }, '2026-08-15T12:00:00Z').resume_after, '2026-08-15T12:10:00.000Z');
+});
+
+test('promotion requires complete exact-plan evidence and terminal candidate rows', () => {
+  const expectedCanaries = ['stranske/Travel', 'stranske/Portable'];
+  const evidence = {
+    results: expectedCanaries.map((repo, index) => ({
+      repo,
+      plan_id: 'plan-abc',
+      source_commit: 'source-abc',
+      pr: index + 1,
+      head_sha: `head-${index + 1}`,
+      required_check_state: 'success',
+      active_review_thread_count: 0,
+    })),
+  };
+  const report = {
+    inputs: { sync_hash: 'candidate' },
+    results: expectedCanaries.map((repository, index) => {
+      const [owner, repo] = repository.split('/');
+      return {
+        owner,
+        repo,
+        pr: index + 1,
+        branch: 'sync/workflows-candidate',
+        status: index ? 'evidence_recovered' : 'merged',
+      };
+    }),
+  };
+  assert.deepEqual(candidatePromotionDecision({ report, evidence, expectedCanaries }), {
+    eligible: true,
+    errors: [],
+    plan_id: 'plan-abc',
+  });
+  report.results[0].status = 'review_window_pending';
+  const blocked = candidatePromotionDecision({ report, evidence, expectedCanaries });
+  assert.equal(blocked.eligible, false);
+  assert.match(blocked.errors.join('\n'), /stranske\/Travel/);
+});
+
+test('candidate base drift requests a no-filter refresh and stays transient', () => {
+  const result = {
+    owner: 'stranske',
+    repo: 'Travel',
+    branch: 'sync/workflows-candidate',
+    status: 'stable_base_refresh_required',
+    next_command: 'dispatch-maint-68-phase-canary-no-filter',
+  };
+  assert.deepEqual(classifyDeliveryContinuation(result, '2026-08-15T12:00:00Z'), {
+    class: 'transient',
+    lane: 'candidate',
+    reason: 'stable_base_refresh_required',
+    resume_after: '2026-08-15T12:10:00.000Z',
+  });
+  assert.deepEqual(candidateRefreshDecision({
+    report: {
+      inputs: { sync_hash: 'candidate' },
+      results: [result],
+    },
+  }), {
+    eligible: true,
+    errors: [],
+    repositories: ['stranske/Travel'],
+  });
+  assert.equal(candidateRefreshDecision({
+    report: { inputs: { sync_hash: 'delivery' }, results: [result] },
+  }).eligible, false);
+});
+
+test('delivery base drift replays only signed exact-plan promotion evidence', () => {
+  const expectedCanaries = ['stranske/Travel', 'stranske/Portable'];
+  const evidence = {
+    schema: 'workflows.consumer-sync-canary-evidence/v1',
+    results: expectedCanaries.map((repo, index) => ({
+      repo,
+      plan_id: 'plan-abc',
+      source_commit: 'source-abc',
+      pr: index + 1,
+      head_sha: `head-${index + 1}`,
+      required_check_state: 'success',
+      active_review_thread_count: 0,
+    })),
+  };
+  const encoded = Buffer.from(JSON.stringify(evidence), 'utf8').toString('base64');
+  assert.deepEqual(parsePromotionEvidenceFromCommitMessage(
+    `subject\n\nCanary evidence JSON (base64): ${encoded}\n`,
+  ), evidence);
+  assert.equal(parsePromotionEvidenceFromCommitMessage(
+    'Canary evidence JSON (base64): not-valid-base64',
+  ), null);
+  const decision = deliveryRefreshDecision({
+    report: {
+      inputs: { sync_hash: 'delivery' },
+      results: [{
+        owner: 'stranske',
+        repo: 'Ready',
+        branch: 'sync/workflows-delivery',
+        plan_id: 'plan-abc',
+        status: 'stable_base_refresh_required',
+        next_command: 'rerun-maint-68-phase-promote-with-same-evidence',
+        promotion_evidence: evidence,
+      }],
+    },
+    expectedCanaries,
+  });
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.plan_id, 'plan-abc');
+  assert.deepEqual(decision.evidence, evidence);
+  assert.equal(deliveryRefreshDecision({
+    report: { inputs: { sync_hash: 'candidate' }, results: [] },
+    expectedCanaries,
+  }).eligible, false);
+});
+
+test('review resolution proof is exact-head, source-linked, and actor-bound', () => {
+  const proof = {
+    schema: 'workflows-sync-review-resolution/v1',
+    repository: 'stranske/Portable',
+    pr: 22,
+    thread_id: 'PRRT_thread',
+    head_sha: 'head-abc',
+    source_fix_sha: 'a'.repeat(40),
+    evidence_url: 'https://github.com/stranske/Workflows/pull/3091',
+    reason: 'The current generated contract contains the merged source guard.',
+  };
+  assert.deepEqual(parseReviewResolutionProofs(JSON.stringify({ proofs: [proof] })), [proof]);
+  assert.throws(
+    () => parseReviewResolutionProofs('{not-json'),
+    /review resolution proof is not valid JSON/,
+  );
+  assert.deepEqual(validateReviewResolutionProof(proof, {
+    owner: 'stranske',
+    repo: 'Portable',
+    prNumber: 22,
+    headSha: 'head-abc',
+    actor: 'stranske-automation-bot',
+    trustedActors: ['stranske-automation-bot'],
+  }), { ok: true, errors: [] });
+  assert.equal(validateReviewResolutionProof({
+    ...proof,
+    evidence_url: 'https://github.com/stranske/Workflows/pull/not-a-number',
+  }, {
+    owner: 'stranske',
+    repo: 'Portable',
+    prNumber: 22,
+    headSha: 'head-abc',
+    actor: 'stranske-automation-bot',
+    trustedActors: ['stranske-automation-bot'],
+  }).ok, false);
+  const changedHead = validateReviewResolutionProof(proof, {
+    owner: 'stranske',
+    repo: 'Portable',
+    prNumber: 22,
+    headSha: 'head-new',
+    actor: 'stranske-automation-bot',
+    trustedActors: ['stranske-automation-bot'],
+  });
+  assert.equal(changedHead.ok, false);
+  assert.ok(changedHead.errors.includes('head_mismatch'));
 });
 
 test('maint71 run writes reports and records a no-PR result with fake action clients', async () => {
@@ -801,6 +995,15 @@ test('a sync selector ignores dev-tool deliveries instead of reporting a missing
   assert.equal(generatedPrsForSyncSelector(generated).length, 2);
 });
 
+test('the dev-tool selector cannot be hidden by a newer workflow-sync PR', () => {
+  const devTool = pr(1, 'deps/sync-dev-versions-wave', '2026-08-15T00:00:00Z');
+  const candidate = pr(2, 'sync/workflows-candidate', '2026-08-15T01:00:00Z');
+  assert.deepEqual(generatedPrsForSyncSelector([devTool, candidate], 'dev-tool'), [devTool]);
+  const selection = selectActiveSyncPr([devTool, candidate], 'dev-tool');
+  assert.equal(selection.active.number, 1);
+  assert.equal(selection.missingExpected, false);
+});
+
 test('stable delivery branches and strict branch-update failures are recognized', () => {
   assert.equal(isStableSyncBranchName('sync/workflows-candidate'), true);
   assert.equal(isStableSyncBranchName('sync/workflows-delivery'), true);
@@ -812,6 +1015,7 @@ test('stable delivery branches and strict branch-update failures are recognized'
   }), true);
   assert.equal(isBlockingSyncSystemFailure('pr_refresh_failed'), true);
   assert.equal(isBlockingSyncSystemFailure('head_commit_unverified'), true);
+  assert.equal(isBlockingSyncSystemFailure('delivery_promotion_evidence_missing'), true);
 });
 
 test('workflow sync delivery merge requires a valid cryptographic signature', () => {
@@ -1080,6 +1284,7 @@ test('buildMergeReport provides machine-readable summary counts', () => {
     reviewer_settlement_pending: 0,
     delivery_review_not_started: 0,
     delivery_sealed_checks_pending: 0,
+    delivery_promotion_evidence_missing: 0,
     sealed_head_mismatch: 0,
     stable_base_refresh_required: 0,
     head_changed: 0,
@@ -1105,12 +1310,16 @@ test('buildDeliveryHandoff preserves the restart fields for a generated PR', () 
     head_sha: 'abc', delivery_generation: 'g2', delivery_disposition: 'review-blocked',
     blocker_owner: 'closer', next_command: 'resolve-active-review-threads',
     status: 'review_blocked', active_review_thread_count: 2,
-  }), {
+  }, '2026-08-15T12:00:00Z'), {
     schema: 'workflows-generated-delivery-handoff/v1', repository: 'stranske/Ready', pr: 11,
     branch: 'deps/sync-dev-versions-20260801', head_sha: 'abc', delivery_generation: 'g2',
     lane: 'dev-tool-sync', disposition: 'review-blocked', blocker_owner: 'closer',
     next_command: 'resolve-active-review-threads',
     check_state: 'ready', review_state: 'blocked',
+    continuation: {
+      class: 'actionable', lane: 'dev-tool', reason: 'review_blocked', resume_after: '',
+    },
+    observed_at: '2026-08-15T12:00:00Z',
   });
 });
 
@@ -1120,11 +1329,13 @@ test('buildDeliveryHandoff rewrites terminal merge outcomes', () => {
     head_sha: 'abc', delivery_generation: 'g2', delivery_disposition: 'current',
     blocker_owner: 'maint-71', next_command: 'merge-current-delivery',
     status: 'merged',
-  }), {
+  }, '2026-08-15T12:00:00Z'), {
     schema: 'workflows-generated-delivery-handoff/v1', repository: 'stranske/Ready', pr: 11,
     branch: 'sync/workflows-abc', head_sha: 'abc', delivery_generation: 'g2',
     lane: 'sync', disposition: 'merged', blocker_owner: 'none', next_command: 'none',
     check_state: 'ready', review_state: 'clear',
+    continuation: { class: 'terminal', lane: '', reason: 'merged', resume_after: '' },
+    observed_at: '2026-08-15T12:00:00Z',
   });
   assert.equal(buildDeliveryHandoff({
     owner: 'stranske', repo: 'Ready', pr: 11, branch: 'sync/workflows-abc',

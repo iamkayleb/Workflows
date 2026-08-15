@@ -5,6 +5,7 @@ const SYNC_BRANCH_PREFIX = 'sync/workflows-';
 const SYNC_CANDIDATE_BRANCH = `${SYNC_BRANCH_PREFIX}candidate`;
 const SYNC_DELIVERY_BRANCH = `${SYNC_BRANCH_PREFIX}delivery`;
 const DEV_TOOL_SYNC_BRANCH_PREFIX = 'deps/sync-dev-versions-';
+const DEV_TOOL_SYNC_SELECTOR = 'dev-tool';
 const GENERATED_DELIVERY_BRANCH_PREFIXES = [SYNC_BRANCH_PREFIX, DEV_TOOL_SYNC_BRANCH_PREFIX];
 const POST_PUSH_REVIEW_WINDOW_MS = 7 * 60 * 1000;
 const { parseDeliveryRecord, mergeEligibility } = require('./sync_pr_lease_contract');
@@ -15,6 +16,19 @@ function normalizeSyncHash(value) {
     return '';
   }
   return raw.startsWith(SYNC_BRANCH_PREFIX) ? raw.slice(SYNC_BRANCH_PREFIX.length) : raw;
+}
+
+function parsePromotionEvidenceFromCommitMessage(message = '') {
+  const match = String(message || '').match(
+    /^Canary evidence JSON \(base64\): ([A-Za-z0-9+/]+={0,2})$/m,
+  );
+  if (!match || match[1].length % 4 !== 0) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'));
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function syncBranchForHash(syncHash) {
@@ -228,6 +242,9 @@ function isReviewerNonResponseSignal(body = '', nonResponsePatterns = []) {
 function generatedPrsForSyncSelector(prs = [], syncHash = '') {
   const normalized = normalizeSyncHash(syncHash);
   if (!normalized) return prs;
+  if (normalized === DEV_TOOL_SYNC_SELECTOR) {
+    return prs.filter((pr) => generatedDeliveryLane(pr?.head?.ref) === 'dev-tool-sync');
+  }
   // A sync hash names a sync/workflows-* branch. Dev-tool deliveries share
   // Maint 71 but are a separate generated lane; their presence must not turn
   // an otherwise complete workflow-delivery pass into target_missing.
@@ -329,6 +346,7 @@ function requiresStrictGateBranchUpdate({ pr = {}, requiredContexts = [], willMe
 function isBlockingSyncSystemFailure(status) {
   return [
     'branch_update_failed',
+    'delivery_promotion_evidence_missing',
     'error',
     'head_commit_unverified',
     'merge_failed',
@@ -517,6 +535,20 @@ function sortSyncPrs(prs) {
 
 function selectActiveSyncPr(prs, syncHash = '') {
   const ordered = sortSyncPrs(prs);
+  if (normalizeSyncHash(syncHash) === DEV_TOOL_SYNC_SELECTOR) {
+    const devToolPrs = ordered.filter(
+      (pr) => generatedDeliveryLane(pr?.head?.ref) === 'dev-tool-sync',
+    );
+    const active = devToolPrs[devToolPrs.length - 1] || null;
+    return {
+      active,
+      stale: active
+        ? devToolPrs.filter((pr) => pr.number !== active.number)
+        : [],
+      expectedBranch: '',
+      missingExpected: false,
+    };
+  }
   const expectedBranch = syncBranchForHash(syncHash);
   if (!expectedBranch) {
     const active = ordered[ordered.length - 1] || null;
@@ -723,6 +755,7 @@ function summarizeResults(results) {
     reviewer_settlement_pending: 0,
     delivery_review_not_started: 0,
     delivery_sealed_checks_pending: 0,
+    delivery_promotion_evidence_missing: 0,
     sealed_head_mismatch: 0,
     stable_base_refresh_required: 0,
     head_changed: 0,
@@ -798,7 +831,155 @@ function deriveHandoffReviewState(result = {}) {
   return 'clear';
 }
 
-function buildDeliveryHandoff(result = {}) {
+function continuationLaneForBranch(value) {
+  const branch = branchNameFromRef(value);
+  if (branch === SYNC_CANDIDATE_BRANCH) return 'candidate';
+  if (branch === SYNC_DELIVERY_BRANCH) return 'delivery';
+  if (branch.startsWith(DEV_TOOL_SYNC_BRANCH_PREFIX)) return 'dev-tool';
+  return '';
+}
+
+function parseResumeAfter(result = {}, observedAt = new Date().toISOString()) {
+  const explicit = String(result.review_window_eligible_at || '').trim();
+  if (Number.isFinite(Date.parse(explicit))) return new Date(explicit).toISOString();
+  const nextCommand = String(result.next_command || '');
+  const commandMatch = nextCommand.match(/^rerun-after:(.+)$/);
+  if (commandMatch && Number.isFinite(Date.parse(commandMatch[1]))) {
+    return new Date(commandMatch[1]).toISOString();
+  }
+  const observed = Number.isFinite(Date.parse(observedAt))
+    ? new Date(observedAt)
+    : new Date();
+  const delayMinutes = {
+    checks_pending: 10,
+    delivery_sealed_checks_pending: 5,
+    head_changed: 7,
+    review_window_pending: 7,
+    review_window_started: 7,
+    reviewer_settlement_pending: 7,
+    stable_base_refresh_required: 10,
+  }[String(result.status || '')] || 10;
+  return new Date(observed.getTime() + delayMinutes * 60 * 1000).toISOString();
+}
+
+function classifyDeliveryContinuation(result = {}, observedAt = new Date().toISOString()) {
+  const status = String(result.status || '');
+  const lane = continuationLaneForBranch(result.branch);
+  const terminal = new Set(['merged', 'stale_closed', 'evidence_recovered']);
+  const transient = new Set([
+    'candidate_evidence_required',
+    'checks_pending',
+    'delivery_review_not_started',
+    'delivery_sealed_checks_pending',
+    'head_changed',
+    'review_window_pending',
+    'review_window_started',
+    'reviewer_settlement_pending',
+    'stable_base_refresh_required',
+  ]);
+  if (terminal.has(status)) {
+    return { class: 'terminal', lane, reason: status, resume_after: '' };
+  }
+  if (lane && transient.has(status)) {
+    return {
+      class: 'transient',
+      lane,
+      reason: status,
+      resume_after: parseResumeAfter(result, observedAt),
+    };
+  }
+  return { class: 'actionable', lane, reason: status || 'unknown', resume_after: '' };
+}
+
+function candidateRefreshDecision({ report = {} } = {}) {
+  const errors = [];
+  if (normalizeSyncHash(report?.inputs?.sync_hash) !== 'candidate') {
+    errors.push('merge report is not a candidate-selector report');
+  }
+  const repositories = [...new Set((Array.isArray(report?.results) ? report.results : [])
+    .filter((result) => (
+      branchNameFromRef(result.branch) === SYNC_CANDIDATE_BRANCH
+      && String(result.status || '') === 'stable_base_refresh_required'
+      && String(result.next_command || '') === 'dispatch-maint-68-phase-canary-no-filter'
+    ))
+    .map((result) => `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, ''))
+    .filter(Boolean))].sort();
+  if (repositories.length === 0) {
+    errors.push('candidate report has no stable base refresh request');
+  }
+  return {
+    eligible: errors.length === 0,
+    errors,
+    repositories,
+  };
+}
+
+function deliveryRefreshDecision({ report = {}, expectedCanaries = [] } = {}) {
+  const errors = [];
+  if (normalizeSyncHash(report?.inputs?.sync_hash) !== 'delivery') {
+    errors.push('merge report is not a delivery-selector report');
+  }
+  const requests = (Array.isArray(report?.results) ? report.results : []).filter((result) => (
+    branchNameFromRef(result.branch) === SYNC_DELIVERY_BRANCH
+    && String(result.status || '') === 'stable_base_refresh_required'
+    && String(result.next_command || '') === 'rerun-maint-68-phase-promote-with-same-evidence'
+  ));
+  if (requests.length === 0) errors.push('delivery report has no stable base refresh request');
+  const firstEvidence = requests[0]?.promotion_evidence || null;
+  const validation = validateCanaryEvidence(
+    Array.isArray(firstEvidence) ? firstEvidence : firstEvidence?.results,
+    expectedCanaries,
+  );
+  errors.push(...validation.errors);
+  for (const request of requests) {
+    if (String(request.plan_id || '') !== validation.plan_id) {
+      errors.push(`${request.owner || ''}/${request.repo || ''}: delivery plan mismatch`);
+    }
+    const requestEvidence = request.promotion_evidence || null;
+    const requestValidation = validateCanaryEvidence(
+      Array.isArray(requestEvidence) ? requestEvidence : requestEvidence?.results,
+      expectedCanaries,
+    );
+    if (!requestValidation.ok || requestValidation.plan_id !== validation.plan_id) {
+      errors.push(`${request.owner || ''}/${request.repo || ''}: promotion evidence mismatch`);
+    }
+  }
+  return {
+    eligible: requests.length > 0 && validation.ok && errors.length === 0,
+    errors,
+    plan_id: validation.plan_id || '',
+    evidence: firstEvidence,
+    repositories: requests
+      .map((result) => `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, ''))
+      .filter(Boolean)
+      .sort(),
+  };
+}
+
+function candidatePromotionDecision({ report = {}, evidence = {}, expectedCanaries = [] } = {}) {
+  const rows = Array.isArray(evidence) ? evidence : evidence.results;
+  const validation = validateCanaryEvidence(rows, expectedCanaries);
+  const errors = [...validation.errors];
+  if (normalizeSyncHash(report?.inputs?.sync_hash) !== 'candidate') {
+    errors.push('merge report is not a candidate-selector report');
+  }
+  const results = Array.isArray(report?.results) ? report.results : [];
+  for (const repository of expectedCanaries) {
+    const terminal = results.some((result) =>
+      `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, '') === repository
+      && branchNameFromRef(result.branch) === SYNC_CANDIDATE_BRANCH
+      && ['merged', 'evidence_recovered'].includes(String(result.status || '')),
+    );
+    if (!terminal) errors.push(`${repository}: candidate was not merged or recovered`);
+  }
+  return {
+    eligible: validation.ok && errors.length === 0,
+    errors,
+    plan_id: validation.plan_id || '',
+  };
+}
+
+function buildDeliveryHandoff(result = {}, observedAt = new Date().toISOString()) {
   if (!result.pr) return null;
   const status = String(result.status || '');
   // Branch-delete rows are companions to the merged row; emit one terminal handoff only.
@@ -835,6 +1016,8 @@ function buildDeliveryHandoff(result = {}) {
     return null;
   }
 
+  const continuation = classifyDeliveryContinuation(result, observedAt);
+
   return {
     schema: 'workflows-generated-delivery-handoff/v1',
     repository: `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, ''),
@@ -848,6 +1031,8 @@ function buildDeliveryHandoff(result = {}) {
     next_command: nextCommand,
     check_state: checkState,
     review_state: reviewState,
+    continuation,
+    observed_at: observedAt,
   };
 }
 
@@ -876,7 +1061,9 @@ function buildMergeReport({
     },
     summary: summarizeResults(results),
     results,
-    handoff_records: (results || []).map(buildDeliveryHandoff).filter(Boolean),
+    handoff_records: (results || [])
+      .map((result) => buildDeliveryHandoff(result, generatedAt))
+      .filter(Boolean),
   };
 }
 
@@ -914,6 +1101,7 @@ module.exports = {
   SYNC_CANDIDATE_BRANCH,
   SYNC_DELIVERY_BRANCH,
   DEV_TOOL_SYNC_BRANCH_PREFIX,
+  DEV_TOOL_SYNC_SELECTOR,
   GENERATED_DELIVERY_BRANCH_PREFIXES,
   branchNameFromRef,
   classifyGeneratedPr,
@@ -940,6 +1128,7 @@ module.exports = {
   normalizeSyncHash,
   syncBranchForHash,
   parseBooleanInput,
+  parsePromotionEvidenceFromCommitMessage,
   requiredContextsFromRulesets,
   rulesetRefPatternMatches,
   selectSyncPrGatingChecks,
@@ -952,5 +1141,10 @@ module.exports = {
   summarizeResults,
   buildMergeReport,
   buildDeliveryHandoff,
+  candidateRefreshDecision,
+  deliveryRefreshDecision,
+  candidatePromotionDecision,
+  classifyDeliveryContinuation,
+  continuationLaneForBranch,
   buildMarkdownSummary,
 };

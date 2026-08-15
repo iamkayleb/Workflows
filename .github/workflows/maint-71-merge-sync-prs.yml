@@ -16,6 +16,11 @@
 # - Uses merge commit (not squash) to preserve sync history
 
 name: Merge Sync PRs
+run-name: >-
+  Merge Sync PRs
+  [${{ inputs.active_sync_hash ||
+    github.event.client_payload.active_sync_hash ||
+    'unscoped' }}]
 
 on:
   schedule:
@@ -45,7 +50,8 @@ on:
         type: boolean
         default: false
       active_sync_hash:
-        description: "Active sync selector (candidate or delivery for stable lanes; legacy hash accepted)"
+        description: >-
+          Active sync selector (candidate or delivery for stable lanes; legacy hash accepted)
         required: false
         type: string
         default: ""
@@ -59,6 +65,11 @@ on:
         required: false
         type: boolean
         default: true
+      review_resolution_json:
+        description: "Exact-head source-fix proofs for specific review threads"
+        required: false
+        type: string
+        default: ""
   workflow_call:
     inputs:
       repos:
@@ -77,7 +88,8 @@ on:
         type: boolean
         default: false
       active_sync_hash:
-        description: "Active sync selector (candidate or delivery for stable lanes; legacy hash accepted)"
+        description: >-
+          Active sync selector (candidate or delivery for stable lanes; legacy hash accepted)
         required: false
         type: string
         default: ""
@@ -91,6 +103,11 @@ on:
         required: false
         type: boolean
         default: true
+      review_resolution_json:
+        description: "Exact-head source-fix proofs for specific review threads"
+        required: false
+        type: string
+        default: ""
 
 permissions:
   checks: read
@@ -99,23 +116,35 @@ permissions:
   statuses: read
 
 concurrency:
-  group: merge-sync-prs-${{ github.repository }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: >-
+    merge-sync-prs-${{ github.repository }}-${{
+      inputs.active_sync_hash ||
+      github.event.client_payload.active_sync_hash ||
+      'unscoped'
+    }}
+  cancel-in-progress: false
 
 jobs:
   merge_sync_prs:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      checks: read
+      contents: write
+      pull-requests: write
+      statuses: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup API client
         uses: ./.github/actions/setup-api-client
         with:
-          secrets: ${{ toJSON(secrets) }}
           github_token: ${{ github.token }}
-
-
+          owner_pr_pat: ${{ secrets.OWNER_PR_PAT }}
+          service_bot_pat: ${{ secrets.SERVICE_BOT_PAT }}
 
       - name: Extract consumer repos from sync workflow
         id: repos
@@ -146,9 +175,39 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `candidate=${selector === 'candidate'}\n`);
           NODE
 
+      - name: Apply proof-bound candidate review resolutions
+        id: candidate_review_resolution
+        if: >-
+          ${{
+            steps.candidate_mode.outputs.candidate == 'true' &&
+            inputs.review_resolution_json != ''
+          }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        env:
+          REPOS_INPUT: all
+          AUTO_MERGE_INPUT: "false"
+          DRY_RUN_INPUT: "true"
+          ACTIVE_SYNC_HASH_INPUT: ${{ steps.candidate_mode.outputs.selector }}
+          CLEANUP_BRANCHES_INPUT: "false"
+          EVIDENCE_ONLY_INPUT: "false"
+          RESOLUTION_ONLY_INPUT: "true"
+          CONSUMER_SYNC_CANARIES_PATH: config/consumer_sync_canaries.json
+          CONSUMER_SYNC_REVIEW_POLICY_PATH: config/consumer_sync_review_policy.json
+          TRUSTED_SYNC_ACTORS: stranske,stranske-automation-bot,github-actions[bot]
+          TRUSTED_REVIEW_RESOLUTION_ACTORS: stranske,stranske-automation-bot
+          REVIEW_RESOLUTION_JSON: ${{ inputs.review_resolution_json }}
+          EXCLUDED_REPOS_INPUT: stranske/Collab-Admin
+          SYNC_PR_MERGE_REPORT_JSON: artifacts/sync-review-resolution-report.json
+          REGISTERED_REPOS_INPUT: ${{ steps.repos.outputs.list }}
+        with:
+          github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
+          script: |
+            const { run } = require("./.github/scripts/maint71_merge_sync_prs.js");
+            await run({ github, context, core });
+
       - name: Collect and validate canary evidence before merge
         id: candidate_evidence
-        if: ${{ steps.candidate_mode.outputs.candidate == 'true' }}
+        if: ${{ always() && steps.candidate_mode.outputs.candidate == 'true' }}
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         env:
           REPOS_INPUT: ${{ inputs.repos || github.event.client_payload.repos || 'all' }}
@@ -160,6 +219,9 @@ jobs:
           CONSUMER_SYNC_CANARIES_PATH: config/consumer_sync_canaries.json
           CONSUMER_SYNC_REVIEW_POLICY_PATH: config/consumer_sync_review_policy.json
           TRUSTED_SYNC_ACTORS: stranske,stranske-automation-bot,github-actions[bot]
+          TRUSTED_REVIEW_RESOLUTION_ACTORS: stranske,stranske-automation-bot
+          REVIEW_RESOLUTION_JSON: ${{ inputs.review_resolution_json || '' }}
+          EXCLUDED_REPOS_INPUT: stranske/Collab-Admin
           SYNC_PR_MERGE_REPORT_JSON: artifacts/sync-pr-premerge-report.json
           REGISTERED_REPOS_INPUT: ${{ steps.repos.outputs.list }}
         with:
@@ -179,7 +241,42 @@ jobs:
             artifacts/sync-canary-evidence.json
           if-no-files-found: error
 
+      - name: Validate complete pre-merge canary evidence
+        id: candidate_evidence_validation
+        if: >-
+          ${{
+            always() &&
+            steps.candidate_mode.outputs.candidate == 'true' &&
+            steps.candidate_evidence.outcome == 'success' &&
+            steps.candidate_artifact.outcome == 'success'
+          }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const {
+            validateCanaryEvidence,
+          } = require('./.github/scripts/sync_pr_merge_contract.js');
+          const evidence = JSON.parse(
+            fs.readFileSync('artifacts/sync-canary-evidence.json', 'utf8'),
+          );
+          const canaryConfig = JSON.parse(
+            fs.readFileSync('config/consumer_sync_canaries.json', 'utf8'),
+          );
+          const expectedCanaries = (canaryConfig.canaries || [])
+            .map((entry) => String(entry.repo || '').trim())
+            .filter(Boolean);
+          const rows = Array.isArray(evidence) ? evidence : evidence.results;
+          const validation = validateCanaryEvidence(rows, expectedCanaries);
+          if (!validation.ok) {
+            throw new Error(
+              `Pre-merge canary evidence is incomplete: ${validation.errors.join(', ')}`,
+            );
+          }
+          console.log(`Validated complete pre-merge evidence for ${validation.plan_id}`);
+          NODE
+
       - name: Check and merge sync PRs
+        id: merge
         if: >-
           ${{
             always() &&
@@ -198,12 +295,15 @@ jobs:
           AUTO_MERGE_INPUT: ${{ inputs.auto_merge }}
           DRY_RUN_INPUT: ${{ inputs.dry_run }}
           ACTIVE_SYNC_HASH_INPUT: ${{ steps.candidate_mode.outputs.selector }}
-          CANDIDATE_EVIDENCE_RESULT: ${{ steps.candidate_evidence.outcome }}
+          CANDIDATE_EVIDENCE_RESULT: ${{ steps.candidate_evidence_validation.outcome }}
           CANDIDATE_ARTIFACT_RESULT: ${{ steps.candidate_artifact.outcome }}
           CLEANUP_BRANCHES_INPUT: ${{ inputs.cleanup_branches }}
           CONSUMER_SYNC_CANARIES_PATH: config/consumer_sync_canaries.json
           CONSUMER_SYNC_REVIEW_POLICY_PATH: config/consumer_sync_review_policy.json
           TRUSTED_SYNC_ACTORS: stranske,stranske-automation-bot,github-actions[bot]
+          TRUSTED_REVIEW_RESOLUTION_ACTORS: stranske,stranske-automation-bot
+          REVIEW_RESOLUTION_JSON: ${{ inputs.review_resolution_json || '' }}
+          EXCLUDED_REPOS_INPUT: stranske/Collab-Admin
           SYNC_PR_MERGE_REPORT_JSON: artifacts/sync-pr-merge-report.json
           REGISTERED_REPOS_INPUT: ${{ steps.repos.outputs.list }}
         with:
@@ -221,3 +321,229 @@ jobs:
             artifacts/sync-pr-merge-report.json
             artifacts/sync-canary-evidence.json
           if-no-files-found: warn
+
+      - name: Refresh stale candidate bases
+        id: refresh_candidate
+        if: >-
+          ${{
+            always() &&
+            steps.candidate_mode.outputs.candidate == 'true' &&
+            steps.merge.outcome == 'success'
+          }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
+          script: |
+            const fs = require('fs');
+            const { createTokenAwareRetry } = require(
+              './.github/scripts/github-api-with-retry.js'
+            );
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-71-refresh-stale-candidate-bases',
+              capabilities: ['actions:write'],
+            });
+            const {
+              candidateRefreshDecision,
+            } = require('./.github/scripts/sync_pr_merge_contract.js');
+            const report = JSON.parse(
+              fs.readFileSync('artifacts/sync-pr-merge-report.json', 'utf8'),
+            );
+            const decision = candidateRefreshDecision({ report });
+            if (!decision.eligible) {
+              core.notice(`Candidate refresh not required: ${decision.errors.join(', ')}`);
+              return;
+            }
+            const { data: runs } = await withRetry((client) =>
+              client.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'maint-68-sync-consumer-repos.yml',
+                per_page: 20,
+              }),
+            );
+            const activeSync = (runs.workflow_runs || []).find((run) =>
+              ['queued', 'in_progress', 'waiting', 'pending'].includes(run.status)
+              && (
+                String(run.display_title || '').includes('Maint 68 canary')
+                || String(run.display_title || '').includes('Maint 68 promote')
+              ),
+            );
+            if (activeSync) {
+              core.notice(
+                `Maint 68 ${activeSync.id} is already active; candidate refresh remains queued`,
+              );
+              return;
+            }
+            await withRetry((client) => client.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'maint-68-sync-consumer-repos.yml',
+              ref: context.payload.repository?.default_branch || 'main',
+              inputs: {
+                phase: 'canary',
+                delivery_scope: 'full',
+                dry_run: 'false',
+                force: 'false',
+              },
+            }));
+            core.notice(
+              `Dispatched no-filter canary refresh for ${decision.repositories.join(', ')}`,
+            );
+
+      - name: Refresh stale delivery bases
+        id: refresh_delivery
+        if: >-
+          ${{
+            always() &&
+            steps.candidate_mode.outputs.selector == 'delivery' &&
+            steps.merge.outcome == 'success'
+          }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
+          script: |
+            const fs = require('fs');
+            const { createTokenAwareRetry } = require(
+              './.github/scripts/github-api-with-retry.js'
+            );
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-71-refresh-stale-delivery-bases',
+              capabilities: ['actions:write'],
+            });
+            const {
+              deliveryRefreshDecision,
+            } = require('./.github/scripts/sync_pr_merge_contract.js');
+            const report = JSON.parse(
+              fs.readFileSync('artifacts/sync-pr-merge-report.json', 'utf8'),
+            );
+            const canaryConfig = JSON.parse(
+              fs.readFileSync('config/consumer_sync_canaries.json', 'utf8'),
+            );
+            const expectedCanaries = (canaryConfig.canaries || [])
+              .map((entry) => String(entry.repo || '').trim())
+              .filter(Boolean);
+            const decision = deliveryRefreshDecision({ report, expectedCanaries });
+            if (!decision.eligible) {
+              core.notice(`Delivery refresh not required: ${decision.errors.join(', ')}`);
+              return;
+            }
+            const { data: runs } = await withRetry((client) =>
+              client.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'maint-68-sync-consumer-repos.yml',
+                per_page: 20,
+              }),
+            );
+            const activeSync = (runs.workflow_runs || []).find((run) =>
+              ['queued', 'in_progress', 'waiting', 'pending'].includes(run.status)
+              && (
+                String(run.display_title || '').includes('Maint 68 canary')
+                || String(run.display_title || '').includes('Maint 68 promote')
+              ),
+            );
+            if (activeSync) {
+              core.notice(
+                `Maint 68 ${activeSync.id} is already active; delivery refresh remains queued`,
+              );
+              return;
+            }
+            await withRetry((client) => client.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'maint-68-sync-consumer-repos.yml',
+              ref: context.payload.repository?.default_branch || 'main',
+              inputs: {
+                phase: 'promote',
+                canary_evidence_json: JSON.stringify(decision.evidence),
+                delivery_scope: 'auto',
+                dry_run: 'false',
+                force: 'false',
+              },
+            }));
+            core.notice(
+              `Replayed exact-plan promotion ${decision.plan_id} for ` +
+                `${decision.repositories.join(', ')}`,
+            );
+
+      - name: Promote complete exact-plan canary evidence
+        id: promote
+        if: >-
+          ${{
+            always() &&
+            steps.candidate_mode.outputs.candidate == 'true' &&
+            steps.candidate_evidence_validation.outcome == 'success' &&
+            steps.candidate_artifact.outcome == 'success' &&
+            steps.merge.outcome == 'success'
+          }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          github-token: ${{ secrets.OWNER_PR_PAT || secrets.SERVICE_BOT_PAT || github.token }}
+          script: |
+            const fs = require('fs');
+            const { createTokenAwareRetry } = require(
+              './.github/scripts/github-api-with-retry.js'
+            );
+            const { withRetry } = await createTokenAwareRetry({
+              github,
+              core,
+              env: process.env,
+              task: 'maint-71-promote-canary-evidence',
+              capabilities: ['actions:write'],
+            });
+            const {
+              candidatePromotionDecision,
+            } = require('./.github/scripts/sync_pr_merge_contract.js');
+            const report = JSON.parse(
+              fs.readFileSync('artifacts/sync-pr-merge-report.json', 'utf8'),
+            );
+            const evidence = JSON.parse(
+              fs.readFileSync('artifacts/sync-canary-evidence.json', 'utf8'),
+            );
+            const canaryConfig = JSON.parse(
+              fs.readFileSync('config/consumer_sync_canaries.json', 'utf8'),
+            );
+            const expectedCanaries = (canaryConfig.canaries || [])
+              .map((entry) => String(entry.repo || '').trim())
+              .filter(Boolean);
+            const decision = candidatePromotionDecision({ report, evidence, expectedCanaries });
+            if (!decision.eligible) {
+              core.notice(`Promotion remains held: ${decision.errors.join(', ')}`);
+              return;
+            }
+            const { data: runs } = await withRetry((client) =>
+              client.rest.actions.listWorkflowRuns({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'maint-68-sync-consumer-repos.yml',
+                per_page: 20,
+              }),
+            );
+            const activePromotion = (runs.workflow_runs || []).find((run) =>
+              ['queued', 'in_progress', 'waiting', 'pending'].includes(run.status)
+              && String(run.display_title || '').includes('Maint 68 promote'),
+            );
+            if (activePromotion) {
+              core.notice(`Exact-plan promotion already active in run ${activePromotion.id}`);
+              return;
+            }
+            await withRetry((client) => client.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'maint-68-sync-consumer-repos.yml',
+              ref: context.payload.repository?.default_branch || 'main',
+              inputs: {
+                phase: 'promote',
+                canary_evidence_json: JSON.stringify(evidence),
+                delivery_scope: 'auto',
+                dry_run: 'false',
+                force: 'false',
+              },
+            }));
+            core.notice(`Dispatched exact-plan promotion for ${decision.plan_id}`);
