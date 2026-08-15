@@ -24,6 +24,21 @@ PAUSE_METADATA_FIELDS = (
 )
 
 
+def validate_endpoint(endpoint: str) -> str:
+    """Accept only credential-free HTTPS endpoints for LangSmith API reads."""
+    parsed = urlparse.urlparse(endpoint.strip())
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("LangSmith endpoint must be a credential-free HTTPS origin or path")
+    return endpoint.strip().rstrip("/")
+
+
 def parse_timestamp(value: Any) -> datetime | None:
     """Parse an ISO timestamp and normalize it to UTC."""
     if not isinstance(value, str) or not value.strip():
@@ -207,6 +222,8 @@ def _request_json(
         },
     )
     try:
+        # The request URL is built only from validate_endpoint() plus fixed API paths.
+        # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urlrequest.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
     except urlerror.HTTPError as exc:
@@ -224,7 +241,7 @@ def query_latest_trace(
     search_hours: int,
 ) -> dict[str, Any] | None:
     """Read recent trace timestamps without logging secrets or trace payloads."""
-    endpoint = endpoint.rstrip("/")
+    endpoint = validate_endpoint(endpoint)
     query = urlparse.urlencode({"limit": 10, "name": project, "include_stats": "false"})
     sessions = _request_json("GET", f"{endpoint}/sessions?{query}", api_key=api_key)
     exact = [item for item in sessions if isinstance(item, dict) and item.get("name") == project]

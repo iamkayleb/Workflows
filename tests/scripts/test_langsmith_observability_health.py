@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 
+import pytest
 from scripts import langsmith_observability_health as health
 
 NOW = datetime(2026, 8, 15, 12, 0, tzinfo=UTC)
@@ -39,6 +40,27 @@ def test_fresh_trace_is_healthy() -> None:
     assert component["status"] == "healthy"
     assert component["latest_trace_id"] == "trace-1"
     assert component["hours_since_trace"] == 1.0
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "file:///tmp/langsmith.json",
+        "http://api.smith.langchain.com",
+        "https://user:secret@api.smith.langchain.com",
+        "https://api.smith.langchain.com?redirect=file:///tmp/data",
+    ],
+)
+def test_langsmith_endpoint_rejects_unsafe_urls(endpoint: str) -> None:
+    with pytest.raises(ValueError, match="credential-free HTTPS"):
+        health.validate_endpoint(endpoint)
+
+
+def test_langsmith_endpoint_normalizes_trailing_slash() -> None:
+    assert (
+        health.validate_endpoint("https://api.smith.langchain.com/")
+        == "https://api.smith.langchain.com"
+    )
 
 
 def test_overdue_pause_requires_attention() -> None:
