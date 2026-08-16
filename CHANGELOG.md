@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.25.0](https://github.com/stranske/Workflows/compare/v1.24.2...v1.25.0) (2026-08-16)
+
+
+### Features
+
+* **langsmith:** add observable pause and freshness protocol ([5489120](https://github.com/stranske/Workflows/commit/5489120d27823326878854f75b761dec2c54fdbf))
+* **langsmith:** add observable pause and freshness protocol ([bf7cd4f](https://github.com/stranske/Workflows/commit/bf7cd4faf3f1f57b179f093074cf2f5f7d5987b6))
+
+
+### Bug Fixes
+
+* **langsmith:** close observability security findings ([5f19772](https://github.com/stranske/Workflows/commit/5f1977283825f08131fd46ff61f90404f82fd654))
+* **langsmith:** harden observability sentinel ([b8710da](https://github.com/stranske/Workflows/commit/b8710daa7b06eaa19eda6dc909f3da9781e9c176))
+* **langsmith:** publish dashboard without branch writes ([f2d534b](https://github.com/stranske/Workflows/commit/f2d534ba6b2f045f8c0922f638736f90972427ef))
+* **langsmith:** publish dashboard without branch writes ([f53f225](https://github.com/stranske/Workflows/commit/f53f2255d5c821254dbfa28d4c694773847de152))
+* **langsmith:** route dashboard input through env ([20c7477](https://github.com/stranske/Workflows/commit/20c7477134e1e62556c4800a45272ff4f56f96c1))
+* **langsmith:** validate pause health metadata ([4e54ac2](https://github.com/stranske/Workflows/commit/4e54ac242a03efca48eacdbafacdf2d5f0fb7eec))
+* **sync:** carry delivery contract with path classifier ([#3117](https://github.com/stranske/Workflows/issues/3117)) ([8b3ef5f](https://github.com/stranske/Workflows/commit/8b3ef5f5c9635307fec47d581a82f2b78ea237bc))
+
 ## [1.24.2](https://github.com/stranske/Workflows/compare/v1.24.1...v1.24.2) (2026-08-15)
 
 
