@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.25.3](https://github.com/stranske/Workflows/compare/v1.25.2...v1.25.3) (2026-08-16)
+
+
+### Bug Fixes
+
+* **sync:** bind full promotion to canary source ([#3124](https://github.com/stranske/Workflows/issues/3124)) ([9ec471f](https://github.com/stranske/Workflows/commit/9ec471fca8aa330f396e371b3df3b1608b7b6f6f))
+* **sync:** terminate exact-tree no-change deliveries ([#3126](https://github.com/stranske/Workflows/issues/3126)) ([5bbdf0f](https://github.com/stranske/Workflows/commit/5bbdf0fe0d2bea7aa77d485ecab941ce456dc2fa))
+
 ## [1.25.2](https://github.com/stranske/Workflows/compare/v1.25.1...v1.25.2) (2026-08-16)
 
 
