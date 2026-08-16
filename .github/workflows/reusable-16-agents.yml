@@ -96,7 +96,7 @@ on:
         default: 'agent:codex'
         type: string
       draft_pr:
-        description: 'Open bootstrap PRs as draft (true/false)'
+        description: 'Deprecated compatibility input; ignored because automation PRs are always ready'
         required: false
         default: 'false'
         type: string
@@ -969,7 +969,6 @@ jobs:
         with:
           issue: ${{ fromJson(steps.ready.outputs.issue_numbers_json)[0] }}
           service_bot_pat: ${{ secrets.service_bot_pat || '' }}
-          draft: ${{ inputs.draft_pr }}
 
   watchdog:
     if: inputs.enable_watchdog == 'true'

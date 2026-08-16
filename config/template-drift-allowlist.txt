@@ -43,9 +43,9 @@
 [pair.1]
 main = .github/workflows/agents-63-issue-intake.yml
 template = templates/consumer-repo/.github/workflows/agents-issue-intake.yml
-main_sha256 = ec2e88c47e1d1e8b4e80094db20ce2e1cefd62ea968610a2b11b4403c6750184
-template_sha256 = 617cb594296c26ef8510b03dc43e835396a50ce84ed0d8a10d9e41b3e93f6772
-reason = Intentional divergence re-reviewed 2026-08-09: root intake now records each failed topic and fails after publishing its summary; the consumer intake template remains a pinned, minimal bridge contract.
+main_sha256 = 200757cbb8d1801434ac3acb9e517a90ea37aa06e57ce925e8ac4480d829fc7f
+template_sha256 = 9176b7cffc68dba50fa7ff9c6a2386383c237433ac5a656053eccdd202628c6d
+reason = Intentional divergence re-reviewed 2026-08-16: root and consumer intake surfaces both remove the operator draft toggle and always hand off ready-for-review automation PRs; root retains its richer failure summary while the consumer remains a pinned, minimal bridge contract.
 
 [pair.2]
 main = .github/workflows/agents-71-codex-belt-dispatcher.yml

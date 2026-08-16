@@ -326,7 +326,7 @@ def test_sync_fanout_is_canary_gated_and_promotion_is_plan_bound() -> None:
     assert 'branch_name="$SYNC_BRANCH"' in source
     assert "stable_plan_rotation" in source
     assert "expectedStableBranch" in source
-    assert "--draft" in source
+    assert "--draft" not in source
     assert "sync:delivery-staging" in source
     assert "sync:delivery-ready" in source
     continuation_names = [step.get("name") for step in continuation["steps"]]
@@ -548,9 +548,13 @@ def test_maint68_reuses_stable_delivery_pr_without_resetting_an_unchanged_head()
     assert "migrating its legacy metadata into the staged delivery lifecycle" in source
     assert "preserving its review lifecycle" in source
     assert "delivery_state=$(jq -r" in source
-    assert 'current_pr_json=$(gh pr view "$existing_pr" --json state,headRefOid,isDraft)' in source
-    assert 'gh pr merge "$existing_pr" --disable-auto' in source
-    assert 'gh pr ready "$existing_pr" --undo' in source
+    assert "hold_ready_pr()" in source
+    assert "--json state,headRefOid,isDraft,autoMergeRequest" in source
+    assert 'gh pr ready "$pr_number"' in source
+    assert 'gh pr merge "$pr_number" --disable-auto' in source
+    assert "pr_has_auto_merge=$(jq -r '.autoMergeRequest != null'" in source
+    assert source.count('hold_ready_pr "$existing_pr" "$existing_head"') == 2
+    assert 'gh pr ready "$existing_pr" --undo' not in source
     assert '--force-with-lease="refs/heads/$branch_name:$existing_head"' in source
     assert source.count("--json number,headRefName,isCrossRepository") == 2
     assert source.count(".isCrossRepository == false") == 2
@@ -590,6 +594,23 @@ def test_maint71_anchors_review_window_to_producer_head_observation() -> None:
     assert "observed_sha: pr?.head?.observed_sha" in source
     assert "observed_at: pr?.head?.observed_at" in source
     assert "selectedHeadCommit?.committer?.date" not in source
+
+
+def test_maint71_holds_ready_delivery_before_staging_mutations() -> None:
+    source = Path(".github/scripts/maint71_merge_sync_prs.js").read_text(encoding="utf-8")
+
+    helper = source.index("async function holdReadyStableDelivery")
+    disable = source.index("disablePullRequestAutoMerge", helper)
+    ready = source.index("markPullRequestReadyForReview", disable)
+    verification = source.index("Auto-merge remains enabled", ready)
+    begin = source.index("async function beginStableDeliveryReview", verification)
+    restage = source.index("async function restageStableDelivery", begin)
+    assert helper < disable < ready < verification < begin < restage
+    assert (
+        "const current = await holdReadyStableDelivery({ owner, repo, pr });"
+        in source[begin:restage]
+    )
+    assert "const current = await holdReadyStableDelivery({ owner, repo, pr });" in source[restage:]
 
 
 def test_gate_and_shared_mergers_hold_mutable_stable_deliveries() -> None:

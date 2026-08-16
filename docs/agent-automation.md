@@ -41,7 +41,7 @@ Gate workflow_run (PRs) ───────────────▶ agents-
 
 - **Triggers:** `schedule` (every 30 minutes) and manual `workflow_dispatch` with curated inputs.
 - **Inputs:** `enable_readiness`, `readiness_agents`, `enable_preflight`, `codex_user`,
-  `enable_verify_issue`, `verify_issue_number`, `verify_issue_valid_assignees`, `enable_watchdog`, `draft_pr`, plus an extensible
+  `enable_verify_issue`, `verify_issue_number`, `verify_issue_valid_assignees`, `enable_watchdog`, plus an extensible
   `params_json` string for long tail toggles (currently `diagnostic_mode`, `readiness_custom_logins`, `codex_command_phrase`,
   `require_all`, `enable_keepalive`, `keepalive_idle_minutes`, `keepalive_repeat_minutes`, `keepalive_labels`,
   `keepalive_command`).
@@ -58,7 +58,8 @@ Gate workflow_run (PRs) ───────────────▶ agents-
 
 - exposes a `workflow_call` interface so the orchestrator can exercise readiness, preflight, verification, and watchdog routines.
 - keeps compatibility inputs such as `readiness_custom_logins`, `require_all`, `enable_preflight`, `enable_verify_issue`,
-  `enable_watchdog`, `draft_pr`, and the pass-through `options_json` (embedded via `params_json`) for additional toggles.
+  `enable_watchdog`, and the pass-through `options_json` (embedded via `params_json`) for additional toggles. Bootstrap PRs
+  are always opened ready for review; dependencies and staging use labels and checks rather than draft state.
 - emits a Codex keepalive sweep that looks for stalled checklists on `agent:codex` PRs and republishes the
   `@codex plan-and-execute` command when the agent has been idle longer than the configured threshold (defaults: 10 minute
   idle threshold, 30 minute cooldown between nudges).

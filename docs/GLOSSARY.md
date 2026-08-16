@@ -60,13 +60,12 @@ an unchanged PR a near-free no-op. It honors the operator guardrails
 paused or human-blocked PR is never re-dispatched by the sweep.
 
 ### Bootstrap PR
-The initial draft PR an orchestrator/opener creates for an issue before any real
-agent work exists — a branch (e.g. `codex/issue-<n>`) plus a PR body carrying the
-issue context, used as the surface keepalive then iterates on. Whether bootstrap
-PRs open as drafts is controlled by the `draft_pr` output of
-`reusable-70-orchestrator-init.yml` (see
-[`INTEGRATION_GUIDE.md`](INTEGRATION_GUIDE.md)); the lightweight bootstrap path is
-the `.github/actions/codex-bootstrap-lite/` composite action. Belt and verifier
+The initial ready-for-review PR an orchestrator/opener creates for an issue
+before any real agent work exists — a branch (e.g. `codex/issue-<n>`) plus a PR
+body carrying the issue context, used as the surface keepalive then iterates on.
+Bootstrap PRs are always ready for review; labels, checks, and explicit PR-body
+state carry dependencies or staging. The lightweight bootstrap path is the
+`.github/actions/codex-bootstrap-lite/` composite action. Belt and verifier
 tooling treat a bootstrap-only placeholder (no substantive diff) as not yet
 mergeable.
 

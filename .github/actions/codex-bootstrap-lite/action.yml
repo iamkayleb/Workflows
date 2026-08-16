@@ -1,5 +1,5 @@
 name: "Codex Bootstrap (Lite)"
-description: "Minimal issue → branch → PR bootstrap with PAT-first auth and optional auto-ready"
+description: "Minimal issue → branch → ready-for-review PR bootstrap with PAT-first auth"
 
 inputs:
   issue:
@@ -22,11 +22,11 @@ inputs:
     required: false
     default: ""
   draft:
-    description: "Whether to create the PR as a draft (true|false)"
+    description: "Deprecated compatibility input; ignored because automation PRs are always ready"
     required: false
     default: "false"
   auto_ready:
-    description: "If draft=true and auto_ready=true, immediately mark ready-for-review"
+    description: "Deprecated compatibility input; ignored because automation PRs are always ready"
     required: false
     default: "false"
   post_codex_comment:
@@ -80,8 +80,6 @@ runs:
         GITHUB_TOKEN: ${{ github.token }}
         CODEX_CMD: ${{ inputs.codex_command }}
         FORCE_BASE: ${{ inputs.base_branch }}
-        DRAFT_FLAG: ${{ inputs.draft }}
-        AUTO_READY: ${{ inputs.auto_ready }}
         POST_CODEX: ${{ inputs.post_codex_comment }}
         AGENT_KEY: ${{ inputs.agent_key }}
         PR_MODE: ${{ inputs.pr_mode }}
@@ -159,7 +157,6 @@ runs:
             '—',
             'PR created automatically to engage Codex.'
           ].join('\n');
-          const asDraft = /^true$/i.test(process.env.DRAFT_FLAG || 'false');
           const prMode = (process.env.PR_MODE || 'create').toLowerCase();
 
           if (prMode === 'invite') {
@@ -191,10 +188,11 @@ runs:
             return;
           }
 
-          // Create draft or ready PR
+          // Automation-created PRs are always ready for review. Staging and
+          // dependency state belong in labels, checks, and the PR body.
           let prNum = null;
           try {
-            const { data: pr } = await github.rest.pulls.create({ owner, repo, head: branch, base: baseBranch, draft: asDraft, title: `Codex bootstrap for #${issue_number}`, body });
+            const { data: pr } = await github.rest.pulls.create({ owner, repo, head: branch, base: baseBranch, draft: false, title: `Codex bootstrap for #${issue_number}`, body });
             prNum = pr.number;
           } catch (e) {
             core.setFailed(`Failed to open PR: ${e.status || '?'} ${e.message}`);
@@ -246,15 +244,6 @@ runs:
             } catch (e) { core.warning(`Instruction comment failed: ${e.message}`); }
           }
 
-          // Optional: immediately mark ready for review
-          const auto = /^true$/i.test(process.env.AUTO_READY || 'false');
-          if (asDraft && auto) {
-            try { await github.rest.pulls.update({ owner, repo, pull_number: prNum, draft: false }); } catch (e) {
-              // Some endpoints prefer the separate ready-for-review endpoint
-              try { await github.request('POST /repos/{owner}/{repo}/pulls/{pull_number}/ready-for-review', { owner, repo, pull_number: prNum }); } catch (e2) { core.warning(`Auto-ready failed: ${e2.status || '?'} ${e2.message}`); }
-            }
-          }
-
           // Link back to the issue
           try {
             const executionSnippet = [
@@ -272,7 +261,7 @@ runs:
               '```'
             ].join('\n');
             const keepaliveStatus = `Keepalive mode: **${keepaliveEnabled ? 'ON' : 'OFF'}**`;
-            await github.rest.issues.createComment({ owner, repo, issue_number, body: `Opened ${asDraft && !auto ? 'draft ' : ''}PR #${prNum} to engage Codex. Track work there.\n\n${keepaliveStatus}\n\n${executionSnippet}` });
+            await github.rest.issues.createComment({ owner, repo, issue_number, body: `Opened ready-for-review PR #${prNum} to engage Codex. Track work there.\n\n${keepaliveStatus}\n\n${executionSnippet}` });
           } catch {}
 
           core.setOutput('pr', String(prNum));

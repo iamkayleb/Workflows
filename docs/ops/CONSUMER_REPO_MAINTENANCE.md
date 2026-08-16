@@ -403,10 +403,11 @@ closed if neither protection surface is visible. A successful ruleset query
 that returns no required checks is authoritative, so cancelled informational
 jobs do not become invented required failures.
 
-Maint 68 creates stable deliveries as draft with `sync:delivery-staging` and
-disables auto-merge before every real head update. If a later run computes the
-same base and desired tree, it preserves the PR's current review/seal state;
-metadata-only refreshes therefore cannot restart review forever.
+Maint 68 creates stable deliveries ready for review with
+`sync:delivery-staging` and disables auto-merge before every real head update.
+If a later run computes the same base and desired tree, it preserves the PR's
+current review/seal state; metadata-only refreshes therefore cannot restart
+review forever.
 
 Every real head update is fail-closed on commit identity. Maint 68 mints a
 repository-scoped Workflows GitHub App installation token, uploads the staged
@@ -424,7 +425,7 @@ same signed-commit contract. This prevents synced workflow files from reaching
 consumer `main` through an unsigned automation commit and avoids GitHub's
 subsequent workflow trust approval hold.
 
-Maint 71 marks the draft ready and starts bounded reviewer settlement. The
+Maint 71 starts bounded reviewer settlement while the PR remains ready. The
 policy in `config/consumer_sync_review_policy.json` requires one response, not
 all configured reviewers, after a seven-minute quiet period. If every reviewer
 reports capacity unavailability, settlement degrades after the quiet period;

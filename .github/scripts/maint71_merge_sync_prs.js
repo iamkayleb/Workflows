@@ -909,10 +909,51 @@ async function run({ github, context, core }) {
     }
   }
 
+  async function holdReadyStableDelivery({ owner, repo, pr }) {
+    let { data: current } = await withRetry((client) => client.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: pr.number,
+    }));
+    if (current.auto_merge) {
+      await withRetry((client) => client.graphql(
+        `mutation($id: ID!) {
+          disablePullRequestAutoMerge(input: {pullRequestId: $id}) {
+            pullRequest { id autoMergeRequest { enabledAt } }
+          }
+        }`,
+        { id: current.node_id },
+      ));
+    }
+    if (current.draft) {
+      await withRetry((client) => client.graphql(
+        `mutation($id: ID!) {
+          markPullRequestReadyForReview(input: {pullRequestId: $id}) {
+            pullRequest { id isDraft }
+          }
+        }`,
+        { id: current.node_id },
+      ));
+    }
+    ({ data: current } = await withRetry((client) => client.rest.pulls.get({
+      owner,
+      repo,
+      pull_number: pr.number,
+    })));
+    if (current.auto_merge) {
+      throw new Error(`Auto-merge remains enabled for staged delivery PR #${pr.number}.`);
+    }
+    if (current.draft) {
+      throw new Error(`Staged delivery PR #${pr.number} remains draft.`);
+    }
+    return current;
+  }
+
   async function beginStableDeliveryReview({ owner, repo, pr, record, dryRunMode }) {
     const reviewStartedAt = record.review_started_at || new Date().toISOString();
     if (dryRunMode) return { reviewStartedAt, dryRun: true };
-    const body = replaceDeliveryRecord(pr.body || '', {
+    const current = await holdReadyStableDelivery({ owner, repo, pr });
+    const body = replaceDeliveryRecord(current.body || '', {
       delivery_state: 'reviewing',
       review_started_at: reviewStartedAt,
       sealed_at: '',
@@ -925,16 +966,6 @@ async function run({ github, context, core }) {
       pull_number: pr.number,
       body,
     }));
-    if (pr.draft) {
-      await withRetry((client) => client.graphql(
-        `mutation($id: ID!) {
-          markPullRequestReadyForReview(input: {pullRequestId: $id}) {
-            pullRequest { id isDraft }
-          }
-        }`,
-        { id: pr.node_id },
-      ));
-    }
     await withRetry((client) => client.rest.issues.addLabels({
       owner,
       repo,
@@ -945,30 +976,30 @@ async function run({ github, context, core }) {
   }
 
   async function restageStableDelivery({ owner, repo, pr, dryRunMode }) {
-    const body = replaceDeliveryRecord(pr.body || '', {
+    if (dryRunMode) {
+      const body = replaceDeliveryRecord(pr.body || '', {
+        delivery_state: 'staging',
+        review_started_at: '',
+        sealed_at: '',
+        sealed_head_sha: '',
+        review_evidence: {},
+      });
+      return { body, dryRun: true };
+    }
+    const current = await holdReadyStableDelivery({ owner, repo, pr });
+    const body = replaceDeliveryRecord(current.body || '', {
       delivery_state: 'staging',
       review_started_at: '',
       sealed_at: '',
       sealed_head_sha: '',
       review_evidence: {},
     });
-    if (dryRunMode) return { body, dryRun: true };
     await withRetry((client) => client.rest.pulls.update({
       owner,
       repo,
       pull_number: pr.number,
       body,
     }));
-    if (!pr.draft) {
-      await withRetry((client) => client.graphql(
-        `mutation($id: ID!) {
-          convertPullRequestToDraft(input: {pullRequestId: $id}) {
-            pullRequest { id isDraft }
-          }
-        }`,
-        { id: pr.node_id },
-      ));
-    }
     await withRetry((client) => client.rest.issues.addLabels({
       owner,
       repo,
@@ -2022,7 +2053,7 @@ async function run({ github, context, core }) {
         continue;
       }
 
-      // Stable candidate PRs may advance from draft -> reviewing -> sealed
+      // Stable candidate PRs may advance from staging -> reviewing -> sealed
       // without pre-merge evidence. The evidence artifact authorizes only the
       // irreversible merge, so lifecycle progress cannot deadlock behind the
       // artifact that the sealed state is responsible for producing.

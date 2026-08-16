@@ -48,11 +48,6 @@ on:
         required: false
         type: string
         default: "codex"
-      bridge_draft_pr:
-        description: "Open Codex bootstrap PRs as draft (true/false)"
-        required: false
-        type: boolean
-        default: false
       apply_langchain_formatting:
         description: "Auto-format issues with LangChain after creation"
         required: false
@@ -93,7 +88,7 @@ on:
         required: false
         type: string
       bridge_draft_pr:
-        description: "Open Codex bootstrap PRs as draft (true/false)"
+        description: "Deprecated compatibility input; ignored because automation PRs are always ready"
         required: false
         type: string
       apply_langchain_formatting:
@@ -160,7 +155,6 @@ jobs:
       issue_number: ${{ steps.normalize.outputs.issue_number }}
       post_codex_comment: ${{ steps.normalize.outputs.post_codex_comment }}
       bridge_agent: ${{ steps.normalize.outputs.bridge_agent }}
-      bridge_draft_pr: ${{ steps.normalize.outputs.bridge_draft_pr }}
       apply_langchain_formatting: ${{ steps.normalize.outputs.apply_langchain_formatting }}
     steps:
       - name: Normalize inputs
@@ -174,7 +168,6 @@ jobs:
           INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
           INPUT_POST_CODEX_COMMENT: ${{ inputs.post_codex_comment }}
           INPUT_BRIDGE_AGENT: ${{ inputs.bridge_agent }}
-          INPUT_BRIDGE_DRAFT_PR: ${{ inputs.bridge_draft_pr }}
           INPUT_APPLY_LANGCHAIN_FORMATTING: ${{ inputs.apply_langchain_formatting }}
         run: |
           # Handle boolean inputs from workflow_dispatch vs workflow_call
@@ -197,7 +190,6 @@ jobs:
           issue_number="${INPUT_ISSUE_NUMBER:-}"
           post_codex_input="${INPUT_POST_CODEX_COMMENT:-}"
           bridge_agent="${INPUT_BRIDGE_AGENT:-}"
-          draft_pr=$(normalize_bool "${INPUT_BRIDGE_DRAFT_PR:-}")
           apply_formatting=$(normalize_bool "${INPUT_APPLY_LANGCHAIN_FORMATTING:-}")
 
           payload_issue=""
@@ -253,7 +245,6 @@ jobs:
             echo "issue_number=$issue_number"
             echo "post_codex_comment=$post_codex"
             echo "bridge_agent=$bridge_agent"
-            echo "bridge_draft_pr=$draft_pr"
             echo "apply_langchain_formatting=$apply_formatting"
           } >> "$GITHUB_OUTPUT"
 
@@ -1732,7 +1723,6 @@ jobs:
         }}
       mode: 'invite'
       post_agent_comment: ${{ needs.normalize_inputs.outputs.post_codex_comment }}
-      agent_pr_draft: ${{ needs.normalize_inputs.outputs.bridge_draft_pr }}
     secrets:
       service_bot_pat: ${{ secrets.SERVICE_BOT_PAT }}
       owner_pr_pat: ${{ secrets.OWNER_PR_PAT }}

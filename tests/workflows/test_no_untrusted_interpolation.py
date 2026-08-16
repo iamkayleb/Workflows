@@ -388,7 +388,7 @@ REVIEWED_SCRIPT_INTERPOLATIONS = frozenset(
         ),
         (
             ".github/workflows/reusable-agents-issue-bridge.yml",
-            "bridge/step-12/with.script",
+            "bridge/step-11/with.script",
             "inputs.issue_number",
         ),
         (
@@ -409,11 +409,6 @@ REVIEWED_SCRIPT_INTERPOLATIONS = frozenset(
         (
             ".github/workflows/reusable-agents-issue-bridge.yml",
             "bridge/step-8/with.script",
-            "inputs.agent_pr_draft",
-        ),
-        (
-            ".github/workflows/reusable-agents-issue-bridge.yml",
-            "bridge/step-9/with.script",
             "inputs.post_agent_comment",
         ),
         (".github/workflows/reusable-agents-verifier.yml", "verifier/step-11/run", "inputs.mode"),

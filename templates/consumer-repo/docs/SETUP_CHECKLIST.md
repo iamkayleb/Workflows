@@ -918,7 +918,7 @@ when the `autofix` or `autofix:clean` label is added to a PR.
 ### 8.4 Issue Intake System
 
 **Purpose**: Automatically creates PRs from issues labeled with `agent:codex`,
-bootstrapping agent work with a linked branch and draft PR.
+bootstrapping agent work with a linked branch and ready-for-review PR.
 
 **Workflows involved**:
 | Workflow | Role |
@@ -944,7 +944,7 @@ bootstrapping agent work with a linked branch and draft PR.
 2. Add the `agent:codex` label
 3. Verify intake workflow runs
 4. Check that a branch `codex/issue-<number>` is created
-5. Verify a draft PR is opened linking to the issue
+5. Verify a ready-for-review PR is opened linking to the issue
 
 **Troubleshooting**:
 - Intake doesn't trigger: Check label is `agent:codex` (not `codex` or `agent-codex`)

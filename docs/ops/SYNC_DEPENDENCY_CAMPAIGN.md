@@ -20,9 +20,9 @@ both `sync/workflows-*` consumer-sync branches and
 
 Consumer sync uses two stable lanes: `sync/workflows-candidate` for configured
 canaries and `sync/workflows-delivery` for promoted non-canaries. Maint 68
-updates those PRs in place. Before changing a head it disables auto-merge,
-converts the PR to draft, and applies `sync:delivery-staging`; an exact
-base/tree no-op preserves the existing lifecycle instead of restarting review.
+updates those ready-for-review PRs in place. Before changing a head it disables
+auto-merge and applies `sync:delivery-staging` without changing readiness; an
+exact base/tree no-op preserves the existing lifecycle instead of restarting review.
 
 Maint 71 advances a stable PR from `staging` to `reviewing` and finally
 `sealed`. Reviewer capacity is explicitly bounded: one configured reviewer
