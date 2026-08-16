@@ -576,7 +576,11 @@ jobs:
           echo "Chosen PR mode: $MODE (reason: $REASON)"
           echo "Base branch: ${{ steps.refs.outputs.base }}"
           echo "Head branch: ${{ steps.refs.outputs.head || 'unresolved' }}"
-          echo "PR readiness: ready for review"
+          if [ "$MODE" = "invite" ]; then
+            echo "PR readiness: not applicable (invite mode)"
+          else
+            echo "PR readiness: ready for review"
+          fi
           echo "Post agent comment: ${{ steps.agent_comment.outputs.post }}"
           KEEP_MODE="${{ steps.keepalive.outputs.mode || 'OFF' }}"
           KEEP_SOURCE="${{ steps.keepalive.outputs.source || 'default' }}"
@@ -1016,6 +1020,27 @@ jobs:
               }),
             );
             let pr = existing.data[0];
+
+            // A rerun can encounter a legacy or manually-created draft on the
+            // automation branch. Recover it before any body, label, assignment,
+            // or comment handoff so the ready-for-review invariant is fail-closed.
+            if (pr?.draft) {
+              const readyResult = await withRetry(() =>
+                github.graphql(
+                  `mutation($id: ID!) {
+                    markPullRequestReadyForReview(input: {pullRequestId: $id}) {
+                      pullRequest { id isDraft }
+                    }
+                  }`,
+                  { id: pr.node_id },
+                ),
+              );
+              if (readyResult.markPullRequestReadyForReview.pullRequest.isDraft) {
+                throw new Error(`Failed to mark reused PR #${pr.number} ready for review.`);
+              }
+              pr.draft = false;
+              core.info(`Marked reused PR #${pr.number} ready for review.`);
+            }
 
             let issueTitle = '';
             let issueBody = '';

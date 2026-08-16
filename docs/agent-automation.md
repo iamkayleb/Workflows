@@ -58,9 +58,8 @@ Gate workflow_run (PRs) ───────────────▶ agents-
 
 - exposes a `workflow_call` interface so the orchestrator can exercise readiness, preflight, verification, and watchdog routines.
 - keeps compatibility inputs such as `readiness_custom_logins`, `require_all`, `enable_preflight`, `enable_verify_issue`,
-  `enable_watchdog`, and the pass-through `options_json` (embedded via `params_json`) for additional toggles. The deprecated
-  `draft_pr` compatibility input is accepted but ignored. Bootstrap PRs are always opened ready for review; dependencies and
-  staging use labels and checks rather than draft state.
+  `enable_watchdog`, and the pass-through `options_json` (embedded via `params_json`) for additional toggles. Bootstrap PRs
+  are always opened ready for review; dependencies and staging use labels and checks rather than draft state.
 - emits a Codex keepalive sweep that looks for stalled checklists on `agent:codex` PRs and republishes the
   `@codex plan-and-execute` command when the agent has been idle longer than the configured threshold (defaults: 10 minute
   idle threshold, 30 minute cooldown between nudges).

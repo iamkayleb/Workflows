@@ -985,6 +985,56 @@ jobs:
           credential_helper="!f() { echo \"username=x-access-token\"; echo \"password=\$GH_TOKEN\"; }; f"
           git config credential.helper "$credential_helper"
 
+          hold_ready_pr() {
+            local pr_number="$1"
+            local expected_head="$2"
+            local pr_json
+            local pr_state
+            local pr_head
+            local pr_is_draft
+            local pr_has_auto_merge
+
+            pr_json=$(gh pr view "$pr_number" \
+              --json state,headRefOid,isDraft,autoMergeRequest)
+            pr_state=$(jq -r .state <<<"$pr_json")
+            pr_head=$(jq -r .headRefOid <<<"$pr_json")
+            pr_is_draft=$(jq -r .isDraft <<<"$pr_json")
+            pr_has_auto_merge=$(jq -r '.autoMergeRequest != null' <<<"$pr_json")
+            if [ "$pr_state" != "OPEN" ] || [ "$pr_head" != "$expected_head" ]; then
+              echo "::error::Existing PR #$pr_number changed before refresh; refusing to overwrite it."
+              return 1
+            fi
+
+            # Maint 71 is the sole merge authority. Disable any inherited
+            # auto-merge before readiness, body, label, or head mutations.
+            if [ "$pr_has_auto_merge" = "true" ]; then
+              if ! gh pr merge "$pr_number" --disable-auto; then
+                echo "::error::Could not disable auto-merge for PR #$pr_number."
+                return 1
+              fi
+            fi
+            if [ "$pr_is_draft" = "true" ]; then
+              if ! gh pr ready "$pr_number"; then
+                echo "::error::Could not mark legacy draft PR #$pr_number ready for review."
+                return 1
+              fi
+            fi
+
+            pr_json=$(gh pr view "$pr_number" \
+              --json state,headRefOid,isDraft,autoMergeRequest)
+            pr_state=$(jq -r .state <<<"$pr_json")
+            pr_head=$(jq -r .headRefOid <<<"$pr_json")
+            pr_is_draft=$(jq -r .isDraft <<<"$pr_json")
+            pr_has_auto_merge=$(jq -r '.autoMergeRequest != null' <<<"$pr_json")
+            if [ "$pr_state" != "OPEN" ] \
+              || [ "$pr_head" != "$expected_head" ] \
+              || [ "$pr_is_draft" != "false" ] \
+              || [ "$pr_has_auto_merge" != "false" ]; then
+                echo "::error::PR #$pr_number is not safely held ready for review."
+                return 1
+            fi
+          }
+
           # Keep one generated PR per lane current. Both candidate and promoted
           # deliveries use stable branches; immutable plan/hash identity lives in
           # the delivery marker rather than in a replacement PR branch.
@@ -1198,15 +1248,10 @@ jobs:
               # path immediately before mutating it. The staging label is
               # enforced by all shared merger lanes and by Gate until Maint 71
               # seals the exact head; PRs remain ready for review throughout.
-              current_pr_json=$(gh pr view "$existing_pr" --json state,headRefOid)
-              current_pr_state=$(jq -r .state <<<"$current_pr_json")
-              current_pr_head=$(jq -r .headRefOid <<<"$current_pr_json")
-              if [ "$current_pr_state" != "OPEN" ] || [ "$current_pr_head" != "$existing_head" ]; then
-                echo "Existing PR #$existing_pr changed before refresh; refusing to overwrite it."
+              if ! hold_ready_pr "$existing_pr" "$existing_head"; then
                 echo "status=existing_pr_changed" >> "$GITHUB_OUTPUT"
                 exit 1
               fi
-              gh pr merge "$existing_pr" --disable-auto >/dev/null 2>&1 || true
               gh pr edit "$existing_pr" --add-label "sync:delivery-staging"
               gh pr edit "$existing_pr" --remove-label "sync:delivery-ready" >/dev/null 2>&1 || true
           fi
@@ -1283,11 +1328,7 @@ jobs:
             fi
 
             if [ -n "$existing_pr" ]; then
-              current_pr_json=$(gh pr view "$existing_pr" --json state,headRefOid)
-              current_pr_state=$(jq -r .state <<<"$current_pr_json")
-              current_pr_head=$(jq -r .headRefOid <<<"$current_pr_json")
-              if [ "$current_pr_state" != "OPEN" ] \
-                || [ "$current_pr_head" != "$existing_head" ]; then
+              if ! hold_ready_pr "$existing_pr" "$existing_head"; then
                 echo "::error::Existing PR #$existing_pr changed during signed commit preparation."
                 echo "::error::Refusing to overwrite the changed head."
                 exit 1
