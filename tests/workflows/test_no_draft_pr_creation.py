@@ -128,3 +128,40 @@ def test_legacy_draft_inputs_are_inert_and_absent_from_operator_ui() -> None:
     assert "bridge_draft_pr" not in template_intake
     assert "merged.draft_pr" not in resolver
     assert "draft_pr: 'false'" in resolver
+
+
+def test_consumer_setup_uses_current_ready_for_review_topology() -> None:
+    checklist = (
+        REPO_ROOT / "templates" / "consumer-repo" / "docs" / "SETUP_CHECKLIST.md"
+    ).read_text(encoding="utf-8")
+    retired_tokens = (
+        "agents-63",
+        "Agents 63",
+        "agents-70-orchestrator.yml",
+        "agents-pr-meta.yml",
+        "agents-orchestrator.yml",
+        "agents-keepalive-loop.yml",
+        "PR Meta",
+        "pr_meta_comment",
+        "allow_replay",
+        "raw.githubusercontent.com/stranske/Workflows/v1",
+        "@v1",
+    )
+    affirmative_draft_instruction = re.compile(
+        r"(?<!non-)(?<!no )(?<!not )\bdraft\s+(?:PR|pull request)\b",
+        re.IGNORECASE,
+    )
+
+    assert not [token for token in retired_tokens if token in checklist]
+    assert affirmative_draft_instruction.search(checklist) is None
+    assert "Verify a ready-for-review PR is opened linking to the issue" in checklist
+    assert "agents-81-gate-followups.yml" in checklist
+    assert "Keepalive Sweep re-enters the Agents 81 evaluation" in checklist
+    assert checklist.count("both `agent:codex` and `agents:keepalive` labels") == 2
+
+    user_guide = (REPO_ROOT / "templates" / "consumer-repo" / "WORKFLOW_USER_GUIDE.md").read_text(
+        encoding="utf-8"
+    )
+    assert "PR Meta" not in user_guide
+    assert affirmative_draft_instruction.search(user_guide) is None
+    assert "opens a ready-for-review PR" in user_guide
