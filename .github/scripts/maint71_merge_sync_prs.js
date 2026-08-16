@@ -925,6 +925,8 @@ async function run({ github, context, core }) {
       pull_number: pr.number,
       body,
     }));
+    // Recover historical/manual drafts, but never use draft state as a
+    // generated-delivery lifecycle control.
     if (pr.draft) {
       await withRetry((client) => client.graphql(
         `mutation($id: ID!) {
@@ -959,16 +961,6 @@ async function run({ github, context, core }) {
       pull_number: pr.number,
       body,
     }));
-    if (!pr.draft) {
-      await withRetry((client) => client.graphql(
-        `mutation($id: ID!) {
-          convertPullRequestToDraft(input: {pullRequestId: $id}) {
-            pullRequest { id isDraft }
-          }
-        }`,
-        { id: pr.node_id },
-      ));
-    }
     await withRetry((client) => client.rest.issues.addLabels({
       owner,
       repo,
@@ -2022,7 +2014,7 @@ async function run({ github, context, core }) {
         continue;
       }
 
-      // Stable candidate PRs may advance from draft -> reviewing -> sealed
+      // Stable candidate PRs may advance from staging -> reviewing -> sealed
       // without pre-merge evidence. The evidence artifact authorizes only the
       // irreversible merge, so lifecycle progress cannot deadlock behind the
       // artifact that the sealed state is responsible for producing.

@@ -33,8 +33,8 @@ For a narrative of how the repo evolved through five development phases (bootstr
 
 Consumer delivery is coalesced into one stable PR per repository and lane:
 configured canaries use `sync/workflows-candidate`, while promoted consumers use
-`sync/workflows-delivery`. Maint 68 updates those PRs in place; Maint 71 alone
-advances them from draft staging through bounded reviewer settlement to an
+`sync/workflows-delivery`. Maint 68 updates those ready-for-review PRs in place;
+Maint 71 alone advances them from labeled staging through bounded reviewer settlement to an
 exact-head seal and merge. Review capacity cannot require all configured bots:
 one response is sufficient after the quiet period, and a bounded timeout keeps
 an unavailable reviewer from making delivery immortal. Explicit review-skip,

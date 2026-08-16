@@ -326,7 +326,7 @@ def test_sync_fanout_is_canary_gated_and_promotion_is_plan_bound() -> None:
     assert 'branch_name="$SYNC_BRANCH"' in source
     assert "stable_plan_rotation" in source
     assert "expectedStableBranch" in source
-    assert "--draft" in source
+    assert "--draft" not in source
     assert "sync:delivery-staging" in source
     assert "sync:delivery-ready" in source
     continuation_names = [step.get("name") for step in continuation["steps"]]
@@ -548,9 +548,9 @@ def test_maint68_reuses_stable_delivery_pr_without_resetting_an_unchanged_head()
     assert "migrating its legacy metadata into the staged delivery lifecycle" in source
     assert "preserving its review lifecycle" in source
     assert "delivery_state=$(jq -r" in source
-    assert 'current_pr_json=$(gh pr view "$existing_pr" --json state,headRefOid,isDraft)' in source
+    assert 'current_pr_json=$(gh pr view "$existing_pr" --json state,headRefOid)' in source
     assert 'gh pr merge "$existing_pr" --disable-auto' in source
-    assert 'gh pr ready "$existing_pr" --undo' in source
+    assert 'gh pr ready "$existing_pr" --undo' not in source
     assert '--force-with-lease="refs/heads/$branch_name:$existing_head"' in source
     assert source.count("--json number,headRefName,isCrossRepository") == 2
     assert source.count(".isCrossRepository == false") == 2

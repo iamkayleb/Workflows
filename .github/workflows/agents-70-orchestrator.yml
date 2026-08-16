@@ -178,7 +178,6 @@ jobs:
       keepalive_max_retries: ${{ needs.init.outputs.keepalive_max_retries }}
       enable_bootstrap: ${{ needs.init.outputs.enable_bootstrap }}
       bootstrap_issues_label: ${{ needs.init.outputs.bootstrap_issues_label }}
-      draft_pr: ${{ needs.init.outputs.draft_pr }}
       verify_issue_valid_assignees: ${{ needs.init.outputs.verify_issue_valid_assignees }}
       dry_run: ${{ needs.init.outputs.dry_run }}
       options_json: ${{ needs.init.outputs.options_json }}

@@ -1195,10 +1195,10 @@ jobs:
           if [ -n "$existing_pr" ] \
             && { [ "$matching_existing" != "true" ] || [ "$migrating_legacy_lifecycle" = "true" ]; }; then
               # Revalidate the selected head, then close every automatic merge
-              # path immediately before mutating it. Draft state is GitHub's
-              # native hard block; the staging label is enforced by all shared
-              # merger lanes and by Gate until Maint 71 seals the exact head.
-              current_pr_json=$(gh pr view "$existing_pr" --json state,headRefOid,isDraft)
+              # path immediately before mutating it. The staging label is
+              # enforced by all shared merger lanes and by Gate until Maint 71
+              # seals the exact head; PRs remain ready for review throughout.
+              current_pr_json=$(gh pr view "$existing_pr" --json state,headRefOid)
               current_pr_state=$(jq -r .state <<<"$current_pr_json")
               current_pr_head=$(jq -r .headRefOid <<<"$current_pr_json")
               if [ "$current_pr_state" != "OPEN" ] || [ "$current_pr_head" != "$existing_head" ]; then
@@ -1207,9 +1207,6 @@ jobs:
                 exit 1
               fi
               gh pr merge "$existing_pr" --disable-auto >/dev/null 2>&1 || true
-              if [ "$(jq -r .isDraft <<<"$current_pr_json")" != "true" ]; then
-                gh pr ready "$existing_pr" --undo
-              fi
               gh pr edit "$existing_pr" --add-label "sync:delivery-staging"
               gh pr edit "$existing_pr" --remove-label "sync:delivery-ready" >/dev/null 2>&1 || true
           fi
@@ -1409,7 +1406,6 @@ jobs:
           else
             pr_url=$(gh pr create \
               --head "$branch_name" \
-              --draft \
               --title "chore: sync workflow templates" \
               --body "$pr_body" \
               --label "sync,automated,sync:delivery-staging")

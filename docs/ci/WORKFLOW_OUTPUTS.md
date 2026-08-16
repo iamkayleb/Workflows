@@ -40,7 +40,7 @@ reusable workflow in the no-output section.
 | `reusable-70-orchestrator-init.yml` | `keepalive_max_retries` | string (number-like) | Maximum keepalive retries permitted for the run. | `needs.init.outputs.keepalive_max_retries` |
 | `reusable-70-orchestrator-init.yml` | `enable_bootstrap` | string (boolean-like) | Resolved flag for Codex bootstrap. | `needs.init.outputs.enable_bootstrap` |
 | `reusable-70-orchestrator-init.yml` | `bootstrap_issues_label` | string | Label to select issues for bootstrap. | `needs.init.outputs.bootstrap_issues_label` |
-| `reusable-70-orchestrator-init.yml` | `draft_pr` | string (boolean-like) | Whether bootstrap PRs should be drafts. | `needs.init.outputs.draft_pr` |
+| `reusable-70-orchestrator-init.yml` | `draft_pr` | string (boolean-like) | Deprecated compatibility output; always `false` because automation PRs are ready for review. | `needs.init.outputs.draft_pr` |
 | `reusable-70-orchestrator-init.yml` | `verify_issue_valid_assignees` | string | Comma-separated logins considered valid for issue verification. | `needs.init.outputs.verify_issue_valid_assignees` |
 | `reusable-70-orchestrator-init.yml` | `dry_run` | string (boolean-like) | Global dry-run toggle for downstream jobs. | `needs.init.outputs.dry_run` |
 | `reusable-70-orchestrator-init.yml` | `options_json` | string (JSON) | Resolved options JSON passed to the orchestrator. | `needs.init.outputs.options_json` |

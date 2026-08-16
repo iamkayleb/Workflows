@@ -34,6 +34,13 @@ Start with the current docs instead of inferring behavior from old comments:
 - `ci.yml` and `autofix-versions.env` remain repo-specific in consumer repos.
 - `pr-00-gate.yml` is distributed as a create-only starting point. Consumers should stay aligned to the standard gate unless they have an explicitly documented exception.
 
+## Pull Request Readiness Invariant
+
+- Automation-created pull requests must be opened ready for review. Do not create drafts or convert ready pull requests back to draft.
+- Draft state is not a staging, dependency, stack-order, or opener-cap control. Use explicit labels, PR-body lifecycle state, disabled auto-merge, required checks, and exact-head merge guards instead.
+- Before handing off or ending work, verify every pull request created or changed by the run is open and has `isDraft=false`. Convert a pre-existing draft to ready as a recovery action.
+- Do not close an otherwise valid pull request merely to free automation capacity; preserve its branch and route the real blocker or dependency explicitly.
+
 ## Editing Rules
 
 - Changes to reusable workflows affect consumers immediately.

@@ -15,7 +15,7 @@ limit for each measure:
 - avoidable replacement attempts per repository/batch; and
 - distinct agent-exception fingerprints, based on changed heads, active review
   threads, or check-failure clusters rather than observation timestamps;
-- force-push, draft/ready, review-request, and review-submission events on the
+- force-push, unexpected draft/ready, review-request, and review-submission events on the
   stable `sync/workflows-candidate` and `sync/workflows-delivery` PRs; and
 - review-start-to-seal and observed-head-to-seal convergence from each stable
   PR's `sync-pr-delivery-record:v1` lifecycle marker.
@@ -32,7 +32,7 @@ SLOs because its generated work originates in the administration surface.
 | Avoidable replacements per repository/batch | 0 |
 | Distinct agent-exception episodes/week | ≤ 5 |
 | Force pushes per stable sync PR | ≤ 1 |
-| Ready-for-review transitions per stable sync PR | ≤ 1 |
+| Ready-for-review transitions per stable sync PR | 0 |
 | Median review-start-to-seal time | ≤ 30 minutes |
 
 Security-bypass PRs remain visible in the lane report. They are not treated as
@@ -54,7 +54,7 @@ Weekly `created` / `merged` / `closed` counts use event timestamps inside the
 reporting window. The Markdown report always shows rate numerator/denominator
 evidence plus any avoidable-replacement repository/batch keys that drive a
 breach. The stable-delivery table makes repeated head rewrites and repeated
-draft-to-ready review cycles visible per PR instead of treating an updated PR as
+unexpected draft-to-ready review cycles visible per PR instead of treating an updated PR as
 one inexpensive delivery attempt.
 
 The dedicated durable tracker

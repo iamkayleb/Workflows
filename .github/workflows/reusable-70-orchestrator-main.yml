@@ -62,6 +62,7 @@ on:
         type: string
         required: false
       draft_pr:
+        description: 'Deprecated compatibility input; ignored because automation PRs are always ready'
         type: string
         required: false
       verify_issue_valid_assignees:
@@ -1302,7 +1303,6 @@ jobs:
       enable_keepalive: ${{ inputs.enable_keepalive }}
       enable_bootstrap: ${{ inputs.enable_bootstrap }}
       bootstrap_issues_label: ${{ inputs.bootstrap_issues_label }}
-      draft_pr: ${{ inputs.draft_pr }}
       verify_issue_valid_assignees: ${{ inputs.verify_issue_valid_assignees }}
       dry_run: ${{ inputs.dry_run }}
       options_json: ${{ inputs.options_json }}

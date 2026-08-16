@@ -13,7 +13,6 @@
 # - issue_number: Issue number to process (required for workflow_dispatch)
 # - mode: PR creation mode ('create' or 'invite')
 # - post_agent_comment: Whether to auto-post '@<agent> start' command
-# - agent_pr_draft: Whether created PRs should be drafts
 # - service_bot_pat: PAT for service bot operations
 # - owner_pr_pat: PAT for PR creation operations
 
@@ -47,7 +46,7 @@ on:
         type: string
         default: "true"
       agent_pr_draft:
-        description: "Force created PR to be draft (true/false)"
+        description: "Deprecated compatibility input; ignored because automation PRs are always ready"
         required: false
         type: string
         default: "false"
@@ -403,14 +402,6 @@ jobs:
             core.setOutput('mode', mode);
             core.setOutput('reason', reason);
 
-      - name: Resolve draft flag
-        id: draft
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const val = '${{ inputs.agent_pr_draft }}' === 'true';
-            core.setOutput('draft', val ? 'true' : 'false');
-
       - name: Resolve post-agent comment flag
         id: agent_comment
         uses: actions/github-script@v9
@@ -575,7 +566,7 @@ jobs:
               ]);
             await summary.write();
 
-      - name: Log chosen mode & draft
+      - name: Log chosen PR mode
         env:
           AGENT: ${{ steps.agent_label.outputs.agent || inputs.agent }}
         run: |
@@ -585,7 +576,7 @@ jobs:
           echo "Chosen PR mode: $MODE (reason: $REASON)"
           echo "Base branch: ${{ steps.refs.outputs.base }}"
           echo "Head branch: ${{ steps.refs.outputs.head || 'unresolved' }}"
-          echo "Resolved draft flag: ${{ steps.draft.outputs.draft }}"
+          echo "PR readiness: ready for review"
           echo "Post agent comment: ${{ steps.agent_comment.outputs.post }}"
           KEEP_MODE="${{ steps.keepalive.outputs.mode || 'OFF' }}"
           KEEP_SOURCE="${{ steps.keepalive.outputs.source || 'default' }}"
@@ -972,7 +963,6 @@ jobs:
             const issue_number = Number('${{ steps.ctx.outputs.issue }}');
             const base = "${{ steps.refs.outputs.base }}";
             const head = process.env.BRANCH;
-            const draftFlag = "${{ steps.draft.outputs.draft }}" === 'true';
             const keepaliveMode = process.env.KEEPALIVE_MODE || 'OFF';
             const { buildIssueContext } = require('./.github/scripts/issue_context_utils.js');
             const agent = (process.env.AGENT || '').trim();
@@ -1114,7 +1104,7 @@ jobs:
                   repo,
                   head,
                   base,
-                  draft: draftFlag,
+                  draft: false,
                   title: `${agentTitle} bootstrap for #${issue_number}`,
                   body: prBody,
                 }),

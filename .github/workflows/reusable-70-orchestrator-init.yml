@@ -84,6 +84,7 @@ on:
       bootstrap_issues_label:
         value: ${{ jobs.resolve-params.outputs.bootstrap_issues_label }}
       draft_pr:
+        description: 'Deprecated compatibility output; always `false` because automation PRs are ready for review.'
         value: ${{ jobs.resolve-params.outputs.draft_pr }}
       verify_issue_valid_assignees:
         value: ${{ jobs.resolve-params.outputs.verify_issue_valid_assignees }}

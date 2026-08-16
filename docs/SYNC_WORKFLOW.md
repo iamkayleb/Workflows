@@ -83,13 +83,13 @@ done
 ## Stable Delivery PRs
 
 Maint 68 coalesces canary updates into `sync/workflows-candidate` and promoted
-updates into `sync/workflows-delivery`. It updates the same PR in place. Before
-an actual push it disables auto-merge, converts the PR to draft, and adds
-`sync:delivery-staging`; if the computed base/tree is unchanged it preserves
-the existing review lifecycle.
+updates into `sync/workflows-delivery`. It updates the same ready-for-review PR
+in place. Before an actual push it disables auto-merge and adds
+`sync:delivery-staging` without changing readiness; if the computed base/tree
+is unchanged it preserves the existing review lifecycle.
 
-Maint 71 is the sole merge/close authority. It marks staging PRs ready for
-bounded review, requires one available reviewer response after seven minutes
+Maint 71 is the sole merge/close authority. It starts bounded review for staged
+PRs, requires one available reviewer response after seven minutes
 (or degrades after an all-capacity signal / fifteen-minute no-response
 timeout), and never waives active review threads. It seals the exact head,
 triggers a fresh Gate, and merges only after that Gate succeeds. The staging
@@ -117,7 +117,7 @@ branches. Re-run Maint 71 after the recorded quiet-period/check timestamp.
 - [ ] Fix any issues found
 - [ ] Check for open sync PRs across all consumer repos
 - [ ] Refresh each stable candidate or delivery PR in place through Maint 68
-- [ ] Keep refreshed PRs draft and labeled `sync:delivery-staging`
+- [ ] Keep refreshed PRs ready for review and labeled `sync:delivery-staging`
 - [ ] Use Maint 71 to start the review window, settle available reviewer evidence, and seal the exact head
 - [ ] Verify zero active non-outdated review threads and passing required checks on the sealed head
 - [ ] Let Maint 71 merge only the sealed stable delivery; use its reconciliation output for stale attempts
