@@ -42,3 +42,24 @@ def test_langsmith_observability_contract_doc_has_repo_issue_checklist() -> None
     assert "Repo Issue Implementation Checklist" in content
     assert "instrumentation code in the consumer repo" in content
     assert "link back to the parent Workflows LangSmith fleet issue" in content
+
+
+def test_langsmith_observability_contract_separates_history_and_health_states() -> None:
+    content = DOC.read_text(encoding="utf-8")
+
+    for heading in (
+        "Independent State Axes",
+        "Trace History And Orchestrator Access",
+        "Health And Notification Protocol",
+    ):
+        assert heading in content
+    for field in (
+        "paused_at",
+        "pause_reason",
+        "pause_owner",
+        "resume_condition",
+        "review_by",
+    ):
+        assert f"`{field}`" in content
+    assert "full prompts and outputs" in content
+    assert "health-84-langsmith-observability.yml" in content

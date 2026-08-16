@@ -8,7 +8,7 @@ import json
 import sys
 from collections import Counter
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,13 @@ ALLOWLIST_PATH = Path("config/langsmith_fleet_allowlist.json")
 PARENT_WORKFLOWS_ISSUE = "stranske/Workflows#2150"
 AGENT_CAPACITY_WINDOWS = {"5h", "weekly", "daily"}
 VALID_EVIDENCE_MODES = {"artifact", "langsmith-direct"}
+PAUSE_METADATA_FIELDS = (
+    "paused_at",
+    "pause_reason",
+    "pause_owner",
+    "resume_condition",
+    "review_by",
+)
 MANAGED_CONSUMER_REPOS = {
     "stranske/Travel-Plan-Permission",
     "stranske/Template",
@@ -280,6 +287,27 @@ def validate_registry(
             raise ValueError(f"registry repos[{index}].evidence_mode must be one of {allowed}")
         if not isinstance(rollout_status, str) or not rollout_status.strip():
             raise ValueError(f"registry repos[{index}].rollout_status must be a non-empty string")
+        if rollout_status == "paused":
+            for field in PAUSE_METADATA_FIELDS:
+                if not isinstance(entry.get(field), str) or not str(entry[field]).strip():
+                    raise ValueError(
+                        f"registry repos[{index}].{field} must be a non-empty string "
+                        "when rollout_status is paused"
+                    )
+            try:
+                paused_at = datetime.fromisoformat(entry["paused_at"].replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(
+                    f"registry repos[{index}].paused_at must be an ISO timestamp"
+                ) from exc
+            if paused_at.tzinfo is None:
+                raise ValueError(f"registry repos[{index}].paused_at must include a timezone")
+            try:
+                review_by = date.fromisoformat(entry["review_by"])
+            except ValueError as exc:
+                raise ValueError(f"registry repos[{index}].review_by must be an ISO date") from exc
+            if review_by < paused_at.date():
+                raise ValueError(f"registry repos[{index}].review_by cannot predate paused_at")
 
         if not isinstance(operations, list) or not operations:
             raise ValueError(f"registry repos[{index}].operations must be a non-empty list")

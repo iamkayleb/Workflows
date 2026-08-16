@@ -54,6 +54,58 @@ Every participating repo/surface must have a registry entry that defines:
 - artifact name,
 - rollout status.
 
+An intentional `paused` rollout must also record `paused_at`, `pause_reason`,
+`pause_owner`, `resume_condition`, and `review_by`. Registry validation rejects
+an unowned or open-ended pause. The review date is an observability deadline,
+not an automatic resume instruction: the owner must either resume the named
+transport or renew the pause with current evidence.
+
+## Independent State Axes
+
+Never use one status to describe the whole observability system. Report these
+axes independently:
+
+1. **Rollout intent** — whether a particular registry transport is active or
+   intentionally paused.
+2. **Cloud trace flow** — whether the LangSmith project has a trace inside its
+   freshness objective.
+3. **Artifact conformance** — whether a repo's exported NDJSON is `missing`,
+   `invalid`, `stale`, or `valid`.
+4. **Durable local import** — whether Orchestrator has copied trace references,
+   execution metadata, and costs into its local feedback database.
+
+A paused artifact expectation does not mean cloud tracing is paused. Likewise,
+a current cloud trace does not prove that Orchestrator imported it or that an
+application-specific runtime is instrumented.
+
+## Trace History And Orchestrator Access
+
+The `workflows-agents` LangSmith project is the cloud source for trace payloads
+and its history remains subject to the active LangSmith plan's retention rules.
+Orchestrator can query that history directly and shapes joinable runs into the
+same `langsmith-fleet/v1` execution records used by artifact ingestion.
+
+Orchestrator then keeps imported `execution_traces` and `costs` rows in its
+local SQLite feedback store indefinitely. Those durable rows contain trace IDs,
+URLs, provider/model/status, latency, cost, and join references; they are not a
+second copy of full prompts and outputs. Semantic trace inspection therefore
+still requires the corresponding cloud trace to remain retained and accessible.
+
+## Health And Notification Protocol
+
+`health-84-langsmith-observability.yml` runs daily and supports manual
+dispatch. It independently checks:
+
+- the dashboard and conformance workflows have a success within 192 hours,
+- neither workflow has two consecutive non-successful completed runs,
+- `workflows-agents` has a cloud trace within 24 hours, and
+- every intentional pause is owned and not past `review_by`.
+
+The sentinel uploads its JSON/markdown evidence and upserts one durable health
+issue. A degraded transition adds `needs-human` and `agent:needs-attention`; a
+recovery removes them. This turns a pull-only warning or red scheduled run into
+a durable surface consumed by normal triage.
+
 Current tracked implementation issues:
 
 - `stranske/trip-planner#1208`

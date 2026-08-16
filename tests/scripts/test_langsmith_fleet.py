@@ -27,6 +27,31 @@ def test_valid_fixture_passes_registry_validation() -> None:
     assert errors == []
 
 
+def test_paused_registry_entry_requires_governance_metadata() -> None:
+    registry = langsmith_fleet.load_registry(REGISTRY)
+    broken = copy.deepcopy(registry)
+    workflows_entry = next(
+        entry for entry in broken["repos"] if entry["repo"] == "stranske/Workflows"
+    )
+    workflows_entry.pop("pause_owner")
+
+    with pytest.raises(ValueError, match="pause_owner.*when rollout_status is paused"):
+        langsmith_fleet.validate_registry(broken)
+
+
+def test_paused_registry_entry_has_reviewable_resume_contract() -> None:
+    registry = langsmith_fleet.load_registry(REGISTRY)
+    workflows_entry = next(
+        entry for entry in registry["repos"] if entry["repo"] == "stranske/Workflows"
+    )
+
+    assert workflows_entry["paused_at"] == "2026-06-13T13:36:33Z"
+    assert workflows_entry["pause_owner"] == "stranske/Workflows#2150"
+    assert workflows_entry["review_by"] == "2026-09-15"
+    assert "cloud LangSmith tracing remains active" in workflows_entry["pause_reason"]
+    assert "conformant langsmith-fleet.ndjson" in workflows_entry["resume_condition"]
+
+
 def test_valid_fixture_covers_each_registry_repo_surface() -> None:
     records, _ = langsmith_fleet.load_ndjson(FIXTURES / "valid.ndjson")
     registry = langsmith_fleet.load_registry(REGISTRY)
