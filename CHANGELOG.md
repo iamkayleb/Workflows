@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.25.2](https://github.com/stranske/Workflows/compare/v1.25.1...v1.25.2) (2026-08-16)
+
+
+### Bug Fixes
+
+* **sync:** seal fleet delivery before merging ([#3120](https://github.com/stranske/Workflows/issues/3120)) ([c2e1007](https://github.com/stranske/Workflows/commit/c2e1007a7513199e329c4b80e0ccf3e98fccfe69))
+
 ## [1.25.1](https://github.com/stranske/Workflows/compare/v1.25.0...v1.25.1) (2026-08-16)
 
 
