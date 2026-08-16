@@ -19,7 +19,7 @@ on:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
   issues: write
 
 jobs:
@@ -28,6 +28,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
+        with:
+          # Publication is issue/artifact-backed. Do not retain credentials that
+          # could accidentally reintroduce a scheduled push to the default branch.
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -237,7 +241,8 @@ jobs:
               > "$zip_path" 2>> .metrics-tmp/fleet/fleet_errors.log; then
               extract_dir=".metrics-tmp/fleet/extracted/${safe_repo}"
               mkdir -p "$extract_dir"
-              if unzip -q -o "$zip_path" -d "$extract_dir" 2>> .metrics-tmp/fleet/fleet_errors.log; then
+              if unzip -q -o "$zip_path" -d "$extract_dir" \
+                2>> .metrics-tmp/fleet/fleet_errors.log; then
                 while IFS= read -r ndjson_file; do
                   cat "$ndjson_file" >> .metrics-tmp/fleet/combined-fleet.ndjson
                   printf '\n' >> .metrics-tmp/fleet/combined-fleet.ndjson
@@ -275,7 +280,9 @@ jobs:
           echo "LANGSMITH_FLEET_INVALID=${INVALID:-0}" >> "$GITHUB_ENV"
           echo "LANGSMITH_FLEET_MISSING=${MISSING:-0}" >> "$GITHUB_ENV"
           if [ "${INVALID:-0}" != "0" ] || [ "${MISSING:-0}" != "0" ]; then
-            echo "::warning title=LangSmith fleet artifacts incomplete::invalid=${INVALID:-0} missing=${MISSING:-0} (see LangSmith Fleet Artifact Status table)"
+            warning="invalid=${INVALID:-0} missing=${MISSING:-0}; "
+            warning+="see LangSmith Fleet Artifact Status table"
+            echo "::warning title=LangSmith fleet artifacts incomplete::$warning"
           fi
 
       - name: Generate metrics report
@@ -436,11 +443,13 @@ jobs:
             --label "metrics" \
             --search "LangSmith Trace Coverage Dashboard in:title" \
             --json number,title); then
-            echo "::error::Failed to list existing dashboard issues; aborting to avoid duplicate dashboard issue churn." >&2
+            echo "::error::Failed to list existing dashboard issues." >&2
+            echo "Aborting to avoid duplicate dashboard issue churn." >&2
             exit 1
           fi
           DASHBOARD_ISSUE=$(printf '%s' "$DASHBOARD_ISSUE_JSON" \
-            | jq -r --arg title "$ISSUE_TITLE" 'map(select(.title == $title)) | .[0].number // empty')
+            | jq -r --arg title "$ISSUE_TITLE" \
+              'map(select(.title == $title)) | .[0].number // empty')
 
           if [ -n "$DASHBOARD_ISSUE" ]; then
             gh issue edit "$DASHBOARD_ISSUE" \
@@ -460,95 +469,25 @@ jobs:
             echo "Created LangSmith dashboard issue $DASHBOARD_URL"
           fi
 
-      - name: Update dashboard file
-        if: env.REPORT_AVAILABLE == 'true'
-        run: |
-          # Create/update dashboard markdown file
-          mkdir -p docs/dashboards
-
-          cat > docs/dashboards/langsmith-metrics.md <<EOF
-          # LangSmith Metrics Dashboard
-
-          > **Last Updated:** $(date -u +"%Y-%m-%d %H:%M UTC")
-          > **Period:** Last ${{ inputs.days_back || '7' }} days
-
-          ---
-
-          $(cat .metrics-tmp/report.md)
-
-          ---
-
-          ## How to Read This Dashboard
-
-          ### Overall Trace Coverage
-
-          The **trace coverage percentage** indicates what portion of LLM
-          operations successfully captured a LangSmith trace ID.
-
-          - ✅ **90%+** - Excellent coverage
-          - ⚠️ **70-89%** - Good, but investigate gaps
-          - ❌ **<70%** - Action required
-
-          ### Coverage by Operation Type
-
-          Different operation types (from \`metric_type\` field):
-          - **step** - Autopilot pipeline steps (format, optimize, etc.)
-          - **evaluation** - PR verification evaluations
-          - **generation** - Issue/followup generation
-
-          ### Coverage by Autopilot Step
-
-          Traces grouped by \`step_name\` for autopilot operations.
-
-          ---
-
-          ## Accessing Traces
-
-          1. **In PR comments:** Look for "🔍 LangSmith Trace" section in verifier reports
-          2. **In workflow logs:** Check for GitHub notices titled "LangSmith Trace"
-          3. **In LangSmith UI:** Visit [https://smith.langchain.com](https://smith.langchain.com)
-
-          ---
-
-          ## Related Links
-
-          - [Integration Status](../LANGSMITH_INTEGRATION_STATUS.md)
-          - [E2E Validation](../LANGSMITH_E2E_VALIDATION.md)
-          - [Integration Skill](../../.claude/skills/langsmith-integration/skill.md)
-          - [Weekly Reports (Issues)](../../issues?q=is%3Aissue+label%3Alangsmith+label%3Ametrics)
-
-          EOF
-
-          # Commit and push
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git add docs/dashboards/langsmith-metrics.md
-
-          if git diff --staged --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "chore: Update LangSmith metrics dashboard
-
-          Automated update from workflow run ${{ github.run_id }}
-          Period: Last ${{ inputs.days_back || '7' }} days"
-
-            git push origin HEAD:${{ github.ref_name }}
-            echo "✅ Updated docs/dashboards/langsmith-metrics.md"
-          fi
-
       - name: Summary
         if: always()
+        env:
+          CREATE_ISSUE: ${{ inputs.create_issue }}
         run: |
           if [ "$REPORT_AVAILABLE" == "true" ]; then
             echo "✅ LangSmith metrics dashboard generated successfully"
             echo ""
             echo "📊 Report locations:"
             echo "  - Artifact: langsmith-metrics-report-${{ github.run_id }}"
-            echo "  - Dashboard file: docs/dashboards/langsmith-metrics.md"
             if [ "${{ github.event_name }}" == "schedule" ] || \
-               [ "${{ inputs.create_issue }}" == "true" ]; then
-              echo "  - Issue: Upserted with labels 'metrics,automated,tracker:durable'"
+               [ "$CREATE_ISSUE" == "true" ]; then
+              location="  - Authoritative dashboard: durable issue upserted"
+              location+=" with labels 'metrics,automated,tracker:durable'"
+              echo "$location"
+            else
+              location="  - Authoritative dashboard: report artifact"
+              location+=" (issue publication disabled for this dispatch)"
+              echo "$location"
             fi
           else
             echo "⚠️ No metrics data available for the specified period"

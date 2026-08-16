@@ -103,10 +103,10 @@ def test_fleet_rollup_and_publication_paths_are_wired() -> None:
     assert '--registry "$REGISTRY" --summary --format markdown' in source
     assert '--registry "$REGISTRY" --summary --format json' in source
 
-    # The same report payload feeds both issue body and committed dashboard file.
+    # The same report payload feeds the durable issue and retained report artifact.
     assert "REPORT=$(cat .metrics-tmp/report.md)" in source
     assert "$REPORT" in source
-    assert "$(cat .metrics-tmp/report.md)" in source
+    assert "name: langsmith-metrics-report-${{ github.run_id }}" in source
 
     # The raw combined NDJSON is retained for downstream durable ingestion.
     assert "name: langsmith-fleet-rollup-${{ github.run_id }}" in source
@@ -115,3 +115,16 @@ def test_fleet_rollup_and_publication_paths_are_wired() -> None:
     assert "actions/upload-artifact@v7" not in source
     assert source.count("include-hidden-files: true") >= 3
     assert source.count("            .metrics-tmp/fleet/combined-fleet.ndjson") >= 2
+
+
+def test_dashboard_publication_cannot_push_to_default_branch() -> None:
+    source = WORKFLOW.read_text(encoding="utf-8")
+
+    assert "contents: read" in source
+    assert "contents: write" not in source
+    assert "persist-credentials: false" in source
+    assert "name: Update dashboard file" not in source
+    assert "git push" not in source
+    assert '[ "${{ inputs.create_issue }}" == "true" ]' not in source
+    assert '[ "$CREATE_ISSUE" == "true" ]' in source
+    assert "Authoritative dashboard: durable issue" in source
