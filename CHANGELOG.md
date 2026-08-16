@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.25.1](https://github.com/stranske/Workflows/compare/v1.25.0...v1.25.1) (2026-08-16)
+
+
+### Bug Fixes
+
+* **sync:** bind canary handoff to exact plan ([#3118](https://github.com/stranske/Workflows/issues/3118)) ([3e4d09e](https://github.com/stranske/Workflows/commit/3e4d09ef15c4a0a358899028f8f5e23b3c43c275))
+
 ## [1.25.0](https://github.com/stranske/Workflows/compare/v1.24.2...v1.25.0) (2026-08-16)
 
 
