@@ -594,18 +594,109 @@ function selectMergeEligibleSyncPr(
   return { ...selection, deliveryRecord: record, eligibility };
 }
 
-function selectLatestMergedCandidatePr(prs, trustedActors = []) {
+function selectLatestMergedCandidatePr(
+  prs,
+  trustedActors = [],
+  { planId = '', sourceCommit = '' } = {},
+) {
+  const expectedPlanId = String(planId || '').trim();
+  const expectedSourceCommit = String(sourceCommit || '').trim().toLowerCase();
   const mergedCandidates = (prs || []).filter(
-    (pr) =>
-      pr?.head?.ref === `${SYNC_BRANCH_PREFIX}candidate`
-      && Boolean(pr?.merged_at || pr?.mergedAt)
-      && isTrustedGeneratedDeliveryPr(pr, trustedActors),
+    (pr) => {
+      if (
+        pr?.head?.ref !== `${SYNC_BRANCH_PREFIX}candidate`
+        || !Boolean(pr?.merged_at || pr?.mergedAt)
+        || !isTrustedGeneratedDeliveryPr(pr, trustedActors)
+      ) {
+        return false;
+      }
+      const record = parseDeliveryRecord(pr.body || '');
+      if (expectedPlanId && record?.plan_id !== expectedPlanId) return false;
+      if (
+        expectedSourceCommit
+        && String(record?.source_commit || '').trim().toLowerCase() !== expectedSourceCommit
+      ) {
+        return false;
+      }
+      return true;
+    },
   );
   return mergedCandidates.sort((a, b) => {
     const aTime = new Date(a.merged_at || a.mergedAt || a.updated_at || 0).getTime();
     const bTime = new Date(b.merged_at || b.mergedAt || b.updated_at || 0).getTime();
     return bTime - aTime;
   })[0] || null;
+}
+
+function validateExpectedCandidateIdentity({
+  metadata = null,
+  deliveryRecord = null,
+  expectedPlanId = '',
+  expectedPlanScope = 'full',
+  expectedScopeBaseSha = '',
+  expectedSourceCommit = '',
+  repository = '',
+} = {}) {
+  const expected = {
+    planId: String(expectedPlanId || '').trim(),
+    planScope: String(expectedPlanScope || '').trim() || 'full',
+    scopeBaseSha: String(expectedScopeBaseSha || '').trim().toLowerCase(),
+    sourceCommit: String(expectedSourceCommit || '').trim().toLowerCase(),
+    repository: String(repository || '').trim(),
+  };
+  const errors = [];
+  if (!expected.planId) errors.push('missing_expected_plan_id');
+  if (!expected.sourceCommit) errors.push('missing_expected_source_commit');
+  if (!metadata) errors.push('missing_sync_metadata');
+  if (!deliveryRecord) errors.push('missing_delivery_record');
+  if (errors.length > 0) return { ok: false, errors };
+
+  if (String(metadata.plan_id || '').trim() !== expected.planId) {
+    errors.push('metadata_plan_id_mismatch');
+  }
+  if (String(deliveryRecord.plan_id || '').trim() !== expected.planId) {
+    errors.push('delivery_plan_id_mismatch');
+  }
+  if ((String(metadata.plan_scope || '').trim() || 'full') !== expected.planScope) {
+    errors.push('metadata_plan_scope_mismatch');
+  }
+  if (
+    String(metadata.scope_base_sha || '').trim().toLowerCase()
+    !== expected.scopeBaseSha
+  ) {
+    errors.push('metadata_scope_base_sha_mismatch');
+  }
+  if (
+    String(metadata.source_commit || '').trim().toLowerCase()
+    !== expected.sourceCommit
+  ) {
+    errors.push('metadata_source_commit_mismatch');
+  }
+  if (
+    String(metadata.source_sha || '').trim().toLowerCase()
+    !== expected.sourceCommit
+  ) {
+    errors.push('metadata_source_sha_mismatch');
+  }
+  if (
+    String(deliveryRecord.source_commit || '').trim().toLowerCase()
+    !== expected.sourceCommit
+  ) {
+    errors.push('delivery_source_commit_mismatch');
+  }
+  if (
+    expected.repository
+    && String(metadata.consumer_repo || '').trim() !== expected.repository
+  ) {
+    errors.push('metadata_repository_mismatch');
+  }
+  if (
+    expected.repository
+    && String(deliveryRecord.repository || '').trim() !== expected.repository
+  ) {
+    errors.push('delivery_repository_mismatch');
+  }
+  return { ok: errors.length === 0, errors };
 }
 
 function validateCanaryEvidence(evidence = [], expectedRepos = []) {
@@ -1136,6 +1227,7 @@ module.exports = {
   selectActiveSyncPr,
   selectMergeEligibleSyncPr,
   selectLatestMergedCandidatePr,
+  validateExpectedCandidateIdentity,
   validateCanaryEvidence,
   validateSourceDeltaEvidenceBinding,
   summarizeResults,
