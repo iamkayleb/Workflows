@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.25.4](https://github.com/stranske/Workflows/compare/v1.25.3...v1.25.4) (2026-08-16)
+
+
+### Bug Fixes
+
+* allow Maint 71 delivery reconciliation ([#3131](https://github.com/stranske/Workflows/issues/3131)) ([6e9f703](https://github.com/stranske/Workflows/commit/6e9f7035cb5c2f33530d5af1357b76ca0edb1ca6))
+* enforce ready-for-review automation PRs ([83023d3](https://github.com/stranske/Workflows/commit/83023d3df866a9af86ce334e016197a9abb815f9))
+* enforce ready-for-review automation PRs ([0f733c8](https://github.com/stranske/Workflows/commit/0f733c8d5e3308153cfa263f730ada61b3e3c39c))
+* reconcile explicit admin deliveries ([#3132](https://github.com/stranske/Workflows/issues/3132)) ([f7afdbd](https://github.com/stranske/Workflows/commit/f7afdbdc8db65f7a3d91768bc2e2b77242327418))
+* recover legacy draft automation PRs ([b8634c0](https://github.com/stranske/Workflows/commit/b8634c043a37bd8182eb7e949a87dbdaaa0c6ae3))
+* **security:** pass belt-dispatcher workflow_dispatch inputs via env instead of script interpolation ([#3127](https://github.com/stranske/Workflows/issues/3127)) ([33a0ad6](https://github.com/stranske/Workflows/commit/33a0ad659afd88ef330f26687c1ec84cbd2b3754))
+
 ## [1.25.3](https://github.com/stranske/Workflows/compare/v1.25.2...v1.25.3) (2026-08-16)
 
 
