@@ -4,11 +4,74 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  buildNoChangeEvidence,
   buildNoChangeCanaryEvidence,
+  mergeCampaignNoChangeEvidence,
   buildMarkdownSummary,
   buildSyncRunReport,
   summarizeResults,
 } = require('../sync_run_contract');
+
+test('buildNoChangeEvidence binds unchanged delivery repos to an immutable campaign plan', () => {
+  const planId = `sha256:${'a'.repeat(64)}`;
+  const sourceCommit = 'b'.repeat(40);
+  const result = buildNoChangeEvidence({
+    expectedRepositories: ['stranske/Ready'],
+    planId,
+    planScope: 'full',
+    sourceCommit,
+    results: [{
+      repo: 'stranske/Ready', status: 'no_changes', plan_id: planId,
+      plan_scope: 'full', scope_base_sha: '', source_commit: sourceCommit,
+      consumer_head_sha: 'c'.repeat(40),
+    }],
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.evidence.schema, 'workflows.consumer-sync-no-change-evidence/v1');
+  assert.equal(result.evidence.results[0].evidence_source, 'no-change-delivery');
+});
+
+test('buildNoChangeEvidence fails closed on immutable mismatches and duplicate rows', () => {
+  const planId = `sha256:${'a'.repeat(64)}`;
+  const sourceCommit = 'b'.repeat(40);
+  const base = {
+    repo: 'stranske/Ready', status: 'no_changes', plan_id: planId,
+    plan_scope: 'source-delta', scope_base_sha: 'c'.repeat(40),
+    source_commit: sourceCommit, consumer_head_sha: 'd'.repeat(40),
+  };
+  const mismatch = buildNoChangeEvidence({
+    expectedRepositories: ['stranske/Ready'],
+    planId,
+    planScope: 'source-delta',
+    scopeBaseSha: 'c'.repeat(40),
+    sourceCommit,
+    results: [{
+      ...base,
+      plan_id: `sha256:${'e'.repeat(64)}`,
+      plan_scope: 'full',
+      scope_base_sha: 'f'.repeat(40),
+      source_commit: '0'.repeat(40),
+      consumer_head_sha: 'not-a-sha',
+    }],
+  });
+  assert.equal(mismatch.ok, false);
+  assert.ok(mismatch.errors.includes('no_change_delivery_plan_mismatch:stranske/Ready'));
+  assert.ok(mismatch.errors.includes('no_change_delivery_scope_mismatch:stranske/Ready'));
+  assert.ok(mismatch.errors.includes('no_change_delivery_scope_base_mismatch:stranske/Ready'));
+  assert.ok(mismatch.errors.includes('no_change_delivery_source_mismatch:stranske/Ready'));
+  assert.ok(mismatch.errors.includes('no_change_delivery_head_invalid:stranske/Ready'));
+
+  const duplicate = buildNoChangeEvidence({
+    expectedRepositories: ['stranske/Ready'],
+    planId,
+    planScope: 'source-delta',
+    scopeBaseSha: 'c'.repeat(40),
+    sourceCommit,
+    results: [base, base],
+  });
+  assert.equal(duplicate.ok, false);
+  assert.ok(duplicate.errors.includes('duplicate_no_change_delivery:stranske/Ready'));
+});
 
 test('buildNoChangeCanaryEvidence binds no-diff canaries to the exact plan and head', () => {
   const planId = `sha256:${'a'.repeat(64)}`;
@@ -90,6 +153,27 @@ test('buildNoChangeCanaryEvidence rejects duplicate and immutable scope mismatch
   assert.ok(result.errors.includes('no_change_canary_scope_mismatch:stranske/Ready'));
   assert.ok(result.errors.includes('no_change_canary_scope_base_mismatch:stranske/Ready'));
   assert.ok(result.errors.includes('duplicate_no_change_canary:stranske/Ready'));
+});
+
+test('mergeCampaignNoChangeEvidence dedupes overlapping canary and delivery rows by repo', () => {
+  const delivery = {
+    schema: 'workflows.consumer-sync-no-change-evidence/v1',
+    version: 1,
+    results: [
+      { repo: 'stranske/Ready', evidence_source: 'no-change-delivery', head_sha: 'd'.repeat(40) },
+      { repo: 'stranske/Travel', evidence_source: 'no-change-delivery', head_sha: 'e'.repeat(40) },
+    ],
+  };
+  const canaryRows = [
+    { repo: 'stranske/Ready', evidence_source: 'no-change-canary', head_sha: 'c'.repeat(40) },
+  ];
+  const merged = mergeCampaignNoChangeEvidence(canaryRows, delivery);
+  assert.equal(merged.schema, delivery.schema);
+  assert.equal(merged.version, delivery.version);
+  assert.equal(merged.results.length, 2);
+  const ready = merged.results.find((row) => row.repo === 'stranske/Ready');
+  assert.equal(ready.evidence_source, 'no-change-canary');
+  assert.equal(ready.head_sha, 'c'.repeat(40));
 });
 
 test('summarizeResults counts known statuses and buckets unknown as error', () => {

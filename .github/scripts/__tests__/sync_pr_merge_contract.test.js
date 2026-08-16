@@ -8,12 +8,15 @@ const path = require('node:path');
 
 const {
   buildMarkdownSummary,
+  buildCampaignCommitAuthorization,
   buildDeliveryHandoff,
   buildMergeReport,
   candidateRefreshDecision,
   candidatePromotionDecision,
   deliveryRefreshDecision,
   candidateEvidenceAllowsMutation,
+  campaignAuthorizationAllowsMerge,
+  hasCampaignCommitAuthorization,
   classifyDeliveryContinuation,
   classifyGeneratedPr,
   classifySyncPrChecks,
@@ -38,9 +41,12 @@ const {
   rulesetRefPatternMatches,
   selectActiveSyncPr,
   selectLatestMergedCandidatePr,
+  selectLatestMergedSyncPr,
+  campaignAuthorizationRowForRepository,
   selectMergeEligibleSyncPr,
   summarizeResults,
   syncBranchForHash,
+  syncSelectorForRepository,
   validateCanaryEvidence,
   validateExpectedCandidateIdentity,
   validateSourceDeltaEvidenceBinding,
@@ -50,6 +56,7 @@ const {
   collectReviewerEvidence,
   legacyStatusAsCheck,
   normalizeReviewPolicy,
+  parseNoChangeEvidenceDocument,
   parseReviewResolutionProofs,
   run,
   validateReviewResolutionProof,
@@ -72,6 +79,49 @@ const checkRun = ({
   status,
   conclusion,
   started_at,
+});
+
+test('parseNoChangeEvidenceDocument shares fail-closed lane validation', () => {
+  const planId = 'plan-abc';
+  const sourceCommit = 'a'.repeat(40);
+  const raw = JSON.stringify({
+    schema: 'workflows.consumer-sync-canary-evidence/v1',
+    version: 1,
+    results: [{
+      repo: 'stranske/Travel',
+      plan_id: planId,
+      plan_scope: 'full',
+      scope_base_sha: '',
+      source_commit: sourceCommit,
+      head_sha: 'b'.repeat(40),
+      evidence_source: 'no-change-canary',
+      required_check_state: 'success',
+      active_review_thread_count: 0,
+    }],
+  });
+  const parsed = parseNoChangeEvidenceDocument(raw, {
+    lane: 'candidate',
+    requestedSyncHash: 'candidate',
+    documentName: 'No-change canary evidence',
+    rowName: 'no-change canary evidence',
+    schema: 'workflows.consumer-sync-canary-evidence/v1',
+    acceptedEvidenceSources: ['no-change-canary'],
+    expectedRepositories: ['stranske/Travel'],
+    expectedPlanId: planId,
+    expectedPlanScope: 'full',
+    expectedScopeBaseSha: '',
+    expectedSourceCommit: sourceCommit,
+    requireExactPlan: true,
+  });
+  assert.equal(parsed.get('stranske/Travel').head_sha, 'b'.repeat(40));
+  assert.throws(
+    () => parseNoChangeEvidenceDocument(raw, {
+      lane: 'candidate',
+      requestedSyncHash: 'campaign',
+      documentName: 'No-change canary evidence',
+    }),
+    /only valid for the candidate lane/,
+  );
 });
 
 test('transient delivery holds carry a durable due time and lane', () => {
@@ -103,7 +153,7 @@ test('transient delivery holds carry a durable due time and lane', () => {
   }, '2026-08-15T12:00:00Z').resume_after, '2026-08-15T12:10:00.000Z');
 });
 
-test('promotion requires complete exact-plan evidence and terminal candidate rows', () => {
+test('promotion requires complete exact-plan evidence and prepared candidate rows', () => {
   const expectedCanaries = ['stranske/Travel', 'stranske/Portable'];
   const evidence = {
     results: expectedCanaries.map((repo, index) => ({
@@ -125,7 +175,7 @@ test('promotion requires complete exact-plan evidence and terminal candidate row
         repo,
         pr: index + 1,
         branch: 'sync/workflows-candidate',
-        status: index ? 'evidence_recovered' : 'merged',
+        status: index ? 'evidence_recovered' : 'campaign_prepared',
       };
     }),
   };
@@ -138,6 +188,166 @@ test('promotion requires complete exact-plan evidence and terminal candidate row
   const blocked = candidatePromotionDecision({ report, evidence, expectedCanaries });
   assert.equal(blocked.eligible, false);
   assert.match(blocked.errors.join('\n'), /stranske\/Travel/);
+});
+
+test('campaign maps canaries to candidate and the remaining fleet to delivery', () => {
+  assert.equal(syncSelectorForRepository({
+    syncHash: 'campaign',
+    repository: 'stranske/Travel',
+    canaryRepos: ['stranske/Travel'],
+  }), 'candidate');
+  assert.equal(syncSelectorForRepository({
+    syncHash: 'campaign',
+    repository: 'stranske/Other',
+    canaryRepos: ['stranske/Travel'],
+  }), 'delivery');
+  assert.equal(syncSelectorForRepository({
+    syncHash: 'candidate',
+    repository: 'stranske/Other',
+    canaryRepos: ['stranske/Travel'],
+  }), 'candidate');
+});
+
+test('campaign commit authorization binds every prepared exact head', () => {
+  const report = {
+    inputs: { sync_hash: 'campaign' },
+    results: [
+      {
+        owner: 'stranske', repo: 'Travel', pr: 11,
+        branch: 'sync/workflows-candidate', head_sha: 'head-11',
+        delivery_generation: 'generation-11', plan_id: 'plan-abc',
+        source_commit: 'source-abc',
+        status: 'campaign_prepared',
+      },
+      {
+        owner: 'stranske', repo: 'NoChange', status: 'campaign_no_change_verified',
+        plan_id: 'plan-abc', source_commit: 'source-abc',
+      },
+    ],
+  };
+  const authorization = buildCampaignCommitAuthorization({
+    report,
+    expectedRepositories: ['stranske/Travel', 'stranske/NoChange'],
+    planId: 'plan-abc',
+    sourceCommit: 'source-abc',
+    generatedAt: '2026-08-16T12:00:00Z',
+  });
+  assert.equal(authorization.authorized, true);
+  assert.equal(campaignAuthorizationAllowsMerge({
+    authorization,
+    result: {
+      owner: 'stranske', repo: 'Travel', pr: 11,
+      branch: 'sync/workflows-candidate', head_sha: 'head-11',
+      delivery_generation: 'generation-11',
+    },
+  }), true);
+  assert.equal(campaignAuthorizationAllowsMerge({
+    authorization,
+    result: {
+      owner: 'stranske', repo: 'Travel', pr: 11,
+      branch: 'sync/workflows-candidate', head_sha: 'changed',
+      delivery_generation: 'generation-11',
+    },
+  }), false);
+  report.results[0].status = 'checks_pending';
+  assert.equal(buildCampaignCommitAuthorization({
+    report,
+    expectedRepositories: ['stranske/Travel', 'stranske/NoChange'],
+    planId: 'plan-abc',
+    sourceCommit: 'source-abc',
+  }).authorized, false);
+});
+
+test('hasCampaignCommitAuthorization rejects empty or partial authorization payloads', () => {
+  assert.equal(hasCampaignCommitAuthorization({}), false);
+  assert.equal(hasCampaignCommitAuthorization({ authorized: true }), false);
+  assert.equal(hasCampaignCommitAuthorization({
+    schema: 'workflows.sync-campaign-commit-authorization/v1',
+    authorized: true,
+    rows: [],
+  }), false);
+  assert.equal(hasCampaignCommitAuthorization({
+    schema: 'workflows.sync-campaign-commit-authorization/v2',
+    authorized: true,
+    rows: [{ repository: 'stranske/Travel' }],
+  }), false);
+  assert.equal(campaignAuthorizationAllowsMerge({
+    authorization: { authorized: true, rows: [] },
+    result: { owner: 'stranske', repo: 'Travel', pr: 11 },
+  }), false);
+});
+
+test('campaign commit authorization accepts already-merged rows on resume', () => {
+  const report = {
+    inputs: { sync_hash: 'campaign' },
+    results: [
+      {
+        owner: 'stranske', repo: 'Travel', pr: 11,
+        branch: 'sync/workflows-delivery', head_sha: 'head-11',
+        delivery_generation: 'generation-11', plan_id: 'plan-abc',
+        source_commit: 'source-abc',
+        status: 'merged',
+      },
+      {
+        owner: 'stranske', repo: 'Portable', pr: 12,
+        branch: 'sync/workflows-delivery', head_sha: 'head-12',
+        delivery_generation: 'generation-12', plan_id: 'plan-abc',
+        source_commit: 'source-abc',
+        status: 'campaign_prepared',
+      },
+    ],
+  };
+  const authorization = buildCampaignCommitAuthorization({
+    report,
+    expectedRepositories: ['stranske/Travel', 'stranske/Portable'],
+    planId: 'plan-abc',
+    sourceCommit: 'source-abc',
+  });
+  assert.equal(authorization.authorized, true);
+  assert.equal(authorization.rows.length, 2);
+  assert.equal(
+    campaignAuthorizationRowForRepository(authorization, 'stranske/Travel')?.head_sha,
+    'head-11',
+  );
+});
+
+test('selectLatestMergedSyncPr matches authorized campaign identity', () => {
+  const trusted = ['stranske'];
+  const deliveryBody = `<!-- sync-pr-delivery-record:v1 ${JSON.stringify({
+    schema: 'sync-pr-delivery-record/v1',
+    durable_issue_url: 'https://github.com/stranske/Workflows/issues/1836',
+    plan_id: 'plan-abc',
+    generation: 'generation-11',
+    repository: 'stranske/Travel',
+    desired_tree_hash: 'tree-11',
+    source_commit: 'source-abc',
+    lease_expires_at: '2099-08-14T00:00:00Z',
+    predecessor_prs: [],
+    successor_prs: [],
+  })} -->`;
+  const selected = selectLatestMergedSyncPr([
+    {
+      number: 11,
+      merged_at: '2026-08-16T12:00:00Z',
+      user: { login: 'stranske' },
+      head: { ref: 'sync/workflows-delivery', sha: 'head-11' },
+      body: deliveryBody,
+    },
+    {
+      number: 10,
+      merged_at: '2026-08-16T11:00:00Z',
+      user: { login: 'stranske' },
+      head: { ref: 'sync/workflows-delivery', sha: 'stale-head' },
+      body: deliveryBody,
+    },
+  ], trusted, {
+    branch: 'sync/workflows-delivery',
+    planId: 'plan-abc',
+    sourceCommit: 'source-abc',
+    prNumber: 11,
+    headSha: 'head-11',
+  });
+  assert.equal(selected?.number, 11);
 });
 
 test('candidate base drift requests a no-filter refresh and stays transient', () => {
@@ -368,6 +578,7 @@ test('maint71 accepts no-change canary evidence only while the exact base head i
     'EXPECTED_SCOPE_BASE_SHA_INPUT',
     'EXPECTED_SOURCE_COMMIT_INPUT',
     'CANARY_BASELINE_EVIDENCE_JSON',
+    'CAMPAIGN_NO_CHANGE_EVIDENCE_JSON',
     'OWNER_PR_PAT',
     'CONSUMER_SYNC_CANARIES_PATH',
     'TRUSTED_SYNC_ACTORS',
@@ -426,8 +637,9 @@ test('maint71 accepts no-change canary evidence only while the exact base head i
     },
   };
   const failures = [];
+  const notices = [];
   const core = {
-    notice: () => {},
+    notice: (message) => notices.push(message),
     setFailed: (message) => failures.push(message),
     warning: () => {},
     summary: { addRaw: () => ({ write: async () => {} }) },
@@ -446,6 +658,9 @@ test('maint71 accepts no-change canary evidence only while the exact base head i
     process.env.EXPECTED_SCOPE_BASE_SHA_INPUT = '';
     process.env.EXPECTED_SOURCE_COMMIT_INPUT = sourceCommit;
     process.env.CANARY_BASELINE_EVIDENCE_JSON = JSON.stringify(baseline);
+    // A keyed continuation can carry both documents. Candidate reconciliation
+    // must ignore the opposite-lane document before attempting to parse it.
+    process.env.CAMPAIGN_NO_CHANGE_EVIDENCE_JSON = '{not-candidate-evidence}';
     process.env.OWNER_PR_PAT = 'test-owner-token';
     process.env.CONSUMER_SYNC_CANARIES_PATH = canaryConfigPath;
     process.env.TRUSTED_SYNC_ACTORS = 'stranske';
@@ -491,7 +706,11 @@ test('maint71 accepts no-change canary evidence only while the exact base head i
     });
     const redReport = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
     assert.equal(redReport.summary.checks_failed, 1);
-    assert.match(failures.at(-1), /Canary evidence is incomplete or unsafe/);
+    assert.deepEqual(failures, []);
+    assert.equal(
+      notices.some((message) => /Canary evidence is incomplete or unsafe/.test(message)),
+      true,
+    );
 
     checkConclusion = 'success';
     requiredContexts = [];
@@ -684,6 +903,141 @@ test('maint71 recovers exact-head evidence from an already-merged candidate PR',
     assert.equal(evidence.results[0].pr, 1427);
     assert.equal(evidence.results[0].head_sha, 'head-abc');
     assert.equal(evidence.results[0].evidence_source, 'merged-candidate-recovery');
+    assert.deepEqual(failures, []);
+  } finally {
+    process.chdir(originalCwd);
+    for (const [key, value] of Object.entries(originalEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('maint71 prepare pass recovers an already-merged campaign row', async () => {
+  const originalCwd = process.cwd();
+  const envKeys = [
+    'REGISTERED_REPOS_INPUT',
+    'CLEANUP_BRANCHES_INPUT',
+    'DRY_RUN_INPUT',
+    'AUTO_MERGE_INPUT',
+    'PREPARE_ONLY_INPUT',
+    'ACTIVE_SYNC_HASH_INPUT',
+    'EXPECTED_PLAN_ID_INPUT',
+    'EXPECTED_PLAN_SCOPE_INPUT',
+    'EXPECTED_SCOPE_BASE_SHA_INPUT',
+    'EXPECTED_SOURCE_COMMIT_INPUT',
+    'OWNER_PR_PAT',
+    'CONSUMER_SYNC_CANARIES_PATH',
+    'TRUSTED_SYNC_ACTORS',
+    'SYNC_PR_MERGE_REPORT_JSON',
+  ];
+  const originalEnv = Object.fromEntries(envKeys.map((key) => [key, process.env[key]]));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'maint71-campaign-recovery-'));
+  const reportPath = path.join(tempDir, 'artifacts', 'merge-report.json');
+  const canaryConfigPath = path.join(tempDir, 'consumer-sync-canaries.json');
+  fs.writeFileSync(canaryConfigPath, JSON.stringify({ canaries: [] }));
+  const marker = '<!-- workflows-consumer-sync:v1 {"schema":"workflows-consumer-sync-pr/v1","consumer_repo":"stranske/Travel-Plan-Permission","plan_id":"plan-abc","sync_phase":"promotion"} -->';
+  const delivery = '<!-- sync-pr-delivery-record:v1 {"schema":"sync-pr-delivery-record/v1","durable_issue_url":"https://github.com/stranske/Workflows/issues/1836","plan_id":"plan-abc","generation":"campaign-1","repository":"stranske/Travel-Plan-Permission","desired_tree_hash":"tree-abc","source_commit":"source-abc","lease_expires_at":"2099-08-14T00:00:00Z","predecessor_prs":[],"successor_prs":[]} -->';
+  const mergedCampaign = {
+    number: 1448,
+    title: 'chore: sync workflow templates',
+    body: `${marker}\n${delivery}`,
+    created_at: '2026-08-11T05:22:39Z',
+    updated_at: '2026-08-11T07:31:00Z',
+    merged_at: '2026-08-11T07:31:00Z',
+    base: { ref: 'main' },
+    head: { ref: 'sync/workflows-delivery', sha: 'head-campaign' },
+    user: { login: 'stranske' },
+  };
+  const github = {
+    paginate: async (_method, params) => {
+      if (params.state === 'open') return [];
+      if (params.state === 'closed') return [mergedCampaign];
+      return [];
+    },
+    graphql: async () => ({
+      repository: {
+        object: {
+          signature: { isValid: true, state: 'VALID', wasSignedByGitHub: true },
+        },
+        pullRequest: {
+          state: 'MERGED',
+          mergedAt: mergedCampaign.merged_at,
+          headRefOid: mergedCampaign.head.sha,
+          body: mergedCampaign.body,
+          createdAt: mergedCampaign.created_at,
+          updatedAt: mergedCampaign.updated_at,
+          reviewThreads: { pageInfo: { hasNextPage: false }, nodes: [] },
+        },
+      },
+    }),
+    rest: {
+      pulls: {
+        list: () => {},
+        get: async () => ({ data: mergedCampaign }),
+      },
+      checks: { listForRef: () => {} },
+      git: { getCommit: async () => ({ data: { tree: { sha: 'tree-abc' } } }) },
+      repos: {
+        getBranchProtection: async () => {
+          const error = new Error('Resource not accessible by integration');
+          error.status = 403;
+          throw error;
+        },
+        getRepoRulesets: async () => ({ data: [] }),
+        getCombinedStatusForRef: async () => ({ data: { statuses: [] } }),
+        createDispatchEvent: async () => ({}),
+      },
+    },
+  };
+  const failures = [];
+  const core = {
+    addRaw: () => ({ write: async () => {} }),
+    notice: () => {},
+    setFailed: (message) => failures.push(message),
+    warning: () => {},
+    summary: { addRaw: () => ({ write: async () => {} }) },
+  };
+
+  try {
+    process.chdir(tempDir);
+    process.env.REGISTERED_REPOS_INPUT =
+      'stranske/Travel-Plan-Permission,stranske/Collab-Admin';
+    process.env.CLEANUP_BRANCHES_INPUT = 'false';
+    process.env.DRY_RUN_INPUT = 'true';
+    process.env.AUTO_MERGE_INPUT = 'false';
+    process.env.PREPARE_ONLY_INPUT = 'true';
+    process.env.ACTIVE_SYNC_HASH_INPUT = 'campaign';
+    process.env.EXPECTED_PLAN_ID_INPUT = 'plan-abc';
+    process.env.EXPECTED_PLAN_SCOPE_INPUT = 'full';
+    process.env.EXPECTED_SCOPE_BASE_SHA_INPUT = '';
+    process.env.EXPECTED_SOURCE_COMMIT_INPUT = 'source-abc';
+    process.env.OWNER_PR_PAT = 'test-owner-token';
+    process.env.CONSUMER_SYNC_CANARIES_PATH = canaryConfigPath;
+    process.env.TRUSTED_SYNC_ACTORS = 'stranske';
+    process.env.SYNC_PR_MERGE_REPORT_JSON = reportPath;
+
+    await run({
+      github,
+      core,
+      context: {
+        repo: { owner: 'stranske', repo: 'Workflows' },
+        payload: {},
+        runId: 3,
+        runNumber: 3,
+        workflow: 'Maint 71',
+        ref: 'refs/heads/main',
+        sha: 'source-abc',
+      },
+    });
+
+    const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+    assert.equal(report.summary.merged, 1);
+    assert.equal(report.results[0].pr, 1448);
+    assert.equal(report.results[0].head_sha, 'head-campaign');
+    assert.equal(report.results[0].delivery_generation, 'campaign-1');
+    assert.equal(report.results[0].evidence_source, 'campaign-prepare-recovery');
     assert.deepEqual(failures, []);
   } finally {
     process.chdir(originalCwd);
@@ -1587,8 +1941,12 @@ test('buildDeliveryHandoff preserves the restart fields for a generated PR', () 
     lane: 'dev-tool-sync', disposition: 'review-blocked', blocker_owner: 'closer',
     next_command: 'resolve-active-review-threads',
     check_state: 'ready', review_state: 'blocked',
+    plan_id: '', plan_scope: '', scope_base_sha: '', source_commit: '',
+    canary_baseline_evidence_json: '',
+    campaign_no_change_evidence_json: '',
     continuation: {
       class: 'actionable', lane: 'dev-tool', reason: 'review_blocked', resume_after: '',
+      key: '0e3dff884c95411fadee',
     },
     observed_at: '2026-08-15T12:00:00Z',
   });
@@ -1605,7 +1963,13 @@ test('buildDeliveryHandoff rewrites terminal merge outcomes', () => {
     branch: 'sync/workflows-abc', head_sha: 'abc', delivery_generation: 'g2',
     lane: 'sync', disposition: 'merged', blocker_owner: 'none', next_command: 'none',
     check_state: 'ready', review_state: 'clear',
-    continuation: { class: 'terminal', lane: '', reason: 'merged', resume_after: '' },
+    plan_id: '', plan_scope: '', scope_base_sha: '', source_commit: '',
+    canary_baseline_evidence_json: '',
+    campaign_no_change_evidence_json: '',
+    continuation: {
+      class: 'terminal', lane: '', reason: 'merged', resume_after: '',
+      key: '24402df1f7991fa96e63',
+    },
     observed_at: '2026-08-15T12:00:00Z',
   });
   assert.equal(buildDeliveryHandoff({

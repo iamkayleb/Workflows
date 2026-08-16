@@ -4,6 +4,7 @@ const REPORT_SCHEMA = 'workflows-sync-pr-merge/v1';
 const SYNC_BRANCH_PREFIX = 'sync/workflows-';
 const SYNC_CANDIDATE_BRANCH = `${SYNC_BRANCH_PREFIX}candidate`;
 const SYNC_DELIVERY_BRANCH = `${SYNC_BRANCH_PREFIX}delivery`;
+const SYNC_CAMPAIGN_SELECTOR = 'campaign';
 const DEV_TOOL_SYNC_BRANCH_PREFIX = 'deps/sync-dev-versions-';
 const DEV_TOOL_SYNC_SELECTOR = 'dev-tool';
 const GENERATED_DELIVERY_BRANCH_PREFIXES = [SYNC_BRANCH_PREFIX, DEV_TOOL_SYNC_BRANCH_PREFIX];
@@ -34,6 +35,14 @@ function parsePromotionEvidenceFromCommitMessage(message = '') {
 function syncBranchForHash(syncHash) {
   const normalized = normalizeSyncHash(syncHash);
   return normalized ? `${SYNC_BRANCH_PREFIX}${normalized}` : '';
+}
+
+function syncSelectorForRepository({ syncHash = '', repository = '', canaryRepos = [] } = {}) {
+  const normalized = normalizeSyncHash(syncHash);
+  if (normalized !== SYNC_CAMPAIGN_SELECTOR) return normalized;
+  return new Set(canaryRepos || []).has(String(repository || '').trim())
+    ? 'candidate'
+    : 'delivery';
 }
 
 function isStableSyncBranchName(value) {
@@ -594,38 +603,69 @@ function selectMergeEligibleSyncPr(
   return { ...selection, deliveryRecord: record, eligibility };
 }
 
+function selectLatestMergedSyncPr(
+  prs,
+  trustedActors = [],
+  {
+    branch = '',
+    planId = '',
+    sourceCommit = '',
+    prNumber = 0,
+    headSha = '',
+  } = {},
+) {
+  const expectedBranch = branchNameFromRef(branch);
+  const expectedPlanId = String(planId || '').trim();
+  const expectedSourceCommit = String(sourceCommit || '').trim().toLowerCase();
+  const expectedHeadSha = String(headSha || '').trim().toLowerCase();
+  const expectedPr = Number(prNumber) || 0;
+  const mergedRows = (prs || []).filter((pr) => {
+    if (
+      !Boolean(pr?.merged_at || pr?.mergedAt)
+      || !isTrustedGeneratedDeliveryPr(pr, trustedActors)
+    ) {
+      return false;
+    }
+    if (expectedBranch && branchNameFromRef(pr?.head?.ref) !== expectedBranch) return false;
+    if (expectedPr && Number(pr?.number) !== expectedPr) return false;
+    if (
+      expectedHeadSha
+      && String(pr?.head?.sha || '').trim().toLowerCase() !== expectedHeadSha
+    ) {
+      return false;
+    }
+    const record = parseDeliveryRecord(pr.body || '');
+    if (expectedPlanId && record?.plan_id !== expectedPlanId) return false;
+    if (
+      expectedSourceCommit
+      && String(record?.source_commit || '').trim().toLowerCase() !== expectedSourceCommit
+    ) {
+      return false;
+    }
+    return true;
+  });
+  return mergedRows.sort((a, b) => {
+    const aTime = new Date(a.merged_at || a.mergedAt || a.updated_at || 0).getTime();
+    const bTime = new Date(b.merged_at || b.mergedAt || b.updated_at || 0).getTime();
+    return bTime - aTime;
+  })[0] || null;
+}
+
 function selectLatestMergedCandidatePr(
   prs,
   trustedActors = [],
   { planId = '', sourceCommit = '' } = {},
 ) {
-  const expectedPlanId = String(planId || '').trim();
-  const expectedSourceCommit = String(sourceCommit || '').trim().toLowerCase();
-  const mergedCandidates = (prs || []).filter(
-    (pr) => {
-      if (
-        pr?.head?.ref !== `${SYNC_BRANCH_PREFIX}candidate`
-        || !Boolean(pr?.merged_at || pr?.mergedAt)
-        || !isTrustedGeneratedDeliveryPr(pr, trustedActors)
-      ) {
-        return false;
-      }
-      const record = parseDeliveryRecord(pr.body || '');
-      if (expectedPlanId && record?.plan_id !== expectedPlanId) return false;
-      if (
-        expectedSourceCommit
-        && String(record?.source_commit || '').trim().toLowerCase() !== expectedSourceCommit
-      ) {
-        return false;
-      }
-      return true;
-    },
-  );
-  return mergedCandidates.sort((a, b) => {
-    const aTime = new Date(a.merged_at || a.mergedAt || a.updated_at || 0).getTime();
-    const bTime = new Date(b.merged_at || b.mergedAt || b.updated_at || 0).getTime();
-    return bTime - aTime;
-  })[0] || null;
+  return selectLatestMergedSyncPr(prs, trustedActors, {
+    branch: SYNC_CANDIDATE_BRANCH,
+    planId,
+    sourceCommit,
+  });
+}
+
+function campaignAuthorizationRowForRepository(authorization = {}, repository = '') {
+  if (authorization?.schema !== 'workflows.sync-campaign-commit-authorization/v1') return null;
+  return (authorization.rows || []).find((item) => item.repository === repository) || null;
 }
 
 function validateExpectedCandidateIdentity({
@@ -930,6 +970,20 @@ function continuationLaneForBranch(value) {
   return '';
 }
 
+function continuationKey(record = {}) {
+  const crypto = require('node:crypto');
+  const fields = [
+    record.lane,
+    record.repository,
+    record.pr,
+    record.head_sha,
+    record.reason,
+    record.resume_after,
+    record.plan_id,
+  ].map((value) => String(value || '').trim());
+  return crypto.createHash('sha256').update(fields.join('\n')).digest('hex').slice(0, 20);
+}
+
 function parseResumeAfter(result = {}, observedAt = new Date().toISOString()) {
   const explicit = String(result.review_window_eligible_at || '').trim();
   if (Number.isFinite(Date.parse(explicit))) return new Date(explicit).toISOString();
@@ -955,8 +1009,9 @@ function parseResumeAfter(result = {}, observedAt = new Date().toISOString()) {
 
 function classifyDeliveryContinuation(result = {}, observedAt = new Date().toISOString()) {
   const status = String(result.status || '');
-  const lane = continuationLaneForBranch(result.branch);
-  const terminal = new Set(['merged', 'stale_closed', 'evidence_recovered']);
+  const lane = String(result.continuation_lane || '').trim()
+    || continuationLaneForBranch(result.branch);
+  const terminal = new Set(['merged', 'stale_closed', 'evidence_recovered', 'campaign_prepared']);
   const transient = new Set([
     'candidate_evidence_required',
     'checks_pending',
@@ -984,7 +1039,9 @@ function classifyDeliveryContinuation(result = {}, observedAt = new Date().toISO
 
 function candidateRefreshDecision({ report = {} } = {}) {
   const errors = [];
-  if (normalizeSyncHash(report?.inputs?.sync_hash) !== 'candidate') {
+  if (!['candidate', SYNC_CAMPAIGN_SELECTOR].includes(
+    normalizeSyncHash(report?.inputs?.sync_hash),
+  )) {
     errors.push('merge report is not a candidate-selector report');
   }
   const repositories = [...new Set((Array.isArray(report?.results) ? report.results : [])
@@ -1007,7 +1064,9 @@ function candidateRefreshDecision({ report = {} } = {}) {
 
 function deliveryRefreshDecision({ report = {}, expectedCanaries = [] } = {}) {
   const errors = [];
-  if (normalizeSyncHash(report?.inputs?.sync_hash) !== 'delivery') {
+  if (!['delivery', SYNC_CAMPAIGN_SELECTOR].includes(
+    normalizeSyncHash(report?.inputs?.sync_hash),
+  )) {
     errors.push('merge report is not a delivery-selector report');
   }
   const requests = (Array.isArray(report?.results) ? report.results : []).filter((result) => (
@@ -1051,23 +1110,134 @@ function candidatePromotionDecision({ report = {}, evidence = {}, expectedCanari
   const rows = Array.isArray(evidence) ? evidence : evidence.results;
   const validation = validateCanaryEvidence(rows, expectedCanaries);
   const errors = [...validation.errors];
-  if (normalizeSyncHash(report?.inputs?.sync_hash) !== 'candidate') {
-    errors.push('merge report is not a candidate-selector report');
+  const selector = normalizeSyncHash(report?.inputs?.sync_hash);
+  if (!['candidate', SYNC_CAMPAIGN_SELECTOR].includes(selector)) {
+    errors.push('merge report is not a candidate or campaign-selector report');
   }
   const results = Array.isArray(report?.results) ? report.results : [];
   for (const repository of expectedCanaries) {
     const terminal = results.some((result) =>
       `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, '') === repository
       && branchNameFromRef(result.branch) === SYNC_CANDIDATE_BRANCH
-      && ['merged', 'evidence_recovered'].includes(String(result.status || '')),
+      && ['campaign_prepared', 'evidence_recovered'].includes(String(result.status || '')),
     );
-    if (!terminal) errors.push(`${repository}: candidate was not merged or recovered`);
+    if (!terminal) errors.push(`${repository}: candidate was not prepared or recovered`);
   }
   return {
     eligible: validation.ok && errors.length === 0,
     errors,
     plan_id: validation.plan_id || '',
   };
+}
+
+function buildCampaignCommitAuthorization({
+  report = {},
+  expectedRepositories = [],
+  planId = '',
+  sourceCommit = '',
+  generatedAt = new Date().toISOString(),
+} = {}) {
+  const errors = [];
+  const selector = normalizeSyncHash(report?.inputs?.sync_hash);
+  if (selector !== SYNC_CAMPAIGN_SELECTOR) {
+    errors.push('merge report is not a campaign-selector report');
+  }
+  if (!String(planId || '').trim()) errors.push('campaign plan id is missing');
+  if (!String(sourceCommit || '').trim()) errors.push('campaign source commit is missing');
+  const expected = [...new Set((expectedRepositories || []).map(String).filter(Boolean))].sort();
+  const resultRows = Array.isArray(report?.results) ? report.results : [];
+  const rows = [];
+  for (const repository of expected) {
+    const matches = resultRows.filter(
+      (result) => `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, '') === repository,
+    );
+    const actionable = matches.filter((result) => Number(result.pr) > 0);
+    const prepared = actionable.find(
+      (result) => String(result.status || '') === 'campaign_prepared',
+    );
+    const alreadyMerged = actionable.find(
+      (result) => String(result.status || '') === 'merged',
+    );
+    const terminalRow = prepared || alreadyMerged;
+    if (terminalRow) {
+      if (!isStableSyncBranchName(terminalRow.branch)) {
+        errors.push(`${repository}: prepared row is not a stable sync branch`);
+        continue;
+      }
+      if (!terminalRow.head_sha || !terminalRow.delivery_generation) {
+        errors.push(`${repository}: prepared row lacks exact delivery identity`);
+        continue;
+      }
+      if (planId && String(terminalRow.plan_id || '') !== String(planId)) {
+        errors.push(`${repository}: prepared row plan mismatch`);
+        continue;
+      }
+      if (sourceCommit && String(terminalRow.source_commit || '') !== String(sourceCommit)) {
+        errors.push(`${repository}: prepared row source mismatch`);
+        continue;
+      }
+      rows.push({
+        repository,
+        pr: Number(terminalRow.pr),
+        branch: branchNameFromRef(terminalRow.branch),
+        head_sha: String(terminalRow.head_sha),
+        delivery_generation: String(terminalRow.delivery_generation),
+      });
+      continue;
+    }
+    const noChange = matches.some(
+      (result) => String(result.status || '') === 'campaign_no_change_verified',
+    );
+    if (noChange && actionable.length === 0) {
+      const verified = matches.find(
+        (result) => String(result.status || '') === 'campaign_no_change_verified',
+      );
+      if (
+        verified
+        && (
+          String(verified.plan_id || '') !== String(planId || '')
+          || String(verified.source_commit || '') !== String(sourceCommit || '')
+        )
+      ) {
+        errors.push(`${repository}: no-change row source binding mismatch`);
+        continue;
+      }
+      rows.push({ repository, no_change: true });
+      continue;
+    }
+    const statuses = [...new Set(matches.map((result) => String(result.status || '')))];
+    errors.push(`${repository}: campaign is not prepared (${statuses.join(', ') || 'missing'})`);
+  }
+  return {
+    schema: 'workflows.sync-campaign-commit-authorization/v1',
+    authorized: errors.length === 0 && rows.length === expected.length,
+    generated_at: generatedAt,
+    plan_id: String(planId || ''),
+    source_commit: String(sourceCommit || ''),
+    rows,
+    errors,
+  };
+}
+
+function hasCampaignCommitAuthorization(authorization) {
+  return authorization?.schema === 'workflows.sync-campaign-commit-authorization/v1'
+    && authorization?.authorized === true
+    && Array.isArray(authorization?.rows)
+    && authorization.rows.length > 0;
+}
+
+function campaignAuthorizationAllowsMerge({ authorization = {}, result = {} } = {}) {
+  if (!hasCampaignCommitAuthorization(authorization)) return false;
+  const repository = `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, '');
+  const row = (authorization.rows || []).find((item) => item.repository === repository);
+  return Boolean(
+    row
+      && !row.no_change
+      && Number(row.pr) === Number(result.pr)
+      && branchNameFromRef(row.branch) === branchNameFromRef(result.branch)
+      && String(row.head_sha || '') === String(result.head_sha || '')
+      && String(row.delivery_generation || '') === String(result.delivery_generation || ''),
+  );
 }
 
 function buildDeliveryHandoff(result = {}, observedAt = new Date().toISOString()) {
@@ -1108,10 +1278,21 @@ function buildDeliveryHandoff(result = {}, observedAt = new Date().toISOString()
   }
 
   const continuation = classifyDeliveryContinuation(result, observedAt);
+  const repository = `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, '');
+  const continuationWithKey = {
+    ...continuation,
+    key: continuationKey({
+      ...continuation,
+      repository,
+      pr: Number(result.pr),
+      head_sha: headSha,
+      plan_id: result.plan_id,
+    }),
+  };
 
   return {
     schema: 'workflows-generated-delivery-handoff/v1',
-    repository: `${result.owner || ''}/${result.repo || ''}`.replace(/^\//, ''),
+    repository,
     pr: Number(result.pr),
     branch: branchNameFromRef(result.branch),
     head_sha: headSha,
@@ -1122,7 +1303,13 @@ function buildDeliveryHandoff(result = {}, observedAt = new Date().toISOString()
     next_command: nextCommand,
     check_state: checkState,
     review_state: reviewState,
-    continuation,
+    plan_id: String(result.plan_id || ''),
+    plan_scope: String(result.plan_scope || ''),
+    scope_base_sha: String(result.scope_base_sha || ''),
+    source_commit: String(result.source_commit || ''),
+    canary_baseline_evidence_json: String(result.canary_baseline_evidence_json || ''),
+    campaign_no_change_evidence_json: String(result.campaign_no_change_evidence_json || ''),
+    continuation: continuationWithKey,
     observed_at: observedAt,
   };
 }
@@ -1148,7 +1335,9 @@ function buildMergeReport({
       auto_merge: Boolean(autoMerge),
       dry_run: Boolean(dryRun),
       sync_hash: normalizedSyncHash,
-      expected_branch: syncBranchForHash(normalizedSyncHash),
+      expected_branch: normalizedSyncHash === SYNC_CAMPAIGN_SELECTOR
+        ? ''
+        : syncBranchForHash(normalizedSyncHash),
     },
     summary: summarizeResults(results),
     results,
@@ -1198,6 +1387,10 @@ module.exports = {
   classifyGeneratedPr,
   classifySyncPrChecks,
   candidateEvidenceAllowsMutation,
+  buildCampaignCommitAuthorization,
+  hasCampaignCommitAuthorization,
+  campaignAuthorizationAllowsMerge,
+  campaignAuthorizationRowForRepository,
   collectDeletableSyncBranches,
   generatedDeliveryLane,
   generatedDeliveryRequiresVerifiedHead,
@@ -1218,6 +1411,7 @@ module.exports = {
   requiresStrictGateBranchUpdate,
   normalizeSyncHash,
   syncBranchForHash,
+  syncSelectorForRepository,
   parseBooleanInput,
   parsePromotionEvidenceFromCommitMessage,
   requiredContextsFromRulesets,
@@ -1227,6 +1421,7 @@ module.exports = {
   selectActiveSyncPr,
   selectMergeEligibleSyncPr,
   selectLatestMergedCandidatePr,
+  selectLatestMergedSyncPr,
   validateExpectedCandidateIdentity,
   validateCanaryEvidence,
   validateSourceDeltaEvidenceBinding,
