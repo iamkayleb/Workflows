@@ -73,6 +73,56 @@ test('extractIssueNumberFromPull keeps existing issue resolution behavior', () =
   );
 });
 
+test('extractIssueNumberFromPull prefers an explicit body link over inferred branch and title issues', () => {
+  assert.equal(
+    extractIssueNumberFromPull({
+      body: 'Related to #222',
+      head: { ref: 'codex/issue-111-stale-branch' },
+      title: 'Resolve issue #333',
+    }),
+    222,
+  );
+});
+
+test('extractIssueNumberFromPull prefers one closing link over secondary body references', () => {
+  assert.equal(
+    extractIssueNumberFromPull({
+      body: 'Related to #111 for context.\nCloses #222',
+      head: { ref: 'codex/issue-222-fix' },
+      title: 'Resolve issue #222',
+    }),
+    222,
+  );
+});
+
+test('extractIssueNumberFromPull rejects ambiguous non-closing body references', () => {
+  assert.equal(
+    extractIssueNumberFromPull({
+      body: 'Related to #111.\nReferences issue #222.',
+      head: { ref: 'codex/issue-333-fallback' },
+      title: 'Resolve issue #333',
+    }),
+    null,
+  );
+});
+
+test('extractIssueNumberFromPull rejects distinct meta issue markers', () => {
+  assert.equal(
+    extractIssueNumberFromPull({
+      body: '<!-- meta:issue:111 -->\n<!-- meta:issue:222 -->',
+      head: { ref: 'codex/issue-111-fallback' },
+      title: 'Resolve issue #111',
+    }),
+    null,
+  );
+  assert.equal(
+    extractIssueNumberFromPull({
+      body: '<!-- meta:issue:111 -->\n<!-- meta:issue:111 -->',
+    }),
+    111,
+  );
+});
+
 test('extractIssueNumberFromPull ignores PR references in workflow source templates', () => {
   const context = resolvePrSourceContext({
     body: `

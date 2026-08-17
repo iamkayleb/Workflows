@@ -165,6 +165,175 @@ def test_external_merge_lanes_require_runtime_ac_guard():
     )
 
 
+def test_consumer_guarded_merge_binds_exact_head_and_review_gate():
+    workflow_path = Path("templates/consumer-repo/.github/workflows/agents-81-gate-followups.yml")
+    text = workflow_path.read_text(encoding="utf-8")
+    triggers = _workflow_on_section(yaml.safe_load(text))
+    assert "pull_request" not in triggers
+    assert triggers.get("pull_request_target", {}).get("types") == ["labeled", "synchronize"]
+    guarded_merge = text.split("guarded-merge:", 1)[1]
+
+    for contract in (
+        "timeout-minutes: 30",
+        "mergeableState !== 'clean'",
+        "reviewWindowMs = 7 * 60 * 1000",
+        "reviewSleepBudgetMs = reviewWindowMs + 60 * 1000",
+        "agents-guarded-merge-review-window:v1",
+        "github.event_name != 'pull_request_target'",
+        "github.event.action == 'synchronize'",
+        "ref: ${{ github.event.repository.default_branch }}",
+        "async function reviewWindowObservation(prNumber, headSha, { forceReset = false } = {})",
+        "async function primeReviewWindows(candidateIssues)",
+        "const observation = reviewWindowObservations.get(observationKey)",
+        "await primeReviewWindows(issues)",
+        "for all exact-head review windows",
+        "client.rest.users.getAuthenticated",
+        "github.rest.issues.listComments",
+        "itemTypes: [HEAD_REF_FORCE_PUSHED_EVENT]",
+        "... on HeadRefForcePushedEvent",
+        "afterCommit { oid }",
+        "event?.afterCommit?.oid || ''",
+        "transitionedHeadSha !== headSha",
+        "latestHeadTransitionAtMs",
+        "observedAtMs >= latestHeadTransitionAtMs",
+        "client.rest.issues.updateComment",
+        "client.rest.issues.createComment",
+        "const observation = reviewWindowObservations.get(observationKey)",
+        "await reviewWindowObservation(prNumber, originalHead)",
+        "Date.now() - observation.observedAtMs",
+        "Review window not elapsed; deferring to a later run.",
+        "reviewThreads(first: 100, after: $cursor)",
+        "!thread.isResolved && !thread.isOutdated",
+        "setTimeout(resolve, requestedSleepMs)",
+        "async function loadPullRequest(prNumber)",
+        "mergeableState !== 'unknown'",
+        "setTimeout(resolve, 2000)",
+        "let pr = await loadPullRequest(prNumber)",
+        "const refreshedPr = await loadPullRequest(prNumber)",
+        "const finalPr = await loadPullRequest(prNumber)",
+        "Head changed during the review window",
+        "Post-window pull request no longer carries the automerge label.",
+        "const finalMergeFailure = await finalMergeGuardFailure(prNumber, headSha)",
+        "const { data: finalRepoInfo }",
+        "client.rest.repos.get({ owner, repo })",
+        "finalDefaultBranch = finalRepoInfo?.default_branch || ''",
+        "finalBase !== finalDefaultBranch",
+        "Final base branch ${finalBase || '(unknown)'} does not match ${finalDefaultBranch}.",
+        "Pull request no longer carries the automerge label.",
+        "finalLabels.includes(GENERATED_DELIVERY_HOLD_LABEL)",
+        "runtimeAcRequirement(finalPr.labels || [])",
+        "Runtime acceptance label(s)",
+        "async function linkedIssueTaskSnapshot(pr)",
+        "const updatedAt = String(linked?.updated_at || '')",
+        "function uncheckedTaskFailure(pr, linkedIssueSnapshot)",
+        "extractIssueNumberFromPull",
+        "extractIssueNumbersFromText",
+        "extractClosingIssueNumbersFromText",
+        "require('./.github/scripts/source_context.js')",
+        "function issueReferenceFailure(pr)",
+        "const metaIssueNumbers = new Set(",
+        "Ambiguous linked issue references; refusing to merge blind.",
+        "return extractIssueNumberFromPull(pr || {})",
+        "const linkedIssue = inferIssue(pr)",
+        "const finalLinkedIssue = inferIssue(finalPr)",
+        "const finalLinkedIssueSnapshot = await linkedIssueTaskSnapshot(finalPr)",
+        "const finalTaskFailure = uncheckedTaskFailure(finalPr, finalLinkedIssueSnapshot)",
+        "async function checkStateFailure(headSha)",
+        "statusCount > 0 || combined.state !== 'pending'",
+        "No commit statuses or check runs found.",
+        "const finalCheckFailure = await checkStateFailure(expectedHead)",
+        "Final check-state validation failed",
+        "const finalThreadFailure = await activeReviewThreadFailure(prNumber)",
+        "mergeBoundaryLinkedIssueSnapshot,",
+        "mergeBoundaryCheckFailure,",
+        "mergeBoundaryThreadFailure,",
+        "] = await Promise.all([",
+        "? linkedIssueTaskSnapshot(finalPr)",
+        "checkStateFailure(expectedHead)",
+        "activeReviewThreadFailure(prNumber)",
+        "Merge-boundary check-state validation failed",
+        "mergeBoundaryHead !== expectedHead",
+        "mergeBoundaryDefaultBranch",
+        "mergeBoundaryBase !== mergeBoundaryDefaultBranch",
+        "mergeBoundaryMergeableState",
+        "mergeBoundaryPr.draft || mergeBoundaryMergeableState !== 'clean'",
+        "const mergeBoundaryLabels = (mergeBoundaryPr.labels || []).map(",
+        "!mergeBoundaryLabels.includes(label)",
+        "mergeBoundaryLabels.includes(GENERATED_DELIVERY_HOLD_LABEL)",
+        "const mergeBoundaryRuntimeRequirement = runtimeAcRequirement(",
+        "if (mergeBoundaryRuntimeRequirement.required)",
+        "const mergeBoundaryLinkedIssue = inferIssue(mergeBoundaryPr)",
+        "mergeBoundaryLinkedIssue !== finalLinkedIssue",
+        "Linked issue changed at the final merge boundary.",
+        "const mergeBoundaryTaskFailure = uncheckedTaskFailure(",
+        "const linkedIssueSnapshot = await linkedIssueTaskSnapshot(pr)",
+        "taskFailure = uncheckedTaskFailure(pr, linkedIssueSnapshot)",
+        "mergeBoundaryLinkedIssueSnapshot.body !== finalLinkedIssueSnapshot.body",
+        "mergeBoundaryLinkedIssueSnapshot.updatedAt !== finalLinkedIssueSnapshot.updatedAt",
+        "Linked issue changed during final merge validation.",
+        "const finalObservation = await reviewWindowObservation(prNumber, expectedHead)",
+        "const finalReviewRemainingMs = reviewWindowMs",
+        "A newer head transition restarted the review window before merge.",
+        "const triggeringPrNumber = Number(",
+        "No triggering PR number; refusing a repository-wide merge scan.",
+        "const triggeringPr = await loadPullRequest(triggeringPrNumber)",
+        "const triggeringHeadSha = triggeringPr?.head?.sha || ''",
+        "const triggeringObservation = await reviewWindowObservation(",
+        "reviewObservationKey(triggeringPrNumber, triggeringHeadSha)",
+        "(issue) => Number(issue.number) === triggeringPrNumber",
+        "sha: headSha",
+        "const cleanupPr = await loadPullRequest(prNumber)",
+        "inferIssue(cleanupPr)",
+        "name: 'status:in-progress'",
+    ):
+        assert contract in guarded_merge
+    assert re.search(r"paginateWithRetry\(\s*github\.rest\.checks\.listForRef", guarded_merge)
+    assert "inferIssue(pr?.body || '') || 0" not in guarded_merge
+    assert ".github/scripts/source_context.js" in guarded_merge
+    assert guarded_merge.index("mergeBoundaryPr,") > guarded_merge.index("const finalThreadFailure")
+    assert guarded_merge.index("client.rest.pulls.merge") > guarded_merge.index(
+        "mergeBoundaryBase !== mergeBoundaryDefaultBranch"
+    )
+    assert guarded_merge.index("const finalTaskFailure") < guarded_merge.index("mergeBoundaryPr,")
+    assert guarded_merge.index("const mergeBoundaryTaskFailure") > guarded_merge.index(
+        "const mergeBoundaryLinkedIssue"
+    )
+    assert guarded_merge.index(
+        "Linked issue changed during final merge validation."
+    ) > guarded_merge.index("const mergeBoundaryTaskFailure")
+    assert guarded_merge.index("const mergeBoundaryLinkedIssue") > guarded_merge.index(
+        "mergeBoundaryPr,"
+    )
+    assert guarded_merge.index("mergeBoundaryCheckFailure,") > guarded_merge.index(
+        "mergeBoundaryPr,"
+    )
+    assert guarded_merge.index(
+        "Merge-boundary check-state validation failed"
+    ) > guarded_merge.index("] = await Promise.all([")
+    assert guarded_merge.index("client.rest.pulls.merge") > guarded_merge.index(
+        "Linked issue changed during final merge validation."
+    )
+    assert text.count("github.event.action != 'synchronize'") >= 3
+    assert "github.event_name != 'pull_request'" not in text
+    assert guarded_merge.count("{ forceReset: true }") == 1
+    assert (
+        guarded_merge.index("if (!issues.length)")
+        < guarded_merge.index("const triggeringObservation")
+        < guarded_merge.index("await primeReviewWindows(issues)")
+    )
+    assert (
+        guarded_merge.rindex("await assertRuntimeAcMergeAllowed")
+        < guarded_merge.rindex("const finalMergeFailure")
+        < guarded_merge.rindex("client.rest.pulls.merge")
+    )
+    assert (
+        guarded_merge.index("const finalObservation")
+        < guarded_merge.index("const finalPr")
+        < guarded_merge.index("const finalCheckFailure")
+        < guarded_merge.index("const finalThreadFailure")
+    )
+
+
 def test_generated_sync_prs_are_excluded_from_autofix_lanes():
     workflow_paths = [
         WORKFLOWS_DIR / "agents-autofix-loop.yml",
