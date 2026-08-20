@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.26.0](https://github.com/stranske/Workflows/compare/v1.25.5...v1.26.0) (2026-08-20)
+
+
+### Features
+
+* **maint-87:** add the missing caller for docs_drift_fix_agent ([1313499](https://github.com/stranske/Workflows/commit/1313499d51578ff9a8a0644f746d8b9af2f10754))
+* **maint-87:** add the missing caller for docs_drift_fix_agent ([5de68c8](https://github.com/stranske/Workflows/commit/5de68c8aeb4aae27df600c09e7de98d5a29dd3cf))
+
+
+### Bug Fixes
+
+* **maint-87:** address docs drift review findings ([6266d3c](https://github.com/stranske/Workflows/commit/6266d3cf0e5fbc5c5318f94c41c020800d5f52e4))
+* **maint-87:** close post-push review gaps ([e5cad91](https://github.com/stranske/Workflows/commit/e5cad91706d4c9336f465234108d00e216dfc831))
+
 ## [1.25.5](https://github.com/stranske/Workflows/compare/v1.25.4...v1.25.5) (2026-08-20)
 
 
