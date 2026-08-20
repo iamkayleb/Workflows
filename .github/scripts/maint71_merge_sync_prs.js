@@ -147,6 +147,25 @@ function campaignNoChangeRequiresLiveGate(evidence = {}) {
   return evidence?.evidence_source !== 'no-change-delivery';
 }
 
+const MERGE_METHOD_DENIAL_PATTERNS = {
+  merge: ['merge commits are not allowed', 'merge commit is not allowed'],
+  squash: ['squash merges are not allowed', 'squash merge is not allowed'],
+  rebase: ['rebase merges are not allowed', 'rebase merge is not allowed'],
+};
+
+function mergeMethodPolicyAllowsFallback(error, mergeMethod) {
+  const message = String(error?.message || error || '').toLowerCase();
+  const method = String(mergeMethod || '').toLowerCase();
+  const patterns = MERGE_METHOD_DENIAL_PATTERNS[method] || [];
+  if (patterns.some((pattern) => message.includes(pattern))) {
+    return true;
+  }
+  if (message.includes('merge method is not allowed')) {
+    return true;
+  }
+  return false;
+}
+
 function validateReviewResolutionProof(proof = {}, {
   owner,
   repo,
@@ -2429,7 +2448,7 @@ async function run({ github, context, core }) {
             lastError = e;
             const message = String(e?.message || 'unknown error');
             console.log(`⚠ Merge attempt failed (method=${merge_method}): ${message}`);
-            if (!message.toLowerCase().includes('repository rule violations')) {
+            if (!mergeMethodPolicyAllowsFallback(e, merge_method)) {
               break;
             }
           }
@@ -2617,6 +2636,7 @@ module.exports = {
   campaignNoChangeRequiresLiveGate,
   collectReviewerEvidence,
   legacyStatusAsCheck,
+  mergeMethodPolicyAllowsFallback,
   normalizeReviewPolicy,
   parseNoChangeEvidenceDocument,
   parseReviewResolutionProofs,

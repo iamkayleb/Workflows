@@ -471,6 +471,9 @@ generated PR lands.
 
 Maint 71 also enforces the seven-minute exact-head post-push window and performs a final
 head plus active-review-thread query immediately before each generated merge.
+If repository policy disables the first merge method, Maint 71 tries the remaining
+GitHub-supported methods in order and repeats that exact-head/review-thread gate before
+each fallback. Other merge failures remain terminal and are not retried as policy drift.
 Maint 68 records the exact head and its post-publication observation time in the
 delivery record. That SHA-bound observation anchors the window; PR body edits,
 labels, comments, and review-thread resolution do not restart it, while a

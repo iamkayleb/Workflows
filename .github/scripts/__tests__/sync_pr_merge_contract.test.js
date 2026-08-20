@@ -56,6 +56,7 @@ const {
   campaignNoChangeRequiresLiveGate,
   collectReviewerEvidence,
   legacyStatusAsCheck,
+  mergeMethodPolicyAllowsFallback,
   normalizeReviewPolicy,
   parseNoChangeEvidenceDocument,
   parseReviewResolutionProofs,
@@ -63,6 +64,28 @@ const {
   selectReconciliationTargets,
   validateReviewResolutionProof,
 } = require('../maint71_merge_sync_prs');
+
+test('Maint 71 falls back only when repository policy rejects a merge method', () => {
+  for (const [method, message] of [
+    ['merge', 'Merge commits are not allowed on this repository.'],
+    ['squash', 'Squash merges are not allowed on this repository.'],
+    ['rebase', 'Rebase merges are not allowed on this repository.'],
+    ['squash', 'The selected merge method is not allowed.'],
+  ]) {
+    assert.equal(mergeMethodPolicyAllowsFallback(new Error(message), method), true, message);
+  }
+
+  for (const [method, message] of [
+    ['merge', 'Repository rule violations found: Required status check gate-summary is expected.'],
+    ['squash', 'Repository rule violations found: At least 1 approving review is required.'],
+    ['merge', 'Head branch was modified. Review and try the merge again.'],
+    ['squash', 'Required status check gate-summary is failing.'],
+    ['rebase', 'Resource not accessible by integration.'],
+    ['merge', 'Merge conflict'],
+  ]) {
+    assert.equal(mergeMethodPolicyAllowsFallback(new Error(message), method), false, message);
+  }
+});
 
 test('Maint 71 keeps Collab-Admin out of fleet runs but allows an explicit manual reconciliation', () => {
   const excludedRepos = new Set(['stranske/Collab-Admin']);
