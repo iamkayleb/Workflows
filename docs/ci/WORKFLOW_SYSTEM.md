@@ -565,6 +565,7 @@ Keep this table handy when you are triaging automation: it confirms which workfl
   listing never-run workflows, and creating/updating a tracking issue with an
   actionable checklist.
 - **Maint 48 Docs Drift Audit** – `.github/workflows/maint-48-docs-drift-audit.yml`
+- **Maint 87 Docs Drift Fix Agent** – `.github/workflows/maint-87-docs-drift-fix-agent.yml`
   seeds one scoped docs-drift audit issue per month (1st at 07:00 UTC, deduped)
   so the lane fleet diffs the canonical docs against the current tree and opens
   fix PRs. Doc-rot is the audit's most pervasive defect class.
