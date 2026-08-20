@@ -147,6 +147,13 @@ function campaignNoChangeRequiresLiveGate(evidence = {}) {
   return evidence?.evidence_source !== 'no-change-delivery';
 }
 
+function mergeMethodPolicyAllowsFallback(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return message.includes('repository rule violations')
+    || /(?:merge commits|squash merges|rebase merges) are not allowed/.test(message)
+    || message.includes('merge method is not allowed');
+}
+
 function validateReviewResolutionProof(proof = {}, {
   owner,
   repo,
@@ -2429,7 +2436,7 @@ async function run({ github, context, core }) {
             lastError = e;
             const message = String(e?.message || 'unknown error');
             console.log(`⚠ Merge attempt failed (method=${merge_method}): ${message}`);
-            if (!message.toLowerCase().includes('repository rule violations')) {
+            if (!mergeMethodPolicyAllowsFallback(e)) {
               break;
             }
           }
@@ -2617,6 +2624,7 @@ module.exports = {
   campaignNoChangeRequiresLiveGate,
   collectReviewerEvidence,
   legacyStatusAsCheck,
+  mergeMethodPolicyAllowsFallback,
   normalizeReviewPolicy,
   parseNoChangeEvidenceDocument,
   parseReviewResolutionProofs,

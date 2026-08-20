@@ -56,6 +56,7 @@ const {
   campaignNoChangeRequiresLiveGate,
   collectReviewerEvidence,
   legacyStatusAsCheck,
+  mergeMethodPolicyAllowsFallback,
   normalizeReviewPolicy,
   parseNoChangeEvidenceDocument,
   parseReviewResolutionProofs,
@@ -63,6 +64,27 @@ const {
   selectReconciliationTargets,
   validateReviewResolutionProof,
 } = require('../maint71_merge_sync_prs');
+
+test('Maint 71 falls back only when repository policy rejects a merge method', () => {
+  for (const message of [
+    'Merge commits are not allowed on this repository.',
+    'Squash merges are not allowed on this repository.',
+    'Rebase merges are not allowed on this repository.',
+    'Repository rule violations found.',
+    'The selected merge method is not allowed.',
+  ]) {
+    assert.equal(mergeMethodPolicyAllowsFallback(new Error(message)), true, message);
+  }
+
+  for (const message of [
+    'Head branch was modified. Review and try the merge again.',
+    'Required status check gate-summary is failing.',
+    'Resource not accessible by integration.',
+    'Merge conflict',
+  ]) {
+    assert.equal(mergeMethodPolicyAllowsFallback(new Error(message)), false, message);
+  }
+});
 
 test('Maint 71 keeps Collab-Admin out of fleet runs but allows an explicit manual reconciliation', () => {
   const excludedRepos = new Set(['stranske/Collab-Admin']);
