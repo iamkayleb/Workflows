@@ -20,9 +20,10 @@ import argparse
 import hashlib
 import json
 import re
+import shlex
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -114,6 +115,8 @@ def findings_from_deterministic_report(report: dict[str, Any]) -> list[Finding]:
 
 def findings_from_scan_json(payload: dict[str, Any], *, repo: str) -> list[Finding]:
     """Extract stale/contradictory semantic drift from docs-drift-scan JSON."""
+    if not isinstance(payload, Mapping):
+        raise ValueError("scan JSON must contain a top-level mapping")
     findings: list[Finding] = []
     for bucket in payload.get("by_repo") or []:
         if not isinstance(bucket, dict) or bucket.get("repo") != repo:
@@ -179,7 +182,7 @@ def batch_findings(
 def _docs_arg(docs: Sequence[str] | None) -> str:
     if not docs:
         return ""
-    return " --docs " + " ".join(docs)
+    return " --docs " + " ".join(shlex.quote(doc) for doc in docs)
 
 
 def verification_commands(docs: Sequence[str] | None = None) -> tuple[str, ...]:
@@ -321,7 +324,10 @@ Use `scripts/docs_drift_fix_agent.py` output for the repair prompt and plan. Evi
 def load_scan_json(path: Path | None) -> dict[str, Any]:
     if path is None:
         return {"by_repo": []}
-    return json.loads(path.read_text(encoding="utf-8"))
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, Mapping):
+        raise ValueError("scan JSON must contain a top-level mapping")
+    return dict(payload)
 
 
 def default_docs_from_config(repo_root: Path, *, repo: str = DEFAULT_REPO) -> list[str]:
@@ -329,7 +335,18 @@ def default_docs_from_config(repo_root: Path, *, repo: str = DEFAULT_REPO) -> li
     if not config_path.is_file():
         return list(check_docs_drift.DEFAULT_DOCS)
     data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-    repo_config = (data.get("repos") or {}).get(repo) or {}
+    if not isinstance(data, Mapping):
+        raise ValueError("docs config must contain a top-level mapping")
+    repos = data.get("repos", {})
+    if repos is None:
+        repos = {}
+    if not isinstance(repos, Mapping):
+        raise ValueError("docs config 'repos' must be a mapping")
+    repo_config = repos.get(repo, {})
+    if repo_config is None:
+        repo_config = {}
+    if not isinstance(repo_config, Mapping):
+        raise ValueError(f"docs config entry for {repo!r} must be a mapping")
     docs = [
         str(item.get("path"))
         for item in repo_config.get("docs") or []
@@ -407,44 +424,44 @@ def write_plan_outputs(plan: dict[str, Any], out_dir: Path) -> None:
 
 
 def apply_issues(plan: dict[str, Any]) -> list[dict[str, Any]]:
-    list_result = subprocess.run(
-        [
-            "gh",
-            "issue",
-            "list",
-            "--repo",
-            plan["repo"],
-            "--state",
-            "open",
-            "--label",
-            "documentation",
-            "--limit",
-            "1000",
-            "--json",
-            "body,url",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=60,
-    )
-    if list_result.returncode != 0:
-        raise RuntimeError(f"gh issue list failed: {list_result.stderr.strip()}")
-    existing = json.loads(list_result.stdout or "[]")
-    existing_by_marker = {
-        marker: str(row.get("url") or "")
-        for row in existing
-        if isinstance(row, dict)
-        for marker in re.findall(
-            r"<!-- docs-drift-fix-agent:[0-9a-f]{16} -->", str(row.get("body") or "")
-        )
-    }
-
     created: list[dict[str, Any]] = []
+    existing_by_marker: dict[str, str] = {}
     for batch in plan["batches"]:
         issue_body = batch["issue_body"]
         digest = hashlib.sha256(f"{batch['issue_title']}\0{issue_body}".encode()).hexdigest()[:16]
         marker = f"<!-- docs-drift-fix-agent:{digest} -->"
+        list_result = subprocess.run(
+            [
+                "gh",
+                "issue",
+                "list",
+                "--repo",
+                plan["repo"],
+                "--state",
+                "open",
+                "--label",
+                "documentation",
+                "--search",
+                f'"{marker}" in:body',
+                "--limit",
+                "1",
+                "--json",
+                "body,url",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+        if list_result.returncode != 0:
+            raise RuntimeError(f"gh issue list failed: {list_result.stderr.strip()}")
+        matches = json.loads(list_result.stdout or "[]")
+        if not isinstance(matches, list):
+            raise ValueError("gh issue list returned a non-list payload")
+        for row in matches:
+            if isinstance(row, Mapping) and marker in str(row.get("body") or ""):
+                existing_by_marker[marker] = str(row.get("url") or "")
+                break
         if marker in existing_by_marker:
             created.append(
                 {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -13,9 +14,15 @@ def test_docs_drift_workflow_is_exact_synced_and_pinned() -> None:
     source = WORKFLOW.read_text(encoding="utf-8")
 
     assert TEMPLATE.read_text(encoding="utf-8") == source
-    assert "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" in source
-    assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in source
-    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in source
+    workflow = yaml.safe_load(source)
+    uses = [
+        step["uses"]
+        for job in workflow["jobs"].values()
+        for step in job["steps"]
+        if "uses" in step and not step["uses"].startswith("./")
+    ]
+    assert uses
+    assert all(re.fullmatch(r".+@[0-9a-f]{40}", reference) for reference in uses)
     assert 'python -m pip install "pyyaml==6.0.3"' in source
 
 
@@ -32,4 +39,13 @@ def test_docs_drift_apply_lane_is_not_cancelled() -> None:
     concurrency = workflow["concurrency"]
 
     assert "inputs.apply && 'apply' || 'plan'" in concurrency["group"]
-    assert "!" in concurrency["cancel-in-progress"]
+    assert concurrency["cancel-in-progress"] == (
+        "${{ !(github.event_name == 'workflow_dispatch' && inputs.apply) }}"
+    )
+    steps = workflow["jobs"]["docs-drift-fix-agent"]["steps"]
+    apply_step = next(
+        step for step in steps if step["name"] == "Create repair issues (dispatch-only)"
+    )
+    assert "github.event_name == 'workflow_dispatch'" in apply_step["if"]
+    assert "inputs.apply" in apply_step["if"]
+    assert "steps.plan.outputs.findings != '0'" in apply_step["if"]

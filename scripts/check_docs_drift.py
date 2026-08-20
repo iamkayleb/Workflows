@@ -63,13 +63,13 @@ def _workflow_token_context(text: str, token_start: int, token_end: int) -> str:
 def _is_bare_workflow_reference(
     text: str, match: re.Match[str], root_workflows: set[str] | None = None
 ) -> bool:
-    if match.group(1) in (root_workflows or set()):
-        return True
-
     token_start, token_end = match.span(1)
     context = _workflow_token_context(text, token_start, token_end)
     if NON_ROOT_WORKFLOW_CONTEXT_RE.search(context):
         return False
+
+    if match.group(1) in (root_workflows or set()):
+        return True
 
     return token_start > 0 and text[token_start - 1] == "`"
 

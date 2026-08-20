@@ -112,18 +112,36 @@ Config names such as sync-manifest.yml and labels-core.yml are not workflows.
     assert drift == []
 
 
-def test_bare_root_workflow_ref_counts_even_with_template_context(tmp_path: Path) -> None:
+def test_bare_root_workflow_ref_counts_in_root_context(tmp_path: Path) -> None:
     root = _repo(
         tmp_path,
         workflows=("health-72-template-sync.yml",),
         workflows_doc="""
-The `health-72-template-sync.yml` workflow validates consumer template sync.
+The `health-72-template-sync.yml` workflow validates synchronization.
 """,
     )
 
     drift = check_workflow_inventory(root)
 
     assert drift == []
+
+
+def test_bare_root_filename_in_consumer_template_context_does_not_count(
+    tmp_path: Path,
+) -> None:
+    root = _repo(
+        tmp_path,
+        workflows=("health-72-template-sync.yml",),
+        workflows_doc="""
+The consumer-template workflow `health-72-template-sync.yml` is copied to consumers.
+""",
+    )
+
+    drift = check_workflow_inventory(root)
+
+    assert [(record["type"], record["path"]) for record in drift] == [
+        ("undocumented_workflow", "health-72-template-sync.yml")
+    ]
 
 
 def test_missing_workflow_inventory_doc_reports_drift(tmp_path: Path) -> None:

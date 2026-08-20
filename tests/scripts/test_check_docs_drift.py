@@ -55,7 +55,7 @@ def test_mentioned_workflow_filenames_counts_root_workflow_paths() -> None:
 
 
 def test_mentioned_workflow_filenames_counts_bare_backtick_references() -> None:
-    text = "The `health-72-template-sync.yml` workflow validates template sync.\n"
+    text = "The `health-72-template-sync.yml` workflow validates synchronization.\n"
 
     assert _mentioned_workflow_filenames(text, {"health-72-template-sync.yml"}) == {
         "health-72-template-sync.yml"
@@ -83,6 +83,12 @@ Consumer template examples use `agents-80-pr-event-hub.yml` and
 """
 
     assert _mentioned_workflow_filenames(text, set()) == set()
+
+
+def test_mentioned_workflow_filenames_skips_template_context_for_root_filename() -> None:
+    text = "Consumer-template workflow `health-72-template-sync.yml` is copied.\n"
+
+    assert _mentioned_workflow_filenames(text, {"health-72-template-sync.yml"}) == set()
 
 
 def test_check_workflow_inventory_reports_undocumented_workflow(tmp_path: Path) -> None:
