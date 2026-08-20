@@ -66,23 +66,24 @@ const {
 } = require('../maint71_merge_sync_prs');
 
 test('Maint 71 falls back only when repository policy rejects a merge method', () => {
-  for (const message of [
-    'Merge commits are not allowed on this repository.',
-    'Squash merges are not allowed on this repository.',
-    'Rebase merges are not allowed on this repository.',
-    'Repository rule violations found.',
-    'The selected merge method is not allowed.',
+  for (const [method, message] of [
+    ['merge', 'Merge commits are not allowed on this repository.'],
+    ['squash', 'Squash merges are not allowed on this repository.'],
+    ['rebase', 'Rebase merges are not allowed on this repository.'],
+    ['squash', 'The selected merge method is not allowed.'],
   ]) {
-    assert.equal(mergeMethodPolicyAllowsFallback(new Error(message)), true, message);
+    assert.equal(mergeMethodPolicyAllowsFallback(new Error(message), method), true, message);
   }
 
-  for (const message of [
-    'Head branch was modified. Review and try the merge again.',
-    'Required status check gate-summary is failing.',
-    'Resource not accessible by integration.',
-    'Merge conflict',
+  for (const [method, message] of [
+    ['merge', 'Repository rule violations found: Required status check gate-summary is expected.'],
+    ['squash', 'Repository rule violations found: At least 1 approving review is required.'],
+    ['merge', 'Head branch was modified. Review and try the merge again.'],
+    ['squash', 'Required status check gate-summary is failing.'],
+    ['rebase', 'Resource not accessible by integration.'],
+    ['merge', 'Merge conflict'],
   ]) {
-    assert.equal(mergeMethodPolicyAllowsFallback(new Error(message)), false, message);
+    assert.equal(mergeMethodPolicyAllowsFallback(new Error(message), method), false, message);
   }
 });
 
