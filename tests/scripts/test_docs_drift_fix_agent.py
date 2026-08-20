@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import shlex
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -51,6 +54,19 @@ def test_findings_from_scan_json_filters_accurate_instances() -> None:
     assert len(findings) == 1
     assert findings[0].source == "semantic-scan"
     assert findings[0].classification == "stale"
+
+
+def test_findings_from_scan_json_rejects_non_mapping_payload() -> None:
+    with pytest.raises(ValueError, match="top-level mapping"):
+        fix_agent.findings_from_scan_json([], repo="stranske/Workflows")  # type: ignore[arg-type]
+
+
+def test_docs_arg_quotes_shell_sensitive_paths() -> None:
+    docs = ["docs/plain.md", "docs/my guide.md", "docs/$(unsafe).md", "docs/a'b.md"]
+
+    command = "python3 scripts/check_docs_drift.py" + fix_agent._docs_arg(docs)
+
+    assert shlex.split(command) == ["python3", "scripts/check_docs_drift.py", "--docs", *docs]
 
 
 def test_batch_findings_respects_max_per_batch() -> None:
@@ -192,12 +208,16 @@ def test_cli_apply_creates_one_issue_per_batch(tmp_path: Path, monkeypatch, caps
 
     class Result:
         returncode = 0
-        stdout = "https://github.com/stranske/Workflows/issues/1\n"
         stderr = ""
+
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
 
     def fake_run(args, **kwargs):  # noqa: ANN001
         calls.append(list(args))
-        return Result()
+        if list(args)[:3] == ["gh", "issue", "list"]:
+            return Result("[]")
+        return Result("https://github.com/stranske/Workflows/issues/1\n")
 
     monkeypatch.setattr(fix_agent.subprocess, "run", fake_run)
 
@@ -213,7 +233,125 @@ def test_cli_apply_creates_one_issue_per_batch(tmp_path: Path, monkeypatch, caps
         ]
     )
 
-    assert exit_code == 1
+    assert exit_code == 0
     capsys.readouterr()
     issue_calls = [call for call in calls if call[:3] == ["gh", "issue", "create"]]
     assert len(issue_calls) == 2
+    assert all(
+        "<!-- docs-drift-fix-agent:" in call[call.index("--body") + 1] for call in issue_calls
+    )
+
+
+def test_apply_issues_reuses_matching_open_issue(monkeypatch) -> None:
+    plan = {
+        "repo": "stranske/Workflows",
+        "batches": [
+            {
+                "batch_id": "docs-drift-01",
+                "issue_title": "[Docs Drift] Repair docs-drift-01",
+                "issue_body": "Repair the drift.\n",
+            }
+        ],
+    }
+    digest = fix_agent.hashlib.sha256(
+        b"[Docs Drift] Repair docs-drift-01\0Repair the drift.\n"
+    ).hexdigest()[:16]
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    def fake_run(args, **kwargs):  # noqa: ANN001
+        calls.append(list(args))
+        return Result(
+            json.dumps(
+                [
+                    {
+                        "body": f"Repair the drift.\n\n<!-- docs-drift-fix-agent:{digest} -->\n",
+                        "url": "https://github.com/stranske/Workflows/issues/1",
+                    }
+                ]
+            )
+        )
+
+    monkeypatch.setattr(fix_agent.subprocess, "run", fake_run)
+
+    result = fix_agent.apply_issues(plan)
+
+    assert result[0]["disposition"] == "already-open"
+    assert result[0]["stdout"].endswith("/issues/1")
+    assert [call[:3] for call in calls] == [["gh", "issue", "list"]]
+    assert "--search" in calls[0]
+    assert calls[0][calls[0].index("--limit") + 1] == "1"
+    assert "1000" not in calls[0]
+
+
+def test_apply_issues_queries_exact_marker_instead_of_capped_inventory(monkeypatch) -> None:
+    plan = {
+        "repo": "stranske/Workflows",
+        "batches": [
+            {
+                "batch_id": "docs-drift-01",
+                "issue_title": "[Docs Drift] Repair docs-drift-01",
+                "issue_body": "Repair item beyond the first thousand issues.\n",
+            }
+        ],
+    }
+    digest = fix_agent.hashlib.sha256(
+        b"[Docs Drift] Repair docs-drift-01\0Repair item beyond the first thousand issues.\n"
+    ).hexdigest()[:16]
+    marker = f"<!-- docs-drift-fix-agent:{digest} -->"
+    calls: list[list[str]] = []
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    def fake_run(args, **kwargs):  # noqa: ANN001
+        calls.append(list(args))
+        assert list(args)[:3] == ["gh", "issue", "list"]
+        search = list(args)[list(args).index("--search") + 1]
+        assert marker in search
+        return Result(
+            json.dumps(
+                [
+                    {
+                        "body": f"Older issue.\n\n{marker}\n",
+                        "url": "https://github.com/stranske/Workflows/issues/1001",
+                    }
+                ]
+            )
+        )
+
+    monkeypatch.setattr(fix_agent.subprocess, "run", fake_run)
+
+    result = fix_agent.apply_issues(plan)
+
+    assert result[0]["disposition"] == "already-open"
+    assert result[0]["stdout"].endswith("/issues/1001")
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("content", "message"),
+    [
+        ("- not-a-mapping\n", "top-level mapping"),
+        ("repos: []\n", "'repos' must be a mapping"),
+        ("repos:\n  stranske/Workflows: []\n", "entry for 'stranske/Workflows'"),
+    ],
+)
+def test_default_docs_from_config_rejects_invalid_mapping_shapes(
+    tmp_path: Path, content: str, message: str
+) -> None:
+    root = tmp_path / "repo"
+    _write(root / fix_agent.DEFAULT_DOCS_CONFIG, content)
+
+    with pytest.raises(ValueError, match=message):
+        fix_agent.default_docs_from_config(root)

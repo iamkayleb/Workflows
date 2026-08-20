@@ -568,6 +568,10 @@ Keep this table handy when you are triaging automation: it confirms which workfl
   seeds one scoped docs-drift audit issue per month (1st at 07:00 UTC, deduped)
   so the lane fleet diffs the canonical docs against the current tree and opens
   fix PRs. Doc-rot is the audit's most pervasive defect class.
+- **Maint 87 Docs Drift Fix Agent** – `.github/workflows/maint-87-docs-drift-fix-agent.yml`
+  runs the deterministic docs-drift detector weekly and uploads bounded repair
+  plans. Explicit apply dispatches create idempotent issues in a non-cancelling
+  concurrency lane; scheduled runs remain report-only.
 - **Maint 45 Cosmetic Repair** – `.github/workflows/maint-45-cosmetic-repair.yml`
   is a manual workflow. It runs pytest and the guardrail fixers, then opens a
   labelled PR if changes are needed.
