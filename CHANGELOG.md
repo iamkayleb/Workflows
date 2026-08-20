@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.25.5](https://github.com/stranske/Workflows/compare/v1.25.4...v1.25.5) (2026-08-20)
+
+
+### Bug Fixes
+
+* **sync:** honor consumer merge methods ([090646e](https://github.com/stranske/Workflows/commit/090646e68508000d7fb09d0aeb3616d0b00542e5))
+* **sync:** honor consumer merge methods ([20748fb](https://github.com/stranske/Workflows/commit/20748fbe7390696702c749226275c305322a7cfb))
+* **sync:** narrow Maint 71 merge-method fallback classifier ([6f7c9a2](https://github.com/stranske/Workflows/commit/6f7c9a28f99cb580fbf3c3f98b15de6195a4e40b))
+
 ## [1.25.4](https://github.com/stranske/Workflows/compare/v1.25.3...v1.25.4) (2026-08-16)
 
 
