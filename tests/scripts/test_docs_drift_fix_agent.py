@@ -113,7 +113,11 @@ def test_verification_commands_keep_semantic_only_batch_actionable() -> None:
     commands = fix_agent.verification_commands(["AGENTS.md"], [finding])
 
     assert shlex.split(commands[0]) == [
-        "python3", "scripts/check_docs_drift.py", "--json", "--docs", "AGENTS.md"
+        "python3",
+        "scripts/check_docs_drift.py",
+        "--json",
+        "--docs",
+        "AGENTS.md",
     ]
 
 

@@ -384,9 +384,7 @@ def load_scan_json(path: Path | None) -> dict[str, Any]:
 def default_docs_from_config(repo_root: Path, *, repo: str = DEFAULT_REPO) -> list[str]:
     config_path = repo_root / DEFAULT_DOCS_CONFIG
     if not config_path.is_file():
-        return [
-            doc for doc in check_docs_drift.DEFAULT_DOCS if (repo_root / doc).is_file()
-        ]
+        return [doc for doc in check_docs_drift.DEFAULT_DOCS if (repo_root / doc).is_file()]
     data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     if not isinstance(data, Mapping):
         raise ValueError("docs config must contain a top-level mapping")
