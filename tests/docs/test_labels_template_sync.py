@@ -35,3 +35,13 @@ def test_dedicated_label_sync_uses_the_consumer_template() -> None:
 
     assert workflow.count("templates/consumer-repo/docs/LABELS.md") >= 5
     assert "--source docs/LABELS.md" not in workflow
+
+
+def test_label_sync_inventory_docs_name_the_consumer_source() -> None:
+    for path in (
+        Path("docs/WORKFLOW_GUIDE.md"),
+        Path("docs/ci/WORKFLOWS.md"),
+        Path("docs/ci/WORKFLOW_SYSTEM.md"),
+    ):
+        text = path.read_text(encoding="utf-8")
+        assert "templates/consumer-repo/docs/LABELS.md" in text, path
