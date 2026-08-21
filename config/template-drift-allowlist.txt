@@ -149,5 +149,5 @@ reason = Intentional divergence (re-baselined 2026-07-14): consumer template SHA
 main = .github/workflows/agents-auto-pilot.yml
 template = templates/consumer-repo/.github/workflows/agents-auto-pilot.yml
 main_sha256 = 7d3c491c9f45d1666a08e6b69c3aea487568b1eeeb9bcbe48dac3f5d3de69b93
-template_sha256 = 0768be815960eeb37cf39d3820c5ee0a403f989569c7826f1813172685262a95
+template_sha256 = 9a3d67230d348407a4cc7c98ff2d8709a77b065c2fa6b5401922518ceef808e1
 reason = Intentional divergence reviewed 2026-08-21: the Workflows-local auto-pilot retains Workflows-only PR-meta and keepalive fallbacks, while the consumer template dispatches only the consolidated Agents 80 and Agents 81 entry points. The sync manifest delivers the consumer-specific template so retired Workflows-local targets cannot be restored in consumer repositories.
