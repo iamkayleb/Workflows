@@ -324,11 +324,11 @@ def test_cli_drift_fixture_exit_one_and_writes_outputs(tmp_path: Path, capsys) -
 
     exit_code = fix_agent.main(
         [
-                "--repo-root",
-                str(root),
-                "--repo",
-                "stranske/consumer",
-                "--docs",
+            "--repo-root",
+            str(root),
+            "--repo",
+            "stranske/consumer",
+            "--docs",
             "docs/ci/WORKFLOWS.md",
             "--out-dir",
             str(out_dir),
@@ -370,11 +370,11 @@ def test_cli_apply_creates_one_issue_per_batch(tmp_path: Path, monkeypatch, caps
 
     exit_code = fix_agent.main(
         [
-                "--repo-root",
-                str(root),
-                "--repo",
-                "stranske/consumer",
-                "--docs",
+            "--repo-root",
+            str(root),
+            "--repo",
+            "stranske/consumer",
+            "--docs",
             "docs/ci/WORKFLOWS.md",
             "--max-per-batch",
             "1",
