@@ -813,5 +813,5 @@ To add new label-triggered functionality:
 
 *Last updated: May 13, 2026*
 
-> **Source of truth.** This file is the canonical label inventory for the Workflows system. It is synced to every supported consumer repository via `.github/sync-manifest.yml` (`docs/LABELS.md` → `docs/LABELS.md`); changes here propagate on the next scheduled sync.
+> **Source of truth.** This file is the canonical consumer label inventory. It is synced to every supported consumer repository via `.github/sync-manifest.yml` (`templates/consumer-repo/docs/LABELS.md` → `docs/LABELS.md`); changes here propagate on the next scheduled sync.
 *Source of truth: Workflows repository*

@@ -27,3 +27,11 @@ def test_consumer_template_labels_exclude_workflows_only_retry_surfaces() -> Non
     assert "agents-keepalive-loop.yml" not in template
     assert "agents-pr-meta-v4.yml" not in template
     assert "agents-81-gate-followups.yml" in template
+    assert "templates/consumer-repo/docs/LABELS.md` → `docs/LABELS.md" in template
+
+
+def test_dedicated_label_sync_uses_the_consumer_template() -> None:
+    workflow = Path(".github/workflows/maint-65-sync-label-docs.yml").read_text(encoding="utf-8")
+
+    assert workflow.count("templates/consumer-repo/docs/LABELS.md") >= 5
+    assert "--source docs/LABELS.md" not in workflow

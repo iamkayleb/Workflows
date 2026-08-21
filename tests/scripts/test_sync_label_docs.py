@@ -4,6 +4,10 @@ import pytest
 from scripts import sync_label_docs
 
 
+def test_default_source_is_the_consumer_specific_template() -> None:
+    assert sync_label_docs.DEFAULT_SOURCE == Path("templates/consumer-repo/docs/LABELS.md")
+
+
 def write_label_doc(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
