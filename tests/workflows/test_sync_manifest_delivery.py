@@ -344,6 +344,7 @@ def test_sync_fanout_is_canary_gated_and_promotion_is_plan_bound() -> None:
     assert 'sync_branch="sync/workflows-candidate"' in source
     assert 'sync_branch="sync/workflows-delivery"' in source
     assert "const branchName = process.env.SYNC_BRANCH;" in source
+    assert "github-token: ${{ steps.workflows_app_token.outputs.token }}" in source
     assert 'branch_name="$SYNC_BRANCH"' in source
     assert "stable_plan_rotation" in source
     assert "expectedStableBranch" in source

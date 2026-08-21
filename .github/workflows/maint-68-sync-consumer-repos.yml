@@ -979,7 +979,11 @@ jobs:
         env:
           SYNC_BRANCH: ${{ needs.prepare.outputs.sync_branch }}
         with:
-          github-token: ${{ env.REPO_TOKEN }}
+          # The owner PAT is used for consumer writes below and can be depleted by
+          # unrelated fleet activity.  This read is safe for the freshly minted,
+          # consumer-scoped Workflows App token, which keeps a rate-limited owner
+          # PAT from preventing an existing stable delivery PR from being found.
+          github-token: ${{ steps.workflows_app_token.outputs.token }}
           script: |
             const { isConsumerOpenPr } = require('./workflows/.github/scripts/sync_tracker_state');
             const branchName = process.env.SYNC_BRANCH;
