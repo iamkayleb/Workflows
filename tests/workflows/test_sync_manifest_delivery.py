@@ -344,6 +344,7 @@ def test_sync_fanout_is_canary_gated_and_promotion_is_plan_bound() -> None:
     assert 'sync_branch="sync/workflows-candidate"' in source
     assert 'sync_branch="sync/workflows-delivery"' in source
     assert "const branchName = process.env.SYNC_BRANCH;" in source
+    assert "github-token: ${{ steps.workflows_app_token.outputs.token }}" in source
     assert 'branch_name="$SYNC_BRANCH"' in source
     assert "stable_plan_rotation" in source
     assert "expectedStableBranch" in source
@@ -589,6 +590,7 @@ def test_maint68_reuses_stable_delivery_pr_without_resetting_an_unchanged_head()
     )
     assert "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3" in source
     assert "permission-contents: write" in source
+    assert "permission-pull-requests: read" in source
     assert "permission-workflows: write" in source
     assert "gh api" not in source
     assert 'git config user.name "github-actions[bot]"' not in source
