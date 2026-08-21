@@ -101,7 +101,7 @@ def test_verification_commands_are_bounded_to_deterministic_batch_targets() -> N
     ]
 
 
-def test_verification_commands_reject_semantic_only_batch() -> None:
+def test_verification_commands_keep_semantic_only_batch_actionable() -> None:
     finding = fix_agent.Finding(
         source="semantic-scan",
         kind="stale_claim",
@@ -110,11 +110,18 @@ def test_verification_commands_reject_semantic_only_batch() -> None:
         detail="stale",
     )
 
-    with pytest.raises(ValueError, match="bounded semantic verifier"):
-        fix_agent.verification_commands(["AGENTS.md"], [finding])
+    commands = fix_agent.verification_commands(["AGENTS.md"], [finding])
+
+    assert shlex.split(commands[0]) == [
+        "python3",
+        "scripts/check_docs_drift.py",
+        "--json",
+        "--docs",
+        "AGENTS.md",
+    ]
 
 
-def test_verification_commands_reject_mixed_semantic_batch() -> None:
+def test_verification_commands_keep_mixed_semantic_batch_actionable() -> None:
     findings = [
         fix_agent.Finding(
             source="deterministic",
@@ -132,8 +139,47 @@ def test_verification_commands_reject_mixed_semantic_batch() -> None:
         ),
     ]
 
-    with pytest.raises(ValueError, match="bounded semantic verifier"):
-        fix_agent.verification_commands(["AGENTS.md"], findings)
+    commands = fix_agent.verification_commands(["AGENTS.md"], findings)
+
+    assert shlex.split(commands[0])[-2:] == ["--only", "scripts/missing.py"]
+
+
+def test_default_docs_from_config_uses_only_docs_present_in_consumer(tmp_path: Path) -> None:
+    root = tmp_path / "consumer"
+    _write(root / "AGENTS.md", "Consumer guidance.\n")
+    _write(
+        root / fix_agent.DEFAULT_DOCS_CONFIG,
+        "repos:\n  stranske/consumer:\n    docs:\n      - path: AGENTS.md\n      - path: docs/missing.md\n",
+    )
+
+    assert fix_agent.default_docs_from_config(root, repo="stranske/consumer") == ["AGENTS.md"]
+
+
+def test_detect_repo_slug_uses_origin_remote(tmp_path: Path, monkeypatch) -> None:
+    class Result:
+        returncode = 0
+        stdout = "git@github.com:stranske/consumer.git\n"
+
+    monkeypatch.setattr(fix_agent.subprocess, "run", lambda *args, **kwargs: Result())
+
+    assert fix_agent.detect_repo_slug(tmp_path) == "stranske/consumer"
+
+
+def test_detect_repo_slug_returns_none_for_unknown_origin(tmp_path: Path, monkeypatch) -> None:
+    class Result:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(fix_agent.subprocess, "run", lambda *args, **kwargs: Result())
+
+    assert fix_agent.detect_repo_slug(tmp_path) is None
+
+
+def test_cli_requires_repo_when_origin_is_unknown(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setattr(fix_agent, "detect_repo_slug", lambda root: None)
+
+    assert fix_agent.main(["--repo-root", str(tmp_path), "--json"]) == 2
+    assert "could not determine GitHub repo" in capsys.readouterr().err
 
 
 def test_build_plan_propagates_selected_docs_to_every_batch_artifact(tmp_path: Path) -> None:
@@ -260,7 +306,9 @@ def test_cli_clean_repo_exit_zero(tmp_path: Path, capsys) -> None:
         workflows_doc="Active workflows: `build.yml`.\n",
     )
 
-    exit_code = fix_agent.main(["--repo-root", str(root), "--docs", "docs/ci/WORKFLOWS.md"])
+    exit_code = fix_agent.main(
+        ["--repo-root", str(root), "--repo", "stranske/consumer", "--docs", "docs/ci/WORKFLOWS.md"]
+    )
 
     assert exit_code == 0
     assert "0 finding(s)" in capsys.readouterr().out
@@ -278,6 +326,8 @@ def test_cli_drift_fixture_exit_one_and_writes_outputs(tmp_path: Path, capsys) -
         [
             "--repo-root",
             str(root),
+            "--repo",
+            "stranske/consumer",
             "--docs",
             "docs/ci/WORKFLOWS.md",
             "--out-dir",
@@ -322,6 +372,8 @@ def test_cli_apply_creates_one_issue_per_batch(tmp_path: Path, monkeypatch, caps
         [
             "--repo-root",
             str(root),
+            "--repo",
+            "stranske/consumer",
             "--docs",
             "docs/ci/WORKFLOWS.md",
             "--max-per-batch",
