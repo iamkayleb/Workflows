@@ -42,6 +42,10 @@ def test_label_sync_inventory_docs_name_the_consumer_source() -> None:
         Path("docs/WORKFLOW_GUIDE.md"),
         Path("docs/ci/WORKFLOWS.md"),
         Path("docs/ci/WORKFLOW_SYSTEM.md"),
+        Path("docs/orchestrator/consumer-sync-contract-map.md"),
+        Path("docs/workflow-updates/maint-workflow-review-2026-02-22.md"),
+        Path("templates/consumer-repo/docs/SETUP_CHECKLIST.md"),
+        Path("templates/consumer-repo/WORKFLOW_USER_GUIDE.md"),
     ):
         text = path.read_text(encoding="utf-8")
         assert "templates/consumer-repo/docs/LABELS.md" in text, path
