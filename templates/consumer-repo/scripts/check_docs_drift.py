@@ -404,7 +404,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise FileNotFoundError(f"repo root not found: {_display_path(root, Path.cwd())}")
 
         docs = tuple(args.docs) if args.docs is not None else DEFAULT_DOCS
-        docs = tuple(doc for doc in docs if _resolve_doc_path(root, doc).is_file())
+        if args.docs is not None:
+            missing = [doc for doc in docs if not _resolve_doc_path(root, doc).is_file()]
+            if missing:
+                raise FileNotFoundError(f"requested docs not found: {', '.join(missing)}")
+        else:
+            docs = tuple(doc for doc in docs if _resolve_doc_path(root, doc).is_file())
         drift = check_docs_drift(root, docs)
         if args.only is not None:
             selected = set(args.only)

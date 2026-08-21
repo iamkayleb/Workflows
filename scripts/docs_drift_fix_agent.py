@@ -77,8 +77,8 @@ def detect_repo_root(cwd: Path | None = None) -> Path:
     return probe.resolve()
 
 
-def detect_repo_slug(repo_root: Path) -> str:
-    """Return the GitHub origin slug when available, else the source default."""
+def detect_repo_slug(repo_root: Path) -> str | None:
+    """Return the GitHub origin slug when available."""
     try:
         result = subprocess.run(
             ["git", "config", "--get", "remote.origin.url"],
@@ -89,9 +89,9 @@ def detect_repo_slug(repo_root: Path) -> str:
             timeout=10,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return DEFAULT_REPO
+        return None
     match = re.search(r"github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$", result.stdout.strip())
-    return f"{match.group(1)}/{match.group(2)}" if match else DEFAULT_REPO
+    return f"{match.group(1)}/{match.group(2)}" if match else None
 
 
 def _doc_from_detail(detail: str) -> str:
@@ -201,11 +201,6 @@ def _docs_arg(docs: Sequence[str] | None) -> str:
 
 def _only_arg(findings: Sequence[Finding] | None) -> str:
     if not findings:
-        return ""
-    if any(finding.source == "semantic-scan" for finding in findings):
-        # Semantic findings remain in the repair plan, but deterministic --only
-        # cannot verify a natural-language claim. Omit it rather than rejecting
-        # an otherwise actionable mixed batch.
         return ""
     targets = sorted({finding.target for finding in findings if finding.source == "deterministic"})
     if not targets:
@@ -617,6 +612,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if scan_json is not None and not scan_json.is_file():
             raise FileNotFoundError(f"scan json not found: {scan_json}")
         repo = args.repo or detect_repo_slug(repo_root)
+        if repo is None:
+            raise ValueError("could not determine GitHub repo from origin; pass --repo")
         plan = build_plan(
             repo_root=repo_root,
             repo=repo,

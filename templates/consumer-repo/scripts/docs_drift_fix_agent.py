@@ -77,6 +77,23 @@ def detect_repo_root(cwd: Path | None = None) -> Path:
     return probe.resolve()
 
 
+def detect_repo_slug(repo_root: Path) -> str | None:
+    """Return the GitHub origin slug when available."""
+    try:
+        result = subprocess.run(
+            ["git", "config", "--get", "remote.origin.url"],
+            check=False,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.search(r"github\.com[/:]([^/]+)/([^/]+?)(?:\.git)?$", result.stdout.strip())
+    return f"{match.group(1)}/{match.group(2)}" if match else None
+
+
 def _doc_from_detail(detail: str) -> str:
     match = re.search(r"Referenced in ([^`]+)$", detail or "")
     if match:
@@ -185,11 +202,6 @@ def _docs_arg(docs: Sequence[str] | None) -> str:
 def _only_arg(findings: Sequence[Finding] | None) -> str:
     if not findings:
         return ""
-    if any(finding.source == "semantic-scan" for finding in findings):
-        raise ValueError(
-            "batches containing semantic-scan findings need a bounded semantic verifier "
-            "before an issue can be generated"
-        )
     targets = sorted({finding.target for finding in findings if finding.source == "deterministic"})
     if not targets:
         return ""
@@ -367,7 +379,7 @@ def load_scan_json(path: Path | None) -> dict[str, Any]:
 def default_docs_from_config(repo_root: Path, *, repo: str = DEFAULT_REPO) -> list[str]:
     config_path = repo_root / DEFAULT_DOCS_CONFIG
     if not config_path.is_file():
-        return list(check_docs_drift.DEFAULT_DOCS)
+        return [doc for doc in check_docs_drift.DEFAULT_DOCS if (repo_root / doc).is_file()]
     data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     if not isinstance(data, Mapping):
         raise ValueError("docs config must contain a top-level mapping")
@@ -386,7 +398,8 @@ def default_docs_from_config(repo_root: Path, *, repo: str = DEFAULT_REPO) -> li
         for item in repo_config.get("docs") or []
         if isinstance(item, dict) and item.get("path")
     ]
-    return docs or list(check_docs_drift.DEFAULT_DOCS)
+    candidates = docs or list(check_docs_drift.DEFAULT_DOCS)
+    return [doc for doc in candidates if (repo_root / doc).is_file()]
 
 
 def collect_findings(
@@ -577,9 +590,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         description="Build bounded docs-drift repair prompts and issue bodies."
     )
     parser.add_argument("--repo-root", type=Path, help="repository root to scan")
-    parser.add_argument(
-        "--repo", default=DEFAULT_REPO, help="GitHub repo name for issue/prompt output"
-    )
+    parser.add_argument("--repo", help="GitHub repo name for issue/prompt output")
     parser.add_argument("--docs", nargs="+", help="repo-relative docs to scan for dangling refs")
     parser.add_argument("--scan-json", type=Path, help="optional repo_review docs-drift-scan.json")
     parser.add_argument("--out-dir", type=Path, help="write plan and per-batch prompt files")
@@ -600,9 +611,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         scan_json = args.scan_json.expanduser().resolve() if args.scan_json else None
         if scan_json is not None and not scan_json.is_file():
             raise FileNotFoundError(f"scan json not found: {scan_json}")
+        repo = args.repo or detect_repo_slug(repo_root)
+        if repo is None:
+            raise ValueError("could not determine GitHub repo from origin; pass --repo")
         plan = build_plan(
             repo_root=repo_root,
-            repo=args.repo,
+            repo=repo,
             docs=args.docs,
             scan_json=scan_json,
             max_per_batch=args.max_per_batch,
