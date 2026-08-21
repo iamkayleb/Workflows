@@ -807,7 +807,7 @@ docs:
     target: docs/CI_SYSTEM_GUIDE.md
     description: "Guide to the CI system for agents"
 
-  - source: docs/LABELS.md
+  - source: templates/consumer-repo/docs/LABELS.md
     target: docs/LABELS.md
     description: "Label definitions and usage"
 

@@ -33,11 +33,12 @@ def test_consumer_ci_guide_matches_current_agent_entrypoints() -> None:
 
 
 def test_consumer_operator_docs_match_gate_followup_topology() -> None:
-    labels = Path("docs/LABELS.md").read_text(encoding="utf-8")
-    template_labels = Path("templates/consumer-repo/docs/LABELS.md").read_text(encoding="utf-8")
+    root_labels = Path("docs/LABELS.md").read_text(encoding="utf-8")
+    labels = Path("templates/consumer-repo/docs/LABELS.md").read_text(encoding="utf-8")
     setup = Path("templates/consumer-repo/docs/SETUP_CHECKLIST.md").read_text(encoding="utf-8")
 
-    assert labels == template_labels
+    assert "Root/non-consolidated: sets `force_retry=true`" in root_labels
+    assert ".github/workflows/agents-keepalive-loop.yml" in root_labels
     for retired_surface in (
         "agents-63-issue-intake.yml",
         "agents-70-orchestrator.yml",
