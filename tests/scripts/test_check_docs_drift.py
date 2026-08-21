@@ -12,6 +12,7 @@ from scripts.check_docs_drift import (
     check_dangling_references,
     check_workflow_inventory,
     format_human_report,
+    main,
 )
 
 
@@ -52,6 +53,13 @@ def test_mentioned_workflow_filenames_counts_root_workflow_paths() -> None:
     text = "Inventory link: [CI](../../.github/workflows/ci.yml).\n"
 
     assert _mentioned_workflow_filenames(text, {"ci.yml"}) == {"ci.yml"}
+
+
+def test_cli_rejects_missing_explicit_document(tmp_path: Path, capsys) -> None:
+    exit_code = main(["--repo-root", str(tmp_path), "--docs", "docs/missing.md", "--json"])
+
+    assert exit_code == 2
+    assert "requested docs not found: docs/missing.md" in capsys.readouterr().err
 
 
 def test_mentioned_workflow_filenames_counts_bare_backtick_references() -> None:

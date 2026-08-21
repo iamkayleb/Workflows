@@ -101,7 +101,7 @@ def test_verification_commands_are_bounded_to_deterministic_batch_targets() -> N
     ]
 
 
-def test_verification_commands_reject_semantic_only_batch() -> None:
+def test_verification_commands_keep_semantic_only_batch_actionable() -> None:
     finding = fix_agent.Finding(
         source="semantic-scan",
         kind="stale_claim",
@@ -110,11 +110,14 @@ def test_verification_commands_reject_semantic_only_batch() -> None:
         detail="stale",
     )
 
-    with pytest.raises(ValueError, match="bounded semantic verifier"):
-        fix_agent.verification_commands(["AGENTS.md"], [finding])
+    commands = fix_agent.verification_commands(["AGENTS.md"], [finding])
+
+    assert shlex.split(commands[0]) == [
+        "python3", "scripts/check_docs_drift.py", "--json", "--docs", "AGENTS.md"
+    ]
 
 
-def test_verification_commands_reject_mixed_semantic_batch() -> None:
+def test_verification_commands_keep_mixed_semantic_batch_actionable() -> None:
     findings = [
         fix_agent.Finding(
             source="deterministic",
@@ -132,8 +135,26 @@ def test_verification_commands_reject_mixed_semantic_batch() -> None:
         ),
     ]
 
-    with pytest.raises(ValueError, match="bounded semantic verifier"):
-        fix_agent.verification_commands(["AGENTS.md"], findings)
+    commands = fix_agent.verification_commands(["AGENTS.md"], findings)
+
+    assert "--only" not in commands[0]
+
+
+def test_default_docs_from_config_uses_only_docs_present_in_consumer(tmp_path: Path) -> None:
+    root = tmp_path / "consumer"
+    _write(root / "AGENTS.md", "Consumer guidance.\n")
+
+    assert fix_agent.default_docs_from_config(root, repo="stranske/consumer") == []
+
+
+def test_detect_repo_slug_uses_origin_remote(tmp_path: Path, monkeypatch) -> None:
+    class Result:
+        returncode = 0
+        stdout = "git@github.com:stranske/consumer.git\n"
+
+    monkeypatch.setattr(fix_agent.subprocess, "run", lambda *args, **kwargs: Result())
+
+    assert fix_agent.detect_repo_slug(tmp_path) == "stranske/consumer"
 
 
 def test_build_plan_propagates_selected_docs_to_every_batch_artifact(tmp_path: Path) -> None:
