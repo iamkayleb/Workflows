@@ -239,20 +239,16 @@ def _managed_block_span(lines: list[str]) -> tuple[int, int] | None:
     header is only consumed when its identifying line is actually found, so a repo-local comment
     sitting above the block is never swallowed.
     """
-    begin = next(
-        (idx for idx, line in enumerate(lines) if line.strip() == PATTERN_BLOCK_BEGIN), None
-    )
-    if begin is None:
+    begins = [idx for idx, line in enumerate(lines) if line.strip() == PATTERN_BLOCK_BEGIN]
+    ends = [idx for idx, line in enumerate(lines) if line.strip() == PATTERN_BLOCK_END]
+    if not begins and not ends:
         return None
-    end = next(
-        (idx for idx in range(begin + 1, len(lines)) if lines[idx].strip() == PATTERN_BLOCK_END),
-        None,
-    )
-    if end is None:
+    if len(begins) != 1 or len(ends) != 1 or begins[0] >= ends[0]:
         raise TemplateBlockError(
-            f"Incomplete managed block: found {PATTERN_BLOCK_BEGIN} without matching "
-            f"{PATTERN_BLOCK_END}"
+            "Invalid managed block markers: require exactly one BEGIN marker followed by "
+            "exactly one END marker"
         )
+    begin, end = begins[0], ends[0]
     header = next(
         (
             idx
@@ -272,17 +268,22 @@ def _managed_block_span(lines: list[str]) -> tuple[int, int] | None:
     return start, end
 
 
-def apply_block_to_file(gitignore_path: Path) -> dict[str, object]:
+def apply_block_to_file(gitignore_path: Path, *, dry_run: bool = False) -> dict[str, object]:
     """Idempotently merge the managed block into a consumer repo's .gitignore.
 
     Replace-in-place when the block is already there, append when it is not, and touch nothing
     outside the managed region — which is exactly why `.gitignore` is in the sync-manifest
     `excluded:` list: a whole-file copy would clobber repo-local ignore rules. Writing only on a
     real change keeps a scheduled sync a no-op when there is nothing to do.
+
+    When ``dry_run`` is true, report whether a write would occur without mutating the file so
+    maint-68 dry consumer runs can still set ``has_changes`` and list ``.gitignore`` in the
+    sync summary.
     """
     path = Path(gitignore_path)
     block = load_template_block().rstrip("\n")
-    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    existing = path.read_bytes().decode("utf-8") if path.is_file() else ""
+    newline = "\r\n" if "\r\n" in existing else "\n"
     lines = existing.splitlines()
 
     span = _managed_block_span(lines)
@@ -297,9 +298,9 @@ def apply_block_to_file(gitignore_path: Path) -> dict[str, object]:
         merged = block.splitlines()
         action = "created"
 
-    updated = "\n".join(merged).rstrip("\n") + "\n"
+    updated = newline.join(merged).rstrip("\r\n") + newline
     changed = updated != existing
-    if changed:
+    if changed and not dry_run:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(updated, encoding="utf-8")
     return {"path": str(path), "action": action if changed else "unchanged", "changed": changed}
