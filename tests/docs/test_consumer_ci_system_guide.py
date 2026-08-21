@@ -46,9 +46,10 @@ def test_consumer_operator_docs_match_gate_followup_topology() -> None:
 
     assert "no Cursor runner job" in labels
     assert "no Gemini runner job" in labels
-    assert "Consolidated consumer: does not set `force_retry`" in labels
-    assert "Root/non-consolidated: sets `force_retry=true`" in labels
-    assert ".github/workflows/agents-keepalive-loop.yml" in labels
+    assert "applying the label does not trigger a retry by itself" in labels
+    assert "Does not set `force_retry`" in labels
+    assert "agents-keepalive-loop.yml" not in labels
+    assert "agents-pr-meta-v4.yml" not in labels
     assert "Optional recovery-request marker" in setup
     assert "USE_CONSOLIDATED_WORKFLOWS` is `true`" in setup
     assert "cleared by Agents 81 after it successfully merges" in labels

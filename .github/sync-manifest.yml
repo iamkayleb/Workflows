@@ -116,7 +116,8 @@ workflows:
   - source: .github/workflows/agents-pr-health.yml
     description: "PR health scanner - periodic conflict resolution and failing check re-dispatch"
 
-  - source: .github/workflows/agents-auto-pilot.yml
+  - source: templates/consumer-repo/.github/workflows/agents-auto-pilot.yml
+    target: .github/workflows/agents-auto-pilot.yml
     description: "Auto-pilot - end-to-end automation orchestrator (format → optimize → agent → verify)"
 
   - source: .github/workflows/agents-weekly-metrics.yml
