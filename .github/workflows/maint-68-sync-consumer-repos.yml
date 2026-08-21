@@ -480,6 +480,7 @@ jobs:
           owner: ${{ steps.repo_meta.outputs.repo_owner }}
           repositories: ${{ steps.repo_meta.outputs.repo_name }}
           permission-contents: write
+          permission-pull-requests: read
           permission-workflows: write
 
       - name: Checkout Workflows

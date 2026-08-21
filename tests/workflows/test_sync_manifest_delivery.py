@@ -590,6 +590,7 @@ def test_maint68_reuses_stable_delivery_pr_without_resetting_an_unchanged_head()
     )
     assert "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3" in source
     assert "permission-contents: write" in source
+    assert "permission-pull-requests: read" in source
     assert "permission-workflows: write" in source
     assert "gh api" not in source
     assert 'git config user.name "github-actions[bot]"' not in source
