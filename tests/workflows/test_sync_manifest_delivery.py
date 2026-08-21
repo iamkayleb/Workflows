@@ -89,8 +89,7 @@ def test_auto_pilot_sync_uses_consumer_specific_source() -> None:
     auto_pilot = [
         entry
         for entry in entries
-        if entry.get("target", entry.get("source"))
-        == ".github/workflows/agents-auto-pilot.yml"
+        if entry.get("target", entry.get("source")) == ".github/workflows/agents-auto-pilot.yml"
     ]
 
     assert auto_pilot == [

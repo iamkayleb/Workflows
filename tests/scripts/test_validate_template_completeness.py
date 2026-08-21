@@ -34,8 +34,7 @@ def test_get_manifest_workflows_extracts_consumer_workflow_targets(tmp_path: Pat
                     {"source": ".github/workflows/agents-80-pr-event-hub.yml"},
                     {
                         "source": (
-                            "templates/consumer-repo/.github/workflows/"
-                            "agents-auto-pilot.yml"
+                            "templates/consumer-repo/.github/workflows/" "agents-auto-pilot.yml"
                         ),
                         "target": ".github/workflows/agents-auto-pilot.yml",
                     },

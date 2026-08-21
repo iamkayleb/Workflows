@@ -408,9 +408,7 @@ def test_auto_pilot_context_and_cycle_reads_defer_on_rate_limit():
 
 def test_auto_pilot_dispatches_pr_event_hub_pr_meta_only():
     root_workflow = WORKFLOWS_DIR / "agents-auto-pilot.yml"
-    consumer_workflow = Path(
-        "templates/consumer-repo/.github/workflows/agents-auto-pilot.yml"
-    )
+    consumer_workflow = Path("templates/consumer-repo/.github/workflows/agents-auto-pilot.yml")
 
     for workflow_path in (root_workflow, consumer_workflow):
         text = workflow_path.read_text(encoding="utf-8")
