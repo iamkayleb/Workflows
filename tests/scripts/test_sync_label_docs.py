@@ -5,7 +5,7 @@ from scripts import sync_label_docs
 
 
 def test_default_source_is_the_consumer_specific_template() -> None:
-    assert sync_label_docs.DEFAULT_SOURCE == Path("templates/consumer-repo/docs/LABELS.md")
+    assert Path("templates/consumer-repo/docs/LABELS.md") == sync_label_docs.DEFAULT_SOURCE
 
 
 def write_label_doc(path: Path, content: str) -> None:
