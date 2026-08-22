@@ -21,6 +21,7 @@ def test_build_review_payload_includes_review_fields():
         use_llm=False,
     )
 
+    assert "review" not in result.model_dump()
     payload = progress_reviewer.build_review_payload(result)
     review = payload.get("review")
 
@@ -28,6 +29,22 @@ def test_build_review_payload_includes_review_fields():
     assert review["score"] == result.alignment_score
     assert review["feedback"] == result.feedback_for_agent
     assert "suggestions" in review
+
+
+def test_build_review_payload_filters_and_orders_suggestions():
+    result = progress_reviewer.review_progress(
+        acceptance_criteria=["Keep agent work aligned"],
+        recent_commits=["chore: inspect progress"],
+        files_changed=["scripts/langchain/progress_reviewer.py"],
+        rounds_without_completion=2,
+        use_llm=False,
+    )
+    result.analysis.blocking_issues = ["Missing acceptance evidence", ""]
+    result.analysis.scope_drift_identified = ["Unrelated refactor", ""]
+
+    payload = progress_reviewer.build_review_payload(result)
+
+    assert payload["review"]["suggestions"] == ("Missing acceptance evidence; Unrelated refactor")
 
 
 def test_json_output_contains_review_fields():
