@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes are called out with a **BREAKING** marker and scheduled according to the policy in `COMPATIBILITY.md`.
 
+## [1.28.0](https://github.com/stranske/Workflows/compare/v1.27.0...v1.28.0) (2026-08-22)
+
+
+### Features
+
+* **consumers:** register stranske/Orchestrator, protect its agent rules, fix routing-label drift ([e704e16](https://github.com/stranske/Workflows/commit/e704e161f8d67ede1e62a026c6905f7ff63c1de4))
+
+
+### Bug Fixes
+
+* **docs:** preserve consumer repair boundaries ([1aedb2f](https://github.com/stranske/Workflows/commit/1aedb2f5cbf2e06cef641638a3f30c9bd2927350))
+* **docs:** support consumer drift planning ([13b51ab](https://github.com/stranske/Workflows/commit/13b51ab054fefadeccdf8896a78bb87dad2af7f9))
+* **docs:** support consumer drift planning ([f5f96ee](https://github.com/stranske/Workflows/commit/f5f96ee33408e298480ca38a67acd589f57435bf))
+* **langchain:** complete label and review contracts ([#3160](https://github.com/stranske/Workflows/issues/3160)) ([e3ca998](https://github.com/stranske/Workflows/commit/e3ca998530ace13c456dc65a0171cd352bf4854a))
+* **sync:** grant app token PR read access ([bcf5fd1](https://github.com/stranske/Workflows/commit/bcf5fd1eb2f94c7a76f72e8c4c439c75210e8826))
+* **sync:** isolate existing PR lookup from owner PAT quota ([272afa1](https://github.com/stranske/Workflows/commit/272afa1e8c7c1f35338c6385f8aadfc4dc9a564f))
+
 ## [1.27.0](https://github.com/stranske/Workflows/compare/v1.26.1...v1.27.0) (2026-08-21)
 
 
