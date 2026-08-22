@@ -660,7 +660,15 @@ def test_gate_and_shared_mergers_hold_mutable_stable_deliveries() -> None:
         "@632eb20586f8403219d101e8a982b62efeb94104"
     )
     assert action_ref in gate
-    assert action_ref in template_gate
+    # The consumer template resolves the seal from this fork, so it carries the
+    # same commit-pinned action under iamkayleb/Workflows. The pin is what matters:
+    # the seal must be evaluated from an immutable ref outside the consumer's own
+    # (sync-mutable) checkout, whichever owner hosts the control plane.
+    template_action_ref = (
+        "iamkayleb/Workflows/.github/actions/generated-delivery-seal"
+        "@e85edadb246e41d172a0c79fad147752d1df9ea9"
+    )
+    assert template_action_ref in template_gate
     assert (
         "uses: ./.github/actions/path-classifier"
         not in gate.split("generated-delivery-seal:", 1)[1].split("\n  python-ci:", 1)[0]

@@ -300,7 +300,7 @@ jobs:
     if: >-
       needs.check.outputs.should_run == 'true' &&
       needs.check.outputs.fingerprint_should_run == 'true'
-    uses: stranske/Workflows/.github/workflows/reusable-agents-verifier.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-agents-verifier.yml@main
     with:
       # CI workflows to wait for before running verifier
       ci_workflows: '["ci.yml", "pr-00-gate.yml"]'

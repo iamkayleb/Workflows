@@ -561,6 +561,35 @@ of following the first-party default.
 If a reusable workflow fix must ship immediately, trigger:
 - `Maint 68 Sync Consumer Repos` only if template files changed
 
+#### Control-plane owner in the consumer templates
+
+The consumer templates resolve reusable workflows, composite actions, and script
+sparse-checkouts from **`iamkayleb/Workflows`** — this fork — not from
+`stranske/Workflows`. `iamkayleb/bukay` was already wired that way by hand, so
+syncing upstream-owned templates into it would have silently reverted 38 refs
+back to upstream on the first delivery.
+
+Three consequences worth knowing before you touch a template workflow:
+
+- **Root workflows were deliberately not repointed.** The owner divergence
+  between a root workflow and its template twin is the intended contract, and
+  the affected pairs are re-baselined in `config/template-drift-allowlist.txt`.
+  Health 74 canonicalizes the `@<ref>` pin but *preserves the action path*, so
+  changing the owner registers as drift and needs a deliberate re-baseline.
+- **Pinned refs must exist in this fork.** The upstream SHAs for
+  `generated-delivery-seal`, `setup-api-client`, and
+  `reusable-model-profile-trial.yml` are not in this fork's history; they are
+  pinned to `e85edad` here. Bumping a pin means picking a commit that exists in
+  `iamkayleb/Workflows`, not copying an upstream SHA.
+- **Discovery predicates must stay owner-agnostic.** Tests that find template
+  callers by matching `stranske/Workflows` silently stop covering them after a
+  repoint. Match on the repository name (`*/Workflows`) instead. This already
+  dropped three template workflows out of `test_workflow_llm_installs` coverage.
+
+Prose references to `stranske/Workflows` in `README.md`, `docs/USAGE.md`, and
+`docs/INTEGRATION_GUIDE.md` were left alone; they document the upstream project,
+not this fork's delivery wiring.
+
 ### Sync PR Branch Cleanup
 
 `maint-71-merge-sync-prs.yml` owns routine cleanup for `sync/workflows-*`

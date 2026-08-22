@@ -5,6 +5,7 @@
     {
       "description": "Maint 68 overwrites these 214 manifest-managed paths in every registered consumer; Renovate edits there are reverted on the next sync.",
       "matchRepositories": [
+        "iamkayleb/bukay",
         "stranske/Collab-Admin",
         "stranske/Counter_Risk",
         "stranske/Fine-Art-Archive",
@@ -235,6 +236,22 @@
         "tools/post_ci_summary.py",
         "tools/requirements-llm.txt",
         "tools/resolve_mypy_pin.py"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "iamkayleb/bukay additionally has 7 manifest-managed path(s) that at least one other consumer owns via skip_repos, create_only, or an overwrite_repos opt-in.",
+      "matchRepositories": [
+        "iamkayleb/bukay"
+      ],
+      "matchFileNames": [
+        ".github/scripts/node_modules/balanced-match/**",
+        ".github/scripts/node_modules/brace-expansion/**",
+        ".github/scripts/node_modules/minimatch/**",
+        ".github/scripts/package.json",
+        ".github/workflows/pr-00-gate.yml",
+        "AGENTS.md",
+        "CLAUDE.md"
       ],
       "enabled": false
     },

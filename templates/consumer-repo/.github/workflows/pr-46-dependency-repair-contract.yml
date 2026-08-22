@@ -31,7 +31,7 @@ jobs:
        contains(github.event.pull_request.labels.*.name, 'dependency:repair-promotion') &&
        (contains(github.event.pull_request.labels.*.name, 'workflow:source-dependabot') ||
         contains(github.event.pull_request.labels.*.name, 'workflow_source_dependabot')))
-    uses: stranske/Workflows/.github/workflows/reusable-19-dependency-repair-contract.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-19-dependency-repair-contract.yml@main
 
   # `contract` is gated on the two trust labels, and a skipped job reports
   # success. Without this guard a same-repository promotion marker whose labels

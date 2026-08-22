@@ -68,7 +68,7 @@ jobs:
         if: steps.check-merged.outputs.merged == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           token: ${{ steps.select-token.outputs.token }}
           sparse-checkout: |
             .github/actions/setup-api-client

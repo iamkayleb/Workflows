@@ -171,7 +171,7 @@ jobs:
       contents: read
     steps:
       - name: Require an exact-head delivery seal
-        uses: stranske/Workflows/.github/actions/generated-delivery-seal@632eb20586f8403219d101e8a982b62efeb94104
+        uses: iamkayleb/Workflows/.github/actions/generated-delivery-seal@e85edadb246e41d172a0c79fad147752d1df9ea9
 
   python-ci:
     name: python ci
@@ -184,7 +184,7 @@ jobs:
         needs.detect.outputs.is_python_code == 'true' &&
         needs.detect.outputs.run_core == 'true'
       }}
-    uses: stranske/Workflows/.github/workflows/reusable-10-ci-python.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-10-ci-python.yml@main
     secrets: inherit
     permissions:
       contents: read
@@ -406,7 +406,7 @@ jobs:
         fromJSON(needs.detect.outputs.run_core || 'true') &&
         fromJSON(needs.detect.outputs.docker_changed || 'false')
       }}
-    uses: stranske/Workflows/.github/workflows/reusable-12-ci-docker.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-12-ci-docker.yml@main
 
   ledger-validation:
     name: ledger validation
