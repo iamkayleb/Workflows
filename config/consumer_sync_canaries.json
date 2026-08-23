@@ -3,12 +3,12 @@
   "version": 1,
   "canaries": [
     {
-      "repo": "stranske/Travel-Plan-Permission",
-      "capabilities": ["standard", "custom-gate"]
+      "repo": "iamkayleb/bukay",
+      "capabilities": ["node-tooling", "python-consumer", "lock-heavy"]
     },
     {
-      "repo": "stranske/trip-planner",
-      "capabilities": ["lock-heavy", "node-tooling"]
+      "repo": "stranske/Travel-Plan-Permission",
+      "capabilities": ["standard", "custom-gate"]
     },
     {
       "repo": "stranske/Portable-Alpha-Extension-Model",

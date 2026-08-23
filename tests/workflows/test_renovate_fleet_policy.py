@@ -85,7 +85,10 @@ def test_lock_file_maintenance_has_the_same_explicit_weekly_cadence() -> None:
 
 
 def test_workflows_and_consumer_entrypoints_share_the_bounded_fleet_policy() -> None:
-    expected_preset = "github>stranske/Workflows//renovate-presets/fleet"
+    # Owner-agnostic: both entrypoints must extend exactly one fleet preset from a
+    # repository named Workflows. Root points at the upstream control plane; the
+    # consumer template points at this fork.
+    expected_preset_suffix = "/Workflows//renovate-presets/fleet"
     entrypoints = (
         REPO_ROOT / "renovate.json",
         REPO_ROOT / "templates" / "consumer-repo" / ".github" / "renovate.json",
@@ -93,7 +96,9 @@ def test_workflows_and_consumer_entrypoints_share_the_bounded_fleet_policy() -> 
 
     for entrypoint in entrypoints:
         config = json.loads(entrypoint.read_text(encoding="utf-8"))
-        assert config["extends"] == [expected_preset]
+        assert len(config["extends"]) == 1
+        assert config["extends"][0].startswith("github>")
+        assert config["extends"][0].endswith(expected_preset_suffix)
 
     preset = _preset()
     assert preset["prConcurrentLimit"] == preset["branchConcurrentLimit"] == 3

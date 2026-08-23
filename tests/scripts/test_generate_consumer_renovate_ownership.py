@@ -125,18 +125,50 @@ def test_manifest_managed_workflows_are_disabled_for_consumers():
         )
 
 
-def test_create_only_targets_stay_visible_to_consumer_renovate():
-    """`.github/workflows/ci.yml` is create_only, so consumers own their copy."""
-    preset = committed_preset()
-    consumers = [
-        repo for repo in registered_consumers() if repo not in {SOURCE_REPO, "stranske/Template"}
-    ]
+def _manifest_overwrite_repos(path: str) -> set[str]:
+    """Repos that opted a create_only path back into Maint 68 ownership."""
+    manifest = yaml.safe_load(MANIFEST.read_text(encoding="utf-8")) or {}
+    for section in manifest.values():
+        if not isinstance(section, list):
+            continue
+        for item in section:
+            if isinstance(item, dict) and item.get("target", item.get("source")) == path:
+                return set(item.get("overwrite_repos") or [])
+    raise AssertionError(f"{path} is not manifested")
 
-    for repo in consumers:
-        effective = disabled_paths(preset, repo)
-        assert ".github/workflows/ci.yml" not in effective
-        assert ".github/workflows/pr-00-gate.yml" not in effective
-        assert ".github/renovate.json" not in effective
+
+def test_create_only_targets_stay_visible_to_consumer_renovate():
+    """create_only paths stay consumer-owned unless that repo opted into overwrite.
+
+    The opt-out set is derived from each entry's `overwrite_repos` in the live
+    manifest rather than hardcoded here: a repo that opts in (stranske/Template for
+    byte-alignment, iamkayleb/bukay so the Gate receives the delivery-seal job) is
+    genuinely Maint-68-owned for that path, so its own Renovate must stay disabled
+    there. Hardcoding the list made this test fail the next time a repo opted in.
+    """
+    preset = committed_preset()
+
+    for path in (
+        ".github/workflows/ci.yml",
+        ".github/workflows/pr-00-gate.yml",
+        ".github/renovate.json",
+    ):
+        opted_in = _manifest_overwrite_repos(path)
+        for repo in registered_consumers():
+            if repo == SOURCE_REPO or repo in opted_in:
+                continue
+            assert path not in disabled_paths(preset, repo), (
+                f"{path} is create_only for {repo}; its own Renovate must still see it"
+            )
+
+
+def test_gate_overwrite_optin_is_managed_for_that_repo():
+    """iamkayleb/bukay opted pr-00-gate.yml into overwrite, so Maint 68 owns it there."""
+    effective = disabled_paths(committed_preset(), "iamkayleb/bukay")
+
+    assert ".github/workflows/pr-00-gate.yml" in effective
+    # ci.yml stayed create_only for bukay, so the repo keeps owning its Node CI.
+    assert ".github/workflows/ci.yml" not in effective
 
 
 def test_overwrite_repos_opt_back_into_managed_paths():

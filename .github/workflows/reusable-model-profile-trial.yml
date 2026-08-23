@@ -61,13 +61,13 @@ jobs:
     env:
       PINNED_RUNNER_SHA: ${{ inputs.runner_sha }}
       PINNED_RUNNER_REF: >-
-        stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@${{ inputs.runner_sha }}
+        iamkayleb/Workflows/.github/workflows/reusable-model-profile-trial.yml@${{ inputs.runner_sha }}
       ZERO_SOURCE_MANIFEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
     steps:
       - name: Checkout immutable trial runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ inputs.runner_sha }}
           path: runner-src
           persist-credentials: false
@@ -91,7 +91,7 @@ jobs:
             exit 1
           fi
           remote_main="$(
-            git ls-remote https://github.com/stranske/Workflows.git refs/heads/main |
+            git ls-remote https://github.com/iamkayleb/Workflows.git refs/heads/main |
               awk 'NR == 1 { print $1 }'
           )"
           if [ -z "$remote_main" ] || [ "$remote_main" != "$EXPECTED_SOURCE_SHA" ]; then
@@ -102,7 +102,7 @@ jobs:
       - name: Checkout exact trial source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ inputs.expected_source_sha }}
           path: target-src
           persist-credentials: false

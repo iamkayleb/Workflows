@@ -32,11 +32,15 @@ def test_consumer_create_only_files_are_manifested() -> None:
         assert source in entries
         assert entries[source]["sync_mode"] == "create_only"
 
-    for source in (
-        ".github/workflows/pr-00-gate.yml",
-        ".github/workflows/ci.yml",
-    ):
-        assert entries[source]["overwrite_repos"] == ["stranske/Template"]
+    # Gate overwrite is per-repo: stranske/Template stays byte-aligned with the
+    # canonical template, and iamkayleb/bukay opted in so the delivery-seal job
+    # reaches its Gate (a create_only Gate would never receive that job, and
+    # Maint 71 will not merge a delivery whose head is unsealed).
+    assert entries[".github/workflows/pr-00-gate.yml"]["overwrite_repos"] == [
+        "stranske/Template",
+        "iamkayleb/bukay",
+    ]
+    assert entries[".github/workflows/ci.yml"]["overwrite_repos"] == ["stranske/Template"]
 
     # .github/dependabot.yml was intentionally dropped from the template and the
     # manifest in #2401 (P3b of the Renovate fleet migration): create_only sync
@@ -50,7 +54,7 @@ def test_consumer_renovate_template_extends_fleet_preset() -> None:
         (REPO_ROOT / "templates/consumer-repo/.github/renovate.json").read_text(encoding="utf-8")
     )
 
-    assert template["extends"] == ["github>stranske/Workflows//renovate-presets/fleet"]
+    assert template["extends"] == ["github>iamkayleb/Workflows//renovate-presets/fleet"]
 
 
 def test_fine_art_archive_jsonschema_renovate_exception_is_repo_scoped() -> None:

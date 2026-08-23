@@ -561,6 +561,58 @@ of following the first-party default.
 If a reusable workflow fix must ship immediately, trigger:
 - `Maint 68 Sync Consumer Repos` only if template files changed
 
+#### Control-plane owner in the consumer templates
+
+The consumer templates resolve reusable workflows, composite actions, and script
+sparse-checkouts from **`iamkayleb/Workflows`** — this fork — not from
+`stranske/Workflows`. `iamkayleb/bukay` was already wired that way by hand, so
+syncing upstream-owned templates into it would have silently reverted 38 refs
+back to upstream on the first delivery.
+
+The reusables' **vendored helper layer** is repointed too, and that part is easy
+to miss. A reusable runs in the *caller's* context: before this change, a consumer
+calling `iamkayleb/Workflows/.../reusable-10-ci-python.yml@main` got fork reusable
+logic and then a `repository: stranske/Workflows` checkout that vendored its helper
+scripts from upstream. All 27 of those checkouts across the 13 reusables now name
+this fork, so a script change here actually reaches consumers.
+
+Four consequences worth knowing before you touch a template or reusable workflow:
+
+- **The paired root agent workflows were deliberately not repointed.** Only the
+  reusables' helper layer was, plus `agents-model-profile-trial.yml` (its caller,
+  registry `runner_ref`, and the runner's own immutability assertion are one unit
+  and must name the same commit). The owner divergence between a root agent
+  workflow and its template twin is the intended contract, and those pairs are
+  re-baselined in `config/template-drift-allowlist.txt`. Health 74 canonicalizes
+  the `@<ref>` pin but *preserves the action path*, so an owner change registers
+  as drift and needs a deliberate re-baseline.
+- **Pinned refs must exist in this fork.** The upstream SHAs for
+  `generated-delivery-seal`, `setup-api-client`, and
+  `reusable-model-profile-trial.yml` are not in this fork's history; they are
+  pinned to `e85edad` here. Bumping a pin means picking a commit that exists in
+  `iamkayleb/Workflows`, not copying an upstream SHA.
+- **Discovery predicates and owner comparisons must be owner-agnostic.** Anything
+  that matches a literal `stranske/Workflows` becomes a silent no-op after a
+  repoint — it does not fail, it just stops seeing anything. Match on the
+  repository *name* (`*/Workflows`) instead. Three cases have already bitten:
+  `test_workflow_llm_installs` dropped three template workflows from coverage,
+  `test_reusable_ci_no_hardcoded_ref_main` fell to zero inspected checkouts (its
+  `checked >= 4` floor is the only reason anyone noticed), and
+  `reusable-18-autofix.yml` had a dead `if` branch that silently degraded a
+  SHA-pinned call to `main`. Keep a count floor on any such discovery loop.
+- **Still pointing upstream, on purpose, for now.** 14 refs across 8 root agent
+  workflows (`agents-keepalive-loop.yml`, `agents-autofix-loop.yml`,
+  `agents-guard.yml`, `agents-verifier.yml`, `agents-bot-comment-handler.yml`,
+  `pr-00-gate.yml`, `pr-46-dependency-repair-contract.yml`) still call upstream
+  reusables and actions, so this fork's own CI exercises upstream code. That is a
+  fork-self-CI concern only — it does not affect consumers, which reach the fork
+  through the templates. `maint-69/70/71-auto-fix-integration` also target
+  `stranske/Workflows-Integration-Tests`, which this fork cannot write to.
+
+Prose references to `stranske/Workflows` in `README.md`, `docs/USAGE.md`, and
+`docs/INTEGRATION_GUIDE.md` were left alone; they document the upstream project,
+not this fork's delivery wiring.
+
 ### Sync PR Branch Cleanup
 
 `maint-71-merge-sync-prs.yml` owns routine cleanup for `sync/workflows-*`

@@ -88,7 +88,7 @@ def test_workflows_ref_input_declared() -> None:
 
 
 def test_workflows_checkouts_use_workflows_ref_input() -> None:
-    """Every ``stranske/Workflows`` helper checkout resolves via the input."""
+    """Every Workflows helper checkout resolves via the input."""
     data = _load_workflow()
     jobs = data.get("jobs", {})
     checked = 0
@@ -98,7 +98,11 @@ def test_workflows_checkouts_use_workflows_ref_input() -> None:
             if not uses.startswith("actions/checkout"):
                 continue
             with_block = step.get("with", {}) or {}
-            if with_block.get("repository") != "stranske/Workflows":
+            # Owner-agnostic: match the repository NAME, not the owner. This guard
+            # is about the ref, and pinning the owner here turned it into a silent
+            # no-op the moment the helper layer was repointed at a fork — the
+            # `checked >= 4` floor below is what caught it.
+            if not str(with_block.get("repository") or "").endswith("/Workflows"):
                 continue
             ref = str(with_block.get("ref", ""))
             checked += 1

@@ -26,6 +26,7 @@ metadata needed during post-job cleanup.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -210,7 +211,9 @@ def test_extracted_setup_steps_not_duplicated_in_runners(workflow_rel: str) -> N
 
     # Runtime auth selection and the Workflows scripts checkout remain shared in
     # the composite; the target checkout is intentionally caller-owned.
-    assert "repository: stranske/Workflows" in src
+    # Owner-agnostic: the helper layer is vendored from whichever owner hosts the
+    # control plane, so assert on the repository name.
+    assert re.search(r"repository: \S+/Workflows\b", src)
     assert sum(_uses_base(step) == "actions/create-github-app-token" for step in steps) == 1, (
         f"{workflow_rel}: only the run-base bootstrap checkout may mint an App "
         "token in the runner; shared runtime auth still belongs in "

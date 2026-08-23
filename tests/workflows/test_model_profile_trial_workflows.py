@@ -42,7 +42,7 @@ def test_dispatch_shim_is_single_arm_and_calls_only_pinned_reusable_runner():
     assert list(workflow["jobs"]) == ["trial"]
     runner_ref = workflow["jobs"]["trial"]["uses"]
     assert re.fullmatch(
-        r"stranske/Workflows/\.github/workflows/" r"reusable-model-profile-trial\.yml@[0-9a-f]{40}",
+        r"iamkayleb/Workflows/\.github/workflows/" r"reusable-model-profile-trial\.yml@[0-9a-f]{40}",
         runner_ref,
     )
     runner_sha = workflow["jobs"]["trial"]["with"]["runner_sha"]
@@ -65,7 +65,7 @@ def test_reusable_runner_is_read_only_exact_cli_and_has_no_write_lane():
     assert "--ignore-user-config" in source
     assert "persist-credentials: false" in source
     assert "expected_source_sha must equal current remote main before auth" in source
-    assert "git ls-remote https://github.com/stranske/Workflows.git refs/heads/main" in source
+    assert "git ls-remote https://github.com/iamkayleb/Workflows.git refs/heads/main" in source
     assert "target-src/scripts/" not in source
     assert "provider_resolved" not in source
     forbidden = (
@@ -109,7 +109,7 @@ def test_runner_uses_separate_pinned_helper_checkout_and_full_action_shas():
     ]
     assert len(checkouts) == 2
     assert checkouts[0]["with"] == {
-        "repository": "stranske/Workflows",
+        "repository": "iamkayleb/Workflows",
         "ref": "${{ inputs.runner_sha }}",
         "path": "runner-src",
         "persist-credentials": False,

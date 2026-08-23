@@ -159,7 +159,9 @@ def test_agents_verifier_callers_pass_checked_pr_number() -> None:
     for relative_path in caller_paths:
         workflow = _load_workflow(REPO_ROOT / relative_path)
         verifier_job = workflow["jobs"]["verifier"]
-        assert verifier_job["uses"] == (
-            "stranske/Workflows/.github/workflows/reusable-agents-verifier.yml@main"
+        # Owner-agnostic: root resolves the reusable upstream, the consumer
+        # template resolves it from this fork.
+        assert str(verifier_job["uses"]).endswith(
+            "/Workflows/.github/workflows/reusable-agents-verifier.yml@main"
         )
         assert verifier_job["with"]["pr_number"] == "${{ needs.check.outputs.pr_number }}"

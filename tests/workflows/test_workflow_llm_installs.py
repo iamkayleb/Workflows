@@ -118,7 +118,12 @@ def _workflows_library_checkout_steps(workflow: dict) -> list[dict]:
     steps = []
     for step in _iter_steps(workflow):
         with_block = step.get("with") or {}
-        if with_block.get("repository") == "stranske/Workflows" and "sparse-checkout" in with_block:
+        # Owner-agnostic on purpose: the consumer template resolves the control
+        # plane from whichever owner hosts this fork, so discovery must key on the
+        # repository NAME. Pinning the owner here silently dropped three template
+        # workflows out of coverage when the templates were repointed at the fork.
+        repository = str(with_block.get("repository") or "")
+        if repository.endswith("/Workflows") and "sparse-checkout" in with_block:
             steps.append(step)
     return steps
 

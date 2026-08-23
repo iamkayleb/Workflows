@@ -257,7 +257,7 @@ def test_build_dashboard_from_path_includes_langsmith_fleet_status(tmp_path: Pat
     assert "- Stale: 0" in dashboard
     assert "- Invalid: 0" in dashboard
     assert "- Direct evidence: 3" in dashboard
-    assert "- Not applicable: 4" in dashboard
+    assert "- Not applicable: 5" in dashboard
     assert (
         "| stranske/trip-planner | planner-runtime | artifact | "
         "stranske/trip-planner#1208 | valid |" in dashboard
@@ -337,7 +337,7 @@ def test_main_langsmith_fleet_noops_without_langsmith_api_key(
     assert "## LangSmith Fleet Artifact Status" in content
     assert "- Valid: 8" in content
     assert "- Direct evidence: 3" in content
-    assert "- Not applicable: 4" in content
+    assert "- Not applicable: 5" in content
 
 
 def test_build_dashboard_from_path_mixed_fleet_status(tmp_path: Path) -> None:
@@ -366,7 +366,7 @@ def test_build_dashboard_from_path_mixed_fleet_status(tmp_path: Path) -> None:
     assert "- Invalid: 1" in dashboard
     assert "- Missing: 6" in dashboard
     assert "- Direct evidence: 3" in dashboard
-    assert "- Not applicable: 4" in dashboard
+    assert "- Not applicable: 5" in dashboard
     assert (
         "| stranske/Workflows | agent-automation | artifact | "
         "stranske/Workflows#2150 | valid |" in dashboard

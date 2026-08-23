@@ -32,7 +32,7 @@ jobs:
       vars.CROSS_REPO_SMOKE_DEPENDENCY_REPO != '' &&
       vars.CROSS_REPO_SMOKE_RUN_COMMAND != '' &&
       (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    uses: stranske/Workflows/.github/workflows/reusable-13-cross-repo-smoke.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-13-cross-repo-smoke.yml@main
     with:
       dependency_repo: ${{ vars.CROSS_REPO_SMOKE_DEPENDENCY_REPO }}
       dependency_ref: ${{ vars.CROSS_REPO_SMOKE_DEPENDENCY_REF || 'main' }}
