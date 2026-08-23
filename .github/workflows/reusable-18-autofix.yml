@@ -253,7 +253,11 @@ jobs:
           set -euo pipefail
           workflow_repo="${WORKFLOW_REF%%/.github/workflows/*}"
           ref="main"
-          if [ "$workflow_repo" = "stranske/Workflows" ]; then
+          # Owner-agnostic on purpose: this asks "did the run start inside the
+          # control-plane repo itself?", so only the repository NAME is the signal.
+          # Comparing against a literal `stranske/Workflows` made the branch dead in
+          # a fork, silently degrading a self-test's pinned ref to `main`.
+          if [ "${workflow_repo##*/}" = "Workflows" ]; then
             ref="${WORKFLOW_REF##*@}"
           fi
           if [ -z "$ref" ] || [ "$ref" = "$WORKFLOW_REF" ]; then
@@ -264,7 +268,7 @@ jobs:
       - name: Checkout resolver action
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ steps.workflows_workflow_ref.outputs.ref }}
           sparse-checkout: |
             .github/actions/resolve-default-branch
@@ -284,7 +288,7 @@ jobs:
       - name: Checkout Workflows scripts (for autofix utilities)
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             scripts
@@ -1469,7 +1473,7 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             .github/actions/build-pr-comment

@@ -1,6 +1,6 @@
 # Reusable PR Meta workflow for consumer repos
 # Provides keepalive detection and dispatch functionality using dual checkout pattern
-# Scripts are fetched from stranske/Workflows - no local scripts needed in consumer repo
+# Scripts are fetched from iamkayleb/Workflows - no local scripts needed in consumer repo
 name: Reusable 20 PR Meta
 
 on:
@@ -149,7 +149,7 @@ jobs:
       - name: Checkout resolver action
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ steps.workflows_workflow_ref.outputs.ref }}
           sparse-checkout: |
             .github/actions/resolve-default-branch
@@ -175,7 +175,7 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             scripts
@@ -291,7 +291,7 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: main
           sparse-checkout: |
             .github/scripts
@@ -368,7 +368,7 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: main
           sparse-checkout: |
             .github/scripts
@@ -525,7 +525,7 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: main
           sparse-checkout: |
             .github/scripts

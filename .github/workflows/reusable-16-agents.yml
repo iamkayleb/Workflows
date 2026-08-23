@@ -1018,7 +1018,7 @@ jobs:
       - name: Checkout resolver action
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ steps.workflows_workflow_ref.outputs.ref }}
           sparse-checkout: |
             .github/actions/resolve-default-branch
@@ -1043,7 +1043,7 @@ jobs:
       - name: Checkout Workflows scripts
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ steps.workflows_ref.outputs.ref }}
           sparse-checkout: |
             scripts
