@@ -50,6 +50,14 @@ on:
         required: false
         type: string
         default: "false"
+      base_branch:
+        description: >-
+          Optional base branch for the automation PR. Overrides the
+          `<!-- base-branch: X -->` issue marker and the repository default.
+          Used for evaluation lanes that must not target the default branch.
+        required: false
+        type: string
+        default: ""
     secrets:
       service_bot_pat:
         description: "PAT for service bot operations"
@@ -279,6 +287,10 @@ jobs:
       - name: Resolve base and head refs
         id: refs
         uses: actions/github-script@v9
+        env:
+          # Passed via env (not inline interpolation) so a caller-supplied
+          # value can never be injected into the script body.
+          INPUT_BASE_BRANCH: ${{ inputs.base_branch }}
         with:
           script: |
             const { owner, repo } = context.repo;
@@ -300,12 +312,63 @@ jobs:
                 repo,
               }),
             );
-            const base = data.default_branch;
-            if (!base) {
+            const defaultBranch = data.default_branch;
+            if (!defaultBranch) {
               core.setFailed('Repository default branch not available');
               return;
             }
             const issue = Number('${{ steps.ctx.outputs.issue }}');
+
+            // Base-branch resolution, highest priority first:
+            //   1. explicit `base_branch` input (caller override)
+            //   2. `<!-- base-branch: X -->` marker in the issue body
+            //   3. repository default branch
+            // Evaluation lanes rely on (1)/(2) so agent PRs land on
+            // eval/<agent> instead of the default branch.
+            let base = String(process.env.INPUT_BASE_BRANCH || '').trim();
+            let baseSource = base ? 'input' : '';
+
+            if (!base && issue) {
+              try {
+                const { data: issueData } = await withRetry(() =>
+                  api.rest.issues.get({ owner, repo, issue_number: issue }),
+                );
+                const marker = String(issueData.body || '').match(
+                  /<!--\s*base-branch:\s*([^\s>]+)\s*-->/,
+                );
+                if (marker) {
+                  base = marker[1].trim();
+                  baseSource = 'issue-marker';
+                }
+              } catch (error) {
+                core.warning(
+                  `Could not read issue #${issue} for a base-branch marker: ${error.message}`,
+                );
+              }
+            }
+
+            if (!base) {
+              base = defaultBranch;
+              baseSource = 'default';
+            }
+
+            // Never target a branch that does not exist: a stale or mistyped
+            // marker would otherwise wedge every dispatch for that issue.
+            if (base !== defaultBranch) {
+              try {
+                await withRetry(() =>
+                  api.rest.repos.getBranch({ owner, repo, branch: base }),
+                );
+              } catch (error) {
+                core.warning(
+                  `Base branch '${base}' (from ${baseSource}) not found; ` +
+                    `falling back to '${defaultBranch}'.`,
+                );
+                base = defaultBranch;
+                baseSource = 'default-fallback';
+              }
+            }
+            core.info(`Resolved PR base: ${base} (source: ${baseSource})`);
 
             let branchPrefix = 'codex/issue-';
             if (agentKey) {
