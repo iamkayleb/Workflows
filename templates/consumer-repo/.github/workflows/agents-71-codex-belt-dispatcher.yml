@@ -96,7 +96,15 @@ permissions:
   actions: write
 
 concurrency:
-  group: codex-belt-dispatcher
+  # Keyed by the forced issue so per-issue dispatches run in parallel. A fixed
+  # group serialises the whole belt: with several issues dispatched at once,
+  # GitHub keeps one running plus one waiting and CANCELS the rest while they
+  # are still pending, which surfaces as a failed run with no jobs and no log.
+  # Auto-select runs (no force_issue) still share one lane, so the "pick the
+  # next issue" path cannot race itself into double-assignment.
+  group: >-
+    belt-dispatcher-${{ inputs.agent_key || 'codex' }}-${{
+      inputs.force_issue || 'auto-select' }}
   cancel-in-progress: false
 
 jobs:
