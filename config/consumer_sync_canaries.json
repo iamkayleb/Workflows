@@ -1,6 +1,6 @@
 {
   "schema": "workflows.consumer-sync-canaries/v1",
-  "version": 2,
+  "version": 3,
   "canaries": [
     {
       "repo": "iamkayleb/bukay",
@@ -8,6 +8,21 @@
         "node-tooling",
         "python-consumer",
         "lock-heavy"
+      ]
+    },
+    {
+      "repo": "stranske/Travel-Plan-Permission",
+      "capabilities": [
+        "standard",
+        "custom-gate"
+      ]
+    },
+    {
+      "repo": "stranske/Portable-Alpha-Extension-Model",
+      "capabilities": [
+        "python-consumer",
+        "codex-review",
+        "legacy-precommit"
       ]
     }
   ]
