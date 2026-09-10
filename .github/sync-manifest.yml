@@ -74,6 +74,9 @@ workflows:
   - source: .github/workflows/agents-72-codex-belt-worker.yml
     description: "Codex belt worker - executes agent on issues with full prompt and context"
 
+  - source: .github/workflows/health-codex-auth-check.yml
+    description: "Twice-daily CODEX_AUTH_JSON expiry check - opens an auth-expiring issue before the token lapses"
+
   - source: .github/workflows/agents-72-codex-belt-worker-dispatch.yml
     description: "Codex belt worker dispatch wrapper - allows workflow_dispatch for the worker"
 
