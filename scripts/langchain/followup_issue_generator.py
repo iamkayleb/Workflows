@@ -481,6 +481,18 @@ Use this exact structure (do NOT wrap in code fences):
 - [ ] Task 2
 ...
 
+RULE FOR THE TASKS SECTION: every checkbox here must be work a coding agent can
+complete on its own, in this repository, with no credentials or human decision.
+A concern is NOT a task and must go under "Human Actions Needed" instead when it
+requires any of:
+  - editing anything under .github/workflows or .github/actions (agents must not)
+  - a product, scope or business decision, or agreement with a stakeholder
+  - provisioning an API key, secret, subscription, domain, or dashboard setting
+  - manual inspection, or an explicit statement that a human must review it
+Put those under "## Human Actions Needed" as PLAIN BULLETS ("- item"), never as
+checkboxes. A checkbox there would block the whole issue for work the agent was
+never able to do.
+
 ## Acceptance Criteria
 - [ ] Criterion 1
 - [ ] Criterion 2
@@ -488,6 +500,9 @@ Use this exact structure (do NOT wrap in code fences):
 
 ## Implementation Notes
 [Specific guidance about files, approaches, or patterns to use]
+
+## Human Actions Needed
+[Plain bullets, or omit the section entirely if there are none. Never checkboxes.]
 
 ## Notes
 <details>

@@ -773,14 +773,51 @@ jobs:
               .map(m => `- ${m[1]}: ${m[2]}/10`);
 
             // --- Build issue body ---
-            const hasConcerns = concerns.length > 0;
+            // Verification concerns are a mixed bag: most are code work, but a
+            // judge also reports CI breakage, product questions and credential
+            // provisioning. Emitting all of them as checkbox TASKS means the
+            // capability check refuses the issue for the one or two nobody could
+            // action, and the agent-actionable majority is blocked with them.
+            // Partition instead: real tasks stay checkboxes; human-only items
+            // become plain bullets in their own section, where they neither gate
+            // the capability check nor count toward the merge guard's unchecked
+            // task total.
+            const HUMAN_ONLY = [
+              /\.github\/(workflows|actions)\b/i,     // agents must not edit CI
+              /\bci\b.*\b(workflow|pipeline|config)/i,
+              /\bstakeholder|product (owner|decision|scope)|business (decision|rule)/i,
+              /\b(decide|clarify|confirm) (with|the) (team|owner|stakeholder|product)/i,
+              /\bapi key|credential|secret|token provisioning|\bsubscription\b/i,
+              /\b(dns|domain|dashboard|console|billing|quota)\b/i,
+              /\bmanual(ly)? (review|verify|inspect|decide)/i,
+              /\brequires? (a )?human\b/i,
+            ];
+            const isHumanOnly = (c) => HUMAN_ONLY.some((re) => re.test(String(c)));
+
+            const agentConcerns = concerns.filter((c) => !isHumanOnly(c));
+            const humanConcerns = concerns.filter(isHumanOnly);
+            if (humanConcerns.length) {
+              core.info(
+                `Partitioned ${humanConcerns.length} human-only concern(s) out of the task list.`);
+            }
+
+            const hasConcerns = agentConcerns.length > 0;
             const taskItems = hasConcerns
-              ? concerns.slice(0, 12).map(c => {
+              ? agentConcerns.slice(0, 12).map(c => {
                   const prefix = /^(add|fix|implement|update|ensure|create|write)/i
                     .test(c) ? '' : 'Address: ';
                   return `- [ ] ${prefix}${c}`;
                 }).join('\n')
               : '- [ ] No specific concerns extracted.';
+
+            // Plain bullets deliberately — a checkbox here would re-introduce the
+            // blocking behaviour this partition exists to remove.
+            const humanSection = humanConcerns.length
+              ? '\n## Human Actions Needed\n\n' +
+                'These were raised by verification but are outside what an agent can do. ' +
+                'They do not block this issue.\n\n' +
+                humanConcerns.slice(0, 8).map((c) => `- ${c}`).join('\n') + '\n'
+              : '';
 
             const lowScoreSection = lowScores.length > 0
               ? '\n## Implementation Notes\n\nLow scores to address:\n' +
@@ -808,6 +845,7 @@ jobs:
               '- [ ] All verification concerns addressed or documented',
               '- [ ] Tests updated if needed',
               '- [ ] Re-verification passes',
+              humanSection,
               lowScoreSection,
               '',
               '---',
