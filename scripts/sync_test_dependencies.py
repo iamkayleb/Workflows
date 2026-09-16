@@ -33,9 +33,12 @@ except ImportError as exc:  # pragma: no cover - exercised via CLI messaging.
 else:
     TOMLKIT_ERROR = None
 
-# PEP 695 `type X = ...` needs Python 3.12; consumers still lint on 3.11, and a
-# downstream fix here is overwritten by the next sync. Keep the 3.11-compatible form.
-PytestIniConfig: TypeAlias = tuple[Path, tuple[str, ...]]
+# This repo targets py312 and its ruff config asks for the PEP 695 `type X = ...`
+# statement (UP040), but that syntax does not parse at all on 3.11, and this file
+# syncs verbatim into consumers that still run 3.11. A consumer cannot fix it
+# locally either — the next sync overwrites the file. Keep the 3.11-compatible
+# annotation and suppress UP040 here rather than shipping a syntax error.
+PytestIniConfig: TypeAlias = tuple[Path, tuple[str, ...]]  # noqa: UP040
 PYPROJECT_FILE = Path("pyproject.toml")
 PYTEST_TOML_FILES = (
     Path("pytest.toml"),
