@@ -21,8 +21,13 @@ name: Agents Verifier
 
 on:
   pull_request_target:
+    # `labeled` alone is not enough. GitHub raises it only when a label is newly
+    # added, so a verify:* label applied while the PR is still open never fires
+    # again at merge time, and re-adding it by hand raises nothing because the
+    # label is already present. `closed` makes the merge itself a trigger.
     types:
       - labeled
+      - closed
   workflow_dispatch:
     inputs:
       pr_number:
@@ -62,6 +67,14 @@ on:
           - openai
           - anthropic
         default: 'auto'
+      force:
+        description: >-
+          Ignore the unchanged-state fingerprint and verify anyway. Needed
+          because identical inputs hash identically, so a repeat dispatch is
+          otherwise dropped with no visible run.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -167,9 +180,8 @@ jobs:
               }
             }
 
-            // Handle pull_request_target trigger (label added)
+            // Handle pull_request_target trigger (label added, or PR merged)
             const pr = context.payload.pull_request;
-            const label = context.payload.label;
 
             // Must be a merged PR
             if (!pr || !pr.merged) {
@@ -178,13 +190,28 @@ jobs:
               return;
             }
 
-            // Must be a verify:* label
-            const labelName = label?.name || '';
             const verifyModes = {
               'verify:checkbox': 'checkbox',
               'verify:evaluate': 'evaluate',
               'verify:compare': 'compare',
             };
+
+            // On `closed` there is no payload label: read the verify mode off
+            // the PR's current labels instead, so a label applied before the
+            // merge still takes effect once the PR is merged.
+            let labelName = context.payload.label?.name || '';
+            if (context.payload.action === 'closed') {
+              const present = (pr.labels || [])
+                .map((l) => (typeof l === 'string' ? l : l && l.name) || '')
+                .filter((n) => verifyModes[n]);
+              labelName = present[0] || '';
+              if (!labelName) {
+                core.info('Merged without a verify:* label; skipping verifier.');
+                core.setOutput('should_run', 'false');
+                return;
+              }
+              core.info(`Merged with '${labelName}' already applied; verifying.`);
+            }
 
             const mode = verifyModes[labelName];
             if (!mode) {
