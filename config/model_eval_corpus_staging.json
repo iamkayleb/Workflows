@@ -1270,6 +1270,231 @@
       "category": "clean-pass",
       "provenance": "harvested",
       "harvested_at": "2026-09-14"
+    },
+    {
+      "case_id": "workflows-3171",
+      "repo": "stranske/Workflows",
+      "pr": 3171,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3169",
+      "repo": "stranske/Workflows",
+      "pr": 3169,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3168",
+      "repo": "stranske/Workflows",
+      "pr": 3168,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3167",
+      "repo": "stranske/Workflows",
+      "pr": 3167,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3166",
+      "repo": "stranske/Workflows",
+      "pr": 3166,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3165",
+      "repo": "stranske/Workflows",
+      "pr": 3165,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3164",
+      "repo": "stranske/Workflows",
+      "pr": 3164,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3163",
+      "repo": "stranske/Workflows",
+      "pr": 3163,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3162",
+      "repo": "stranske/Workflows",
+      "pr": 3162,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3160",
+      "repo": "stranske/Workflows",
+      "pr": 3160,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3157",
+      "repo": "stranske/Workflows",
+      "pr": 3157,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "workflows-3154",
+      "repo": "stranske/Workflows",
+      "pr": 3154,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5976",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5976,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5975",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5975,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5974",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5974,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5973",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5973,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5972",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5972,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5971",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5971,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5970",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5970,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5963",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5963,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5959",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5959,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5960",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5960,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5958",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5958,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5961",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5961,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
+    },
+    {
+      "case_id": "trend_model_project-5953",
+      "repo": "stranske/Trend_Model_Project",
+      "pr": 5953,
+      "expected_verdict": "PASS",
+      "category": "clean-pass",
+      "provenance": "harvested",
+      "harvested_at": "2026-09-21"
     }
   ]
 }
