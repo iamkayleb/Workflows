@@ -114,6 +114,15 @@
 - name: automerge
   color: 0052cc
   description: Eligible for auto-merge when checks pass
+- name: automerge:blocked
+  color: b60205
+  description: Guarded merger declined this PR; see its comment for the reason
+- name: merge:allow-unchecked-tasks
+  color: d4c5f9
+  description: Allow auto-merge despite unchecked task boxes (completion tracked elsewhere)
+- name: merge:allow-nondefault-base
+  color: d4c5f9
+  description: Allow auto-merge into a non-default base branch (long-lived integration branch)
 
 # Verification follow-up labels
 - name: verify:create-new-pr
