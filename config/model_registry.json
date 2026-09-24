@@ -258,26 +258,26 @@
     {
       "profile": "verifier-balanced",
       "provider": "openai",
-      "model_id": "gpt-5.6-sol",
+      "model_id": "gpt-5.6-luna",
       "status": "provisional",
-      "decided_at": "2026-09-14",
-      "review_by": "2026-10-14",
+      "decided_at": "2026-09-24",
+      "review_by": "2026-10-24",
       "evidence_ids": [
         "catalog-review-2026-07-10"
       ],
-      "rationale": "Owner-directed move to the frontier-positioned model in this provider's current catalog generation, for a multi-agent evaluation where judge quality is the measurement instrument. This is NOT an evidence-gated promotion: no workload benchmark was run, the selection-policy candidate and approval stages were not satisfied, and status therefore stays provisional. The prior selection (gpt-5.6-terra) was itself provisional and past its review_by date. Any evaluation round judged before this change must be re-verified with these models before scores are compared across rounds."
+      "rationale": "Owner-directed cost correction. The frontier selection (gpt-5.6-sol, $5/$30 per Mtok) exhausted the metered budget twice in ten days; verify:compare sends whole diffs, so prompts are large. gpt-5.6-luna is $1/$6, a 5x reduction on both input and output. Judge quality is the measurement instrument here, so this is a deliberate trade of judge capability for the ability to run the judge at all \u2014 an exhausted key produces no verdict, which is strictly worse than a weaker one. Revisit once the volume controls (fewer LLM workflows on label events, no empty-PR merges) have been measured for a week."
     },
     {
       "profile": "verifier-balanced",
       "provider": "anthropic",
-      "model_id": "claude-fable-5",
+      "model_id": "claude-haiku-4-5-20251001",
       "status": "provisional",
-      "decided_at": "2026-09-14",
-      "review_by": "2026-10-14",
+      "decided_at": "2026-09-24",
+      "review_by": "2026-10-24",
       "evidence_ids": [
         "catalog-review-2026-07-10"
       ],
-      "rationale": "Owner-directed move to the frontier-positioned model in this provider's current catalog generation, for a multi-agent evaluation where judge quality is the measurement instrument. This is NOT an evidence-gated promotion: no workload benchmark was run, the selection-policy candidate and approval stages were not satisfied, and status therefore stays provisional. The prior selection (claude-sonnet-5) was itself provisional and past its review_by date. Any evaluation round judged before this change must be re-verified with these models before scores are compared across rounds."
+      "rationale": "Owner-directed cost correction, paired with the OpenAI slot. claude-fable-5 is $10/$50 per Mtok, the most expensive model in the registry, and this key also exhausted. claude-haiku-4-5 is $1/$5. Cross-family judging is preserved, which matters more for this evaluation than per-judge capability. Revisit with the OpenAI slot."
     },
     {
       "profile": "verifier-balanced",
