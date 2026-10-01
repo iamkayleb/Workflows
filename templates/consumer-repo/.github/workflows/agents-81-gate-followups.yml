@@ -2189,6 +2189,18 @@ jobs:
             // depending on the local closer lane, now that the belt worker no longer
             // enables guardless native auto-merge.
             const placeholder = /^agents\/[a-z][a-z0-9_-]*-\d+\.md$/i;
+            // A PR can carry no work without matching the placeholder pattern: the
+            // belt also writes `.agents/issue-<n>-ledger.yml`, and a run that starts
+            // and finishes tasks without producing code leaves that file alone in the
+            // diff. The question that matters is not "is this the known placeholder"
+            // but "did anything land that is not the belt's own bookkeeping".
+            const BOOKKEEPING = [
+              /^\.agents\//,
+              /^agents\//,
+              /^langsmith-fleet-[\w-]*\.json$/,
+              /^\.github\/agent-telemetry\//,
+            ];
+            const isBookkeeping = (name) => BOOKKEEPING.some((rx) => rx.test(String(name || '')));
             const okConclusions = ['success', 'neutral', 'skipped'];
             const reviewWindowMs = 7 * 60 * 1000;
             let reviewSleepBudgetMs = reviewWindowMs + 60 * 1000;
@@ -2854,12 +2866,26 @@ jobs:
                         let failingCheck = await checkStateFailure(headSha);
                         let checksOk = !failingCheck;
 
-                        // Bootstrap-only refusal (mirrors belt conveyor + reusable-70 sweep).
+                        // No-work refusal (mirrors belt conveyor + reusable-70 sweep).
+                        // NOTE: this must not be waived by merge:allow-unchecked-tasks
+                        // or merge:allow-nondefault-base. Those say "completion is
+                        // tracked elsewhere" and "this base is intended"; neither says
+                        // "merge a PR that changed nothing".
                         let bootstrapOnly = false;
+                        let noWorkNote = '';
                         if (checksOk) {
                           try {
                             const prFiles = await paginateWithRetry(github.rest.pulls.listFiles, { owner, repo, pull_number: prNumber, per_page: 100 });
-                            bootstrapOnly = prFiles.length > 0 && prFiles.every((f) => placeholder.test(f.filename));
+                            const names = prFiles.map((f) => f.filename);
+                            if (names.length > 0 && names.every((n) => placeholder.test(n))) {
+                              bootstrapOnly = true;
+                              noWorkNote = 'Refusing auto-merge: bootstrap-only placeholder PR (no work landed).';
+                            } else if (names.length > 0 && names.every(isBookkeeping)) {
+                              bootstrapOnly = true;
+                              noWorkNote = `Refusing auto-merge: all ${names.length} changed file(s) are belt bookkeeping `
+                                + '(`.agents/`, `agents/`, telemetry). The ledger may record tasks as done, '
+                                + 'but no implementation is present.';
+                            }
                           } catch (error) {
                             bootstrapOnly = true; // do NOT merge blind
                             failingCheck = `Unable to list PR files: ${error.message || error}`;
@@ -2877,7 +2903,8 @@ jobs:
                         if (!checksOk) {
                           note = failingCheck || 'Checks have not completed successfully.';
                         } else if (bootstrapOnly) {
-                          note = failingCheck || 'Refusing auto-merge: bootstrap-only placeholder PR (no work landed).';
+                          note = failingCheck || noWorkNote
+                            || 'Refusing auto-merge: bootstrap-only placeholder PR (no work landed).';
                         } else if (taskFailure) {
                           note = taskFailure;
                         } else {
