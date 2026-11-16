@@ -12,7 +12,7 @@ name: Reusable Backplane Conformance
 #     evidence-object/v1); a consumer is never failed for not emitting a run.json.
 #
 # The reusable workflow reads the CANONICAL registry + schemas + validator from
-# stranske/Workflows@<contract_ref> (default @main) -- never from the
+# iamkayleb/Workflows@<contract_ref> (default @main) -- never from the
 # participant's copy -- so there is exactly one registry.
 
 on:
@@ -94,7 +94,7 @@ jobs:
       - name: Checkout Workflows contract
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ inputs.contract_ref }}
           path: .backplane-contract
 

@@ -1,5 +1,5 @@
 # CodeRabbit configuration — https://docs.coderabbit.ai/getting-started/configure-coderabbit
-# Fleet default, synced from stranske/Workflows (templates/consumer-repo/.coderabbit.yaml).
+# Fleet default, synced from iamkayleb/Workflows (templates/consumer-repo/.coderabbit.yaml).
 # Tuned for the stranske autonomous-agent fleet:
 #   - assertive review of substantial agent-authored PRs
 #   - advisory / non-gating, matching the fleet rule that review never blocks a merge

@@ -30,6 +30,10 @@ NON_ROOT_WORKFLOW_CONTEXT_RE = re.compile(
 )
 
 
+# Fork-aware: any owner's Workflows repo, not one hard-coded owner.
+_WORKFLOWS_REPO_RE = re.compile(r"[^/\s]+/Workflows\b")
+
+
 def _workflow_files_on_disk(root: Path) -> set[str]:
     workflows_dir = root / ".github" / "workflows"
     if not workflows_dir.is_dir():
@@ -253,7 +257,7 @@ def _is_explicit_upstream_reference(doc_path: Path, text: str, offset: int) -> b
     line_end = text.find("\n", offset)
     if line_end < 0:
         line_end = len(text)
-    if "stranske/Workflows" in text[line_start:line_end]:
+    if _WORKFLOWS_REPO_RE.search(text[line_start:line_end]):
         return True
 
     # Consumer AGENTS files group Workflows paths under numbered Source Of Truth
@@ -263,7 +267,7 @@ def _is_explicit_upstream_reference(doc_path: Path, text: str, offset: int) -> b
     if block is None:
         return False
     block_start, block_end = block
-    return "stranske/Workflows" in text[block_start:block_end]
+    return bool(_WORKFLOWS_REPO_RE.search(text[block_start:block_end]))
 
 
 def check_dangling_references(

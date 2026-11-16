@@ -60,7 +60,7 @@ function historicalManualVerifierBinding(run, {owner,repo,pullNumber,associatedC
       || run.head_branch!=='main' || run.head_sha!==binding.wrapper_sha
       || [run.repository,run.head_repository].some(repository=>repository?.id!==binding.repository_id
         || repository.full_name!==binding.repository)) return null;
-  const producers=(run.referenced_workflows||[]).filter(item=>item.path==='stranske/Workflows/.github/workflows/reusable-agents-verifier.yml@main');
+  const producers=(run.referenced_workflows||[]).filter(item=>/^[^/]+\/Workflows\/\.github\/workflows\/reusable-agents-verifier\.yml@main$/.test(item.path||''));
   if (producers.length!==1 || producers[0].sha!==binding.producer_sha || producers[0].ref!=='refs/heads/main') return null;
   return binding;
 }

@@ -1,7 +1,7 @@
 name: Maint 86 Model Promotion Prepare
 
 # Turns a passing benchmark into a *prepared* verifier-model promotion
-# (stranske/Workflows#2819, move 3). It evaluates a benchmark artifact, and if a
+# (iamkayleb/Workflows#2819, move 3). It evaluates a benchmark artifact, and if a
 # same-family, non-inferior, cost<= candidate qualifies (or an active model
 # breached its gates), it opens a PR that changes the registry selection. A human
 # merges the PR — that IS the approval, so `human_approval_required` stays true.
@@ -79,7 +79,7 @@ jobs:
           delete-branch: true
           body: |
             Automated **preparation** of a verifier model selection change
-            (stranske/Workflows#2819 move 3). See the run summary for the exact
+            (iamkayleb/Workflows#2819 move 3). See the run summary for the exact
             promotion/rollback and its evidence.
 
             This PR is intentionally **not** auto-merged: merging it is the human

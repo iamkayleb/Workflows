@@ -121,7 +121,7 @@ jobs:
             # and hard-failing would block every issue there. But the job used to
             # exit GREEN having validated nothing, so a sync that dropped the
             # file removed the gate with no signal at all. Make it loud.
-            echo "::warning title=Issue format guard inactive::.github/scripts/issue_format.py is missing, so this issue was NOT validated. Re-sync from stranske/Workflows to restore the gate."
+            echo "::warning title=Issue format guard inactive::.github/scripts/issue_format.py is missing, so this issue was NOT validated. Re-sync from iamkayleb/Workflows to restore the gate."
             echo "validator absent — skipping while this repo is mid-sync"
             echo "rc=skip" >> "$GITHUB_OUTPUT"
             exit 0

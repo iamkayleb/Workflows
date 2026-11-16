@@ -1224,6 +1224,42 @@ The list of registered repos lives in that workflow (env var
 `REGISTERED_CONSUMER_REPOS`). Avoid duplicating the list here; it changes over time and
 the workflow is the source of truth.
 
+### Fork exception: control-plane owner and single consumer
+
+`iamkayleb/Workflows` is a fork of `stranske/Workflows`, re-synced to upstream on
+2026-11-16. Three deliberate divergences from upstream exist here and should not
+be "fixed" by aligning them back:
+
+- **One registered consumer.** `REGISTERED_CONSUMER_REPOS` lists only
+  `iamkayleb/bukay`, and `config/consumer_sync_canaries.json` names only that
+  repo. This fork has write access to no `stranske/*` repository, so carrying
+  upstream's sixteen consumers would fail every sync run and every canary check.
+
+- **Control-plane owner is this fork.** Reusable workflows, composite actions and
+  helper sparse-checkouts resolve from `iamkayleb/Workflows`, in the root
+  workflows *and* the consumer templates. Repointing only the templates is not
+  enough: the reusables check out the helper layer by repository name, so a
+  template calling this fork's reusable would still execute upstream's helper
+  scripts. The ten resulting root/template pairs are re-baselined in
+  `config/template-drift-allowlist.txt` as pairs 21–30; the drift is the owner
+  segment and nothing else, verified line-by-line.
+
+- **Owner comparisons must accept both slugs.** Any predicate that identifies
+  "the Workflows source repo" by exact string match silently stops matching after
+  a repoint, and a discovery predicate that matches nothing passes rather than
+  fails. Two such sites are now owner-agnostic and must stay that way:
+  `reusable-18-autofix.yml`'s *Determine Workflows workflow ref* step, and
+  `_workflows_library_checkout_steps` in
+  `tests/workflows/test_workflow_llm_installs.py`. Both accept
+  `iamkayleb/Workflows` and `stranske/Workflows` exactly — exact matches keep
+  `stranske/Workflows-Integration-Tests`, which shares the prefix, on the
+  consumer path.
+
+Prose references to `stranske/Workflows` in `README.md`, `docs/USAGE.md` and
+`docs/INTEGRATION_GUIDE.md` are left alone: they document the upstream project,
+not this fork's delivery wiring. Likewise `stranske/Workflows-Integration-Tests`
+and links to specific upstream issue numbers, which do not exist in a fork.
+
 ### Drift coverage states
 
 Scheduled Health 68 runs are triggered only after a successful Maint 71 janitor; push and

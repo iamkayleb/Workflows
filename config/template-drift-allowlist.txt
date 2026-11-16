@@ -239,3 +239,102 @@ template_sha256 = 4c9b90b908eaa50d982ce711f709c21725743559c76f303dd6240b6edcd1fb
 divergence = client-id rename 2026-08-24: every create-github-app-token step moved from the deprecated `app-id` input to `client-id`, applied identically to root and consumer, with the secret VALUE unchanged (the action forwards either input to the same appId slot -- main.js:21, lib/main.js:37). Fingerprints refreshed for that change; the divergence itself is unchanged and was NOT re-reviewed, which is why divergence_reviewed keeps its old date. Prior divergence unchanged: Named-secrets rollout 2026-08-23: both surfaces now pass named setup-api-client secret inputs instead of the whole-secrets-context blob, applied identically to root and consumer, and scoped to each workflow's DECLARED workflow_call secrets where that context is a closed set. Removing that handoff is the demonstrated remedy for GitHub's suspicious-workflow hold (agents-dedup then ran at run_attempt 1 with nothing approved after 22 days held). Prior divergence unchanged: Intentional divergence reviewed 2026-08-23: Workflows keeps local setup-api-client, cancellation, and full multi-agent label detection; the consumer uses pinned actions, App-token setup, and only the consumer-supported routing labels. These execution contexts are intentionally not byte-identical.
 divergence_reviewed = 2026-08-23
 fingerprint_refreshed = 2026-08-24
+
+[pair.21]
+main = .github/workflows/agents-63-issue-intake.yml
+template = templates/consumer-repo/.github/workflows/agents-issue-intake.yml
+main_sha256 = 582ca4f93085e362c8a09d909ae87657ac39c0d5a69ead85e7c10a031bd9334a
+template_sha256 = 31702adce4f24e966dae809b55f7a79a2f1d22f6e811d35128931f31f654e449
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.22]
+main = .github/workflows/agents-71-codex-belt-dispatcher.yml
+template = templates/consumer-repo/.github/workflows/agents-71-codex-belt-dispatcher.yml
+main_sha256 = 0bacb2f96813c6f0336200b17167d5ae2b1f65bde60d61e037b0efb972233c40
+template_sha256 = 20768ef3df2a2c92ddb64d2234aead3178f1f76bfeeac7067e8f2ab3a943e0ad
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.23]
+main = .github/workflows/agents-72-codex-belt-worker.yml
+template = templates/consumer-repo/.github/workflows/agents-72-codex-belt-worker.yml
+main_sha256 = 99c096c824cb58dbab1bb7f6b7b0d88ee77adbd2a4ff59faa129d2a11cd0b3fe
+template_sha256 = 25da9d733a6d13d01cbdd1320816a0797429567f7747dc49fb3aa3821198756a
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.24]
+main = .github/workflows/agents-auto-pilot.yml
+template = templates/consumer-repo/.github/workflows/agents-auto-pilot.yml
+main_sha256 = 8852a9759d7d730d0d322c2f0efc1e4d60133a95e1e6cd75b353ad996a3974e3
+template_sha256 = ee269576c1721f128e29324056cbd6a965caf04e5b78940a65ea3abcea2ca36c
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.25]
+main = .github/workflows/agents-guard.yml
+template = templates/consumer-repo/.github/workflows/agents-guard.yml
+main_sha256 = 0c1530cf8fbf6186b2bc3621bda4d453fdeb479e36991c849408c20533a649ef
+template_sha256 = 265eb4e118c22210b06e47978f2d5cabab3c5aa8b5cd8ac6feb91411b5ebd1f6
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.26]
+main = .github/workflows/agents-issue-optimizer.yml
+template = templates/consumer-repo/.github/workflows/agents-issue-optimizer.yml
+main_sha256 = 066e50353af9b262b369cca493f50d0ff4bbe10538821f5358a0659cae9129d8
+template_sha256 = 81f15c3b026b0eae361876ba8dbe966ea0dc1d2348a5c1785f6187d95c62367b
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.27]
+main = .github/workflows/agents-verifier.yml
+template = templates/consumer-repo/.github/workflows/agents-verifier.yml
+main_sha256 = c124261f92ecc8056b87f7d29cf2d4047f81f37a8f14d35eb39ae3b7831aaa1f
+template_sha256 = 3bae76c35990d186a4a50e798673976cecf22e86f8e9401b6dc16ffa75a39ef5
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.28]
+main = .github/workflows/autofix.yml
+template = templates/consumer-repo/.github/workflows/autofix.yml
+main_sha256 = 96c8131203431b7da850474e06fa169a2580fa5fa4759674be712ea408f17d16
+template_sha256 = 1926f82704016ee732661a85084c50d08e15e2442b2bf6ca9067e2a92065ae2d
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.29]
+main = .github/workflows/maint-coverage-guard.yml
+template = templates/consumer-repo/.github/workflows/maint-coverage-guard.yml
+main_sha256 = c89b4637ebd7187eda0bee1edd9008afff80c9c983a359598f9405f61a8c7713
+template_sha256 = 932f602f6d0b109f4049250d107fbef4839e12e418200dc97576683da0c51628
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16
+
+
+[pair.30]
+main = .github/workflows/pr-00-gate.yml
+template = templates/consumer-repo/.github/workflows/pr-00-gate.yml
+main_sha256 = 0522657040cbafa1e3acb91501eaae5728dd2b6d3d822ebf5afeb9fa4883da11
+template_sha256 = 38efa50d589bb485d913ab2e504de38645edf7f68ef1eccd8b793678a24712f5
+divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
+divergence_reviewed = 2026-11-16
+fingerprint_refreshed = 2026-11-16

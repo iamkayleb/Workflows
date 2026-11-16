@@ -83,22 +83,7 @@ permissions:
 env:
   # Consumer repos registered for automatic sync
   REGISTERED_CONSUMER_REPOS: |
-    stranske/Travel-Plan-Permission
-    stranske/Template
-    stranske/Counter_Risk
-    stranske/Pension-Data
-    stranske/Inv-Man-Intake
-    stranske/Ready
-    stranske/trip-planner
-    stranske/Manager-Database
-    stranske/Portable-Alpha-Extension-Model
-    stranske/Trend_Model_Project
-    stranske/learning-management-system
-    stranske/Fine-Art-Archive
-    stranske/Orchestrator
-    stranske/Doc-Lineage
-    stranske/Deliverable-Render
-    stranske/Manager-Mosaic
+    iamkayleb/bukay
 
 # Maint 68 and Maint 71 are both whole-body/head writers for the same stable
 # consumer PRs.  The shared repository-scoped group is the serialization
@@ -1560,7 +1545,7 @@ jobs:
             cat >"$commit_message_file" <<COMMIT_MESSAGE
           chore: sync workflow templates from Workflows repo
 
-          Automated sync from stranske/Workflows
+          Automated sync from iamkayleb/Workflows
           Template hash: $DELIVERY_GENERATION
 
           Changes synced from sync-manifest.yml
@@ -1699,7 +1684,7 @@ jobs:
           - [ ] CI passes with updated workflows
           - [ ] No repo-specific customizations were overwritten
 
-          **Source:** stranske/Workflows
+          **Source:** iamkayleb/Workflows
           **Source SHA:** \`$body_source_commit\`
           **Template hash:** \`$DELIVERY_GENERATION\`
           **Consumer-sync plan ID:** \`$PLAN_ID\`

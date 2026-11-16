@@ -2,6 +2,12 @@
   "schema_version": "langsmith-fleet-allowlist/v1",
   "repos": [
     {
+      "repo": "iamkayleb/bukay",
+      "status": "not-applicable",
+      "reason": "Next.js booking product consuming the belt; no LLM-backed runtime of its own to trace.",
+      "registry_activation_condition": "Register when bukay gains an LLM-backed runtime or agent-observability surface."
+    },
+    {
       "repo": "stranske/Template",
       "status": "not-applicable",
       "reason": "Canonical inactive template that receives fleet updates but has no substantive runtime to trace.",

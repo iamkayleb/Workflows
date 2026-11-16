@@ -1,7 +1,7 @@
 name: Maint 79 Verifier Corpus Harvest
 
 # Grows the frozen verifier evaluation corpus from realized PR outcomes
-# (stranske/Workflows#2819, move 2). High-confidence cases (stable merges,
+# (iamkayleb/Workflows#2819, move 2). High-confidence cases (stable merges,
 # reverts, resolved verifier follow-ups) auto-promote via an auto-merging PR;
 # ambiguous cases land in an FYI-only, auto-expiring staging file. No human
 # action is required — the PR is the audit trail, not a gate.
@@ -116,7 +116,7 @@ jobs:
           # Do not arm auto-merge until required checks have actually reported
           # and passed on the unchanged head. Gate's `summary` check-run can
           # appear 20+ minutes after the push, so "not reported yet" is waited
-          # for (up to 40 min), not read as a failure (stranske/Workflows#4133).
+          # for (up to 40 min), not read as a failure (iamkayleb/Workflows#4133).
           # A timeout leaves the PR for the next maintenance run rather than
           # merging on an incomplete signal.
           if ! required_checks="$(bash .github/scripts/wait_for_required_checks.sh "$PR_NUMBER" 2400 1200 30)"; then

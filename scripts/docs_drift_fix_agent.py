@@ -36,7 +36,7 @@ if str(ROOT) not in sys.path:
 
 from scripts import check_docs_drift  # noqa: E402
 
-DEFAULT_REPO = "stranske/Workflows"
+DEFAULT_REPO = "iamkayleb/Workflows"
 DEFAULT_MAX_PER_BATCH = 8
 DEFAULT_DOCS_CONFIG = Path("config/source_of_truth_docs.yml")
 

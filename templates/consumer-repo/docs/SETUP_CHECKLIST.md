@@ -8,7 +8,7 @@ configuration** and will fail silently if any element is missing.
 > before keepalive started functioning correctly. The lessons learned are encoded
 > in this checklist.
 
-> **See also**: [Consumer Repo Maintenance Guide](https://github.com/stranske/Workflows/blob/main/docs/ops/CONSUMER_REPO_MAINTENANCE.md)
+> **See also**: [Consumer Repo Maintenance Guide](https://github.com/iamkayleb/Workflows/blob/main/docs/ops/CONSUMER_REPO_MAINTENANCE.md)
 > for debugging issues across multiple repos.
 
 ---
@@ -17,7 +17,7 @@ configuration** and will fail silently if any element is missing.
 
 Before starting, ensure you have:
 
-- [ ] Access to [stranske/Workflows](https://github.com/stranske/Workflows) repository
+- [ ] Access to [iamkayleb/Workflows](https://github.com/iamkayleb/Workflows) repository
 - [ ] A GitHub PAT for the service bot account (for SERVICE_BOT_PAT)
 - [ ] Admin access to create repository secrets and variables
 - [ ] Claude Code login/session available if you want Claude-run workflows
@@ -35,7 +35,7 @@ Before starting, ensure you have:
 > you're adding workflow system to an existing repository.
 
 - [ ] Create the consumer repo from your chosen template source:
-  - [ ] Preferred: start from the consumer repo template under `stranske/Workflows/templates/consumer-repo/` (copied into a new repo)
+  - [ ] Preferred: start from the consumer repo template under `iamkayleb/Workflows/templates/consumer-repo/` (copied into a new repo)
   - [ ] Alternative: use a dedicated template repo (for example [stranske/Template](https://github.com/stranske/Template)) if your org maintains one
 - [ ] Create via GitHub CLI (the UI "Use this template" path still works too):
   ```bash
@@ -60,7 +60,7 @@ Verify these directories exist:
 
 For repositories that already exist (not created from Template):
 
-1. Copy workflow files from `stranske/Workflows/templates/consumer-repo/.github/`:
+1. Copy workflow files from `iamkayleb/Workflows/templates/consumer-repo/.github/`:
    - [ ] `workflows/agents-*.yml` (all agent workflows)
    - [ ] `workflows/autofix.yml`
    - [ ] `workflows/pr-00-gate.yml` (or create custom - see below)
@@ -79,7 +79,7 @@ For repositories that already exist (not created from Template):
    > git commit -m "chore: remove generic PR template"
    > ```
 
-2. Copy documentation from `stranske/Workflows/templates/consumer-repo/docs/`:
+2. Copy documentation from `iamkayleb/Workflows/templates/consumer-repo/docs/`:
    - [ ] `docs/AGENT_ISSUE_FORMAT.md` — How to format issues for agents
    - [ ] `docs/CI_SYSTEM_GUIDE.md` — CI system overview and troubleshooting
    - [ ] `docs/LABELS.md` — Label reference for workflow triggers
@@ -540,7 +540,7 @@ Apps to verify:
 ### 4.1 Verify Workflow Files
 
 Compare `.github/workflows/` with the canonical consumer template in
-`stranske/Workflows/templates/consumer-repo/`. At minimum, verify the deployed
+`iamkayleb/Workflows/templates/consumer-repo/`. At minimum, verify the deployed
 entry points used by this repository:
 
 | Workflow | Purpose | Critical for Keepalive |
@@ -598,7 +598,7 @@ Create `.github/workflows/autofix-versions.env`:
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/stranske/Workflows/main/.github/workflows/autofix-versions.env \
+  https://raw.githubusercontent.com/iamkayleb/Workflows/main/.github/workflows/autofix-versions.env \
   -o .github/workflows/autofix-versions.env
 ```
 
@@ -661,7 +661,7 @@ These scripts MUST exist in `.github/scripts/`:
 | `issue_scope_parser.js` | Parses scope from issue body | Agent bridge |
 | `keepalive_instruction_template.js` | Generates keepalive instructions | Agent bridge |
 
-> **Source**: These scripts are copied from `stranske/Workflows/.github/scripts/`
+> **Source**: These scripts are copied from `iamkayleb/Workflows/.github/scripts/`
 > and are automatically synced by the `maint-68-sync-consumer-repos` workflow.
 > 
 > **Manual setup**: If setting up before sync, copy from the Workflows repo or
@@ -934,7 +934,7 @@ bootstrapping agent work with a linked branch and ready-for-review PR.
 - PR not created: Check `OWNER_PR_PAT` has repo and workflow permissions
 - Branch not created: Check `SERVICE_BOT_PAT` has push access
 - `MODULE_NOT_FOUND` error: Missing `.github/scripts/*.js` files — copy from 
-  `stranske/Workflows/.github/scripts/` or run the sync workflow
+  `iamkayleb/Workflows/.github/scripts/` or run the sync workflow
 
 ---
 
@@ -1102,7 +1102,7 @@ inputs:
 5. **Silent download failures** — `curl -sf` failing without verification leaves empty/missing files
 6. **Codex-specific naming in job names** — Prefer agent-agnostic names (e.g., "Validate agent issue labels" not "Validate Codex issue labels") for flexibility
 
-> **Note on naming conventions**: The workflow source files in stranske/Workflows
+> **Note on naming conventions**: The workflow source files in iamkayleb/Workflows
 > contain some Codex-specific references (job names, descriptions, variable names).
 > While variable names like `post_codex_input` are preserved for backward compatibility,
 > user-facing job names should use agent-agnostic terminology. Copilot code review
@@ -1213,19 +1213,19 @@ Test that sync workflows can access your repo:
 ```bash
 # Test workflow sync
 gh workflow run "Maint 68 Sync Consumer Repos" \
-  --repo stranske/Workflows \
+  --repo iamkayleb/Workflows \
   -f repos="stranske/<your-repo>" \
   -f dry_run=true
 
 # Test label doc sync
 gh workflow run "Maint 65 Sync Label Docs" \
-  --repo stranske/Workflows \
+  --repo iamkayleb/Workflows \
   -f repos="stranske/<your-repo>" \
   -f dry_run=true
 
 # Test version sync
 gh workflow run "Maint 52 Sync Dev Versions" \
-  --repo stranske/Workflows \
+  --repo iamkayleb/Workflows \
   -f repos="stranske/<your-repo>" \
   -f dry_run=true
 ```

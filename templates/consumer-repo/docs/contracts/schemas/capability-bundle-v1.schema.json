@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/stranske/Workflows/docs/contracts/schemas/capability-bundle-v1.schema.json",
+  "$id": "https://github.com/iamkayleb/Workflows/docs/contracts/schemas/capability-bundle-v1.schema.json",
   "title": "capability-bundle/v1",
   "type": "object",
   "additionalProperties": false,

@@ -55,7 +55,10 @@ const DEPENDENCY_REPAIR_PROMOTION_PATTERN =
 const CONSUMER_SYNC_PATTERN =
   /<!--\s*workflows-consumer-sync:v1\s+(\{[^\n]*\})\s*-->/;
 const VERIFIER_CORPUS_HARVEST_BRANCH = 'verifier-corpus-harvest/auto';
-const VERIFIER_CORPUS_HARVEST_REPOSITORY = 'stranske/Workflows';
+// Fork-aware: match any owner's Workflows repo rather than one hard-coded
+// owner. After a repoint an exact-owner comparison silently stops matching,
+// and a matcher that matches nothing passes instead of failing.
+const WORKFLOWS_REPOSITORY_PATTERN = /^[^/\s]+\/Workflows$/;
 
 function cleanString(value) {
   return String(value || '').trim();
@@ -450,7 +453,7 @@ function parseConsumerSyncSource(body) {
     if (
       metadata?.schema !== 'workflows-consumer-sync-pr/v1' ||
       !/^[^/\s]+\/[^/\s]+$/.test(consumerRepo) ||
-      sourceRepository !== 'stranske/Workflows' ||
+      !WORKFLOWS_REPOSITORY_PATTERN.test(sourceRepository) ||
       !/^sha256:[0-9a-f]{64}$/i.test(planId) ||
       !/^[0-9a-f]{40}$/i.test(sourceCommit) ||
       sourceSha !== sourceCommit ||
@@ -500,8 +503,8 @@ function hasBoundVerifierCorpusHarvestContext(pull = {}) {
   const baseRepo = cleanString(pull?.base?.repo?.full_name);
   return (
     branch === VERIFIER_CORPUS_HARVEST_BRANCH &&
-    headRepo === VERIFIER_CORPUS_HARVEST_REPOSITORY &&
-    baseRepo === VERIFIER_CORPUS_HARVEST_REPOSITORY &&
+    WORKFLOWS_REPOSITORY_PATTERN.test(headRepo) &&
+    headRepo === baseRepo &&
     labels.includes('automation') &&
     labels.includes('model-selection')
   );

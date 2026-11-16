@@ -5,6 +5,9 @@ const { parseDeliveryRecord } = require('./sync_pr_lease_contract');
 const { isTrustedGeneratedDeliveryPr } = require('./sync_pr_merge_contract');
 const WORKFLOW = 'agents-guard.yml';
 const CONTEXT = 'Health 45 Agents Guard / guard';
+// This repo is a fork: the native writer context is whichever Workflows
+// repo the run is executing in, not a single hard-coded owner.
+const WORKFLOWS_OWNERS = ['iamkayleb', 'stranske'];
 const ACTORS = ['stranske', 'stranske-automation-bot', 'github-actions[bot]'];
 const MAX_ATTEMPT = 3;
 // Both native callers inject the owner-pinned github-api-with-retry.js transport.
@@ -128,10 +131,10 @@ async function recoverCancelledAgentsGuard({ owner, repo, pr: selected, withRetr
       return done('wait', 'guard_rerun_claim_retained');
     }
     if (dryRunMode) return done('would-rerun', 'guard_original_jobless_cancellation_verified');
-    need(context?.repo?.owner === 'stranske' && context.repo.repo === 'Workflows'
+    need(WORKFLOWS_OWNERS.includes(context?.repo?.owner) && context.repo.repo === 'Workflows'
       && Number.isSafeInteger(context.runId) && context.runId > 0, 'guard_native_writer_context_required');
     const body = `${marker}\n${JSON.stringify({ ...identity, requested_by: {
-      repository: 'stranske/Workflows', run_id: context.runId } })}`;
+      repository: `${context.repo.owner}/${context.repo.repo}`, run_id: context.runId } })}`;
     const claim = await withRetry(client => client.rest.issues.createComment({ ...target,
       issue_number: pr.number, body }), { maxRetries: 0 });
     need(Number.isSafeInteger(claim.data?.id) && ACTORS.includes(claim.data?.user?.login)

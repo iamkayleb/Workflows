@@ -363,7 +363,7 @@ jobs:
             # Commit with multi-line message
             commit_msg="deps: sync dev tool versions from Workflows
 
-            Automated sync from stranske/Workflows autofix-versions.env
+            Automated sync from iamkayleb/Workflows autofix-versions.env
             Versions hash: $DELIVERY_GENERATION
 
             This ensures consistent dev tool versions across all repos."
@@ -374,9 +374,9 @@ jobs:
 
           changed_files="$(git show --name-only --format= HEAD)"
           if printf '%s\n' "$changed_files" | grep -qx 'pyproject.toml'; then
-            pr_scope="This PR updates dev tool versions in \`pyproject.toml\` and related generated dependency files to match the central version pins from [stranske/Workflows](https://github.com/stranske/Workflows)."
+            pr_scope="This PR updates dev tool versions in \`pyproject.toml\` and related generated dependency files to match the central version pins from [iamkayleb/Workflows](https://github.com/iamkayleb/Workflows)."
           else
-            pr_scope="This PR updates generated dev-tool pin files to match the central version pins from [stranske/Workflows](https://github.com/stranske/Workflows)."
+            pr_scope="This PR updates generated dev-tool pin files to match the central version pins from [iamkayleb/Workflows](https://github.com/iamkayleb/Workflows)."
           fi
 
           # Create PR body.  Each generated PR is a leased delivery attempt;

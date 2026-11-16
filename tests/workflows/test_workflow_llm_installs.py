@@ -118,11 +118,18 @@ def _sparse_checkout_paths(step: dict) -> list[str]:
     return [line.strip() for line in raw.splitlines() if line.strip()]
 
 
+# Both slugs name the Workflows source: this fork and the upstream it tracks.
+# Discovery must recognise either, or repointing the helper checkouts at the
+# fork silently empties the result and the config-vendoring guard below stops
+# covering anything — passing for the reason it exists to catch.
+_WORKFLOWS_SOURCE_REPOS = frozenset({"iamkayleb/Workflows", "stranske/Workflows"})
+
+
 def _workflows_library_checkout_steps(workflow: dict) -> list[dict]:
     steps = []
     for step in _iter_steps(workflow):
         with_block = step.get("with") or {}
-        if with_block.get("repository") == "stranske/Workflows" and "sparse-checkout" in with_block:
+        if with_block.get("repository") in _WORKFLOWS_SOURCE_REPOS and "sparse-checkout" in with_block:
             steps.append(step)
     return steps
 
@@ -322,7 +329,7 @@ def test_llm_client_workflow_discovery_covers_the_known_verifier_surfaces() -> N
 def test_llm_workflows_vendor_the_model_registry_config(workflow_path: Path) -> None:
     workflow = _load_workflow(workflow_path)
     checkouts = _workflows_library_checkout_steps(workflow)
-    assert checkouts, f"{workflow_path.as_posix()} must sparse-checkout stranske/Workflows"
+    assert checkouts, f"{workflow_path.as_posix()} must sparse-checkout the Workflows source repo"
 
     vendors_tools = False
     for step in checkouts:

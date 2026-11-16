@@ -21,7 +21,7 @@ model_profile_trial_contract:
   artifact_schema: workflows.model-profile-trial-result/v2
   identity_authority: workflows-read-only-trial-artifact/v2
   collector_identity_authority: github-actions-api/workflows-read-only-trial-artifact/v2
-  runner_ref: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
+  runner_ref: iamkayleb/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
   cli_version: 0.153.2
   runtime_fallback_allowed: false
   auxiliary_evaluator_allowed: false
@@ -115,7 +115,7 @@ execution_profiles:
     model: gpt-6-astra
     fallback_model: gpt-5.5
     runner: reusable-model-profile-trial
-    runner_ref: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
+    runner_ref: iamkayleb/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
     capacity_pool: codex-standard
     safety: read-only
     lifecycle: trial
@@ -126,7 +126,7 @@ execution_profiles:
     model: gpt-5.6-sol
     fallback_model: gpt-5.5
     runner: reusable-model-profile-trial
-    runner_ref: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
+    runner_ref: iamkayleb/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
     capacity_pool: codex-standard
     safety: read-only
     lifecycle: trial
@@ -137,7 +137,7 @@ execution_profiles:
     model: gpt-5.6-terra
     fallback_model: gpt-5.5
     runner: reusable-model-profile-trial
-    runner_ref: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
+    runner_ref: iamkayleb/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
     capacity_pool: codex-standard
     safety: read-only
     lifecycle: trial
@@ -148,7 +148,7 @@ execution_profiles:
     model: gpt-5.6-luna
     fallback_model: gpt-5.5
     runner: reusable-model-profile-trial
-    runner_ref: stranske/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
+    runner_ref: iamkayleb/Workflows/.github/workflows/reusable-model-profile-trial.yml@b06c6d16c3162a624c179a4c4f2080ec3c14876e
     capacity_pool: codex-standard
     safety: read-only
     lifecycle: trial
