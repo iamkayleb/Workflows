@@ -12,7 +12,8 @@
 | Files touched by our 38 | 67 (excluding agent stubs) |
 | Of those, **rewritten upstream** | **59** |
 
-Safety tag before any reset: `pre-resync-2026-11-16`, pushed to origin.
+Safety ref before the reset: branch `claude/pre-resync-2026-11-16`, pushed to
+origin at `450f90f3` and verified by reading the remote ref back.
 
 ## Verdict: reset, do not replay
 
@@ -28,6 +29,43 @@ So: reset `main` to `upstream/main`, then treat each of our 38 as a **claim
 about a defect** and re-test that claim against the new base. What still
 reproduces gets re-filed as a fresh pull request — against upstream, not just
 our fork, because he has not got these fixes and several are still live.
+
+## Outcome — 16 November 2026
+
+The reset is done. `origin/main` moved from `450f90f3` to `860edd6a`, upstream's
+head on the morning of 16 November.
+
+| Ref | Holds |
+|---|---|
+| `main` | upstream `860edd6a` — 1,140 commits of his work |
+| `claude/pre-resync-2026-11-16` | `450f90f3` — all 65 of ours, intact |
+| `claude/check-multi-agent-support-D9Be2` | the harness archive and this triage |
+
+The new base carries `reusable-11-ci-node.yml`, the full
+`templates/consumer-repo/design-system/`, and a fourth agent lane
+(`reusable-muse-run.yml`) that did not exist at the fork point.
+
+### A note on how the safety ref was made
+
+The intended safety ref was an annotated tag. The tag push returned HTTP 403 on
+four consecutive attempts — this session's credential may push branches but not
+tag refs — so a branch under the permitted `claude/` namespace was used instead.
+
+Worth recording: the first attempt *reported success*. The check was
+
+```sh
+git ls-remote --tags origin | grep pre-resync | sed 's/^/  remote: /' \
+  || echo "tag NOT on remote"
+```
+
+A pipeline's exit status is its last command. `sed` succeeds on empty input, so
+the `||` branch could never run, and an absent tag printed nothing and returned
+zero. The safety net for a force-push was verified by a check that cannot fail —
+finding B-05 exactly, committed while preparing to rely on it.
+
+The replacement compares the remote SHA to the expected SHA and retries until
+they match. Every push in this operation now verifies by reading the remote ref
+back rather than by trusting an exit status.
 
 ## Dispositions
 
