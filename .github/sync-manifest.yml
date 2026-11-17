@@ -1293,6 +1293,9 @@ docs:
   - source: design-system/components.css
     target: design-system/components.css
     description: "Design-system component layer (.ds): panels/appbar/kpis/tables/fields + presentation-state patterns (.notice, .empty-state, .badge, .skeleton)."
+  - source: design-system/tailwind-preset.js
+    target: design-system/tailwind-preset.js
+    description: "Tailwind preset for the design system (sibling of ds_streamlit.py): exposes the tokens as ordinary utilities -- bg-surface, text-ink, text-muted, border-default, accent, rounded-card -- each resolving to var(--token). A Tailwind app that writes bg-slate-900 bypasses the system entirely; this makes using it the easier path. Does not touch Tailwind's spacing scale."
   - source: design-system/ds_streamlit.py
     target: design-system/ds_streamlit.py
     description: "Streamlit adapter for the design system (inject_theme/empty_state/notice/error/translate_error/dev_note/availability_badge/humanize_id) so Streamlit apps consume the same presentation patterns."

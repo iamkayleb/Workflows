@@ -39,6 +39,21 @@ That's the "default with per-app customization" model: the base is canonical; an
 | `tokens.css` | Variables — themes + density. **Source of truth for the look.** |
 | `components.css` | Component styles, token-driven and theme-agnostic. |
 | `ds_streamlit.py` | Streamlit-native helpers for the same presentation patterns. |
+| `tailwind-preset.js` | Tailwind adapter: the tokens as ordinary utilities (`bg-surface`, `text-ink`, `border-default`, `rounded-card`), so a Tailwind app consumes them without writing `.ds` classes. |
+
+### Tailwind projects
+
+```js
+// tailwind.config.js
+module.exports = {
+  presets: [require('./design-system/tailwind-preset.js')],
+  content: ['./app/**/*.{ts,tsx}'],
+};
+```
+
+Import `tokens.css` once in the root layout and put the theme on `<body>`:
+`<body class="theme-air">`. Components then use `bg-surface`, `text-ink`,
+`text-muted`, `border-default`, `rounded-card` instead of a hand-picked palette.
 
 ## Theme → app mapping (proposed)
 
