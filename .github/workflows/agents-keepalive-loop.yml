@@ -1095,7 +1095,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: iamkayleb/Workflows/.github/workflows/reusable-codex-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@main
     secrets: inherit
     with:
       skip: >-
@@ -1134,7 +1134,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: iamkayleb/Workflows/.github/workflows/reusable-claude-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-claude-run.yml@main
     secrets: inherit
     with:
       skip: >-
@@ -1172,7 +1172,7 @@ jobs:
       pull-requests: write
       actions: write
       models: read
-    uses: iamkayleb/Workflows/.github/workflows/reusable-cursor-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-cursor-run.yml@main
     secrets: inherit
     with:
       skip: >-
@@ -1204,7 +1204,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: iamkayleb/Workflows/.github/workflows/reusable-muse-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-muse-run.yml@main
     secrets:
       META_API_KEY: ${{ secrets.META_API_KEY }}
       WORKFLOWS_APP_ID: ${{ secrets.WORKFLOWS_APP_ID }}
@@ -1239,7 +1239,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: iamkayleb/Workflows/.github/workflows/reusable-gemini-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-gemini-run.yml@main
     secrets: inherit
     with:
       skip: >-

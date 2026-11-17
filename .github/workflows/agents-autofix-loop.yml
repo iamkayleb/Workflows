@@ -782,7 +782,7 @@ jobs:
       needs.prepare.outputs.dispatch_should_run == 'true' &&
       needs.prepare.outputs.agent_type == 'codex'
     name: Run Codex autofix
-    uses: iamkayleb/Workflows/.github/workflows/reusable-codex-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@main
     with:
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
@@ -810,7 +810,7 @@ jobs:
       needs.prepare.outputs.dispatch_should_run == 'true' &&
       needs.prepare.outputs.agent_type == 'claude'
     name: Run Claude autofix
-    uses: iamkayleb/Workflows/.github/workflows/reusable-claude-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-claude-run.yml@main
     with:
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
@@ -842,7 +842,7 @@ jobs:
       pull-requests: write
       actions: write
       models: read
-    uses: iamkayleb/Workflows/.github/workflows/reusable-cursor-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-cursor-run.yml@main
     with:
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
@@ -867,7 +867,7 @@ jobs:
       needs.prepare.outputs.dispatch_should_run == 'true' &&
       needs.prepare.outputs.agent_type == 'muse'
     name: Run Muse autofix
-    uses: iamkayleb/Workflows/.github/workflows/reusable-muse-run.yml@main
+    uses: stranske/Workflows/.github/workflows/reusable-muse-run.yml@main
     with:
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix

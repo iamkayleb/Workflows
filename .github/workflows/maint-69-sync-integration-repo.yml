@@ -30,7 +30,7 @@ permissions:
 
 env:
   INTEGRATION_REPO: stranske/Workflows-Integration-Tests
-  WORKFLOW_REF: iamkayleb/Workflows/.github/workflows/reusable-10-ci-python.yml@main
+  WORKFLOW_REF: stranske/Workflows/.github/workflows/reusable-10-ci-python.yml@main
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -258,7 +258,7 @@ jobs:
             git add .pre-commit-config.yaml
           fi
           git commit \
-            -m "sync: Update workflow templates from iamkayleb/Workflows" \
+            -m "sync: Update workflow templates from stranske/Workflows" \
             -m "" \
             -m "This sync updates integration-repo templates to match the source" \
             -m "of truth in the Workflows repository." \
@@ -275,7 +275,7 @@ jobs:
             -m "- requirements.lock (regenerated with updated tool versions)" \
             -m "" \
             -m "Auto-synced by:" \
-            -m "https://github.com/iamkayleb/Workflows/actions/workflows/" \
+            -m "https://github.com/stranske/Workflows/actions/workflows/" \
             -m "maint-69-sync-integration-repo.yml"
 
           if git push; then

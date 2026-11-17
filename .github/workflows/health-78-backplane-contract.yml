@@ -102,7 +102,7 @@ jobs:
             --self-smoke \
             --registry config/backplane_participants.json \
             --schema-dir docs/contracts/schemas \
-            --repo iamkayleb/Workflows \
+            --repo stranske/Workflows \
             tests/fixtures/backplane/valid_run.json \
             | tee artifacts/backplane-contract/self-smoke.txt
 

@@ -141,7 +141,7 @@ jobs:
           GH_TOKEN: ${{ secrets.OWNER_PR_PAT }}
         run: |
           set -euo pipefail
-          repos="iamkayleb/Workflows,$(python scripts/list_registered_consumer_repos.py --separator ',')"
+          repos="stranske/Workflows,$(python scripts/list_registered_consumer_repos.py --separator ',')"
           python -m tools.verifier_shadow_report --ledger ledger.json --repos "$repos" \
             --markdown report.md --json report.json
           cat report.md >> "$GITHUB_STEP_SUMMARY"
@@ -174,7 +174,7 @@ jobs:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
         run: |
           set -euo pipefail
-          repos="iamkayleb/Workflows,$(python scripts/list_registered_consumer_repos.py --separator ',')"
+          repos="stranske/Workflows,$(python scripts/list_registered_consumer_repos.py --separator ',')"
           python -m tools.verifier_shadow_external --ledger ledger.json --repos "$repos" \
             --budget-seconds 1620
       - name: Adjudicate every evaluation of each settled run (blind, evidence-bound)
@@ -190,7 +190,7 @@ jobs:
           CLAUDE_API_STRANSKE: ${{ secrets.CLAUDE_API_STRANSKE }}
         run: |
           set -euo pipefail
-          repos="iamkayleb/Workflows,$(python scripts/list_registered_consumer_repos.py --separator ',')"
+          repos="stranske/Workflows,$(python scripts/list_registered_consumer_repos.py --separator ',')"
           python -m tools.verifier_shadow_adjudicate --ledger ledger.json --repos "$repos" \
             --budget-seconds 1380
       - name: Re-evaluate the criteria with the external verdicts and adjudications

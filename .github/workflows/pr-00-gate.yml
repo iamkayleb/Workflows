@@ -249,7 +249,7 @@ jobs:
             event.number = event.pull_request.number;
             fs.writeFileSync(process.env.GITHUB_EVENT_PATH, JSON.stringify(event));
       - name: Require an exact-head delivery seal
-        uses: iamkayleb/Workflows/.github/actions/generated-delivery-seal@fe1efdada4ece0e9668db83ae3867e74c29c7744
+        uses: stranske/Workflows/.github/actions/generated-delivery-seal@fe1efdada4ece0e9668db83ae3867e74c29c7744
         with:
           pull-request-json: ${{ needs.resolve-pr.outputs.pull_request }}
 

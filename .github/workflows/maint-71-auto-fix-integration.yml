@@ -247,7 +247,7 @@ jobs:
             This issue can be closed once the tests pass.
         run: |
           gh issue comment ${{ github.event.issue.number }} \
-            --repo iamkayleb/Workflows \
+            --repo stranske/Workflows \
             --body "$COMMENT_BODY"
 
       - name: Summary

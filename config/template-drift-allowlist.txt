@@ -245,96 +245,136 @@ main = .github/workflows/agents-63-issue-intake.yml
 template = templates/consumer-repo/.github/workflows/agents-issue-intake.yml
 main_sha256 = 582ca4f93085e362c8a09d909ae87657ac39c0d5a69ead85e7c10a031bd9334a
 template_sha256 = 31702adce4f24e966dae809b55f7a79a2f1d22f6e811d35128931f31f654e449
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
 [pair.22]
 main = .github/workflows/agents-71-codex-belt-dispatcher.yml
 template = templates/consumer-repo/.github/workflows/agents-71-codex-belt-dispatcher.yml
-main_sha256 = 0bacb2f96813c6f0336200b17167d5ae2b1f65bde60d61e037b0efb972233c40
+main_sha256 = ecdeda26e3c26a6df2de3524210158a9bcc624f17b01e005b4e064436fd92a7a
 template_sha256 = 20768ef3df2a2c92ddb64d2234aead3178f1f76bfeeac7067e8f2ab3a943e0ad
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
 [pair.23]
 main = .github/workflows/agents-72-codex-belt-worker.yml
 template = templates/consumer-repo/.github/workflows/agents-72-codex-belt-worker.yml
-main_sha256 = 99c096c824cb58dbab1bb7f6b7b0d88ee77adbd2a4ff59faa129d2a11cd0b3fe
+main_sha256 = 1026f820c615404486f7473f14710d52d5672b3697a22abcadecbca0667ccce4
 template_sha256 = 25da9d733a6d13d01cbdd1320816a0797429567f7747dc49fb3aa3821198756a
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
 [pair.24]
 main = .github/workflows/agents-auto-pilot.yml
 template = templates/consumer-repo/.github/workflows/agents-auto-pilot.yml
-main_sha256 = 8852a9759d7d730d0d322c2f0efc1e4d60133a95e1e6cd75b353ad996a3974e3
+main_sha256 = 4c18d69bacc0719a7b7633090620fa85b367aa4ac378fc2d2bf3922f6ebbd5cd
 template_sha256 = ee269576c1721f128e29324056cbd6a965caf04e5b78940a65ea3abcea2ca36c
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
 [pair.25]
-main = .github/workflows/agents-guard.yml
-template = templates/consumer-repo/.github/workflows/agents-guard.yml
-main_sha256 = 0c1530cf8fbf6186b2bc3621bda4d453fdeb479e36991c849408c20533a649ef
-template_sha256 = 265eb4e118c22210b06e47978f2d5cabab3c5aa8b5cd8ac6feb91411b5ebd1f6
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+main = .github/workflows/agents-guard-fork-status.yml
+template = templates/consumer-repo/.github/workflows/agents-guard-fork-status.yml
+main_sha256 = a9318c330455403b4c2354497fafc3c46104517a2a64b2528f98dc9ce970cdbb
+template_sha256 = 5407c5d505fc074d392440082389b5942e57df53bcce2592ee26adc703380249
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
 [pair.26]
+main = .github/workflows/agents-guard.yml
+template = templates/consumer-repo/.github/workflows/agents-guard.yml
+main_sha256 = 77b859cd2f2fa520910af1d77685e93c4c800b9652abaac0353d6a964ac4aa6f
+template_sha256 = 265eb4e118c22210b06e47978f2d5cabab3c5aa8b5cd8ac6feb91411b5ebd1f6
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
+
+
+[pair.27]
+main = .github/workflows/agents-issue-format-guard.yml
+template = templates/consumer-repo/.github/workflows/agents-issue-format-guard.yml
+main_sha256 = 3eaa8e1b3be2468e46b84cc00c9f90678461a8fe626298a41075d896b154052a
+template_sha256 = 48e7a43be2ee7138114f35675cc4de937f4b1a9749f2878fa5afae0161fc8d24
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
+
+
+[pair.28]
 main = .github/workflows/agents-issue-optimizer.yml
 template = templates/consumer-repo/.github/workflows/agents-issue-optimizer.yml
 main_sha256 = 066e50353af9b262b369cca493f50d0ff4bbe10538821f5358a0659cae9129d8
 template_sha256 = 81f15c3b026b0eae361876ba8dbe966ea0dc1d2348a5c1785f6187d95c62367b
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
-[pair.27]
+[pair.29]
 main = .github/workflows/agents-verifier.yml
 template = templates/consumer-repo/.github/workflows/agents-verifier.yml
-main_sha256 = c124261f92ecc8056b87f7d29cf2d4047f81f37a8f14d35eb39ae3b7831aaa1f
+main_sha256 = 519709ada426b45d2e1ce43f76166333642f3948975a6bb1b49793c5f6f1dffc
 template_sha256 = 3bae76c35990d186a4a50e798673976cecf22e86f8e9401b6dc16ffa75a39ef5
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
-[pair.28]
+[pair.30]
+main = .github/workflows/agents-verify-to-new-pr.yml
+template = templates/consumer-repo/.github/workflows/agents-verify-to-new-pr.yml
+main_sha256 = e3d90d8dab937c50f5c539e9039e1a2b2229c061552761c91109170332d0497d
+template_sha256 = 64831a40821dffa007dc185fdc818285eaf1059d4ba1e81db8329f8bd373764c
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
+
+
+[pair.31]
 main = .github/workflows/autofix.yml
 template = templates/consumer-repo/.github/workflows/autofix.yml
 main_sha256 = 96c8131203431b7da850474e06fa169a2580fa5fa4759674be712ea408f17d16
 template_sha256 = 1926f82704016ee732661a85084c50d08e15e2442b2bf6ca9067e2a92065ae2d
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
-[pair.29]
+[pair.32]
 main = .github/workflows/maint-coverage-guard.yml
 template = templates/consumer-repo/.github/workflows/maint-coverage-guard.yml
-main_sha256 = c89b4637ebd7187eda0bee1edd9008afff80c9c983a359598f9405f61a8c7713
+main_sha256 = da0d24f4739dd2a6e4d9df70b4a0edf418bb6e1e8667fe3137fe84302559cfea
 template_sha256 = 932f602f6d0b109f4049250d107fbef4839e12e418200dc97576683da0c51628
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
 
 
-[pair.30]
+[pair.33]
 main = .github/workflows/pr-00-gate.yml
 template = templates/consumer-repo/.github/workflows/pr-00-gate.yml
-main_sha256 = 0522657040cbafa1e3acb91501eaae5728dd2b6d3d822ebf5afeb9fa4883da11
+main_sha256 = 0f0ea6d23a3543573d070b3d07930f4af4d1bfdf45ee83fab0f6446a04c803c5
 template_sha256 = 38efa50d589bb485d913ab2e504de38645edf7f68ef1eccd8b793678a24712f5
-divergence = Fork control-plane owner 2026-11-16: this fork resolves reusable workflows, composite actions, and helper sparse-checkouts from iamkayleb/Workflows rather than stranske/Workflows, so the consumer it syncs to (iamkayleb/bukay) runs this fork's control plane instead of upstream's. Root and template were repointed together; the only difference between the pair is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that would route the consumer's control plane back to upstream and silently revert the refs on the next sync.
-divergence_reviewed = 2026-11-16
-fingerprint_refreshed = 2026-11-16
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17
+
+
+[pair.34]
+main = .github/workflows/pr-46-dependency-repair-contract.yml
+template = templates/consumer-repo/.github/workflows/pr-46-dependency-repair-contract.yml
+main_sha256 = 8295b6299c1ccfbdbffacec5a91396da6494c1454888c4f1b77ffe84d45c974c
+template_sha256 = 83d04fe0a8d9abee601bbf69fac79342e49c1b6ff2ebd895e6a5c6b0b84b22d7
+divergence = Fork control-plane owner 2026-11-17: this fork delivers to one consumer (iamkayleb/bukay), which must run this fork's control plane rather than upstream's. The repoint is scoped to what that consumer actually executes: every synced template workflow, plus the 19 root reusables reachable from them by uses: closure. Root workflows outside that closure stay on upstream refs, so their byte fingerprints and evidence pins are untouched. Repointing templates alone would not work: the reusables check out the helper layer by repository name, so a template calling this fork's reusable would still run upstream's helper scripts. The only difference in each pair below is the owner segment of those references, verified line-by-line against the pre-repoint templates (0 non-owner lines changed). Health 74 canonicalizes the @<ref> pin but preserves the action path, so an owner change registers as drift and needs this deliberate re-baseline. Do not align by reverting the owner: that routes the consumer's control plane back to upstream and silently reverts the refs on the next sync.
+divergence_reviewed = 2026-11-17
+fingerprint_refreshed = 2026-11-17

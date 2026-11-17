@@ -41,9 +41,9 @@ jobs:
           GH_TOKEN: ${{ secrets.OWNER_PR_PAT || github.token }}
         run: |
           if [ "$DRY_RUN" = "true" ]; then
-            python scripts/prune_agent_stubs.py --repo iamkayleb/Workflows --dry-run
+            python scripts/prune_agent_stubs.py --repo stranske/Workflows --dry-run
           else
-            python scripts/prune_agent_stubs.py --repo iamkayleb/Workflows
+            python scripts/prune_agent_stubs.py --repo stranske/Workflows
           fi
 
       - name: Commit deleted stubs

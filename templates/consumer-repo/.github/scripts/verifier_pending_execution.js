@@ -248,7 +248,7 @@ async function acquireRetainedExecution({github,event,assessment,selector,curren
   const log=Buffer.isBuffer(logResponse)?logResponse.toString('utf8'):typeof logResponse==='string'?logResponse:Buffer.from(logResponse).toString('utf8');
   if(Buffer.byteLength(log)>16777216) throw new Error('Retained checkout log exceeds transport bound');
   const lines=log.split(/\r?\n/).filter(line=>{const stamp=Date.parse(line.slice(0,line.indexOf(' ')));return stamp>=Date.parse(checkout.started_at) && stamp<Date.parse(checkout.completed_at)+1000;}).join('\n');
-  if(!/\n\s*repository:\s*[^/\s]+\/Workflows\s*(\n|$)/.test('\n'+lines.join('\n')) || !lines.includes('path: .workflows-lib')) throw new Error('Retained helper checkout origin unproven');
+  if(!/repository:\s*[^/\s]+\/Workflows(\s|$)/.test(lines) || !lines.includes('path: .workflows-lib')) throw new Error('Retained helper checkout origin unproven');
   const hashes=[...lines.matchAll(/git log -1 --format=%H\r?\n[^\n]*?\s([0-9a-f]{40})\s*(?:\n|$)/g)].map(match=>match[1]);
   if(hashes.length!==1) throw new Error('Retained helper revision ambiguous');
   const helperSha=hashes[0];
