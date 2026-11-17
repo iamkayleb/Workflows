@@ -23,7 +23,7 @@ jobs:
       head_sha: ${{ steps.classify.outputs.head_sha }}
     steps:
       - name: Setup token-only API client
-        uses: iamkayleb/Workflows/.github/actions/setup-api-client@ab8017a10e387869e0f73ee07f3b7f634e45ea07 # trusted immutable source
+        uses: stranske/Workflows/.github/actions/setup-api-client@ab8017a10e387869e0f73ee07f3b7f634e45ea07 # trusted immutable source
         with:
           github_token: ${{ github.token }}
           skip_deps: true

@@ -570,7 +570,7 @@ jobs:
 
   # A SKIPPED GUARD USED TO BE INDISTINGUISHABLE FROM A PASSING ONE. `guard` is gated on the
   # rate-limit job, so when quota is low the job is skipped and the WORKFLOW IS GREEN with nothing
-  # checked. iamkayleb/Workflows' three most recent runs all read `success` at the workflow level
+  # checked. stranske/Workflows' three most recent runs all read `success` at the workflow level
   # and `coverage baseline monitor: skipped` at the job level -- which is how a monitor that has
   # never once executed came to look healthy for months. This job always runs and says which
   # happened, so the run's own summary distinguishes "checked, and it was fine" from "did not

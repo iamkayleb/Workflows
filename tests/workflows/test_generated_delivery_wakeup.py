@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+
+import re
 from pathlib import Path
 
 CONSUMER_GATE_FOLLOWUPS = Path(
@@ -25,7 +27,7 @@ def test_generated_delivery_wakeup_swallows_cross_repo_authorization_errors() ->
     assert "[403, 404].includes(status)" in script
     assert "core.warning" in script
     assert "Generated-delivery wakeup skipped" in script
-    assert "stranske/Workflows" in script
+    assert re.search(r"[^/\s]+/Workflows", script)
     assert "WRITE_TOKEN" in script
     # Do not claim success when the dispatch was skipped as unauthorized.
     assert "SKIPPED_UNAUTHORIZED" in script

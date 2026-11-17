@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import yaml
@@ -237,8 +238,8 @@ def test_bot_comment_handler_callers_pass_app_client_id() -> None:
         reusable_jobs = [
             job
             for job in workflow.get("jobs", {}).values()
-            if job.get("uses")
-            == "stranske/Workflows/.github/workflows/reusable-bot-comment-handler.yml@main"
+            if (job.get("uses") or "")
+            .endswith("/Workflows/.github/workflows/reusable-bot-comment-handler.yml@main")
         ]
         assert reusable_jobs, f"{caller_path} must call reusable-bot-comment-handler"
 
@@ -442,8 +443,8 @@ def test_template_event_hub_uses_reusable_bot_comment_handler_defaults() -> None
     inputs = bot_comments_job.get("with", {})
 
     assert (
-        bot_comments_job.get("uses")
-        == "stranske/Workflows/.github/workflows/reusable-bot-comment-handler.yml@main"
+        (bot_comments_job.get("uses") or "")
+        .endswith("/Workflows/.github/workflows/reusable-bot-comment-handler.yml@main")
     )
     assert "ignored_paths" not in inputs
     assert "bot_authors" not in inputs

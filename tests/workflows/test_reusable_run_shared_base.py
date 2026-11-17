@@ -25,6 +25,8 @@ metadata needed during post-job cleanup.
 
 from __future__ import annotations
 
+
+import re
 import os
 import subprocess
 from pathlib import Path
@@ -42,7 +44,7 @@ RUN_BASE_ACTION = ".github/actions/agent-run-base/action.yml"
 RUN_BASE_CHECKOUT_PATH = ".workflows-actions"
 RUN_BASE_USE_BASES = {
     f"./{RUN_BASE_CHECKOUT_PATH}/.github/actions/agent-run-base",
-    "stranske/Workflows/.github/actions/agent-run-base",
+    "/Workflows/.github/actions/agent-run-base",
 }
 
 # Step names the composite must run, in order. Behaviour parity with the
@@ -210,7 +212,7 @@ def test_extracted_setup_steps_not_duplicated_in_runners(workflow_rel: str) -> N
 
     # Runtime auth selection and the Workflows scripts checkout remain shared in
     # the composite; the target checkout is intentionally caller-owned.
-    assert "repository: stranske/Workflows" in src
+    assert re.search(r"repository: [^/\s]+/Workflows", src)
     assert sum(_uses_base(step) == "actions/create-github-app-token" for step in steps) == 1, (
         f"{workflow_rel}: only the run-base bootstrap checkout may mint an App "
         "token in the runner; shared runtime auth still belongs in "

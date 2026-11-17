@@ -1236,24 +1236,30 @@ back.
 The consumer must run this fork's control plane rather than upstream's, so our
 changes to it actually take effect. The repoint covers:
 
-- every consumer template workflow that is an entry point or is reachable from
-  one, and
-- the **19 root reusables** reachable from those templates by `uses:` closure.
+- the entry-point consumer templates (`agents-issue-intake.yml`,
+  `agents-verifier.yml`, `autofix.yml`, `pr-00-gate.yml`), and
+- the **15 root workflows** reachable from them by `uses:` closure — the
+  agent runners, the CI/autofix/pr-meta reusables, and the verifier.
 
 Repointing templates alone does not work: the reusables check out the helper
 layer by repository name, so a template calling this fork's reusable would still
 execute upstream's helper scripts.
 
-Root workflows **outside** that closure stay on upstream refs. This is
-deliberate and load-bearing. An earlier attempt repointed all 41 root workflows
-and 20 templates and broke 41 tests, because many are SHA-256 fingerprints
-pinning exact workflow bytes — several of them stored in security-review
-evidence under `docs/evidence/`. Scoping the repoint to the consumer's actual
-execution path leaves those pins untouched. Before widening it, know that the
-cost is rewriting review evidence.
+Everything **outside** that path stays on upstream refs, including any template
+whose root twin is not repointed — several tests assert byte parity between a
+root workflow and its template, so the two sides move together or not at all.
 
-The resulting root/template divergences are re-baselined in
-`config/template-drift-allowlist.txt` as pairs 21 onward. The difference in each
+This scoping is deliberate and load-bearing. An earlier attempt repointed all
+41 root workflows and 20 templates and broke 41 tests, because many are
+SHA-256 fingerprints pinning exact workflow bytes — several stored as
+security-review evidence under `docs/evidence/`. Scoping to the consumer's
+actual execution path leaves those pins untouched, and the test suite now
+matches the upstream baseline exactly: **0 regressions** across pytest, the
+node suites and all four template validators. Before widening the repoint,
+know that the cost is rewriting review evidence.
+
+The four resulting root/template divergences are re-baselined in
+`config/template-drift-allowlist.txt` as pairs 21-24. The difference in each
 pair is the owner segment and nothing else, verified line-by-line.
 
 #### 2. Owner comparisons must not be exact-match

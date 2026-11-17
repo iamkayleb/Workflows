@@ -29,6 +29,7 @@ re-create the double delivery this issue removes).
 from __future__ import annotations
 
 import json
+import re
 import os
 import subprocess
 from pathlib import Path
@@ -683,12 +684,15 @@ def test_gate_and_shared_mergers_hold_mutable_stable_deliveries() -> None:
     )
 
     assert "generated-delivery-seal" in gate
+    # Fork-aware: the owner segment varies, the action path and pinned SHA do
+    # not. A hard-coded owner stops matching after a repoint and the pin check
+    # then passes vacuously, which is the opposite of what it is for.
     action_ref = (
-        "stranske/Workflows/.github/actions/generated-delivery-seal"
-        "@fe1efdada4ece0e9668db83ae3867e74c29c7744"
+        r"[^/\s]+/Workflows/\.github/actions/generated-delivery-seal"
+        r"@fe1efdada4ece0e9668db83ae3867e74c29c7744"
     )
-    assert action_ref in gate
-    assert action_ref in template_gate
+    assert re.search(action_ref, gate)
+    assert re.search(action_ref, template_gate)
     assert (
         "uses: ./.github/actions/path-classifier"
         not in gate.split("generated-delivery-seal:", 1)[1].split("\n  python-ci:", 1)[0]
