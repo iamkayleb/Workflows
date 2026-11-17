@@ -1,0 +1,385 @@
+name: Reusable UI Acceptance
+
+# Runs a project's Playwright specs against its real, running application and
+# emits machine-readable evidence that an independent verifier can read.
+#
+# Why this exists
+# ===============
+# The verifier is a reader, not a runner: its prompt says plainly "do not run
+# test suites locally; rely on CI results". So a criterion like "the booking
+# page shows available slots" has never been checkable by it -- the best it can
+# do is read the diff and guess. That left UI criteria to be performed by hand,
+# which in practice meant they were performed twice in two weeks.
+#
+# This lane closes that gap without changing the verifier's contract. CI drives
+# a browser, the run produces `ui-acceptance.json`, and the verifier reads that
+# the same way it already reads unit-test results.
+#
+# The contract that makes it work
+# ===============================
+# A Playwright test title may tag the acceptance criterion it proves:
+#
+#     test('[AC-2] a client sees available slots after picking a date', ...)
+#
+# Every `[AC-n]` tag found is reported in `criteria[]` with its outcome, so the
+# verifier can answer "is criterion 2 met" mechanically instead of inferring it.
+#
+# What it refuses to do
+# =====================
+# It will not report success for work it did not check. If the spec glob
+# matches no files, or the application never becomes reachable, the lane fails
+# loudly with `status: not_run` rather than passing with zero tests. A suite
+# that matches nothing otherwise passes for the same reason an empty grep
+# succeeds, which is the single defect shape this repository keeps finding.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: Working directory for all run steps (useful for monorepos).
+        required: false
+        default: '.'
+        type: string
+      node-version:
+        description: Node.js version used to install dependencies and run Playwright.
+        required: false
+        default: '20'
+        type: string
+      package-manager:
+        description: Package manager to use (npm, pnpm, or yarn).
+        required: false
+        default: 'npm'
+        type: string
+      install-command:
+        description: Override the dependency install command. Defaults per package manager.
+        required: false
+        default: ''
+        type: string
+      setup-command:
+        description: >-
+          Command run after install and before build, for whatever the app needs
+          in order to serve a request -- migrations, a seeded database, fixture
+          data. Empty skips it.
+        required: false
+        default: ''
+        type: string
+      build-command:
+        description: Build command. Empty skips the build (for apps served from source).
+        required: false
+        default: ''
+        type: string
+      start-command:
+        description: Command that starts the application under test.
+        required: false
+        default: ''
+        type: string
+      base-url:
+        description: URL the application serves on once started.
+        required: false
+        default: 'http://localhost:3000'
+        type: string
+      startup-timeout-seconds:
+        description: How long to wait for base-url to answer before giving up.
+        required: false
+        default: 120
+        type: number
+      spec-path:
+        description: Directory or glob holding the Playwright specs for this lane.
+        required: false
+        default: 'e2e'
+        type: string
+      playwright-version:
+        description: >-
+          Playwright version to install. Pin it: an unpinned browser automation
+          stack changes behaviour between runs and makes a red lane ambiguous.
+        required: false
+        default: '1.56.1'
+        type: string
+      browser:
+        description: Browser to install and run (chromium, firefox, or webkit).
+        required: false
+        default: 'chromium'
+        type: string
+      artifact-name:
+        description: Name of the uploaded evidence artifact.
+        required: false
+        default: 'ui-acceptance'
+        type: string
+      workflows-ref:
+        description: >-
+          Ref of the Workflows repo to vendor the evidence builder from. Pass the
+          same `@ref` you pinned this reusable at, or a consumer pinned at a tag
+          silently runs main-HEAD helper code.
+        required: false
+        default: 'main'
+        type: string
+      required:
+        description: >-
+          When false the job reports its verdict but does not fail the build.
+          Use it to land the lane before the specs exist; flip it to true once
+          they do, or the lane is advisory forever.
+        required: false
+        default: true
+        type: boolean
+    outputs:
+      status:
+        description: passed, failed, or not_run.
+        value: ${{ jobs.ui-acceptance.outputs.status }}
+      total:
+        description: Number of tests executed.
+        value: ${{ jobs.ui-acceptance.outputs.total }}
+      failed:
+        description: Number of tests that failed.
+        value: ${{ jobs.ui-acceptance.outputs.failed }}
+      criteria-met:
+        description: Number of distinct [AC-n] criteria proven by a passing test.
+        value: ${{ jobs.ui-acceptance.outputs.criteria-met }}
+
+permissions:
+  contents: read
+
+jobs:
+  ui-acceptance:
+    name: UI acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    outputs:
+      status: ${{ steps.verdict.outputs.status }}
+      total: ${{ steps.verdict.outputs.total }}
+      failed: ${{ steps.verdict.outputs.failed }}
+      criteria-met: ${{ steps.verdict.outputs.criteria-met }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Vendor the Workflows helper layer
+        uses: actions/checkout@v7
+        with:
+          token: ${{ github.token }}
+          persist-credentials: false
+          repository: iamkayleb/Workflows
+          ref: ${{ inputs.workflows-ref }}
+          sparse-checkout: |
+            .github/scripts
+          sparse-checkout-cone-mode: false
+          path: .workflows-lib
+          fetch-depth: 1
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.package-manager }}" in
+            npm|pnpm|yarn) ;;
+            *) echo "::error::package-manager must be npm, pnpm or yarn"; exit 1 ;;
+          esac
+          case "${{ inputs.browser }}" in
+            chromium|firefox|webkit) ;;
+            *) echo "::error::browser must be chromium, firefox or webkit"; exit 1 ;;
+          esac
+          if [ -z "${{ inputs.start-command }}" ]; then
+            echo "::error::start-command is required; there is nothing to drive a browser against"
+            exit 1
+          fi
+
+      # Discovery happens BEFORE anything expensive, and an empty result is
+      # fatal. A lane that installs a browser, starts an app and then runs zero
+      # specs reports success while proving nothing.
+      - name: Discover specs
+        id: discover
+        shell: bash
+        run: |
+          set -euo pipefail
+          count=$(find ${{ inputs.spec-path }} -type f \
+            \( -name '*.spec.ts' -o -name '*.spec.js' -o -name '*.spec.mjs' \
+               -o -name '*.test.ts' -o -name '*.test.js' \) 2>/dev/null | wc -l | tr -d ' ')
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+          if [ "${count}" -eq 0 ]; then
+            echo "::error title=No UI specs found::'${{ inputs.spec-path }}' matched no spec files. \
+          This lane fails rather than passing with zero tests: a suite that matches nothing \
+          would report success without checking anything."
+            exit 1
+          fi
+          echo "Found ${count} spec file(s) under '${{ inputs.spec-path }}'."
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Setup pnpm
+        if: inputs.package-manager == 'pnpm'
+        uses: pnpm/action-setup@v6.0.10
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.install-command }}" ]; then
+            ${{ inputs.install-command }}
+          else
+            case "${{ inputs.package-manager }}" in
+              npm)  npm ci ;;
+              pnpm) pnpm install --frozen-lockfile ;;
+              yarn) yarn install --frozen-lockfile ;;
+            esac
+          fi
+
+      - name: Install Playwright and browser
+        shell: bash
+        env:
+          PW_VERSION: ${{ inputs.playwright-version }}
+        run: |
+          set -euo pipefail
+          npx --yes "playwright@${PW_VERSION}" install --with-deps ${{ inputs.browser }}
+
+      - name: Prepare application
+        if: inputs.setup-command != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.setup-command }}
+
+      - name: Build application
+        if: inputs.build-command != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          ${{ inputs.build-command }}
+
+      - name: Start application and wait for it
+        id: start
+        shell: bash
+        env:
+          BASE_URL: ${{ inputs.base-url }}
+          WAIT: ${{ inputs.startup-timeout-seconds }}
+        run: |
+          set -euo pipefail
+          nohup ${{ inputs.start-command }} > "${RUNNER_TEMP}/app.log" 2>&1 &
+          echo "pid=$!" >> "$GITHUB_OUTPUT"
+          deadline=$(( SECONDS + WAIT ))
+          until curl -fsS --max-time 5 "${BASE_URL}" >/dev/null 2>&1; do
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              echo "::error title=Application never became reachable::\
+          ${BASE_URL} did not answer within ${WAIT}s. The last 40 lines of its output follow; \
+          the lane fails here rather than running specs against nothing."
+              tail -40 "${RUNNER_TEMP}/app.log" | sed 's/^/  /' || true
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "${BASE_URL} answered after $(( SECONDS ))s."
+
+      - name: Run UI acceptance specs
+        id: run
+        continue-on-error: true
+        shell: bash
+        env:
+          PW_VERSION: ${{ inputs.playwright-version }}
+          BASE_URL: ${{ inputs.base-url }}
+        run: |
+          set -uo pipefail
+          npx --yes "playwright@${PW_VERSION}" test ${{ inputs.spec-path }} \
+            --browser=${{ inputs.browser }} \
+            --reporter=json \
+            --trace off \
+            > "${RUNNER_TEMP}/playwright.json" 2> "${RUNNER_TEMP}/playwright.err"
+          echo "exit-code=$?" >> "$GITHUB_OUTPUT"
+          tail -20 "${RUNNER_TEMP}/playwright.err" | sed 's/^/  /' || true
+
+      - name: Build acceptance evidence
+        id: verdict
+        shell: bash
+        env:
+          SPEC_COUNT: ${{ steps.discover.outputs.count }}
+          BASE_URL: ${{ inputs.base-url }}
+          RUN_EXIT: ${{ steps.run.outputs.exit-code }}
+        run: |
+          set -euo pipefail
+          node "${GITHUB_WORKSPACE}/.workflows-lib/.github/scripts/ui_acceptance_evidence.js" \
+            --report "${RUNNER_TEMP}/playwright.json" \
+            --out ui-acceptance.json \
+            --spec-count "${SPEC_COUNT}" \
+            --base-url "${BASE_URL}" \
+            --run-exit "${RUN_EXIT:-1}" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+            --commit "${GITHUB_SHA}" \
+          || {
+            echo "::error title=Evidence could not be built::The Playwright report was missing or unreadable."
+            printf '{"schema":"workflows.ui-acceptance/v1","status":"not_run","reason":"report_unreadable"}\n' > ui-acceptance.json
+          }
+          node -e '
+            const d = require("./ui-acceptance.json");
+            const o = process.env.GITHUB_OUTPUT;
+            const fs = require("fs");
+            fs.appendFileSync(o, `status=${d.status}\n`);
+            fs.appendFileSync(o, `total=${d.tests?.total ?? 0}\n`);
+            fs.appendFileSync(o, `failed=${d.tests?.failed ?? 0}\n`);
+            fs.appendFileSync(o, `criteria-met=${(d.criteria ?? []).filter(c => c.status === "passed").length}\n`);
+          '
+
+      - name: Summarize
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const d = require("./ui-acceptance.json");
+            const L = [];
+            L.push("## UI acceptance");
+            L.push("");
+            L.push(`**${d.status}** — ${d.tests?.passed ?? 0}/${d.tests?.total ?? 0} tests passed` +
+                   (d.reason ? ` (${d.reason})` : ""));
+            if ((d.criteria ?? []).length) {
+              L.push("");
+              L.push("| Criterion | Outcome | Proven by |");
+              L.push("|---|---|---|");
+              for (const c of d.criteria) {
+                L.push(`| ${c.id} | ${c.status === "passed" ? "met" : "NOT MET"} | \`${c.spec}\` |`);
+              }
+            } else {
+              L.push("");
+              L.push("_No `[AC-n]` tagged tests. Criteria cannot be attributed to specs._");
+            }
+            if ((d.failures ?? []).length) {
+              L.push("");
+              L.push("### Failures");
+              for (const f of d.failures.slice(0, 10)) {
+                L.push(`- \`${f.spec}\` — ${f.title}`);
+              }
+            }
+            require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, L.join("\n") + "\n");
+          ' || echo "::warning::Could not render the summary."
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.working-directory }}/ui-acceptance.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce verdict
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="${{ steps.verdict.outputs.status }}"
+          echo "UI acceptance verdict: ${status}"
+          if [ "${status}" = "passed" ]; then
+            exit 0
+          fi
+          if [ "${{ inputs.required }}" != "true" ]; then
+            echo "::warning title=UI acceptance ${status}::Reported but not enforced \
+          because the 'required' input is false. Flip it to true once the specs exist, \
+          or this lane is advisory forever."
+            exit 0
+          fi
+          echo "::error title=UI acceptance ${status}::See the job summary for the per-criterion table."
+          exit 1

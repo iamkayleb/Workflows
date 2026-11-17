@@ -192,6 +192,14 @@ workflows:
     description: "Cross-repo smoke caller - opt-in host + pinned dependency integration test via reusable-13-cross-repo-smoke.yml"
     sync_mode: create_only
 
+  # UI acceptance: drives a browser against the running app and publishes
+  # per-criterion evidence the verifier reads, so interface criteria stop being
+  # performed by hand. create_only because every project names its own build,
+  # start and setup commands; the reusable it calls is centrally managed.
+  - source: .github/workflows/ui-acceptance.yml
+    description: "UI acceptance caller - calls reusable-14-ci-ui.yml@main to run Playwright specs against the running application and emit ui-acceptance.json (schema workflows.ui-acceptance/v1) with a per-[AC-n] outcome table. Project-specific build/start/setup commands live in the caller, so it is create_only. Template lives under templates/consumer-repo/.github/workflows/."
+    sync_mode: create_only
+
   # Research-backplane run-contract/v1 conformance caller (opt-in, role-based)
   - source: .github/workflows/backplane-conformance.yml
     description: "Backplane conformance caller stub - calls reusable-backplane-conformance.yml@main to validate a repo's emitted run-contract/v1 envelope (producer) or ingested object (consumer). No-op for non-participants (opt-in); editable install runs only for real project/build metadata, not tool-only pyproject.toml. Template lives under templates/consumer-repo/.github/workflows/."
