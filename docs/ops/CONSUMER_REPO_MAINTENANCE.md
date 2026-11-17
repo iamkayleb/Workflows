@@ -1224,130 +1224,88 @@ The list of registered repos lives in that workflow (env var
 `REGISTERED_CONSUMER_REPOS`). Avoid duplicating the list here; it changes over time and
 the workflow is the source of truth.
 
-### Drift coverage states
+### Fork exception: control-plane owner and single consumer
 
-Scheduled Health 68 runs are triggered only after a successful Maint 71 janitor; push and
-manual runs are intentionally immediate. It classifies each
-consumer as `converged`, `covered`, `blocked`, `untracked_drift`, or `stale`. An open
-sync PR covers drift only when it matches the current compiled plan and is within the
-36-hour coverage lease. Configured canaries use the stable `sync/workflows-candidate`
-branch; promoted non-canaries use the stable `sync/workflows-delivery` branch. Fully covered drift
-exits zero and does not append a durable-tracker comment; stale (including expired
-coverage), blocked (including global/lookup failures), and untracked states remain
-actionable failures.
+`iamkayleb/Workflows` is a fork of `stranske/Workflows`, re-synced to upstream on
+2026-11-16. It delivers to exactly one consumer, `iamkayleb/bukay`. Two
+divergences from upstream exist here and should not be "fixed" by aligning them
+back.
 
-### Adding a New Consumer Repo
+#### 1. Control-plane owner, scoped to what the consumer executes
 
-1. Add the repo to `REGISTERED_CONSUMER_REPOS` in `maint-68-sync-consumer-repos.yml`.
-2. Run the bootstrap plan, including the load-bearing priority labels:
+The consumer must run this fork's control plane rather than upstream's, so our
+changes to it actually take effect. The repoint covers:
 
-   ```bash
-   python scripts/bootstrap_consumer_settings.py --repo stranske/NEW_REPO --execute
-   ```
+- the entry-point consumer templates (`agents-issue-intake.yml`,
+  `agents-verifier.yml`, `autofix.yml`, `pr-00-gate.yml`), and
+- the **15 root workflows** reachable from them by `uses:` closure — the
+  agent runners, the CI/autofix/pr-meta reusables, and the verifier.
 
-3. Ensure bot collaborator access (see [Bot Access](#bot-collaborator-access)).
-4. Run the sync workflow manually to verify.
+Repointing templates alone does not work: the reusables check out the helper
+layer by repository name, so a template calling this fork's reusable would still
+execute upstream's helper scripts.
 
-#### Priority labels are an opener reachability contract
+Everything **outside** that path stays on upstream refs, including any template
+whose root twin is not repointed — several tests assert byte parity between a
+root workflow and its template, so the two sides move together or not at all.
 
-Every registered consumer must define `priority:high`, `priority:normal`, and
-`priority:low` with the colors and descriptions emitted by
-`scripts/bootstrap_consumer_settings.py`. The opener uses those labels for
-ordering. It still discovers unlabelled delivery issues, but losing the family
-makes intended priority unavailable and can indefinitely defer a new
-repository behind established labelled queues.
+This scoping is deliberate and load-bearing. An earlier attempt repointed all
+41 root workflows and 20 templates and broke 41 tests, because many are
+SHA-256 fingerprints pinning exact workflow bytes — several stored as
+security-review evidence under `docs/evidence/`. Scoping to the consumer's
+actual execution path leaves those pins untouched, and the test suite now
+matches the upstream baseline exactly: **0 regressions** across pytest, the
+node suites and all four template validators. Before widening the repoint,
+know that the cost is rewriting review evidence.
 
-Do not assume a repository created from `stranske/Template` inherits the
-Template repository's live labels: GitHub template creation copies repository
-content, not repository label metadata. Keep the three labels on Template so it
-remains a safe `gh label clone` donor, and run the bootstrap command for every
-new consumer. `--labels-only --execute` repairs just this contract without
-changing workflow permissions, variables, collaborators, or existing issue
-priorities. Existing label metadata is verified and never overwritten
-silently.
+The four resulting root/template divergences are re-baselined in
+`config/template-drift-allowlist.txt` as pairs 21-24. The difference in each
+pair is the owner segment and nothing else, verified line-by-line.
 
-Audit the current registered fleet without mutating it:
+#### 2. Owner comparisons must not be exact-match
 
-```bash
-python scripts/bootstrap_consumer_settings.py --health-check
-```
+Any predicate that identifies "the Workflows source repo" by exact string
+comparison silently stops matching after a repoint — and a predicate that
+matches nothing *passes* rather than fails. These sites are owner-agnostic and
+must stay that way:
 
-The health report prints one row per registered consumer, including explicit
-zeroes. `implementation` counts open non-PR delivery issues independently of
-priority, while `priority_labelled` counts those carrying at least one exact
-supported priority label and `unprioritized` is the difference. Explicit
-durable trackers and narrowly recognized generated dependency/sync bookkeeping
-are reported as exclusions; bot authorship alone never hides delivery work.
-Missing labels return exit 1. Authentication, rate-limit, malformed-response,
-or incomplete-read failures return exit 2 and render affected values as
-`UNKNOWN` rather than a false healthy zero.
+| Site | What it decides |
+|---|---|
+| `reusable-18-autofix.yml` → *Determine Workflows workflow ref* | whether to preserve a PR ref or fall back to `main` |
+| `source_context.js` → sync-provenance guard, corpus-harvest check | whether a sync PR's metadata names a trusted source |
+| `verifier_pending_execution.js` → helper-origin check | whether the helper layer came from the expected repo; the commit's repo is now derived from the reference rather than a constant |
+| `maint71_agents_guard_recovery.js` → native writer gate | required `owner == 'stranske'`, so it would never have run in this fork at all |
+| `test_workflow_llm_installs.py` → `_workflows_library_checkout_steps` | which workflows the config-vendoring guard covers |
 
-When cloning labels between repositories, use a donor that has the full
-priority family and verify all three definitions afterward. Never infer a
-priority for existing issues merely to make counts look healthy.
+Match the repository *name* (`*/Workflows`), not a hard-coded owner. Exact
+matching also keeps `stranske/Workflows-Integration-Tests`, which shares the
+prefix, on the consumer path.
 
-### Repos with Custom Configurations
+#### What is NOT diverged, and why
 
-`Manager-Database` maintains a custom Gate with `docker compose`,
-`pre-commit`, and a custom test setup. It is the manifest's `pr-00-gate.yml`
-skip exception. Any custom Gate must include an independent
-`generated-delivery-seal` job that invokes the commit-pinned
-`stranske/Workflows/.github/actions/generated-delivery-seal` action, and its
-aggregate `Gate / gate` must require that job. Invoking the exact-synced
-`.github/actions/path-classifier` is not sufficient because a sync PR can
-modify that local action. The Workflows-owned action evaluates the event's
-exact head and delivery marker outside the mutable consumer checkout and
-fails closed until Maint 71 seals that head.
+`REGISTERED_CONSUMER_REPOS`, `config/consumer_sync_canaries.json` and
+`scripts/select_consumer_sync_phase.py` are left **exactly as upstream**.
 
-Other scoped consumer exceptions do not imply a custom Gate:
+Maint 68 requires 2-3 registered canary consumers
+(`canary_config_requires_two_or_three_repos`, enforced in `_load_canaries` and
+again in `select_phase`). A single-consumer fork cannot satisfy that: narrowing
+the registered list to `iamkayleb/bukay` makes every canary unregistered, and
+listing one canary trips the floor. Relaxing the floor to `min(2, consumers)`
+was tried and rejected — it let the selector proceed past checks the rest of the
+pipeline assumes have run, turning 10 test failures into 15.
 
-- `Trend_Model_Project` skips the synced `AGENTS.md` file and keeps its local
-  `Agents.md` to avoid a case-only path collision on case-insensitive
-  filesystems.
-- `Orchestrator` skips the synced `AGENTS.md` and `CLAUDE.md` files and keeps
-  its local terminal-merge and orchestration safety rules. In particular,
-  `AGENTS.md` requires `src/merge_guard.py`; overwriting it failed
-  `tests/test_merge_entrypoint_contract.py` on workflow-sync PR #399.
-  It also skips the synced `.github/scripts/gate_summary.py`. Orchestrator
-  shards its Gate Python legs (6 shards on Python 3.13 and 3.14, to keep each
-  under 10 minutes), and its local renderer fails the Gate when any shard's
-  receipt is missing, keeps the newest rerun receipt, and reports the combined
-  `verify.py` coverage without inferring a pass. The template renderer has none
-  of this; overwriting it failed `tests/test_delivery_required_contexts.py` on
-  the 2026-10-30 workflow-sync delivery. Restore shared ownership once the
-  template renderer validates shard receipts for sharded Gates and stays a
-  no-op for unsharded ones.
-- `trip-planner` skips the synced `.github/scripts/package.json` and vendored
-  `.github/scripts/node_modules/` entries so its lockfile-based dependency
-  policy remains intact.
-- `Fine-Art-Archive` keeps archive-specific reverse-image-search guidance in
-  its local `AGENTS.md` and `CLAUDE.md`; both are excluded from overwrite-sync.
-  It still receives the managed `.github/renovate.json`; its
-  `jsonschema<4.23.0` exception is centralized in `renovate-presets/fleet.json`
-  with a repository-scoped package rule.
+So **this fork does not use Maint 68 fleet sync.** The canary/promotion
+machinery exists for keeping a 16-repo fleet aligned over time; with one
+consumer it has nothing to decide. Consumer files are delivered to
+`iamkayleb/bukay` directly from `templates/consumer-repo/`. If this fork ever
+gains a second consumer, register both and the upstream machinery works
+unmodified.
 
-Other files listed in the sync manifest continue to sync normally; these
-exceptions are limited to the named repositories and files.
-
-Maint 68 implements these exceptions through each entry's typed manifest
-`skip_repos` rules. There is no separate hard-coded custom-Gate list in the
-sync script.
-
-### Fleet Renovate intake policy
-
-All registered consumers extend `renovate-presets/fleet.json`. Routine dependency
-work is limited to Monday 01:00–05:00 America/Chicago, two commits per hour, and
-three concurrent branches/PRs. Routine releases wait three days and for non-pending
-update-branch checks; vulnerability alerts bypass each routine delay. Trusted GitHub Actions
-digest, pin, minor, and patch updates are grouped for green automerge, while majors
-stay visible in the Dependency Dashboard until explicitly approved. Lock-file
-maintenance is grouped into the same weekly maintenance window.
-
----
-
-### Keepalive authority state delivery
-
-The authority challenge helper is source-owned by Workflows and declared in `.github/sync-manifest.yml`. Sync the helper, consumer sweep, Gate Followups, and reporter workflow together through Maint 71 before enabling v2 challenge dispatch in a consumer. The sweep needs `contents: read`; Gate Followups and its reporter need `contents: write` to initialize and conditionally update the `keepalive-authority-state` branch. No operator-created branch or secret is needed beyond `KEEPALIVE_AUTHORITY_SIGNING_KEY`; a missing branch is initialized on the first new challenge. A missing file for a generation already projected in the trusted summary is an error and must be repaired from authoritative evidence, never from the comment alone.
+Prose references to `stranske/Workflows` in `README.md`, `docs/USAGE.md` and
+`docs/INTEGRATION_GUIDE.md` are left alone: they document the upstream project,
+not this fork's delivery wiring. Likewise `stranske/Workflows-Integration-Tests`,
+links to specific upstream issue numbers, and comments about incidents that
+happened upstream.
 
 ## Bug Triage Process
 

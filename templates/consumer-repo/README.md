@@ -1,7 +1,7 @@
 # Consumer Repo Workflow Templates
 
 These templates are designed to be copied to consumer repositories that want to use
-the centralized CI and automation workflows from stranske/Workflows.
+the centralized CI and automation workflows from iamkayleb/Workflows.
 
 ## Quick Start
 
@@ -65,8 +65,8 @@ steps:
   - name: Checkout Workflows scripts
     uses: actions/checkout@v6
     with:
-      repository: stranske/Workflows
-         # Keep this aligned with the ref you use in `uses: stranske/Workflows/...@<ref>`.
+      repository: iamkayleb/Workflows
+         # Keep this aligned with the ref you use in `uses: iamkayleb/Workflows/...@<ref>`.
          # Prefer stable tags (`v1`) for most consumers.
          ref: v1
       sparse-checkout: .github/scripts

@@ -2,7 +2,7 @@
 
 **Version:** 1.0  
 **Last Updated:** January 11, 2026  
-**Source:** [Workflows Repository](https://github.com/stranske/Workflows)
+**Source:** [Workflows Repository](https://github.com/iamkayleb/Workflows)
 
 This guide explains how to use the automated workflows in your repository. All workflows are managed by the central Workflows repository and synced automatically.
 
@@ -699,9 +699,9 @@ If concerns → Add verify:create-issue → New issue auto-created
 ## Getting Help
 
 **Resources:**
-- [Full Documentation](https://github.com/stranske/Workflows/tree/main/docs)
-- [Consumer Label Reference](https://github.com/stranske/Workflows/blob/main/templates/consumer-repo/docs/LABELS.md)
-- [Agents Policy](https://github.com/stranske/Workflows/blob/main/docs/AGENTS_POLICY.md)
+- [Full Documentation](https://github.com/iamkayleb/Workflows/tree/main/docs)
+- [Consumer Label Reference](https://github.com/iamkayleb/Workflows/blob/main/templates/consumer-repo/docs/LABELS.md)
+- [Agents Policy](https://github.com/iamkayleb/Workflows/blob/main/docs/AGENTS_POLICY.md)
 
 **For Issues:**
 1. Check workflow logs in Actions tab
@@ -1506,4 +1506,4 @@ The sync manifest (`config/sync-manifest.json`) controls what gets synced:
 **Version History:**
 - 1.0 (January 11, 2026): Initial comprehensive guide
 
-**Maintained by:** [Workflows Repository](https://github.com/stranske/Workflows)
+**Maintained by:** [Workflows Repository](https://github.com/iamkayleb/Workflows)

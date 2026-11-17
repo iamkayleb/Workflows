@@ -823,7 +823,7 @@ jobs:
     if: >-
       needs.evaluate.outputs.agent_type == 'codex' &&
       needs.evaluate.outputs.dispatch_should_run == 'true'
-    uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-codex-run.yml@main
     secrets:
       CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
       # Use dedicated KEEPALIVE_APP for isolated rate limit pool (5000/hr)
@@ -861,7 +861,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: stranske/Workflows/.github/workflows/reusable-claude-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-claude-run.yml@main
     secrets: inherit
     with:
       skip: >-
@@ -886,7 +886,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: stranske/Workflows/.github/workflows/reusable-cursor-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-cursor-run.yml@main
     secrets:
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       WORKFLOWS_APP_ID: >-
@@ -917,7 +917,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: stranske/Workflows/.github/workflows/reusable-muse-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-muse-run.yml@main
     secrets:
       META_API_KEY: ${{ secrets.META_API_KEY }}
       WORKFLOWS_APP_ID: >-
@@ -948,7 +948,7 @@ jobs:
       (needs.evaluate.outputs.action == 'run' ||
        needs.evaluate.outputs.action == 'fix' ||
        needs.evaluate.outputs.action == 'conflict')
-    uses: stranske/Workflows/.github/workflows/reusable-gemini-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-gemini-run.yml@main
     secrets:
       GEMINI_OAUTH_CREDS: ${{ secrets.GEMINI_OAUTH_CREDS }}
       WORKFLOWS_APP_ID: >-
@@ -2119,7 +2119,7 @@ jobs:
       needs.prepare.outputs.dispatch_should_run == 'true' &&
       needs.prepare.outputs.agent_type == 'codex'
     name: Run Codex autofix
-    uses: stranske/Workflows/.github/workflows/reusable-codex-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-codex-run.yml@main
     with:
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
@@ -2141,7 +2141,7 @@ jobs:
       needs.prepare.outputs.dispatch_should_run == 'true' &&
       needs.prepare.outputs.agent_type == 'claude'
     name: Run Claude autofix
-    uses: stranske/Workflows/.github/workflows/reusable-claude-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-claude-run.yml@main
     with:
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
@@ -2161,7 +2161,7 @@ jobs:
       needs.prepare.outputs.dispatch_should_run == 'true' &&
       needs.prepare.outputs.agent_type == 'cursor'
     name: Run Cursor autofix
-    uses: stranske/Workflows/.github/workflows/reusable-cursor-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-cursor-run.yml@main
     with:
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
@@ -2180,7 +2180,7 @@ jobs:
       needs.prepare.outputs.dispatch_should_run == 'true' &&
       needs.prepare.outputs.agent_type == 'muse'
     name: Run Muse autofix
-    uses: stranske/Workflows/.github/workflows/reusable-muse-run.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-muse-run.yml@main
     with:
       prompt_file: .github/codex/prompts/autofix_from_ci_failure.md
       mode: autofix
@@ -2514,7 +2514,7 @@ jobs:
                   // Followups. Maint 71 is woken by workflow_dispatch anyway (#3364).
                   if ([403, 404].includes(status)) {
                     core.warning(
-                      `Generated-delivery wakeup skipped: repository_dispatch to stranske/Workflows ` +
+                      `Generated-delivery wakeup skipped: repository_dispatch to iamkayleb/Workflows ` +
                         `returned ${status} (token: WRITE_TOKEN fallback chain). ` +
                         `Error: ${error?.message || error}`,
                     );

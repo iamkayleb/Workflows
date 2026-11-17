@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+
+import re
 import json
 import os
 import subprocess
@@ -91,7 +93,7 @@ def test_checkout_executes_trusted_source_without_credentials(path: str) -> None
     for checkout in checkouts:
         options = checkout["with"]
         assert options["persist-credentials"] is False
-        if options.get("repository") == "stranske/Workflows":
+        if re.fullmatch(r"[^/\s]+/Workflows", options.get("repository") or ""):
             assert options["ref"] in {
                 "${{ steps.workflows_ref.outputs.ref }}",
                 "${{ needs.verifier.outputs.workflows_ref }}",

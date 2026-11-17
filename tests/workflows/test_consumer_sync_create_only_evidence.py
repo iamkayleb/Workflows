@@ -1,3 +1,4 @@
+import re
 import json
 from pathlib import Path
 
@@ -50,7 +51,9 @@ def test_consumer_renovate_template_extends_fleet_preset() -> None:
         (REPO_ROOT / "templates/consumer-repo/.github/renovate.json").read_text(encoding="utf-8")
     )
 
-    assert template["extends"] == ["github>stranske/Workflows//renovate-presets/fleet"]
+    assert len(template["extends"]) == 1 and re.fullmatch(
+        r"github>[^/\s]+/Workflows//renovate-presets/fleet", template["extends"][0]
+    )
 
 
 def test_fine_art_archive_jsonschema_renovate_exception_is_repo_scoped() -> None:

@@ -185,7 +185,7 @@ def _anthropic_rejects_temperature(model: str) -> bool:
     still accepts ``temperature=0.1``). Matches Opus 4.8 explicitly plus the Claude 5
     family (``claude-<name>-5...``); minor-version ``-5`` suffixes like
     ``claude-haiku-4-5`` are NOT matched. Interim, evidence-based guard; the durable
-    capability-aware handling (e.g. retry-on-400) is tracked in stranske/Workflows#2819.
+    capability-aware handling (e.g. retry-on-400) is tracked in iamkayleb/Workflows#2819.
     """
     name = model.lower().strip()
     return name == "claude-opus-4-8" or _anthropic_is_claude5_family(name)

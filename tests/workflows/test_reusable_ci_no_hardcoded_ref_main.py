@@ -98,7 +98,7 @@ def test_workflows_checkouts_use_workflows_ref_input() -> None:
             if not uses.startswith("actions/checkout"):
                 continue
             with_block = step.get("with", {}) or {}
-            if with_block.get("repository") != "stranske/Workflows":
+            if not re.fullmatch(r"[^/\s]+/Workflows", with_block.get("repository") or ""):
                 continue
             ref = str(with_block.get("ref", ""))
             checked += 1

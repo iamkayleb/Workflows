@@ -209,7 +209,7 @@ async function acquireRetainedExecution({github,event,assessment,selector,curren
         || !(Date.parse(run.created_at)>=Date.parse(pull.merged_at))) throw new Error('Retained pull_request_target run is not this merged pull request post-merge verification');
     callerOrigin=await canonicalCommit(event.repo,pull.merge_commit_sha);
   } else callerOrigin=await canonicalCommit(event.repo,run.head_sha);
-  const references = (run.referenced_workflows || []).filter(row => row.path?.startsWith('stranske/Workflows/.github/workflows/reusable-agents-verifier.yml@'));
+  const references = (run.referenced_workflows || []).filter(row => /^[^/]+\/Workflows\/\.github\/workflows\/reusable-agents-verifier\.yml@/.test(row.path||''));
   if (references.length !== 1 || !/^[0-9a-f]{40}$/.test(references[0].sha || '')) throw new Error('Retained reusable workflow origin unavailable');
   const jobs = [], ids = new Set();
   let total, complete=false;
@@ -248,12 +248,13 @@ async function acquireRetainedExecution({github,event,assessment,selector,curren
   const log=Buffer.isBuffer(logResponse)?logResponse.toString('utf8'):typeof logResponse==='string'?logResponse:Buffer.from(logResponse).toString('utf8');
   if(Buffer.byteLength(log)>16777216) throw new Error('Retained checkout log exceeds transport bound');
   const lines=log.split(/\r?\n/).filter(line=>{const stamp=Date.parse(line.slice(0,line.indexOf(' ')));return stamp>=Date.parse(checkout.started_at) && stamp<Date.parse(checkout.completed_at)+1000;}).join('\n');
-  if(!lines.includes('repository: stranske/Workflows') || !lines.includes('path: .workflows-lib')) throw new Error('Retained helper checkout origin unproven');
+  if(!/repository:\s*[^/\s]+\/Workflows(\s|$)/.test(lines) || !lines.includes('path: .workflows-lib')) throw new Error('Retained helper checkout origin unproven');
   const hashes=[...lines.matchAll(/git log -1 --format=%H\r?\n[^\n]*?\s([0-9a-f]{40})\s*(?:\n|$)/g)].map(match=>match[1]);
   if(hashes.length!==1) throw new Error('Retained helper revision ambiguous');
   const helperSha=hashes[0];
-  const helperOrigin=await canonicalCommit('stranske/Workflows',helperSha);
-  if(helperSha!==references[0].sha) await canonicalCommit('stranske/Workflows',references[0].sha);
+  const helperRepo=String(references[0].path||'').split('/.github/')[0];
+  const helperOrigin=await canonicalCommit(helperRepo,helperSha);
+  if(helperSha!==references[0].sha) await canonicalCommit(helperRepo,references[0].sha);
   const source=await read(client=>client.rest.repos.getContent({owner:'stranske',repo:'Workflows',path:'scripts/langchain/pr_verifier.py',ref:helperSha,request:{timeout:15000}}));
   if(source.encoding!=='base64' || typeof source.content!=='string' || Buffer.byteLength(source.content)>2796204) throw new Error('Retained helper validator source unavailable');
   const sourceHash=createHash('sha256').update(Buffer.from(source.content,'base64')).digest('hex');

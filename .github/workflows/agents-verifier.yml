@@ -273,7 +273,7 @@ jobs:
       issues: read
       actions: read
       models: read
-    uses: stranske/Workflows/.github/workflows/reusable-agents-verifier.yml@main
+    uses: iamkayleb/Workflows/.github/workflows/reusable-agents-verifier.yml@main
     with:
       # Post-merge push workflows only: Gate is PR-only.
       ci_workflows: '["pr-11-ci-smoke.yml", "selftest-ci.yml"]'
@@ -319,7 +319,7 @@ jobs:
       - name: Checkout trusted gate runner
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ needs.verifier.outputs.workflows_ref }}
           path: gate-runner
           persist-credentials: false
@@ -397,7 +397,7 @@ jobs:
       - name: Checkout trusted closure code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ needs.verifier.outputs.workflows_ref }}
           persist-credentials: false
       - name: Download closure plans

@@ -1,7 +1,7 @@
 # CI System Guide
 
 This document describes the CI/CD system for this repository and how it
-integrates with the [stranske/Workflows](https://github.com/stranske/Workflows)
+integrates with the [iamkayleb/Workflows](https://github.com/iamkayleb/Workflows)
 repository for reusable automation.
 
 ## Table of Contents
@@ -20,7 +20,7 @@ repository for reusable automation.
 This repository uses a **hybrid CI approach**:
 
 - **Local jobs**: Domain-specific validation for this project
-- **Reusable workflows**: Standard CI from stranske/Workflows
+- **Reusable workflows**: Standard CI from iamkayleb/Workflows
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -43,7 +43,7 @@ This repository uses a **hybrid CI approach**:
 
 ## Workflows Repository Capabilities
 
-The [stranske/Workflows](https://github.com/stranske/Workflows) repository
+The [iamkayleb/Workflows](https://github.com/iamkayleb/Workflows) repository
 provides:
 
 ### Reusable CI Workflows
@@ -197,7 +197,7 @@ unexpected behavior:
 1. **Check sync status**: Look at recent "Sync Consumer Repos" workflow runs
 2. **Compare versions**: Check if your workflows match the templates
 3. **Check drift guard**: Review "Health 68 Consumer Sync Drift Check" results
-4. **Report issues**: File an issue in stranske/Workflows
+4. **Report issues**: File an issue in iamkayleb/Workflows
 
 **Note:** Workflows-Integration-Tests uses its own template set and is validated
 by a separate integration sync check in the Workflows repo.
@@ -227,11 +227,11 @@ by a separate integration sync check in the Workflows repo.
 
 ### Helpful Links
 
-- [Workflows Repository](https://github.com/stranske/Workflows)
-- [SETUP_CHECKLIST.md](https://github.com/stranske/Workflows/blob/main/templates/consumer-repo/docs/SETUP_CHECKLIST.md) - Consumer repo setup guide
-- [CONSUMER_REPO_MAINTENANCE.md](https://github.com/stranske/Workflows/blob/main/docs/ops/CONSUMER_REPO_MAINTENANCE.md) - Debugging and maintenance
+- [Workflows Repository](https://github.com/iamkayleb/Workflows)
+- [SETUP_CHECKLIST.md](https://github.com/iamkayleb/Workflows/blob/main/templates/consumer-repo/docs/SETUP_CHECKLIST.md) - Consumer repo setup guide
+- [CONSUMER_REPO_MAINTENANCE.md](https://github.com/iamkayleb/Workflows/blob/main/docs/ops/CONSUMER_REPO_MAINTENANCE.md) - Debugging and maintenance
 
 ---
 
 *This document is synced from the Workflows repository.*
-*Source of truth: stranske/Workflows*
+*Source of truth: iamkayleb/Workflows*

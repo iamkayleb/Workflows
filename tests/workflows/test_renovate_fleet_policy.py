@@ -1,8 +1,27 @@
+import re
+import pathlib
 import json
 from pathlib import Path
 
 PRESET_PATH = Path(__file__).resolve().parents[2] / "renovate-presets" / "fleet.json"
 REPO_ROOT = PRESET_PATH.parents[1]
+
+
+def _fleet_preset() -> str:
+    """The fleet preset this repo publishes, whoever owns it.
+
+    A hard-coded owner stops matching in a fork and the assertion then
+    fails for the wrong reason, so read it from the template itself.
+    """
+    import json
+    template = json.loads(
+        pathlib.Path("templates/consumer-repo/.github/renovate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    preset = template["extends"][0]
+    assert re.fullmatch(r"github>[^/\s]+/Workflows//renovate-presets/fleet", preset), preset
+    return preset
 
 
 def _preset() -> dict:
@@ -85,7 +104,7 @@ def test_lock_file_maintenance_has_the_same_explicit_weekly_cadence() -> None:
 
 
 def test_workflows_and_consumer_entrypoints_share_the_bounded_fleet_policy() -> None:
-    expected_preset = "github>stranske/Workflows//renovate-presets/fleet"
+    expected_preset = _fleet_preset()
     entrypoints = (
         REPO_ROOT / "renovate.json",
         REPO_ROOT / "templates" / "consumer-repo" / ".github" / "renovate.json",

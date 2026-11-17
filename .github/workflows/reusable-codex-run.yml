@@ -368,7 +368,7 @@ jobs:
       - name: Checkout Workflows run-base action
         uses: actions/checkout@v7
         with:
-          repository: stranske/Workflows
+          repository: iamkayleb/Workflows
           ref: ${{ inputs.workflows_ref }}
           path: .workflows-actions
           sparse-checkout: |
@@ -918,7 +918,7 @@ jobs:
           reason="input"
           effort="${REQUESTED_EFFORT:-high}"
 
-          # Shared model table (stranske/Workflows@workflows_ref) is the run-time authority, so a
+          # Shared model table (iamkayleb/Workflows@workflows_ref) is the run-time authority, so a
           # consumer whose registry.yml copy is stale still runs the current pin. A missing table
           # keeps the caller's inputs (never blocks the run).
           resolver=".workflows-lib/scripts/agent_model_table.py"
@@ -2282,7 +2282,7 @@ jobs:
   codex-pinned-canary:
     name: Pinned Codex CLI Canary
     runs-on: ubuntu-latest
-    if: ${{ inputs.prompt_file == '' && github.repository == 'stranske/Workflows' }}
+    if: ${{ inputs.prompt_file == '' && github.repository == 'iamkayleb/Workflows' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
