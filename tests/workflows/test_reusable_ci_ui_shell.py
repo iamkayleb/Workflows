@@ -135,6 +135,43 @@ def test_the_lane_refuses_rather_than_passing_when_it_checks_nothing() -> None:
     assert "exit 1" in discover["run"]
     assert "::error" in discover["run"]
     # And it must happen before anything expensive, so a misconfigured path
-    # fails in seconds rather than after installing a browser.
-    names = [s.get("name") for s in _steps()]
-    assert names.index("Discover specs") < names.index("Install Playwright and browser")
+    # fails in seconds rather than after installing a browser. Matched on a
+    # substring: pinning the exact step name made this blow up with a
+    # ValueError the moment the step was renamed, which reads as a broken test
+    # rather than the ordering regression it is meant to catch.
+    names = [s.get("name", "") for s in _steps()]
+    discover = names.index("Discover specs")
+    browser = next(i for i, n in enumerate(names) if "browser" in n.lower())
+    assert discover < browser, f"discovery must precede the browser install: {names}"
+
+
+def test_evidence_is_built_even_when_an_earlier_step_fails() -> None:
+    """A run that fell over before the specs ran must still say so.
+
+    Without `if: always()` the evidence step is skipped, no ui-acceptance.json
+    exists, the upload fails and the verdict is blank -- three errors that
+    between them say less than one honest `status: not_run`.
+    """
+    evidence = next(s for s in _steps() if s.get("name") == "Build acceptance evidence")
+    assert evidence.get("if") == "always()"
+    upload = next(s for s in _steps() if "Upload" in s.get("name", ""))
+    assert upload.get("if") == "always()"
+
+
+def test_the_project_s_own_playwright_is_preferred() -> None:
+    """The version must come from the project's lockfile where there is one.
+
+    A version pinned in this lane ages against the runner image: 1.56.1 was
+    refused outright once ubuntu-latest moved to 26.04, with
+    "Playwright does not support chromium on ubuntu26.04-x64".
+    """
+    resolve = next(s for s in _steps() if s.get("name") == "Resolve Playwright")
+    script = resolve["run"]
+    # It tries the project's binary first and only then falls back.
+    assert script.index("local_runner") < script.index("npx --yes playwright@")
+    assert "::warning" in script, "a fallback the project did not ask for must be visible"
+
+    install = next(s for s in _steps() if s.get("name") == "Install browser")
+    # --with-deps first, browser-only as a fallback, failure if neither works.
+    assert "install --with-deps" in install["run"]
+    assert "exit 1" in install["run"]

@@ -90,10 +90,14 @@ on:
         type: string
       playwright-version:
         description: >-
-          Playwright version to install. Pin it: an unpinned browser automation
-          stack changes behaviour between runs and makes a red lane ambiguous.
+          Fallback Playwright version, used ONLY when the project does not
+          depend on Playwright itself. Prefer declaring @playwright/test in the
+          project: its version then comes from the lockfile the project already
+          tests against, and the lane cannot drift from it. A pinned version
+          here also ages badly -- a runner image moves ahead of it and the
+          browser install starts refusing the OS.
         required: false
-        default: '1.56.1'
+        default: '1.63.0'
         type: string
       browser:
         description: Browser to install and run (chromium, firefox, or webkit).
@@ -245,14 +249,60 @@ jobs:
             esac
           fi
 
-      - name: Install Playwright and browser
+      - name: Resolve Playwright
+        id: playwright
         shell: bash
         env:
+          PACKAGE_MANAGER: ${{ inputs.package-manager }}
           PW_VERSION: ${{ inputs.playwright-version }}
+        run: |
+          set -euo pipefail
+          case "${PACKAGE_MANAGER}" in
+            pnpm) local_runner="pnpm exec playwright" ;;
+            yarn) local_runner="yarn playwright" ;;
+            *)    local_runner="npx --no-install playwright" ;;
+          esac
+          # Resolve through the project's node_modules, not by probing whether
+          # a `playwright` command exists: a globally installed Playwright makes
+          # the probe succeed for a project that has no dependency on it, and
+          # the lane then silently runs a version the project never tests with.
+          if node -e "require.resolve('@playwright/test/package.json')" >/dev/null 2>&1; then
+            version="$(node -p "require('@playwright/test/package.json').version")"
+            echo "runner=${local_runner}" >> "$GITHUB_OUTPUT"
+            echo "Using the project's own Playwright: ${version}"
+          else
+            echo "runner=npx --yes playwright@${PW_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Falling back to a pinned Playwright::This project \
+          does not depend on Playwright, so the lane installs ${PW_VERSION}. Declare \
+          @playwright/test in the project instead, or this version ages against the \
+          runner image until the browser install refuses the OS."
+          fi
+
+      - name: Install browser
+        shell: bash
+        env:
+          RUNNER_CMD: ${{ steps.playwright.outputs.runner }}
           BROWSER: ${{ inputs.browser }}
         run: |
           set -euo pipefail
-          npx --yes "playwright@${PW_VERSION}" install --with-deps "${BROWSER}"
+          # --with-deps needs the OS to be one this Playwright build knows. A
+          # runner image newer than the Playwright release fails there while the
+          # browser itself installs fine, because the image already carries the
+          # libraries. Try the complete install, then the browser alone, and
+          # fail only if both fail -- a browser that did not install must not
+          # read as a lane that had nothing to check.
+          if ${RUNNER_CMD} install --with-deps "${BROWSER}"; then
+            echo "Installed ${BROWSER} with system dependencies."
+          elif ${RUNNER_CMD} install "${BROWSER}"; then
+            echo "::warning title=System dependencies not installed::\
+          Playwright could not install OS packages for this runner image, so only \
+          the browser was fetched. If specs fail on a missing shared library, that \
+          is why."
+          else
+            echo "::error title=Browser install failed::Neither \`install --with-deps\` \
+          nor \`install\` could fetch ${BROWSER}."
+            exit 1
+          fi
 
       - name: Prepare application
         if: inputs.setup-command != ''
@@ -301,13 +351,13 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          PW_VERSION: ${{ inputs.playwright-version }}
+          RUNNER_CMD: ${{ steps.playwright.outputs.runner }}
           BASE_URL: ${{ inputs.base-url }}
           SPEC_PATH: ${{ inputs.spec-path }}
           BROWSER: ${{ inputs.browser }}
         run: |
           set -uo pipefail
-          npx --yes "playwright@${PW_VERSION}" test "${SPEC_PATH}" \
+          ${RUNNER_CMD} test "${SPEC_PATH}" \
             --browser="${BROWSER}" \
             --reporter=json \
             --trace off \
@@ -317,11 +367,17 @@ jobs:
 
       - name: Build acceptance evidence
         id: verdict
+        # always(), because a run that fell over before the specs ran is exactly
+        # the case a reader needs told about. Without this the step is skipped,
+        # no ui-acceptance.json exists, the upload fails and the verdict is
+        # blank -- three errors that between them say less than one honest
+        # `status: not_run`.
+        if: always()
         shell: bash
         env:
           SPEC_COUNT: ${{ steps.discover.outputs.count }}
           BASE_URL: ${{ inputs.base-url }}
-          RUN_EXIT: ${{ steps.run.outputs.exit-code }}
+          RUN_EXIT: ${{ steps.run.outputs.exit-code || '1' }}
         run: |
           set -euo pipefail
           node "${GITHUB_WORKSPACE}/.workflows-lib/.github/scripts/ui_acceptance_evidence.js" \
