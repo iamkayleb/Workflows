@@ -131,3 +131,27 @@ def test_widening_the_trigger_did_not_let_other_jobs_fire_on_close(other_job: st
         f"{other_job} has no event/action guard and no `needs`, so it would now "
         "also run when a pull request is merged"
     )
+
+
+def test_guarded_merge_stays_the_last_job_in_the_file() -> None:
+    """Nothing may be defined after `guarded-merge`.
+
+    `guarded-merge-tasks.test.js` evaluates this workflow's inline script by
+    slicing from `const listedIssues =` to the **end of the file** and running
+    the result as JavaScript. A job appended after `guarded-merge` lands inside
+    that slice, and the node suite fails 61 times with `Unexpected token ':'`,
+    naming a temp-directory probe rather than this file -- which is a long way
+    from the actual cause.
+
+    Adding this job hit exactly that. The slice-to-EOF is the fragile part and
+    fixing it belongs upstream; until then this turns a cryptic failure into a
+    named one.
+    """
+    import re
+
+    text = GATE_FOLLOWUPS.read_text(encoding="utf-8")
+    job_names = [m.group(1) for m in re.finditer(r"^  ([a-z0-9_-]+):\s*$", text, re.M)]
+    assert job_names[-1] == "guarded-merge", (
+        f"{job_names[-1]!r} is defined after `guarded-merge`. Move it above, or "
+        "guarded-merge-tasks.test.js will evaluate its YAML as JavaScript."
+    )
