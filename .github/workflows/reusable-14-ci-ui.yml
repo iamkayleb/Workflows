@@ -172,17 +172,21 @@ jobs:
 
       - name: Validate inputs
         shell: bash
+        env:
+          PACKAGE_MANAGER: ${{ inputs.package-manager }}
+          BROWSER: ${{ inputs.browser }}
+          START_COMMAND: ${{ inputs.start-command }}
         run: |
           set -euo pipefail
-          case "${{ inputs.package-manager }}" in
+          case "${PACKAGE_MANAGER}" in
             npm|pnpm|yarn) ;;
             *) echo "::error::package-manager must be npm, pnpm or yarn"; exit 1 ;;
           esac
-          case "${{ inputs.browser }}" in
+          case "${BROWSER}" in
             chromium|firefox|webkit) ;;
             *) echo "::error::browser must be chromium, firefox or webkit"; exit 1 ;;
           esac
-          if [ -z "${{ inputs.start-command }}" ]; then
+          if [ -z "${START_COMMAND}" ]; then
             echo "::error::start-command is required; there is nothing to drive a browser against"
             exit 1
           fi
@@ -193,19 +197,21 @@ jobs:
       - name: Discover specs
         id: discover
         shell: bash
+        env:
+          SPEC_PATH: ${{ inputs.spec-path }}
         run: |
           set -euo pipefail
-          count=$(find ${{ inputs.spec-path }} -type f \
+          count=$(find "${SPEC_PATH}" -type f \
             \( -name '*.spec.ts' -o -name '*.spec.js' -o -name '*.spec.mjs' \
                -o -name '*.test.ts' -o -name '*.test.js' \) 2>/dev/null | wc -l | tr -d ' ')
           echo "count=${count}" >> "$GITHUB_OUTPUT"
           if [ "${count}" -eq 0 ]; then
-            echo "::error title=No UI specs found::'${{ inputs.spec-path }}' matched no spec files. \
+            echo "::error title=No UI specs found::'${SPEC_PATH}' matched no spec files. \
           This lane fails rather than passing with zero tests: a suite that matches nothing \
           would report success without checking anything."
             exit 1
           fi
-          echo "Found ${count} spec file(s) under '${{ inputs.spec-path }}'."
+          echo "Found ${count} spec file(s) under '${SPEC_PATH}'."
 
       - name: Setup Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
@@ -218,12 +224,21 @@ jobs:
 
       - name: Install dependencies
         shell: bash
+        env:
+          INSTALL_COMMAND: ${{ inputs.install-command }}
+          PACKAGE_MANAGER: ${{ inputs.package-manager }}
         run: |
           set -euo pipefail
-          if [ -n "${{ inputs.install-command }}" ]; then
-            ${{ inputs.install-command }}
+          # Inputs come through env, never interpolated into the script body.
+          # GitHub substitutes expressions textually before bash sees the
+          # script -- including inside comments -- so an expression alone on a
+          # line vanishes when its input is empty, and the `if` around it
+          # collapses into an empty branch that bash rejects outright. That is
+          # exactly how this step failed on its first real run.
+          if [ -n "${INSTALL_COMMAND}" ]; then
+            bash -c "${INSTALL_COMMAND}"
           else
-            case "${{ inputs.package-manager }}" in
+            case "${PACKAGE_MANAGER}" in
               npm)  npm ci ;;
               pnpm) pnpm install --frozen-lockfile ;;
               yarn) yarn install --frozen-lockfile ;;
@@ -234,23 +249,28 @@ jobs:
         shell: bash
         env:
           PW_VERSION: ${{ inputs.playwright-version }}
+          BROWSER: ${{ inputs.browser }}
         run: |
           set -euo pipefail
-          npx --yes "playwright@${PW_VERSION}" install --with-deps ${{ inputs.browser }}
+          npx --yes "playwright@${PW_VERSION}" install --with-deps "${BROWSER}"
 
       - name: Prepare application
         if: inputs.setup-command != ''
         shell: bash
+        env:
+          SETUP_COMMAND: ${{ inputs.setup-command }}
         run: |
           set -euo pipefail
-          ${{ inputs.setup-command }}
+          bash -c "${SETUP_COMMAND}"
 
       - name: Build application
         if: inputs.build-command != ''
         shell: bash
+        env:
+          BUILD_COMMAND: ${{ inputs.build-command }}
         run: |
           set -euo pipefail
-          ${{ inputs.build-command }}
+          bash -c "${BUILD_COMMAND}"
 
       - name: Start application and wait for it
         id: start
@@ -258,9 +278,10 @@ jobs:
         env:
           BASE_URL: ${{ inputs.base-url }}
           WAIT: ${{ inputs.startup-timeout-seconds }}
+          START_COMMAND: ${{ inputs.start-command }}
         run: |
           set -euo pipefail
-          nohup ${{ inputs.start-command }} > "${RUNNER_TEMP}/app.log" 2>&1 &
+          nohup bash -c "${START_COMMAND}" > "${RUNNER_TEMP}/app.log" 2>&1 &
           echo "pid=$!" >> "$GITHUB_OUTPUT"
           deadline=$(( SECONDS + WAIT ))
           until curl -fsS --max-time 5 "${BASE_URL}" >/dev/null 2>&1; do
@@ -282,10 +303,12 @@ jobs:
         env:
           PW_VERSION: ${{ inputs.playwright-version }}
           BASE_URL: ${{ inputs.base-url }}
+          SPEC_PATH: ${{ inputs.spec-path }}
+          BROWSER: ${{ inputs.browser }}
         run: |
           set -uo pipefail
-          npx --yes "playwright@${PW_VERSION}" test ${{ inputs.spec-path }} \
-            --browser=${{ inputs.browser }} \
+          npx --yes "playwright@${PW_VERSION}" test "${SPEC_PATH}" \
+            --browser="${BROWSER}" \
             --reporter=json \
             --trace off \
             > "${RUNNER_TEMP}/playwright.json" 2> "${RUNNER_TEMP}/playwright.err"
@@ -368,6 +391,8 @@ jobs:
       - name: Enforce verdict
         if: always()
         shell: bash
+        env:
+          REQUIRED: ${{ inputs.required }}
         run: |
           set -euo pipefail
           status="${{ steps.verdict.outputs.status }}"
@@ -375,7 +400,7 @@ jobs:
           if [ "${status}" = "passed" ]; then
             exit 0
           fi
-          if [ "${{ inputs.required }}" != "true" ]; then
+          if [ "${REQUIRED}" != "true" ]; then
             echo "::warning title=UI acceptance ${status}::Reported but not enforced \
           because the 'required' input is false. Flip it to true once the specs exist, \
           or this lane is advisory forever."
