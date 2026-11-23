@@ -536,6 +536,54 @@ jobs:
           echo "[autofix] Normalising whitespace with Black"
           black --line-length 100 "${targets[@]}"
 
+      - name: Prettier safe autofix sweep
+        if: steps.guard.outputs.skip != 'true' && steps.clean_mode.outputs.enabled != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The Node CI lane *checks* formatting (reusable-11-ci-node.yml runs
+          # `format:check`, falling back to `prettier --check .`) but nothing
+          # ever *writes* it. Autofix normalises Python with Ruff and Black and
+          # had no JavaScript equivalent, so an agent that forgot to format left
+          # a red build that no later step could repair.
+          #
+          # That is not hypothetical: bukay PR #564 merged with CI red, which
+          # put two unformatted files in the trunk, and every branch cut
+          # afterwards started red for a reason unrelated to its own work.
+          # Finding B-10 -- a gate failing for a reason that says nothing about
+          # whether the change is correct.
+          #
+          # Uses the project's own Prettier so the version matches the one its
+          # check runs; a different version reformats files the check was happy
+          # with and the two fight each other forever.
+          if [ ! -f package.json ]; then
+            echo "[autofix] No package.json; skipping Prettier sweep."
+            exit 0
+          fi
+          # Declared in THIS project's manifest and installed in its own
+          # node_modules. `require.resolve` alone is not enough: it walks up the
+          # tree and finds a globally installed Prettier, so a project with no
+          # dependency on it would be reformatted by whatever version the runner
+          # happens to carry.
+          declared="$(node -p "const p=require('./package.json');\
+          Boolean((p.devDependencies||{}).prettier||(p.dependencies||{}).prettier)" 2>/dev/null || echo false)"
+          if [ "${declared}" != "true" ] || [ ! -d node_modules/prettier ]; then
+            echo "::notice title=Prettier sweep skipped::This project does not depend on \
+          Prettier, so formatting is left alone. Add it as a devDependency for the belt to \
+          normalise formatting the way it does Python."
+            exit 0
+          fi
+          version="$(node -p "require('prettier/package.json').version")"
+          echo "[autofix] Normalising formatting with the project's Prettier ${version}"
+          # --ignore-unknown so a stray file type cannot fail the sweep; the
+          # project's own .prettierignore still applies.
+          npx --no-install prettier --write --ignore-unknown . || {
+            echo "::warning title=Prettier sweep did not complete::Formatting was not \
+          normalised; the build may still fail on format:check for a reason unrelated to \
+          the change."
+            exit 0
+          }
+
       - name: Clean cosmetic sweep
         if: steps.guard.outputs.skip != 'true' && steps.clean_mode.outputs.enabled == 'true'
         id: clean_autofix
