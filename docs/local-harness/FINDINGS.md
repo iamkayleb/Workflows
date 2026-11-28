@@ -354,3 +354,135 @@ The models have been the reliable part. Every agent that was given a complete
 prompt, a working credential and permission to run commands produced correct
 work. The failures were in the plumbing around them, and a third of those were
 introduced while fixing the previous one.
+
+---
+
+# Addendum — 16 to 28 November: the same findings, on the belt
+
+The local layer was retired on 15 November and the work moved back to the
+shared GitHub Actions belt, re-synced from upstream and extended with a
+browser-run acceptance lane. Three agent rounds have run on it.
+
+This section exists because of what the move settled. The obvious reading of
+the first log was that a hand-built harness is fragile and a mature pipeline
+would not be. Thirteen days on the pipeline produced the same four patterns,
+in the same proportions, from entirely different code.
+
+## I. Defects found by running the belt
+
+**I-01 · A stale ledger stalled every round.** `.agents/issue-552-ledger.yml`
+had seven tasks marked `done` with no `commit` field, because the local harness
+committed each round as one commit rather than per task. Gate failed
+`ledger validation` on *every branch*, since each inherits the file from the
+trunk. Keepalive then waits on `gate-not-success` forever, so a correctly
+created bootstrap PR sat doing nothing for a day. One malformed file, every
+round after it.
+
+**I-02 · Machine-written bookkeeping failed a formatter gate.** `prettier
+--check` flagged `.agents/issue-552-ledger.yml`, a file the belt writes itself,
+one per issue. CI was red for four days. `.prettierignore` already excluded
+`.github/` and `prisma/migrations/`; `.agents/` had been missed.
+
+**I-03 · A test that could never pass, merged.** `business-hours/route.test.ts`
+asserted `/aria-label="\w+ closed" checked=""/`. React emits attributes in its
+own order, so `checked` never sits adjacent to `aria-label`; the filter matched
+nothing and reported *every day as open*. The page was correct. The test
+arrived with the feature it covered, so it had never passed. Thirteen days of
+red CI.
+
+**I-04 · Post-merge verification had stopped firing.** It was requested by a
+job gated on `startsWith(base.ref, 'eval/')`. When `main` became the trunk the
+evaluation lanes were retired and the trigger went with them. Nothing replaced
+it and nothing reported its absence, so merged agent work was no longer
+verified at all. The first full round merged, closed its issue and produced no
+verdict.
+
+**I-05 · Keepalive had no concept of a merged pull request.**
+`keepalive_loop.js` contained no reference to `merged`. The loop kept waking on
+a PR that had already landed. Harmless only because every wake resolved to
+`agent-run-skipped`.
+
+**I-06 · The belt checked formatting and never wrote it.** The Node CI lane
+runs `prettier --check`; autofix normalised Python with Ruff and Black and had
+no JavaScript equivalent. An agent that forgot to format left a red build that
+no later step could repair — and a PR merged red put two unformatted files in
+the trunk, so every branch cut afterwards started red for a reason unrelated to
+its own work.
+
+**I-07 · CI and the developer's machine ran different runtimes.** `jsdom@31`
+declares `node: "^22.22.2 || ^24.15.0 || >=26"` and pulls `undici@8.13.0`,
+which cannot load on Node 20. `ci.yml` pinned 20; the machine ran 22.23.4. CI
+failed with 472 tests passing, 76 files passing and 100% coverage, reporting
+
+    TypeError: Cannot read properties of undefined (reading 'bind')
+      node_modules/.pnpm/undici@8.13.0/.../interceptor/decompress.js
+
+`package.json` declared no `engines` field, so there was nothing to compare a
+runtime against. A dependency outgrowing the runner surfaced as a TypeError
+inside `node_modules` rather than a version error naming the cause — and every
+local run passed while CI failed, which is the worst possible arrangement for
+diagnosing it. The belt's own workflows already ran Node 24; only the
+project's own CI lagged.
+
+This is the most mundane entry in either log and probably the most common
+defect in real codebases: **two environments that are assumed to be the same
+and are never checked.** The fix is one line of `engines`, and its value is
+not the version — it is that the next mismatch fails at install, by name.
+
+## J. The churn
+
+Round three (issue #556, empty states) accumulated **210 commits**: 12 on the
+first day, then **117 and 80** on two consecutive days, nearly all variations
+of `test(#556): assert empty-region testids…`.
+
+The loop could not stop, for two compounding reasons:
+
+- The task counter read **0/11** throughout, because completion is recorded in
+  an `agent-completion-checkpoint` comment and the counter reads the issue and
+  pull request bodies. The two never meet, so the loop never concluded the work
+  was done.
+- Eight of twelve browser specs failed, and kept failing, because the agent's
+  sign-in helper could not establish a merchant session — every attempt
+  redirected to `/login`. The agent wrote more tests against a fixture that
+  could not support them.
+
+Neither is a model failure. The agent's code was sound; the work it did on
+days two and three was spent against a goal it had already met and a fixture
+that could not prove it.
+
+**This is the first instance in either log of plumbing costing money rather
+than time.** Everything in the first log cost nights. This cost roughly two
+hundred agent invocations.
+
+## What the second log says that the first did not
+
+The four patterns held without modification:
+
+| Pattern | First log | Second log |
+|---|---|---|
+| A check that cannot fail for the reason it exists | mock accepting a missing column; probe matching its own prompt | a regex requiring adjacency React never emits (I-03) |
+| A question asked because it is easy | lock file age rather than process liveness | the task counter rather than the pull request's merged state (I-05) |
+| Silence as the default failure mode | a round that failed and recorded nothing | a verification trigger that stopped firing and said nothing (I-04) |
+| Work that passes every test and cannot be used | 413 passing tests, no compiling application | 472 tests, 100% coverage, a build that cannot load its own dependency (I-07) |
+
+And one shape the first log did not contain, because a single-machine harness
+has no trunk to poison:
+
+**A red merge poisons every round after it.** Three times — the stale ledger,
+the formatter gate, the unformatted trunk — one bad file reached `main` and
+every branch cut afterwards failed for a reason that had nothing to do with its
+own work. Each individual gate worked correctly. Nothing enforced that the
+trunk stay green, so each failure was inherited rather than contained.
+
+## The conclusion both logs support
+
+Across six weeks of cloud evaluation, fourteen days of a local harness and
+thirteen days of the re-synced belt, **the models were never the bottleneck**.
+Every agent given a complete prompt, a working credential and permission to run
+commands produced correct, tested work — including, on the belt, a Playwright
+spec correctly tagged to the acceptance criterion it proved, written
+unprompted because the convention was in its instructions.
+
+What fails is the plumbing, and it fails in four recognisable ways. That is now
+two independent systems reaching the same conclusion, which is worth more than
+either reaching it alone.
