@@ -3288,9 +3288,25 @@ async function evaluateKeepaliveLoop({ github: rawGithub, context, core, payload
     const hasDefinitiveConflict = conflictResult.hasConflict &&
       conflictResult.primarySource === 'github-api';
 
-    // Operator stop-controls (#2267) take precedence over every dispatch decision so a
-    // paused or human-blocked PR never re-dispatches an agent, even on a green Gate.
-    if (pausedByLabel) {
+    // A merged or closed pull request is terminal. Nothing a further round
+    // produces can land on it, so dispatching an agent against one spends
+    // credit -- and an agent's budget -- on work that cannot be used.
+    //
+    // Checked on the pull request itself, not on the task counter: bukay
+    // #564 merged with its checklist reading 0/13, because completion was
+    // recorded in an agent-completion-checkpoint comment that never reached
+    // the body the counter reads (Workflows #120). A loop that waited for
+    // the counter to agree would keep that PR alive indefinitely.
+    if (pr?.merged === true || Boolean(pr?.merged_at)) {
+      action = 'stop';
+      reason = 'pull-request-merged';
+    } else if (pr?.state === 'closed') {
+      action = 'stop';
+      reason = 'pull-request-closed';
+    // Operator stop-controls (#2267) take precedence over every dispatch decision
+    // so a paused or human-blocked PR never re-dispatches an agent, even on a
+    // green Gate.
+    } else if (pausedByLabel) {
       action = 'skip';
       reason = 'paused';
     } else if (humanBlocked) {
